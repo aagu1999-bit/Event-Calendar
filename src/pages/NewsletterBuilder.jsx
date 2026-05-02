@@ -1,34 +1,12 @@
 import { useState, useRef } from "react";
 import * as XLSX from "xlsx";
 import { useEventsStore } from "../store";
+import { EMOJI_MAP, getEmoji, parseRegion as parseRegionShared } from "../shared/parseEvents";
 
 const DAY_ORDER = { Fri: 0, Sat: 1, Sun: 2 };
 const REGION_ORDER = { North: 0, Central: 1, South: 2 };
 const DAYFUL = { Fri: "FRIDAY", Sat: "SATURDAY", Sun: "SUNDAY" };
 const DAY_EMOJI = { Fri: "🌙", Sat: "🔥", Sun: "☀️" };
-
-const EMOJI_MAP = {
-  "🎧": ["CLUB NIGHT","CONCERT","DJ NIGHT","DJ SET","LIVE MUSIC","MUSIC","MUSIC & DRINKS","MUSIC/NIGHTLIFE","NIGHTLIFE","JOUVERT EXPERIENCE","NIGHTCLUB","ENTERTAINMENT","PERFORMANCE"],
-  "💃": ["PARTY","DAY PARTY","ANNIVERSARY PARTY","BIRTHDAY CELEBRATION","BRUNCH & DAY PARTY","POST-RACE PARTY","LADIES NIGHT","DANCE","LINE DANCING"],
-  "🥂": ["ACTIVATION","ANNIVERSARY","HAPPY HOUR","MEETUP","MIXER","SOCIAL","SPEED DATING","LOUNGE","GALA","LUNCHEON"],
-  "🎭": ["ART","ARTS","ART EXHIBITION","ART SHOW","ARTS & CULTURE","BOOK CLUB","BOOK LAUNCH/","CRAFT WORKSHOP","OPEN MIC","OPEN MIC/PERFORMANCE","POETRY SLAM","SERIES","WORKSHOP"],
-  "🎨": ["PAINT AND SIP","SIP AND PAINT","ART WORKSHOP"],
-  "🎤": ["KARAOKE"],
-  "🛍️": ["MARKET","MARKETPLACE","POP-UP"],
-  "🍷": ["BINGO BRUNCH","BRUNCH","DINNER PARTY","FOOD","FOOD & DRINK","FOOD FESTIVAL","GOSPEL BRUNCH","GOSPEL BRUNCH AND"],
-  "💪": ["ADULT SKATE","DANCE CLASS","FAMILY SKATE","FITNESS","FITNESS CLASS","GROUP RUN","PAINTBALL","RACE","RUN","RUNNING","SKATING","SKATING EVENT","SPORTS","WALK","WALK CLUB","WALK/RUN","YOGA","COMPETITION","CHEER ZONE","SOUND HEALING"],
-  "🎬": ["MOVIE","MOVIE SCREENING"],
-  "😂": ["COMEDY","COMEDY SHOW"],
-  "🎪": ["EXHIBITION","FESTIVAL","CAR SHOW"],
-  "🎲": ["BOWLING","GAME NIGHT","GAMING","TRIVIA"],
-  "🤝": ["ADOPTION EVENT","CLASS","CLEANUP","COMMUNITY","COMMUNITY CELEBRATION","VOLUNTEER"],
-};
-function getEmoji(type) {
-  if (!type) return "";
-  const upper = String(type).toUpperCase().trim();
-  for (const [emoji, types] of Object.entries(EMOJI_MAP)) { if (types.includes(upper)) return emoji; }
-  return "";
-}
 
 function parseTime(t) {
   if (!t) return 9999;
@@ -84,14 +62,7 @@ function parseDay(d) {
   if (l.startsWith("sun") || l === "su") return "Sun";
   return null;
 }
-function parseRegion(r) {
-  if (!r || !String(r).trim()) return null;
-  const l = String(r).toLowerCase().replace(/\s*(nj|jersey)$/i, "").trim();
-  if (l === "north" || l === "n" || l === "northern") return "North";
-  if (l === "central" || l === "c" || l === "cent" || l === "middle") return "Central";
-  if (l === "south" || l === "so" || l === "southern" || l === "shore") return "South";
-  return null;
-}
+const parseRegion = parseRegionShared;
 const CP = {
   date: /^(date|event\s*date|event\s*date\s*\(|calendar\s*date|start\s*date)$/i,
   day: /^(day|weekday|dow|day\s*of\s*week|event\s*day)$/i,

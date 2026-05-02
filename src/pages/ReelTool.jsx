@@ -1,6 +1,12 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import * as XLSX from "xlsx";
 import { useEventsStore } from "../store";
+import { EMOJI_MAP, getEmoji, parseRegion } from "../shared/parseEvents";
+
+// Aliases so the existing minified call sites (EM, gE, pR) still work.
+const EM = EMOJI_MAP;
+const gE = getEmoji;
+const pR = parseRegion;
 
 const COLORS = {
   purple:{name:"Purple",hex:"#7C3AED",accent:"#C084FC",sg:false},
@@ -10,8 +16,6 @@ const COLORS = {
   yellow:{name:"Yellow",hex:"#EAB308",accent:"#FACC15",sg:false},
   black:{name:"Black",hex:"#000000",accent:"#E5BC4F",sg:true},
 };
-const EM={"🎧":["CLUB NIGHT","CONCERT","DJ NIGHT","DJ SET","LIVE MUSIC","MUSIC","MUSIC & DRINKS","MUSIC/NIGHTLIFE","NIGHTLIFE","JOUVERT EXPERIENCE","NIGHTCLUB","ENTERTAINMENT","PERFORMANCE"],"💃":["PARTY","DAY PARTY","ANNIVERSARY PARTY","BIRTHDAY CELEBRATION","BRUNCH & DAY PARTY","POST-RACE PARTY","LADIES NIGHT","DANCE","LINE DANCING"],"🥂":["ACTIVATION","ANNIVERSARY","HAPPY HOUR","MEETUP","MIXER","SOCIAL","SPEED DATING","LOUNGE","GALA","LUNCHEON"],"🎭":["ART","ARTS","ART EXHIBITION","ART SHOW","ARTS & CULTURE","BOOK CLUB","BOOK LAUNCH/","CRAFT WORKSHOP","OPEN MIC","OPEN MIC/PERFORMANCE","POETRY SLAM","SERIES","WORKSHOP"],"🎨":["PAINT AND SIP","SIP AND PAINT","ART WORKSHOP"],"🎤":["KARAOKE"],"🛍️":["MARKET","MARKETPLACE","POP-UP"],"🍷":["BINGO BRUNCH","BRUNCH","DINNER PARTY","FOOD","FOOD & DRINK","FOOD FESTIVAL","GOSPEL BRUNCH","GOSPEL BRUNCH AND"],"💪":["ADULT SKATE","DANCE CLASS","FAMILY SKATE","FITNESS","FITNESS CLASS","GROUP RUN","PAINTBALL","RACE","RUN","RUNNING","SKATING","SKATING EVENT","SPORTS","WALK","WALK CLUB","WALK/RUN","YOGA","COMPETITION","CHEER ZONE","SOUND HEALING"],"🎬":["MOVIE","MOVIE SCREENING"],"😂":["COMEDY","COMEDY SHOW"],"🎪":["EXHIBITION","FESTIVAL","CAR SHOW"],"🎲":["BOWLING","GAME NIGHT","GAMING","TRIVIA"],"🤝":["ADOPTION EVENT","CLASS","CLEANUP","COMMUNITY","COMMUNITY CELEBRATION","VOLUNTEER"]};
-function gE(t){if(!t)return"";const u=String(t).toUpperCase().trim();for(const[e,ts]of Object.entries(EM))if(ts.includes(u))return e;return"";}
 function pT(t){if(!t)return 9999;const raw=String(t).trim();
 const m=raw.match(/(\d+)(?::(\d+))?(?::(\d+))?\s*(AM|PM|am|pm|A|P|a|p)?/i);
 if(m&&m[4]){let h=parseInt(m[1]),min=parseInt(m[2]||"0");const p=m[4].toUpperCase();if(p.startsWith("P")&&h<12)h+=12;if(p.startsWith("A")&&h===12)h=0;return h*60+min;}
@@ -32,7 +36,6 @@ if(d&&!isNaN(d.getTime())){const dow=d.getDay();const names=["Sun","Mon","Tue","
 const DO={"Fri":0,"Sat":1,"Sun":2},RO={"North":0,"Central":1,"South":2};
 function sE(evts){return[...evts].sort((a,b)=>{const da=DO[a.day]??9,db=DO[b.day]??9;if(da!==db)return da-db;const ra=RO[a.region]??9,rb=RO[b.region]??9;if(ra!==rb)return ra-rb;return pT(a.time)-pT(b.time);});}
 function pD(d){if(!d||!String(d).trim())return"Fri";const l=String(d).toLowerCase().trim().replace(/[.]/g,"");if(l.startsWith("fri")||l==="f")return"Fri";if(l.startsWith("sat")||l==="sa"||l==="s")return"Sat";if(l.startsWith("sun")||l==="su")return"Sun";return null;}
-function pR(r){if(!r||!String(r).trim())return null;const l=String(r).toLowerCase().replace(/\s*(nj|jersey)$/i,"").trim();if(l==="north"||l==="n"||l==="northern")return"North";if(l==="central"||l==="c"||l==="cent"||l==="middle")return"Central";if(l==="south"||l==="so"||l==="southern"||l==="shore")return"South";return null;}
 const CP={date:/^(date|event\s*date|calendar\s*date|start\s*date)$/i,day:/^(day|weekday|dow|day\s*of\s*week|event\s*day)$/i,time:/^(time|start|start\s*time|event\s*time|begins?|hour)$/i,name:/^(name|event|event\s*name|title|event\s*title|show|party)$/i,venue:/^(venue|venue\s*name|location|place|spot|club|lounge|restaurant|bar|space)$/i,area:/^(area|city|town|neighborhood|hood|municipality|address|where|locale)$/i,region:/^(region|zone|section|nj\s*region|part|area\s*region|region\s*nj|nj\s*area)$/i,type:/^(type|category|genre|event\s*type|event\s*category|kind)$/i,_ig:/^(ticket|link|url|price|cost|notes|description|promoter|capacity|id|#|number|status|flyer|image|phone|email|contact|website|rsvp|age|dress\s*code|featured|pick|emoji)$/i};
 function mC(hds){const m={};hds.forEach((h,i)=>{const c=String(h).trim();if(CP._ig.test(c))return;for(const[f,p]of Object.entries(CP)){if(f==="_ig")continue;if(p.test(c)&&!(f in m)){m[f]=i;break;}}});
 const fuzzy={date:/\bdate\b/i,day:/\bday\b|\bweekday\b/i,time:/\btime\b|\bhour\b/i,name:/\bevent\s*name\b|\btitle\b/i,venue:/\bvenue\b|\blocation\b|\bplace\b/i,area:/\bcity\b|\btown\b/i,region:/\bregion\b|\bzone\b/i,type:/\btype\b|\bcategory\b/i};

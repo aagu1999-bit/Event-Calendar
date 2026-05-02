@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import * as XLSX from "xlsx";
 import { useEventsStore } from "../store";
+import { EMOJI_MAP, getEmoji as getEmojiShared, parseRegion as parseRegionShared } from "../shared/parseEvents";
 
 // ==================== COLOR SYSTEM ====================
 const COLORS = {
@@ -13,30 +14,11 @@ const COLORS = {
 };
 
 // ==================== EMOJI MAPPING ====================
-const EMOJI_MAP = {
-  "🎧": ["CLUB NIGHT","CONCERT","DJ NIGHT","DJ SET","LIVE MUSIC","MUSIC","MUSIC & DRINKS","MUSIC/NIGHTLIFE","NIGHTLIFE","JOUVERT EXPERIENCE","NIGHTCLUB","ENTERTAINMENT","PERFORMANCE"],
-  "💃": ["PARTY","DAY PARTY","ANNIVERSARY PARTY","BIRTHDAY CELEBRATION","BRUNCH & DAY PARTY","POST-RACE PARTY","LADIES NIGHT","DANCE","LINE DANCING"],
-  "🥂": ["ACTIVATION","ANNIVERSARY","HAPPY HOUR","MEETUP","MIXER","SOCIAL","SPEED DATING","LOUNGE","GALA","LUNCHEON"],
-  "🎭": ["ART","ARTS","ART EXHIBITION","ART SHOW","ARTS & CULTURE","BOOK CLUB","BOOK LAUNCH/","CRAFT WORKSHOP","OPEN MIC","OPEN MIC/PERFORMANCE","POETRY SLAM","SERIES","WORKSHOP"],
-  "🎨": ["PAINT AND SIP","SIP AND PAINT","ART WORKSHOP"],
-  "🎤": ["KARAOKE"],
-  "🛍️": ["MARKET","MARKETPLACE","POP-UP"],
-  "🍷": ["BINGO BRUNCH","BRUNCH","DINNER PARTY","FOOD","FOOD & DRINK","FOOD FESTIVAL","GOSPEL BRUNCH","GOSPEL BRUNCH AND"],
-  "💪": ["ADULT SKATE","DANCE CLASS","FAMILY SKATE","FITNESS","FITNESS CLASS","GROUP RUN","PAINTBALL","RACE","RUN","RUNNING","SKATING","SKATING EVENT","SPORTS","WALK","WALK CLUB","WALK/RUN","YOGA","COMPETITION","CHEER ZONE","SOUND HEALING"],
-  "🎬": ["MOVIE","MOVIE SCREENING"],
-  "😂": ["COMEDY","COMEDY SHOW"],
-  "🎪": ["EXHIBITION","FESTIVAL","CAR SHOW"],
-  "🎲": ["BOWLING","GAME NIGHT","GAMING","TRIVIA"],
-  "🤝": ["ADOPTION EVENT","CLASS","CLEANUP","COMMUNITY","COMMUNITY CELEBRATION","VOLUNTEER"],
-};
-
+// EMOJI_MAP and getEmojiShared come from src/shared/parseEvents.
+// Calendar wraps the shared lookup with a "🎧" default (instead of "")
+// because every event needs an emoji on the slide.
 function getEmoji(type) {
-  if (!type) return "🎧";
-  const upper = String(type).toUpperCase().trim();
-  for (const [emoji, types] of Object.entries(EMOJI_MAP)) {
-    if (types.includes(upper)) return emoji;
-  }
-  return "🎧"; // default
+  return getEmojiShared(type) || "🎧";
 }
 
 // ==================== CONSTANTS ====================
@@ -152,14 +134,8 @@ function parseDay(d) {
   return null;
 }
 
-function parseRegion(r) {
-  if (!r || !String(r).trim()) return null;
-  const lower = String(r).toLowerCase().replace(/\s*(nj|jersey)$/i, "").trim();
-  if (lower === "north" || lower === "n" || lower === "northern") return "North";
-  if (lower === "central" || lower === "c" || lower === "cent" || lower === "middle") return "Central";
-  if (lower === "south" || lower === "so" || lower === "southern" || lower === "shore") return "South";
-  return null;
-}
+// parseRegion comes from src/shared/parseEvents (most permissive variant).
+const parseRegion = parseRegionShared;
 
 function parseDateToDay(dateStr) {
   if (!dateStr || !String(dateStr).trim()) return null;
