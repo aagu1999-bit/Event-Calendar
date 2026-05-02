@@ -1,7 +1,8 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useMemo } from "react";
 import * as XLSX from "xlsx";
 import { useEventsStore } from "../store";
 import { EMOJI_MAP, getEmoji, parseRegion as parseRegionShared } from "../shared/parseEvents";
+import { computeWarnings } from "../shared/validateEvents";
 
 const DAY_ORDER = { Fri: 0, Sat: 1, Sun: 2 };
 const REGION_ORDER = { North: 0, Central: 1, South: 2 };
@@ -403,6 +404,12 @@ export default function NewsletterBuilder() {
   const [headers, setHeaders] = useState([]);
   const [colMap, setColMap] = useState({ date: "", day: "", time: "", name: "", venue: "", area: "", region: "", type: "", link: "" });
   const [showMapping, setShowMapping] = useState(false);
+  const [listFilter, setListFilter] = useState("all"); // "all" | "picks" | "flagged"
+  const [dismissed, setDismissed] = useState(new Set());
+
+  const warnings = useMemo(() => computeWarnings(events), [events]);
+  const activeFlaggedCount = Object.keys(warnings).filter(id => !dismissed.has(Number(id) || id)).length;
+  const picksCount = events.filter(e => e.featured).length;
 
   const FIELDS = [
     { key: "date", label: "Date", desc: "e.g. 4/25/2026", required: false },
@@ -697,8 +704,31 @@ export default function NewsletterBuilder() {
             {/* Event list with star toggle */}
             <div>
               <label style={L}>Events — ★ to feature as CGE Pick</label>
+
+              {/* Three-way filter: All / Picks / Flagged */}
+              {events.length > 0 && (
+                <div style={{ display: "flex", gap: "3px", marginBottom: "0.3rem" }}>
+                  <button onClick={() => setListFilter("all")} style={{ ...B, flex: 1, fontSize: "0.55rem", background: listFilter === "all" ? "rgba(250,204,21,0.12)" : "rgba(245,240,232,0.04)", color: listFilter === "all" ? "#FACC15" : "rgba(245,240,232,0.25)", border: listFilter === "all" ? "1px solid rgba(250,204,21,0.20)" : "1px solid rgba(245,240,232,0.04)" }}>All ({sorted.length})</button>
+                  <button onClick={() => setListFilter("picks")} style={{ ...B, flex: 1, fontSize: "0.55rem", background: listFilter === "picks" ? "rgba(250,204,21,0.12)" : "rgba(245,240,232,0.04)", color: listFilter === "picks" ? "#FACC15" : "rgba(245,240,232,0.25)", border: listFilter === "picks" ? "1px solid rgba(250,204,21,0.20)" : "1px solid rgba(245,240,232,0.04)" }}>Picks ({picksCount})</button>
+                  <button onClick={() => setListFilter("flagged")} style={{ ...B, flex: 1, fontSize: "0.55rem", background: listFilter === "flagged" ? "rgba(251,113,133,0.12)" : "rgba(245,240,232,0.04)", color: listFilter === "flagged" ? "#FB7185" : "rgba(245,240,232,0.25)", border: listFilter === "flagged" ? "1px solid rgba(251,113,133,0.20)" : "1px solid rgba(245,240,232,0.04)" }}>Flagged ({activeFlaggedCount})</button>
+                </div>
+              )}
+
+              {/* Warning banner with dismiss-all */}
+              {activeFlaggedCount > 0 && (
+                <div style={{ padding: "4px 8px", background: "rgba(251,113,133,0.06)", border: "1px solid rgba(251,113,133,0.12)", borderRadius: "4px", marginBottom: "0.3rem", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "0.5rem" }}>
+                  <span style={{ color: "#FB7185", fontWeight: 700 }}>{activeFlaggedCount} flagged</span>
+                  <button onClick={() => setDismissed(new Set(Object.keys(warnings).map(k => Number(k) || k)))} style={{ ...B, fontSize: "0.45rem", padding: "2px 6px" }}>Dismiss all</button>
+                </div>
+              )}
+
               <div style={{ maxHeight: 300, overflowY: "auto" }}>
-                {sorted.map((ev, i) => {
+                {(() => {
+                  let displayEvents = sorted;
+                  if (listFilter === "picks") displayEvents = sorted.filter(ev => ev.featured);
+                  if (listFilter === "flagged") displayEvents = sorted.filter(ev => (warnings[ev.id]?.length > 0) && !dismissed.has(ev.id));
+                  return displayEvents;
+                })().map((ev, i) => {
                   if (editId === ev.id) {
                     return <div key={ev.id} style={{ display: "flex", gap: "0.2rem", padding: "0.3rem 0.4rem", fontSize: "0.55rem", background: "rgba(250,204,21,0.06)", borderRadius: "3px", alignItems: "center", borderLeft: "2px solid #FACC15" }}>
                       <input value={ev.name} onChange={e => { const v = e.target.value; setEvents(p => p.map(x => x.id === ev.id ? { ...x, name: v } : x)); }} style={{ ...I, flex: 2, fontSize: "0.58rem", padding: "3px 5px" }} />
@@ -720,6 +750,13 @@ export default function NewsletterBuilder() {
                       <span style={{ color: "rgba(245,240,232,0.25)", fontSize: "0.45rem", flexShrink: 0 }}>{ev.venue ? ev.venue.slice(0, 15) : ""}</span>
                       <span style={{ color: "rgba(245,240,232,0.2)", fontSize: "0.45rem", minWidth: 30, textAlign: "right" }}>{ev.time}</span>
                       {ev.featured && <span style={{ fontSize: "0.38rem", background: "rgba(250,204,21,0.15)", color: "#FACC15", padding: "1px 4px", borderRadius: "2px", fontWeight: 700 }}>PICK</span>}
+                      {(warnings[ev.id] || []).filter(() => !dismissed.has(ev.id)).map((w, wi) => (
+                        <span key={wi} style={{
+                          fontSize: "0.38rem", padding: "1px 4px", borderRadius: "2px", fontWeight: 700,
+                          background: w.type === "red" ? "rgba(251,113,133,0.15)" : w.type === "yellow" ? "rgba(250,204,21,0.12)" : "rgba(245,240,232,0.06)",
+                          color: w.type === "red" ? "#FB7185" : w.type === "yellow" ? "#FACC15" : "rgba(245,240,232,0.30)",
+                        }}>{w.msg}</span>
+                      ))}
                     </div>
                   );
                 })}
