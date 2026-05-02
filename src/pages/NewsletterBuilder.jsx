@@ -1,5 +1,6 @@
 import { useState, useRef } from "react";
 import * as XLSX from "xlsx";
+import { useEventsStore } from "../store";
 
 const DAY_ORDER = { Fri: 0, Sat: 1, Sun: 2 };
 const REGION_ORDER = { North: 0, Central: 1, South: 2 };
@@ -414,8 +415,9 @@ function buildPlainText(events, intro, friDate, showPicks) {
   return txt;
 }
 
-export default function App() {
-  const [events, setEvents] = useState([]);
+export default function NewsletterBuilder() {
+  const events = useEventsStore(s => s.events);
+  const setEvents = useEventsStore(s => s.updateEvents);
   const [friDate, setFriDate] = useState("4/25");
   const [intro, setIntro] = useState("");
   const [showPicks, setShowPicks] = useState(true);

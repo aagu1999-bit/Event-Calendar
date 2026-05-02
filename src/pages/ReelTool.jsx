@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import * as XLSX from "xlsx";
+import { useEventsStore } from "../store";
 
 const COLORS = {
   purple:{name:"Purple",hex:"#7C3AED",accent:"#C084FC",sg:false},
@@ -358,8 +359,9 @@ function renderFrame(canvas, events, cfg, time) {
   ctx.fillText("centralgroupevents.com",60,fy+68);
 }
 
-export default function App(){
-  const[events,setEvents]=useState([]);
+export default function ReelTool(){
+  const events = useEventsStore(s => s.events);
+  const setEvents = useEventsStore(s => s.updateEvents);
   const[color,setColor]=useState("purple");
   const[style,setStyle]=useState("paparazzi");
   const[duration,setDuration]=useState(8);

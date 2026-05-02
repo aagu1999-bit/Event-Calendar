@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import * as XLSX from "xlsx";
+import { useEventsStore } from "../store";
 
 // ==================== COLOR SYSTEM ====================
 const COLORS = {
@@ -971,8 +972,9 @@ function renderPreview(canvas, pageEvents, cfg) {
 }
 
 // ==================== APP ====================
-export default function App() {
-  const [events, setEvents] = useState([]);
+export default function CalendarBuilder() {
+  const events = useEventsStore(s => s.events);
+  const setEvents = useEventsStore(s => s.updateEvents);
   const [dayColors, setDayColors] = useState({ Fri: "yellow", Sat: "emerald", Sun: "gold" });
   const [friDate, setFriDate] = useState("4/18");
   const [sz, setSz] = useState("4:5");
