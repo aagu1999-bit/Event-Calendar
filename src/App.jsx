@@ -2,6 +2,8 @@ import { BrowserRouter, Routes, Route, NavLink, Navigate } from "react-router-do
 import CalendarBuilder from "./pages/CalendarBuilder.jsx";
 import NewsletterBuilder from "./pages/NewsletterBuilder.jsx";
 import ReelTool from "./pages/ReelTool.jsx";
+import FlyerBuilder from "./pages/FlyerBuilder.jsx";
+import MediaTool from "./pages/MediaTool.jsx";
 import { useEventsStore } from "./store";
 
 function Nav() {
@@ -48,6 +50,8 @@ function Nav() {
       <NavLink to="/calendar" style={({ isActive }) => isActive ? linkActive : linkBase}>Calendar</NavLink>
       <NavLink to="/newsletter" style={({ isActive }) => isActive ? linkActive : linkBase}>Newsletter</NavLink>
       <NavLink to="/reel" style={({ isActive }) => isActive ? linkActive : linkBase}>Reel</NavLink>
+      <NavLink to="/flyer" style={({ isActive }) => isActive ? linkActive : linkBase}>Flyer</NavLink>
+      <NavLink to="/media" style={({ isActive }) => isActive ? linkActive : linkBase}>Media</NavLink>
       <div style={{ flex: 1 }} />
       <div style={{
         fontSize: "0.6rem",
@@ -89,6 +93,8 @@ export default function App() {
         <Route path="/calendar" element={<CalendarBuilder />} />
         <Route path="/newsletter" element={<NewsletterBuilder />} />
         <Route path="/reel" element={<ReelTool />} />
+        <Route path="/flyer" element={<FlyerBuilder />} />
+        <Route path="/media" element={<MediaTool />} />
         <Route path="*" element={<Navigate to="/calendar" replace />} />
       </Routes>
     </BrowserRouter>

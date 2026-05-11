@@ -1,3 +1,14 @@
+@font-face { font-family: 'Anton Local';        src: url('/fonts/Anton-Regular.ttf')        format('truetype'); font-display: swap; }
+@font-face { font-family: 'Archivo Black';      src: url('/fonts/ArchivoBlack-Regular.ttf') format('truetype'); font-display: swap; }
+@font-face { font-family: 'Bagel Fat One';      src: url('/fonts/BagelFatOne-Regular.ttf')  format('truetype'); font-display: swap; }
+@font-face { font-family: 'Bowlby One';         src: url('/fonts/BowlbyOne-Regular.ttf')    format('truetype'); font-display: swap; }
+@font-face { font-family: 'Alfa Slab One';      src: url('/fonts/AlfaSlabOne-Regular.ttf')  format('truetype'); font-display: swap; }
+@font-face { font-family: 'Passion One';        src: url('/fonts/PassionOne-Black.ttf')     format('truetype'); font-weight: 900; font-display: swap; }
+@font-face { font-family: 'Rubik Mono One';     src: url('/fonts/RubikMonoOne-Regular.ttf') format('truetype'); font-display: swap; }
+@font-face { font-family: 'Sigmar';             src: url('/fonts/Sigmar-Regular.ttf')       format('truetype'); font-display: swap; }
+@font-face { font-family: 'Staatliches';        src: url('/fonts/Staatliches-Regular.ttf')  format('truetype'); font-display: swap; }
+@font-face { font-family: 'Oswald Local';       src: url('/fonts/Oswald-Variable.ttf')      format('truetype-variations'); font-display: swap; font-weight: 200 900; }
+
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
