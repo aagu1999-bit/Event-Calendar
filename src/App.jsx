@@ -5,6 +5,7 @@ import ReelTool from "./pages/ReelTool.jsx";
 import FlyerBuilder from "./pages/FlyerBuilder.jsx";
 import MediaTool from "./pages/MediaTool.jsx";
 import RecapPicker from "./pages/RecapPicker.jsx";
+import ReviewQueue from "./pages/ReviewQueue.jsx";
 import { useEventsStore } from "./store";
 
 function Nav() {
@@ -54,6 +55,7 @@ function Nav() {
       <NavLink to="/flyer" style={({ isActive }) => isActive ? linkActive : linkBase}>Flyer</NavLink>
       <NavLink to="/media" style={({ isActive }) => isActive ? linkActive : linkBase}>Media</NavLink>
       <NavLink to="/recap" style={({ isActive }) => isActive ? linkActive : linkBase}>Recap</NavLink>
+      <NavLink to="/review" style={({ isActive }) => isActive ? linkActive : linkBase}>Review</NavLink>
       <div style={{ flex: 1 }} />
       <div style={{
         fontSize: "0.6rem",
@@ -98,6 +100,7 @@ export default function App() {
         <Route path="/flyer" element={<FlyerBuilder />} />
         <Route path="/media" element={<MediaTool />} />
         <Route path="/recap" element={<RecapPicker />} />
+        <Route path="/review" element={<ReviewQueue />} />
         <Route path="*" element={<Navigate to="/calendar" replace />} />
       </Routes>
     </BrowserRouter>
