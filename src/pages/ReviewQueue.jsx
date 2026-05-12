@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef, useMemo, useEffect, Fragment } from "react";
 import * as XLSX from "xlsx";
 import { useEventsStore } from "../store";
 import { parseRows, DAYFUL, getEmoji } from "../shared/parseEvents";
@@ -96,6 +96,16 @@ function augmentEvents(newEvents, existingEvents) {
 const L = { display: "block", fontSize: "0.6rem", letterSpacing: "1.5px", textTransform: "uppercase", color: "rgba(245,240,232,0.55)", marginBottom: "6px" };
 const B = { padding: "8px 14px", background: "rgba(245,240,232,0.04)", border: "1px solid rgba(245,240,232,0.1)", borderRadius: "4px", color: "#F5F0E8", fontFamily: "inherit", fontSize: "0.7rem", cursor: "pointer", letterSpacing: "1px", textTransform: "uppercase" };
 const Bgold = { ...B, background: "#E5BC4F", color: "#000", border: "none", fontWeight: 700 };
+const editInputStyle = {
+  padding: "6px 8px",
+  background: "rgba(0,0,0,0.35)",
+  border: "1px solid rgba(245,240,232,0.18)",
+  borderRadius: "4px",
+  color: "#F5F0E8",
+  fontFamily: "inherit",
+  fontSize: "0.78rem",
+  outline: "none",
+};
 
 // All pills use brand gold (no severity color split) — uniform gold catches
 // the eye more than a muted yellow/gray scale, and severity is already
@@ -119,8 +129,18 @@ export default function ReviewQueue() {
   const [approvals, setApprovals] = useState({}); // id -> bool
   const [filter, setFilter] = useState("all"); // all | clean | flagged | unapproved | tag:<name>
   const [highlightedGroup, setHighlightedGroup] = useState(null); // e.g. "DUPE #3" — flag-msg string
-  const [legendOpen, setLegendOpen] = useState(false);
-  const [summaryOpen, setSummaryOpen] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [editingId, setEditingId] = useState(null);   // event id being inline-edited
+  const [editDraft, setEditDraft] = useState({});     // in-progress edit fields (separate from pending so validation doesn't re-run per keystroke)
+  // Collapse state persists across sessions so the user's preference sticks.
+  const [legendOpen, setLegendOpen] = useState(() => {
+    try { return localStorage.getItem("review_legendOpen") === "true"; } catch { return false; }
+  });
+  const [summaryOpen, setSummaryOpen] = useState(() => {
+    try { return localStorage.getItem("review_summaryOpen") !== "false"; } catch { return true; }
+  });
+  useEffect(() => { try { localStorage.setItem("review_legendOpen", String(legendOpen)); } catch {} }, [legendOpen]);
+  useEffect(() => { try { localStorage.setItem("review_summaryOpen", String(summaryOpen)); } catch {} }, [summaryOpen]);
   const fileRef = useRef(null);
 
   // Augmenter runs whenever pending/store changes
@@ -189,16 +209,25 @@ export default function ReviewQueue() {
   const rejectAll = () => setApprovals(Object.fromEntries(pending.map(e => [e.id, false])));
 
   const visible = useMemo(() => {
-    if (filter === "all") return pending;
-    if (filter === "clean") return pending.filter(e => (warnings[e.id] || []).length === 0);
-    if (filter === "flagged") return pending.filter(e => (warnings[e.id] || []).length > 0);
-    if (filter === "unapproved") return pending.filter(e => !approvals[e.id]);
-    if (filter.startsWith("tag:")) {
-      const tag = filter.slice(4);
-      return eventsWithFlagTag(tag);
+    let list;
+    if (filter === "all") list = pending;
+    else if (filter === "clean") list = pending.filter(e => (warnings[e.id] || []).length === 0);
+    else if (filter === "flagged") list = pending.filter(e => (warnings[e.id] || []).length > 0);
+    else if (filter === "unapproved") list = pending.filter(e => !approvals[e.id]);
+    else if (filter.startsWith("tag:")) list = eventsWithFlagTag(filter.slice(4));
+    else list = pending;
+
+    // Search filter — additive on top of the active filter
+    const q = searchQuery.trim().toLowerCase();
+    if (q) {
+      list = list.filter(e =>
+        (e.name || "").toLowerCase().includes(q) ||
+        (e.venue || "").toLowerCase().includes(q) ||
+        (e.area || "").toLowerCase().includes(q)
+      );
     }
-    return pending;
-  }, [pending, warnings, approvals, filter]);
+    return list;
+  }, [pending, warnings, approvals, filter, searchQuery]);
 
   const approvedCount = pending.filter(e => approvals[e.id]).length;
   const flaggedCount = pending.filter(e => (warnings[e.id] || []).length > 0).length;
@@ -239,6 +268,31 @@ export default function ReviewQueue() {
     const ws = warnings[ev.id] || [];
     return ws.some(w => isPillInHighlightedGroup(w.msg));
   };
+
+  // Inline-edit helpers
+  const startEdit = (ev) => {
+    setEditingId(ev.id);
+    setEditDraft({
+      name:   ev.name   || "",
+      day:    ev.day    || "Fri",
+      time:   ev.time   || "",
+      venue:  ev.venue  || "",
+      area:   ev.area   || "",
+      region: ev.region || "North",
+      type:   ev.type   || "",
+    });
+  };
+  const saveEdit = () => {
+    if (!editingId) return;
+    setPending(p => p.map(e => e.id === editingId ? { ...e, ...editDraft } : e));
+    setEditingId(null);
+    setEditDraft({});
+  };
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditDraft({});
+  };
+  const editField = (k, v) => setEditDraft(d => ({ ...d, [k]: v }));
 
   const importApproved = () => {
     const approved = pending.filter(e => approvals[e.id]).map(e => ({
@@ -354,7 +408,7 @@ export default function ReviewQueue() {
             )}
 
             {/* Bulk actions + filter */}
-            <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", marginBottom: "0.75rem", flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", marginBottom: "0.5rem", flexWrap: "wrap" }}>
               <span style={{ ...L, marginBottom: 0, marginRight: "4px" }}>Filter</span>
               {[["all", "All"], ["clean", "Clean"], ["flagged", "Flagged"], ["unapproved", "Skipped"]].map(([k, lbl]) => (
                 <button
@@ -380,6 +434,31 @@ export default function ReviewQueue() {
               >
                 Import {approvedCount} → store
               </button>
+            </div>
+
+            {/* Search row */}
+            <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", marginBottom: "0.75rem" }}>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="Search by name, venue, or city…"
+                style={{
+                  flex: 1, padding: "8px 12px",
+                  background: "rgba(245,240,232,0.04)",
+                  border: "1px solid rgba(245,240,232,0.1)",
+                  borderRadius: "4px",
+                  color: "#F5F0E8",
+                  fontFamily: "inherit",
+                  fontSize: "0.78rem",
+                }}
+              />
+              {searchQuery && (
+                <button onClick={() => setSearchQuery("")} style={B}>Clear</button>
+              )}
+              <span style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.4)", letterSpacing: "1px", textTransform: "uppercase", marginLeft: "4px" }}>
+                {visible.length} match{visible.length === 1 ? "" : "es"}
+              </span>
             </div>
 
             {/* Filter-aware select-all row */}
@@ -424,23 +503,26 @@ export default function ReviewQueue() {
                 const approved = approvals[ev.id];
                 const isFlagged = w.length > 0;
                 const inHighlightedGroup = isRowInHighlightedGroup(ev);
+                const isEditing = editingId === ev.id;
                 return (
+                  <Fragment key={ev.id}>
                   <div
-                    key={ev.id}
                     style={{
                       display: "grid",
-                      gridTemplateColumns: "auto auto 50px 1fr auto auto auto",
+                      gridTemplateColumns: "auto auto 50px 1fr auto auto auto auto",
                       gap: "12px",
                       alignItems: "center",
                       padding: "10px 14px",
                       background: inHighlightedGroup
                         ? "rgba(229,188,79,0.12)"
-                        : approved ? "rgba(52,211,153,0.05)" : "rgba(245,240,232,0.03)",
+                        : isEditing ? "rgba(229,188,79,0.06)"
+                          : approved ? "rgba(52,211,153,0.05)" : "rgba(245,240,232,0.03)",
                       border: `1px solid ${
                         inHighlightedGroup ? "#E5BC4F" :
+                        isEditing ? "#E5BC4F" :
                         approved ? "rgba(52,211,153,0.18)" : "rgba(245,240,232,0.06)"
                       }`,
-                      borderRadius: "5px",
+                      borderRadius: isEditing ? "5px 5px 0 0" : "5px",
                       opacity: approved ? 1 : 0.65,
                       transition: "background 120ms ease, border-color 120ms ease",
                     }}
@@ -505,7 +587,84 @@ export default function ReviewQueue() {
                         </span>
                       )}
                     </div>
+                    <button
+                      onClick={() => isEditing ? cancelEdit() : startEdit(ev)}
+                      title={isEditing ? "Cancel edit" : "Edit this event in place"}
+                      style={{
+                        padding: "5px 9px",
+                        background: isEditing ? "#E5BC4F" : "rgba(245,240,232,0.04)",
+                        color: isEditing ? "#000" : "#F5F0E8",
+                        border: `1px solid ${isEditing ? "#E5BC4F" : "rgba(245,240,232,0.1)"}`,
+                        borderRadius: "4px",
+                        fontSize: "0.7rem",
+                        cursor: "pointer",
+                        fontFamily: "inherit",
+                      }}
+                    >
+                      {isEditing ? "✕" : "✎"}
+                    </button>
                   </div>
+
+                  {/* Inline edit form — expands below the row */}
+                  {isEditing && (
+                    <div style={{
+                      padding: "12px 14px",
+                      background: "rgba(229,188,79,0.06)",
+                      border: "1px solid #E5BC4F",
+                      borderTop: "none",
+                      borderRadius: "0 0 5px 5px",
+                      marginTop: "-0.4rem",
+                    }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "2fr 80px 1fr 1fr", gap: "8px", marginBottom: "8px" }}>
+                        <input
+                          autoFocus
+                          value={editDraft.name || ""}
+                          onChange={e => editField("name", e.target.value)}
+                          placeholder="Name"
+                          style={{ ...editInputStyle }}
+                        />
+                        <select value={editDraft.day || "Fri"} onChange={e => editField("day", e.target.value)} style={editInputStyle}>
+                          <option value="Fri">Fri</option>
+                          <option value="Sat">Sat</option>
+                          <option value="Sun">Sun</option>
+                        </select>
+                        <input
+                          value={editDraft.time || ""}
+                          onChange={e => editField("time", e.target.value)}
+                          placeholder="Time (e.g. 8 PM)"
+                          style={editInputStyle}
+                        />
+                        <input
+                          value={editDraft.type || ""}
+                          onChange={e => editField("type", e.target.value)}
+                          placeholder="Type (PARTY, BRUNCH...)"
+                          style={editInputStyle}
+                        />
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr auto auto", gap: "8px", alignItems: "center" }}>
+                        <input
+                          value={editDraft.venue || ""}
+                          onChange={e => editField("venue", e.target.value)}
+                          placeholder="Venue"
+                          style={editInputStyle}
+                        />
+                        <input
+                          value={editDraft.area || ""}
+                          onChange={e => editField("area", e.target.value)}
+                          placeholder="City / area"
+                          style={editInputStyle}
+                        />
+                        <select value={editDraft.region || "North"} onChange={e => editField("region", e.target.value)} style={editInputStyle}>
+                          <option value="North">North</option>
+                          <option value="Central">Central</option>
+                          <option value="South">South</option>
+                        </select>
+                        <button onClick={cancelEdit} style={B}>Cancel</button>
+                        <button onClick={saveEdit} style={Bgold}>Save & re-validate</button>
+                      </div>
+                    </div>
+                  )}
+                  </Fragment>
                 );
               })}
             </div>
