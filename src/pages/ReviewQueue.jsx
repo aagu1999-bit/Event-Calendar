@@ -18,8 +18,8 @@ const FLAG_GLOSSARY = [
   { tag: "VENUE #N",                desc: "Same venue+day, different name (possible mix-up). Click to trace." },
   { tag: "MULTI #N",                desc: "Same event listed on multiple days. Could be a real recurring event." },
   { tag: "WRONG DAY?",              desc: "Name mentions a day that doesn't match the assigned day." },
-  { tag: "ALREADY IN STORE",        desc: "Same name+day already exists in your loaded events." },
-  { tag: "SAME VENUE/DAY IN STORE", desc: "Different event, same venue+day as something already in store." },
+  { tag: "ALREADY IN STORE",        desc: "Same name+day already exists in your shared events store (used by every tool — Calendar/Newsletter/Reel/Flyer/Media). Probably a re-import." },
+  { tag: "SAME VENUE/DAY IN STORE", desc: "Different event with same venue+day as something already in the shared store. Possible double-booking or scheduling conflict." },
   { tag: "REGION? (... NORTH)",     desc: "Union County city not tagged NORTH per local convention." },
   { tag: "TIME?",                   desc: "Time/type combo looks suspicious (e.g. PARTY at 11am)." },
 ];
@@ -127,9 +127,11 @@ export default function ReviewQueue() {
 
   const [pending, setPending] = useState([]); // parsed Event[]
   const [approvals, setApprovals] = useState({}); // id -> bool
-  const [filter, setFilter] = useState("all"); // all | clean | flagged | unapproved | tag:<name>
+  const [filter, setFilter] = useState("all"); // all | clean | flagged | unapproved
+  const [sortByTag, setSortByTag] = useState(null); // tag name to float to top (separate from filter)
   const [highlightedGroup, setHighlightedGroup] = useState(null); // e.g. "DUPE #3" — flag-msg string
   const [searchQuery, setSearchQuery] = useState("");
+  const [storeOpen, setStoreOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);   // event id being inline-edited
   const [editDraft, setEditDraft] = useState({});     // in-progress edit fields (separate from pending so validation doesn't re-run per keystroke)
   // Collapse state persists across sessions so the user's preference sticks.
@@ -214,7 +216,6 @@ export default function ReviewQueue() {
     else if (filter === "clean") list = pending.filter(e => (warnings[e.id] || []).length === 0);
     else if (filter === "flagged") list = pending.filter(e => (warnings[e.id] || []).length > 0);
     else if (filter === "unapproved") list = pending.filter(e => !approvals[e.id]);
-    else if (filter.startsWith("tag:")) list = eventsWithFlagTag(filter.slice(4));
     else list = pending;
 
     // Search filter — additive on top of the active filter
@@ -226,8 +227,27 @@ export default function ReviewQueue() {
         (e.area || "").toLowerCase().includes(q)
       );
     }
+
+    // Sort-to-top: when a tag is selected from the breakdown, float matching
+    // events up but DON'T hide the rest — user can see context + scroll.
+    if (sortByTag) {
+      const matchKey = (ev) => {
+        const ws = warnings[ev.id] || [];
+        return ws.some(w => {
+          const key = w.msg.replace(/\s*#\d+\s*/, "").replace(/\s*\(.*\)\s*/, "").trim();
+          return key === sortByTag;
+        });
+      };
+      list = [...list].sort((a, b) => {
+        const aHas = matchKey(a);
+        const bHas = matchKey(b);
+        if (aHas && !bHas) return -1;
+        if (!aHas && bHas) return 1;
+        return 0;
+      });
+    }
     return list;
-  }, [pending, warnings, approvals, filter, searchQuery]);
+  }, [pending, warnings, approvals, filter, searchQuery, sortByTag]);
 
   const approvedCount = pending.filter(e => approvals[e.id]).length;
   const flaggedCount = pending.filter(e => (warnings[e.id] || []).length > 0).length;
@@ -342,6 +362,60 @@ export default function ReviewQueue() {
           </button>
         </div>
 
+        {/* What's in your store — explains where ALREADY IN STORE flags come from */}
+        <details
+          open={storeOpen}
+          onToggle={e => setStoreOpen(e.target.open)}
+          style={{ marginBottom: "1rem", background: "rgba(245,240,232,0.03)", border: "1px solid rgba(245,240,232,0.08)", borderRadius: "6px" }}
+        >
+          <summary style={{ padding: "10px 14px", cursor: "pointer", fontSize: "0.65rem", letterSpacing: "1.5px", textTransform: "uppercase", color: "rgba(245,240,232,0.7)" }}>
+            {storeOpen ? "▾" : "▸"} What's in your store ({events.length} event{events.length === 1 ? "" : "s"})
+          </summary>
+          <div style={{ padding: "0 14px 14px" }}>
+            <p style={{ fontSize: "0.65rem", color: "rgba(245,240,232,0.55)", lineHeight: 1.6, marginBottom: "10px" }}>
+              The <strong style={{ color: "#E5BC4F" }}>store</strong> is your shared event database used by every tool in the app — Calendar, Newsletter, Reel, Flyer, Media. Events land here from any tool's upload (this Review tab's import, Calendar's Excel import, Newsletter's paste, etc.) and persist across sessions (localStorage).
+              The <strong style={{ color: "#E5BC4F" }}>ALREADY IN STORE</strong> flag means a new event in your current upload has the same name+day as something already in here. Probably a re-import — fine to skip, OR fine to approve if you meant to update.
+            </p>
+            {events.length === 0 ? (
+              <p style={{ fontSize: "0.65rem", color: "rgba(245,240,232,0.4)", fontStyle: "italic" }}>
+                Store is empty. First import from this tab will populate it. After that, every subsequent upload gets cross-referenced against what's here.
+              </p>
+            ) : (
+              <div style={{ maxHeight: "200px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "3px" }}>
+                {events.slice(0, 30).map((ev, i) => (
+                  <div
+                    key={ev.id || i}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "40px 1fr auto",
+                      gap: "10px",
+                      padding: "4px 8px",
+                      fontSize: "0.6rem",
+                      background: "rgba(245,240,232,0.02)",
+                      borderRadius: "3px",
+                    }}
+                  >
+                    <span style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, color: "#E5BC4F", letterSpacing: "1px" }}>
+                      {DAYFUL[ev.day]?.slice(0, 3) || "?"}
+                    </span>
+                    <span style={{ color: "rgba(245,240,232,0.85)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {ev.name || <em>(no name)</em>} <span style={{ color: "rgba(245,240,232,0.4)" }}>· {ev.venue || "no venue"}{ev.area ? ", " + ev.area : ""}</span>
+                    </span>
+                    <span style={{ color: "rgba(245,240,232,0.4)", letterSpacing: "1px", textTransform: "uppercase" }}>
+                      {ev.time || ""}
+                    </span>
+                  </div>
+                ))}
+                {events.length > 30 && (
+                  <div style={{ padding: "6px 8px", fontSize: "0.6rem", color: "rgba(245,240,232,0.4)", fontStyle: "italic", textAlign: "center" }}>
+                    … and {events.length - 30} more
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </details>
+
         {pending.length > 0 && (
           <>
             {/* Flag glossary — collapsible cheat sheet */}
@@ -376,15 +450,15 @@ export default function ReviewQueue() {
                 style={{ marginBottom: "1rem", background: "rgba(229,188,79,0.04)", border: "1px solid rgba(229,188,79,0.18)", borderRadius: "6px" }}
               >
                 <summary style={{ padding: "10px 14px", cursor: "pointer", fontSize: "0.65rem", letterSpacing: "1.5px", textTransform: "uppercase", color: "#E5BC4F" }}>
-                  {summaryOpen ? "▾" : "▸"} Flag breakdown ({flagSummary.reduce((s, [, n]) => s + n, 0)} total · click a tag to filter)
+                  {summaryOpen ? "▾" : "▸"} Flag breakdown ({flagSummary.reduce((s, [, n]) => s + n, 0)} total · click a tag to float its events to the top)
                 </summary>
                 <div style={{ padding: "0 14px 14px", display: "flex", flexWrap: "wrap", gap: "6px" }}>
                   {flagSummary.map(([tag, count]) => {
-                    const isActive = filter === `tag:${tag}`;
+                    const isActive = sortByTag === tag;
                     return (
                       <button
                         key={tag}
-                        onClick={() => setFilter(isActive ? "flagged" : `tag:${tag}`)}
+                        onClick={() => setSortByTag(isActive ? null : tag)}
                         style={{
                           padding: "5px 10px",
                           background: isActive ? "#E5BC4F" : "rgba(229,188,79,0.12)",
@@ -417,11 +491,12 @@ export default function ReviewQueue() {
                   style={filter === k ? { ...B, background: "rgba(229,188,79,0.15)", borderColor: "#E5BC4F", color: "#E5BC4F" } : B}
                 >{lbl}</button>
               ))}
-              {filter.startsWith("tag:") && (
+              {sortByTag && (
                 <button
-                  onClick={() => setFilter("flagged")}
+                  onClick={() => setSortByTag(null)}
                   style={{ ...B, background: "#E5BC4F", color: "#000", borderColor: "#E5BC4F" }}
-                >× {filter.slice(4)}</button>
+                  title="Clear sort — events return to their original positions"
+                >× Sorting {sortByTag} to top</button>
               )}
               <div style={{ flex: 1 }} />
               <button onClick={approveClean} style={B}>Approve clean only</button>
