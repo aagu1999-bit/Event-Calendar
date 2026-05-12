@@ -144,6 +144,15 @@ export default function ReviewQueue() {
   useEffect(() => { try { localStorage.setItem("review_legendOpen", String(legendOpen)); } catch {} }, [legendOpen]);
   useEffect(() => { try { localStorage.setItem("review_summaryOpen", String(summaryOpen)); } catch {} }, [summaryOpen]);
   const fileRef = useRef(null);
+  const rowsRef = useRef(null);
+
+  // When a sort activates (tag chip or group pill), scroll the list top into
+  // view so the user sees the floated events without manual scrolling.
+  useEffect(() => {
+    if ((sortByTag || highlightedGroup) && rowsRef.current) {
+      rowsRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [sortByTag, highlightedGroup]);
 
   // Augmenter runs whenever pending/store changes
   const warnings = useMemo(() => augmentEvents(pending, events), [pending, events]);
@@ -228,10 +237,10 @@ export default function ReviewQueue() {
       );
     }
 
-    // Sort-to-top: when a tag is selected from the breakdown, float matching
-    // events up but DON'T hide the rest — user can see context + scroll.
+    // Sort-to-top by tag (broad): when a tag is selected from the breakdown,
+    // float all matching events up. Hides nothing — context stays visible.
     if (sortByTag) {
-      const matchKey = (ev) => {
+      const tagMatch = (ev) => {
         const ws = warnings[ev.id] || [];
         return ws.some(w => {
           const key = w.msg.replace(/\s*#\d+\s*/, "").replace(/\s*\(.*\)\s*/, "").trim();
@@ -239,15 +248,33 @@ export default function ReviewQueue() {
         });
       };
       list = [...list].sort((a, b) => {
-        const aHas = matchKey(a);
-        const bHas = matchKey(b);
+        const aHas = tagMatch(a);
+        const bHas = tagMatch(b);
         if (aHas && !bHas) return -1;
         if (!aHas && bHas) return 1;
         return 0;
       });
     }
+
+    // Sort-to-top by group (narrow — wins over tag sort): when a specific
+    // numbered flag pill is clicked, float just THAT group to the very top.
+    // VENUE #17 (the 2 events sharing that group) above the broader VENUE
+    // bucket. Lets the user line up dupes/conflicts side-by-side for compare.
+    if (highlightedGroup) {
+      const groupMatch = (ev) => {
+        const ws = warnings[ev.id] || [];
+        return ws.some(w => isPillInHighlightedGroup(w.msg));
+      };
+      list = [...list].sort((a, b) => {
+        const aIn = groupMatch(a);
+        const bIn = groupMatch(b);
+        if (aIn && !bIn) return -1;
+        if (!aIn && bIn) return 1;
+        return 0;
+      });
+    }
     return list;
-  }, [pending, warnings, approvals, filter, searchQuery, sortByTag]);
+  }, [pending, warnings, approvals, filter, searchQuery, sortByTag, highlightedGroup]);
 
   const approvedCount = pending.filter(e => approvals[e.id]).length;
   const flaggedCount = pending.filter(e => (warnings[e.id] || []).length > 0).length;
@@ -559,15 +586,15 @@ export default function ReviewQueue() {
                 </span>
                 {highlightedGroup && (
                   <span style={{ marginLeft: "auto", color: "#E5BC4F" }}>
-                    Tracing group: <strong>{highlightedGroup}</strong>
-                    <button onClick={() => setHighlightedGroup(null)} style={{ ...B, marginLeft: "8px", padding: "3px 8px", fontSize: "0.5rem" }}>Clear trace</button>
+                    <strong>{highlightedGroup}</strong> floated to top + traced
+                    <button onClick={() => setHighlightedGroup(null)} style={{ ...B, marginLeft: "8px", padding: "3px 8px", fontSize: "0.5rem" }}>Clear</button>
                   </span>
                 )}
               </div>
             )}
 
             {/* Event rows */}
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+            <div ref={rowsRef} style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
               {visible.length === 0 && (
                 <div style={{ padding: "2rem", textAlign: "center", color: "rgba(245,240,232,0.4)", fontSize: "0.75rem" }}>
                   No events match this filter.
@@ -637,7 +664,7 @@ export default function ReviewQueue() {
                           <span
                             key={i}
                             onClick={(e) => { e.stopPropagation(); clickFlag(warn.msg); }}
-                            title={hasGroup ? "Click to trace this group across all events" : undefined}
+                            title={hasGroup ? "Click to float this group to the top + highlight matches" : undefined}
                             style={{
                               padding: "2px 7px",
                               background: style.bg,
