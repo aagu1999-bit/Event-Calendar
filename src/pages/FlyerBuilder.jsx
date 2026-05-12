@@ -1,4 +1,5 @@
 import { useState, useRef } from "react";
+import { toPng } from "html-to-image";
 import { useEventsStore } from "../store";
 
 // ==================== CONTROL-PANE STYLES & PRIMITIVES ====================
@@ -1483,12 +1484,42 @@ export default function FlyerBuilder() {
   const [goldenFlavor, setGoldenFlavor] = useState("sunset");
 
   const fileRef = useRef(null);
+  const flyerRef = useRef(null);
+  const [isExporting, setIsExporting] = useState(false);
+
   const handlePhoto = (e) => {
     const f = e.target.files?.[0];
     if (!f) return;
     const reader = new FileReader();
     reader.onload = ev => setPhotoUrl(ev.target.result);
     reader.readAsDataURL(f);
+  };
+
+  // Rasterize the flyer surface DOM to a 2160×2700 PNG (2x density of the
+  // 1080×1350 layout — sharper on retina + IG re-compression).
+  const downloadPng = async () => {
+    if (!flyerRef.current || isExporting) return;
+    setIsExporting(true);
+    try {
+      await document.fonts.ready;  // ensure custom fonts loaded
+      const dataUrl = await toPng(flyerRef.current, {
+        pixelRatio: 2,
+        cacheBust: true,
+        backgroundColor: undefined,  // preserve template's own bg
+      });
+      const filename = `CGE_${template}_${Date.now()}.png`;
+      const a = document.createElement("a");
+      a.href = dataUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch (err) {
+      console.error("PNG export failed:", err);
+      alert("PNG export failed — see console. Some CSS features (clip-path on Headliner) can be flaky; try a different template or photo.");
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const update = (k, v) => setData(d => ({ ...d, [k]: v }));
@@ -1812,11 +1843,29 @@ export default function FlyerBuilder() {
             style={{ width: "100%", accentColor: "#E5BC4F" }} />
         </Section>
 
-        <div style={{ marginTop: "26px", padding: "12px", background: "rgba(229,188,79,0.06)", border: "1px solid rgba(229,188,79,0.18)", borderRadius: "6px" }}>
-          <div style={{ fontSize: "0.55rem", color: "#E5BC4F", letterSpacing: "1.5px", textTransform: "uppercase", marginBottom: "6px" }}>Mockup phase</div>
-          <div style={{ fontSize: "0.7rem", color: "rgba(245,240,232,0.65)", lineHeight: 1.45 }}>
-            HTML/CSS preview only — no PNG export yet. Lock the look first, then port to canvas.
-          </div>
+        <button
+          onClick={downloadPng}
+          disabled={isExporting}
+          style={{
+            width: "100%",
+            padding: "14px",
+            marginTop: "10px",
+            background: isExporting ? "rgba(229,188,79,0.4)" : "#E5BC4F",
+            color: "#000",
+            border: "none",
+            borderRadius: "6px",
+            fontSize: "0.85rem",
+            fontWeight: 700,
+            letterSpacing: "2px",
+            textTransform: "uppercase",
+            cursor: isExporting ? "wait" : "pointer",
+            fontFamily: "inherit",
+          }}
+        >
+          {isExporting ? "Rendering…" : "Download PNG"}
+        </button>
+        <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: "0.5px", marginTop: "6px", textAlign: "center" }}>
+          2160×2700 (2× density) · IG-ready
         </div>
       </div>
 
@@ -1839,6 +1888,7 @@ export default function FlyerBuilder() {
             width: `${W}px`,
             height: `${H}px`,
           }}>
+            <div ref={flyerRef} style={{ width: `${W}px`, height: `${H}px` }}>
             <FlyerSurface
               template={template}
               data={data}
@@ -1853,6 +1903,7 @@ export default function FlyerBuilder() {
               noPhotoStyle={noPhotoStyle}
               goldenFlavor={goldenFlavor}
             />
+            </div>
           </div>
         </div>
       </div>
