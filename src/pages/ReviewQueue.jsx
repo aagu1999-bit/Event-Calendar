@@ -326,6 +326,44 @@ export default function ReviewQueue() {
     return ws.some(w => isPillInHighlightedGroup(w.msg));
   };
 
+  // Events in the currently highlighted group (clicked numbered flag pill).
+  // Used by the "Approve / Skip / Delete group" mini-actions in the indicator.
+  const eventsInHighlightedGroup = () => {
+    if (!highlightedGroup) return [];
+    const targetMatch = highlightedGroup.match(/#(\d+)/);
+    if (!targetMatch) return [];
+    const targetNum = targetMatch[1];
+    const targetPrefix = highlightedGroup.replace(/#\d+.*$/, "").trim();
+    return pending.filter(ev => {
+      const ws = warnings[ev.id] || [];
+      return ws.some(w => {
+        const wNum = w.msg.match(/#(\d+)/);
+        if (!wNum) return false;
+        const wPrefix = w.msg.replace(/#\d+.*$/, "").trim();
+        return wPrefix === targetPrefix && wNum[1] === targetNum;
+      });
+    });
+  };
+  const approveGroup = () => {
+    const ids = eventsInHighlightedGroup().map(e => e.id);
+    if (ids.length === 0) return;
+    setApprovals(a => { const next = { ...a }; ids.forEach(id => { next[id] = true; }); return next; });
+  };
+  const skipGroup = () => {
+    const ids = eventsInHighlightedGroup().map(e => e.id);
+    if (ids.length === 0) return;
+    setApprovals(a => { const next = { ...a }; ids.forEach(id => { next[id] = false; }); return next; });
+  };
+  const deleteGroup = () => {
+    const grp = eventsInHighlightedGroup();
+    if (grp.length === 0) return;
+    if (!window.confirm(`Delete ${grp.length} events in ${highlightedGroup} from the upload?`)) return;
+    const ids = new Set(grp.map(e => e.id));
+    setPending(p => p.filter(e => !ids.has(e.id)));
+    setApprovals(a => { const next = { ...a }; ids.forEach(id => { delete next[id]; }); return next; });
+    setHighlightedGroup(null);
+  };
+
   // Delete row(s) from pending entirely — distinct from "skip" which keeps
   // the row in the upload but unchecked. Delete removes them from view
   // completely and they won't count toward the breakdown anymore.
@@ -626,9 +664,30 @@ export default function ReviewQueue() {
                   {allVisibleApproved ? "Skip" : "Select"} all in this filter ({visible.length} visible)
                 </span>
                 {highlightedGroup && (
-                  <span style={{ marginLeft: "auto", color: "#E5BC4F" }}>
-                    <strong>{highlightedGroup}</strong> floated to top + traced
-                    <button onClick={() => setHighlightedGroup(null)} style={{ ...B, marginLeft: "8px", padding: "3px 8px", fontSize: "0.5rem" }}>Clear</button>
+                  <span style={{ marginLeft: "auto", color: "#E5BC4F", display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                    <strong>{highlightedGroup}</strong> at top
+                    <button
+                      onClick={approveGroup}
+                      title="Approve every event in this group"
+                      style={{ ...B, padding: "3px 8px", fontSize: "0.5rem", background: "rgba(52,211,153,0.15)", borderColor: "rgba(52,211,153,0.4)", color: "#34D399" }}
+                    >
+                      ✓ Approve group
+                    </button>
+                    <button
+                      onClick={skipGroup}
+                      title="Skip every event in this group (uncheck, but keep in view)"
+                      style={{ ...B, padding: "3px 8px", fontSize: "0.5rem" }}
+                    >
+                      Skip group
+                    </button>
+                    <button
+                      onClick={deleteGroup}
+                      title="Delete every event in this group from the upload entirely"
+                      style={{ ...B, padding: "3px 8px", fontSize: "0.5rem", background: "rgba(251,113,133,0.1)", borderColor: "rgba(251,113,133,0.35)", color: "#FB7185" }}
+                    >
+                      ✕ Delete group
+                    </button>
+                    <button onClick={() => setHighlightedGroup(null)} style={{ ...B, padding: "3px 8px", fontSize: "0.5rem" }}>Clear</button>
                   </span>
                 )}
               </div>
@@ -674,12 +733,29 @@ export default function ReviewQueue() {
                       transition: "background 120ms ease, border-color 120ms ease",
                     }}
                   >
-                    <input
-                      type="checkbox"
-                      checked={approved}
-                      onChange={() => toggle(ev.id)}
-                      style={{ width: 18, height: 18, accentColor: "#E5BC4F", cursor: "pointer" }}
-                    />
+                    <button
+                      onClick={() => toggle(ev.id)}
+                      title={approved ? "Will import — click to skip" : "Will skip — click to approve"}
+                      style={{
+                        width: 28,
+                        height: 28,
+                        borderRadius: "5px",
+                        background: approved ? "#34D399" : "rgba(245,240,232,0.04)",
+                        color: approved ? "#0a0a0a" : "rgba(245,240,232,0.35)",
+                        border: `1.5px solid ${approved ? "#34D399" : "rgba(245,240,232,0.22)"}`,
+                        fontSize: "0.95rem",
+                        fontWeight: 800,
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontFamily: "inherit",
+                        padding: 0,
+                        lineHeight: 1,
+                      }}
+                    >
+                      {approved ? "✓" : ""}
+                    </button>
                     <span style={{ fontSize: "1rem", width: "20px", textAlign: "center", lineHeight: 1 }}>
                       {isFlagged ? "🚩" : ""}
                     </span>
