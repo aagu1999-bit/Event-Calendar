@@ -2,7 +2,27 @@ import { useState, useRef, useMemo } from "react";
 import * as XLSX from "xlsx";
 import { useEventsStore } from "../store";
 import { parseRows, DAYFUL, getEmoji } from "../shared/parseEvents";
-import { computeWarnings } from "../shared/validateEvents";
+import { computeWarnings, findFlagPartners } from "../shared/validateEvents";
+
+// Flag glossary — shown in the collapsible cheat sheet. Order matters
+// (most-severe first); descriptions are 1-line so the grid stays tight.
+const FLAG_GLOSSARY = [
+  { tag: "NO NAME",                 desc: "Event has no name. Can't be rendered. Auto-rejected." },
+  { tag: "NO DAY",                  desc: "No day assigned (Fri/Sat/Sun). Auto-rejected." },
+  { tag: "NO TIME",                 desc: "Time missing. Event will show without a time." },
+  { tag: "NO VENUE",                desc: "Venue missing." },
+  { tag: "NO REGION",               desc: "Region missing (North/Central/South)." },
+  { tag: "NO CITY",                 desc: "City/area missing. Minor — won't break renders." },
+  { tag: "NO TYPE",                 desc: "Event type missing. Won't get an emoji." },
+  { tag: "DUPE #N",                 desc: "Exact name+day match in this upload. Click to trace partners." },
+  { tag: "VENUE #N",                desc: "Same venue+day, different name (possible mix-up). Click to trace." },
+  { tag: "MULTI #N",                desc: "Same event listed on multiple days. Could be a real recurring event." },
+  { tag: "WRONG DAY?",              desc: "Name mentions a day that doesn't match the assigned day." },
+  { tag: "ALREADY IN STORE",        desc: "Same name+day already exists in your loaded events." },
+  { tag: "SAME VENUE/DAY IN STORE", desc: "Different event, same venue+day as something already in store." },
+  { tag: "REGION? (... NORTH)",     desc: "Union County city not tagged NORTH per local convention." },
+  { tag: "TIME?",                   desc: "Time/type combo looks suspicious (e.g. PARTY at 11am)." },
+];
 
 // User's local NJ convention: Union County cities are tagged NORTH locally,
 // not CENTRAL (per [[event_scout_nj_region_convention]] memory).
@@ -77,10 +97,18 @@ const L = { display: "block", fontSize: "0.6rem", letterSpacing: "1.5px", textTr
 const B = { padding: "8px 14px", background: "rgba(245,240,232,0.04)", border: "1px solid rgba(245,240,232,0.1)", borderRadius: "4px", color: "#F5F0E8", fontFamily: "inherit", fontSize: "0.7rem", cursor: "pointer", letterSpacing: "1px", textTransform: "uppercase" };
 const Bgold = { ...B, background: "#E5BC4F", color: "#000", border: "none", fontWeight: 700 };
 
-const WARN_COLORS = {
-  red:    { bg: "rgba(251,113,133,0.15)", color: "#FB7185" },
-  yellow: { bg: "rgba(250,204,21,0.15)",  color: "#FACC15" },
-  gray:   { bg: "rgba(245,240,232,0.08)", color: "rgba(245,240,232,0.55)" },
+// All pills use brand gold (no severity color split) — uniform gold catches
+// the eye more than a muted yellow/gray scale, and severity is already
+// implicit in the tag name + the row-level 🚩 emoji.
+const PILL_STYLE = {
+  bg: "rgba(229,188,79,0.18)",
+  color: "#E5BC4F",
+  border: "1px solid rgba(229,188,79,0.4)",
+};
+const PILL_HIGHLIGHTED = {
+  bg: "rgba(229,188,79,0.85)",
+  color: "#0a0a0a",
+  border: "1px solid #E5BC4F",
 };
 
 export default function ReviewQueue() {
@@ -89,11 +117,37 @@ export default function ReviewQueue() {
 
   const [pending, setPending] = useState([]); // parsed Event[]
   const [approvals, setApprovals] = useState({}); // id -> bool
-  const [filter, setFilter] = useState("all"); // all | clean | flagged | unapproved
+  const [filter, setFilter] = useState("all"); // all | clean | flagged | unapproved | tag:<name>
+  const [highlightedGroup, setHighlightedGroup] = useState(null); // e.g. "DUPE #3" — flag-msg string
+  const [legendOpen, setLegendOpen] = useState(false);
+  const [summaryOpen, setSummaryOpen] = useState(true);
   const fileRef = useRef(null);
 
   // Augmenter runs whenever pending/store changes
   const warnings = useMemo(() => augmentEvents(pending, events), [pending, events]);
+
+  // Count how many events carry each flag-tag (DUPE #1 and DUPE #2 collapse
+  // into one "DUPE" bucket so the summary stays readable).
+  const flagSummary = useMemo(() => {
+    const counts = {};
+    Object.values(warnings).forEach(ws => {
+      ws.forEach(w => {
+        // Strip group numbers ("DUPE #3" -> "DUPE", "REGION? (...)" -> "REGION?")
+        const key = w.msg.replace(/\s*#\d+\s*/, "").replace(/\s*\(.*\)\s*/, "").trim();
+        counts[key] = (counts[key] || 0) + 1;
+      });
+    });
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  }, [warnings]);
+
+  // Helper — match a flag tag in summary to its event count for filter
+  const eventsWithFlagTag = (tag) => pending.filter(ev => {
+    const ws = warnings[ev.id] || [];
+    return ws.some(w => {
+      const key = w.msg.replace(/\s*#\d+\s*/, "").replace(/\s*\(.*\)\s*/, "").trim();
+      return key === tag;
+    });
+  });
 
   const handleFile = async (e) => {
     const file = e.target.files?.[0];
@@ -139,11 +193,52 @@ export default function ReviewQueue() {
     if (filter === "clean") return pending.filter(e => (warnings[e.id] || []).length === 0);
     if (filter === "flagged") return pending.filter(e => (warnings[e.id] || []).length > 0);
     if (filter === "unapproved") return pending.filter(e => !approvals[e.id]);
+    if (filter.startsWith("tag:")) {
+      const tag = filter.slice(4);
+      return eventsWithFlagTag(tag);
+    }
     return pending;
   }, [pending, warnings, approvals, filter]);
 
   const approvedCount = pending.filter(e => approvals[e.id]).length;
   const flaggedCount = pending.filter(e => (warnings[e.id] || []).length > 0).length;
+
+  // Filter-aware select-all toggle for the visible subset
+  const allVisibleApproved = visible.length > 0 && visible.every(e => approvals[e.id]);
+  const someVisibleApproved = visible.some(e => approvals[e.id]);
+  const toggleAllVisible = () => {
+    const next = !allVisibleApproved;
+    setApprovals(a => {
+      const updated = { ...a };
+      visible.forEach(e => { updated[e.id] = next; });
+      return updated;
+    });
+  };
+
+  // Click flag pill → highlight all events in same group (if it has #N).
+  // Click again on same group → clear.
+  const clickFlag = (msg) => {
+    if (!/#\d+/.test(msg)) return; // only grouped flags are clickable
+    setHighlightedGroup(prev => prev === msg ? null : msg);
+  };
+  const groupMatchKey = (msg) => {
+    const m = msg.match(/#(\d+)/);
+    return m ? m[1] : null;
+  };
+  const isPillInHighlightedGroup = (msg) => {
+    if (!highlightedGroup) return false;
+    const a = groupMatchKey(highlightedGroup);
+    const b = groupMatchKey(msg);
+    if (!a || !b) return false;
+    // Same flag-type prefix + same #N number
+    const prefixA = highlightedGroup.replace(/#\d+.*$/, "");
+    const prefixB = msg.replace(/#\d+.*$/, "");
+    return prefixA === prefixB && a === b;
+  };
+  const isRowInHighlightedGroup = (ev) => {
+    const ws = warnings[ev.id] || [];
+    return ws.some(w => isPillInHighlightedGroup(w.msg));
+  };
 
   const importApproved = () => {
     const approved = pending.filter(e => approvals[e.id]).map(e => ({
@@ -195,8 +290,71 @@ export default function ReviewQueue() {
 
         {pending.length > 0 && (
           <>
+            {/* Flag glossary — collapsible cheat sheet */}
+            <details
+              open={legendOpen}
+              onToggle={e => setLegendOpen(e.target.open)}
+              style={{ marginBottom: "1rem", background: "rgba(245,240,232,0.03)", border: "1px solid rgba(245,240,232,0.08)", borderRadius: "6px" }}
+            >
+              <summary style={{ padding: "10px 14px", cursor: "pointer", fontSize: "0.65rem", letterSpacing: "1.5px", textTransform: "uppercase", color: "rgba(245,240,232,0.7)" }}>
+                {legendOpen ? "▾" : "▸"} Flag glossary — what each tag means
+              </summary>
+              <div style={{ padding: "0 14px 14px", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: "8px 18px" }}>
+                {FLAG_GLOSSARY.map(g => (
+                  <div key={g.tag} style={{ display: "flex", gap: "10px", alignItems: "baseline", fontSize: "0.65rem" }}>
+                    <span style={{
+                      ...PILL_STYLE, padding: "2px 7px", fontWeight: 700, letterSpacing: "1px",
+                      textTransform: "uppercase", borderRadius: "3px", whiteSpace: "nowrap",
+                      background: PILL_STYLE.bg, color: PILL_STYLE.color, border: PILL_STYLE.border,
+                      flexShrink: 0,
+                    }}>{g.tag}</span>
+                    <span style={{ color: "rgba(245,240,232,0.55)", lineHeight: 1.4 }}>{g.desc}</span>
+                  </div>
+                ))}
+              </div>
+            </details>
+
+            {/* Flag-type summary — counts per tag, click to filter */}
+            {flagSummary.length > 0 && (
+              <details
+                open={summaryOpen}
+                onToggle={e => setSummaryOpen(e.target.open)}
+                style={{ marginBottom: "1rem", background: "rgba(229,188,79,0.04)", border: "1px solid rgba(229,188,79,0.18)", borderRadius: "6px" }}
+              >
+                <summary style={{ padding: "10px 14px", cursor: "pointer", fontSize: "0.65rem", letterSpacing: "1.5px", textTransform: "uppercase", color: "#E5BC4F" }}>
+                  {summaryOpen ? "▾" : "▸"} Flag breakdown ({flagSummary.reduce((s, [, n]) => s + n, 0)} total · click a tag to filter)
+                </summary>
+                <div style={{ padding: "0 14px 14px", display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                  {flagSummary.map(([tag, count]) => {
+                    const isActive = filter === `tag:${tag}`;
+                    return (
+                      <button
+                        key={tag}
+                        onClick={() => setFilter(isActive ? "flagged" : `tag:${tag}`)}
+                        style={{
+                          padding: "5px 10px",
+                          background: isActive ? "#E5BC4F" : "rgba(229,188,79,0.12)",
+                          color: isActive ? "#0a0a0a" : "#E5BC4F",
+                          border: `1px solid ${isActive ? "#E5BC4F" : "rgba(229,188,79,0.35)"}`,
+                          borderRadius: "4px",
+                          fontSize: "0.6rem",
+                          fontWeight: 700,
+                          letterSpacing: "1px",
+                          textTransform: "uppercase",
+                          cursor: "pointer",
+                          fontFamily: "inherit",
+                        }}
+                      >
+                        {tag} · {count}
+                      </button>
+                    );
+                  })}
+                </div>
+              </details>
+            )}
+
             {/* Bulk actions + filter */}
-            <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", marginBottom: "0.75rem", flexWrap: "wrap" }}>
               <span style={{ ...L, marginBottom: 0, marginRight: "4px" }}>Filter</span>
               {[["all", "All"], ["clean", "Clean"], ["flagged", "Flagged"], ["unapproved", "Skipped"]].map(([k, lbl]) => (
                 <button
@@ -205,6 +363,12 @@ export default function ReviewQueue() {
                   style={filter === k ? { ...B, background: "rgba(229,188,79,0.15)", borderColor: "#E5BC4F", color: "#E5BC4F" } : B}
                 >{lbl}</button>
               ))}
+              {filter.startsWith("tag:") && (
+                <button
+                  onClick={() => setFilter("flagged")}
+                  style={{ ...B, background: "#E5BC4F", color: "#000", borderColor: "#E5BC4F" }}
+                >× {filter.slice(4)}</button>
+              )}
               <div style={{ flex: 1 }} />
               <button onClick={approveClean} style={B}>Approve clean only</button>
               <button onClick={approveAll} style={B}>Approve all</button>
@@ -218,6 +382,36 @@ export default function ReviewQueue() {
               </button>
             </div>
 
+            {/* Filter-aware select-all row */}
+            {visible.length > 0 && (
+              <div style={{
+                display: "flex", alignItems: "center", gap: "10px",
+                padding: "8px 14px", marginBottom: "0.5rem",
+                background: "rgba(245,240,232,0.05)",
+                border: "1px solid rgba(245,240,232,0.08)",
+                borderRadius: "5px",
+                fontSize: "0.65rem", color: "rgba(245,240,232,0.7)",
+                letterSpacing: "1px", textTransform: "uppercase",
+              }}>
+                <input
+                  type="checkbox"
+                  checked={allVisibleApproved}
+                  ref={el => { if (el) el.indeterminate = !allVisibleApproved && someVisibleApproved; }}
+                  onChange={toggleAllVisible}
+                  style={{ width: 18, height: 18, accentColor: "#E5BC4F", cursor: "pointer" }}
+                />
+                <span>
+                  {allVisibleApproved ? "Skip" : "Select"} all in this filter ({visible.length} visible)
+                </span>
+                {highlightedGroup && (
+                  <span style={{ marginLeft: "auto", color: "#E5BC4F" }}>
+                    Tracing group: <strong>{highlightedGroup}</strong>
+                    <button onClick={() => setHighlightedGroup(null)} style={{ ...B, marginLeft: "8px", padding: "3px 8px", fontSize: "0.5rem" }}>Clear trace</button>
+                  </span>
+                )}
+              </div>
+            )}
+
             {/* Event rows */}
             <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
               {visible.length === 0 && (
@@ -228,19 +422,27 @@ export default function ReviewQueue() {
               {visible.map(ev => {
                 const w = warnings[ev.id] || [];
                 const approved = approvals[ev.id];
+                const isFlagged = w.length > 0;
+                const inHighlightedGroup = isRowInHighlightedGroup(ev);
                 return (
                   <div
                     key={ev.id}
                     style={{
                       display: "grid",
-                      gridTemplateColumns: "auto 50px 1fr auto auto auto",
+                      gridTemplateColumns: "auto auto 50px 1fr auto auto auto",
                       gap: "12px",
                       alignItems: "center",
                       padding: "10px 14px",
-                      background: approved ? "rgba(52,211,153,0.05)" : "rgba(245,240,232,0.03)",
-                      border: `1px solid ${approved ? "rgba(52,211,153,0.18)" : "rgba(245,240,232,0.06)"}`,
+                      background: inHighlightedGroup
+                        ? "rgba(229,188,79,0.12)"
+                        : approved ? "rgba(52,211,153,0.05)" : "rgba(245,240,232,0.03)",
+                      border: `1px solid ${
+                        inHighlightedGroup ? "#E5BC4F" :
+                        approved ? "rgba(52,211,153,0.18)" : "rgba(245,240,232,0.06)"
+                      }`,
                       borderRadius: "5px",
-                      opacity: approved ? 1 : 0.55,
+                      opacity: approved ? 1 : 0.65,
+                      transition: "background 120ms ease, border-color 120ms ease",
                     }}
                   >
                     <input
@@ -249,6 +451,9 @@ export default function ReviewQueue() {
                       onChange={() => toggle(ev.id)}
                       style={{ width: 18, height: 18, accentColor: "#E5BC4F", cursor: "pointer" }}
                     />
+                    <span style={{ fontSize: "1rem", width: "20px", textAlign: "center", lineHeight: 1 }}>
+                      {isFlagged ? "🚩" : ""}
+                    </span>
                     <span style={{ fontFamily: "'Syne', sans-serif", fontSize: "0.8rem", fontWeight: 700, color: "#E5BC4F", letterSpacing: "1px" }}>
                       {DAYFUL[ev.day]?.slice(0, 3) || "?"}
                     </span>
@@ -266,22 +471,28 @@ export default function ReviewQueue() {
                     <span style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.45)", letterSpacing: "1px", textTransform: "uppercase" }}>
                       {ev.type || "—"}
                     </span>
-                    <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", maxWidth: "260px", justifyContent: "flex-end" }}>
+                    <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", maxWidth: "320px", justifyContent: "flex-end" }}>
                       {w.map((warn, i) => {
-                        const c = WARN_COLORS[warn.type] || WARN_COLORS.gray;
+                        const hasGroup = /#\d+/.test(warn.msg);
+                        const isHighlighted = isPillInHighlightedGroup(warn.msg);
+                        const style = isHighlighted ? PILL_HIGHLIGHTED : PILL_STYLE;
                         return (
                           <span
                             key={i}
+                            onClick={(e) => { e.stopPropagation(); clickFlag(warn.msg); }}
+                            title={hasGroup ? "Click to trace this group across all events" : undefined}
                             style={{
                               padding: "2px 7px",
-                              background: c.bg,
-                              color: c.color,
+                              background: style.bg,
+                              color: style.color,
+                              border: style.border,
                               fontSize: "0.55rem",
                               fontWeight: 700,
                               letterSpacing: "1px",
                               textTransform: "uppercase",
                               borderRadius: "3px",
                               whiteSpace: "nowrap",
+                              cursor: hasGroup ? "pointer" : "default",
                             }}
                           >
                             {warn.msg}
