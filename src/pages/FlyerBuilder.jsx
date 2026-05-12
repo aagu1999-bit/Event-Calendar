@@ -649,8 +649,27 @@ function PhotoHeroLayout({ data, theme, photoUrl, bgOpacity, titleFont, bodyFont
       }}>
         {/* TOP STACK */}
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "18px" }}>
-          {/* Sponsor logos row (text stand-ins) */}
-          {data.footerItems && data.footerItems.length > 0 && (
+          {/* Sponsor row — real logo images when uploaded, text stand-ins otherwise */}
+          {data.sponsorLogos && data.sponsorLogos.length > 0 ? (
+            <div style={{
+              display: "flex", gap: "44px", alignItems: "center", justifyContent: "center",
+              minHeight: "80px",
+            }}>
+              {data.sponsorLogos.slice(0, 3).map((url, i) => (
+                <img
+                  key={i}
+                  src={url}
+                  alt=""
+                  style={{
+                    maxHeight: "80px",
+                    maxWidth: "200px",
+                    objectFit: "contain",
+                    filter: isFullBg ? "drop-shadow(0 4px 12px rgba(0,0,0,0.5))" : "none",
+                  }}
+                />
+              ))}
+            </div>
+          ) : (data.footerItems && data.footerItems.length > 0 && (
             <div style={{
               display: "flex", gap: "40px", alignItems: "center", justifyContent: "center",
               fontFamily: bFont, fontWeight: bWeight,
@@ -661,7 +680,7 @@ function PhotoHeroLayout({ data, theme, photoUrl, bgOpacity, titleFont, bodyFont
                 <span key={i}>{it}</span>
               ))}
             </div>
-          )}
+          ))}
 
           {/* Tagline (uses wordmark slot) */}
           {data.wordmark && (
@@ -1467,6 +1486,9 @@ export default function FlyerBuilder() {
     headliner: "CAFE ERZULIE",
     // HolidayPromo-specific (newline-separated deal list)
     deals: "1 HOUR OPEN BAR\n$5 SURFSIDES\n$7 TEQUILA SHOTS\n$8 MARGARITAS",
+    // PhotoHero/Mixer-specific: up to 3 sponsor logos as data URLs.
+    // When empty, the template falls back to footerItems text stand-ins.
+    sponsorLogos: [],
   });
 
   const [template, setTemplate] = useState("nightclub");
@@ -1638,6 +1660,70 @@ export default function FlyerBuilder() {
             <Section>
               <label style={L}>Ticket / URL line</label>
               <input style={I} value={data.ticketUrl} onChange={e => update("ticketUrl", e.target.value)} placeholder="TICKETS ON SALE AT…" />
+            </Section>
+            <Section>
+              <label style={L}>Sponsor logos (up to 3 · PNG with transparency works best)</label>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "6px" }}>
+                {[0, 1, 2].map(i => {
+                  const url = data.sponsorLogos?.[i];
+                  return (
+                    <div key={i} style={{
+                      position: "relative",
+                      aspectRatio: "1.5",
+                      background: "rgba(245,240,232,0.04)",
+                      border: `1px ${url ? "solid" : "dashed"} rgba(245,240,232,0.15)`,
+                      borderRadius: "4px",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      cursor: "pointer", overflow: "hidden",
+                    }}
+                    onClick={() => {
+                      const input = document.createElement("input");
+                      input.type = "file";
+                      input.accept = "image/*";
+                      input.onchange = (e) => {
+                        const f = e.target.files?.[0];
+                        if (!f) return;
+                        const reader = new FileReader();
+                        reader.onload = (ev) => {
+                          const next = [...(data.sponsorLogos || [])];
+                          next[i] = ev.target.result;
+                          update("sponsorLogos", next.filter(Boolean));
+                        };
+                        reader.readAsDataURL(f);
+                      };
+                      input.click();
+                    }}>
+                      {url ? (
+                        <>
+                          <img src={url} alt="" style={{ maxWidth: "85%", maxHeight: "85%", objectFit: "contain" }} />
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const next = [...(data.sponsorLogos || [])];
+                              next.splice(i, 1);
+                              update("sponsorLogos", next);
+                            }}
+                            style={{
+                              position: "absolute", top: "2px", right: "2px",
+                              width: "18px", height: "18px",
+                              border: "none", borderRadius: "50%",
+                              background: "rgba(0,0,0,0.6)", color: "#FB7185",
+                              fontSize: "0.55rem", cursor: "pointer",
+                              display: "flex", alignItems: "center", justifyContent: "center",
+                            }}>×</button>
+                        </>
+                      ) : (
+                        <span style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.35)", letterSpacing: "1px", textTransform: "uppercase" }}>+ Logo {i + 1}</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              {(!data.sponsorLogos || data.sponsorLogos.length === 0) && (
+                <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", marginTop: "4px" }}>
+                  No logos → falls back to footer-item text stand-ins
+                </div>
+              )}
             </Section>
           </>
         )}

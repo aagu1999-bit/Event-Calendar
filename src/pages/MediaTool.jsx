@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import JSZip from "jszip";
 import { useEventsStore } from "../store";
 
 const COLORS = {
@@ -309,6 +310,106 @@ export default function MediaTool() {
 
   const MODES=[["cover","Cover"],["list","List"],["stat","Stat"],["text","Text"]];
 
+  // Auto-generate a 5-slide weekend carousel from the events store:
+  //   1. Cover — headline with event count
+  //   2. List — Friday top picks
+  //   3. List — Saturday top picks
+  //   4. List — Sunday top picks
+  //   5. Stat — closing event-count slide
+  // All zipped + downloaded in one click. Photo (if uploaded) used on Cover.
+  const [isAutoGen, setIsAutoGen] = useState(false);
+  const autoGenerateCarousel = async () => {
+    if (events.length === 0 || isAutoGen) return;
+    setIsAutoGen(true);
+    try {
+      await document.fonts.ready;
+      const byDay = (d) => events
+        .filter(e => e.day === d)
+        .slice(0, 6)
+        .map(e => ({
+          name: e.name || "Untitled",
+          detail: [e.venue, e.area, e.time].filter(Boolean).join(" · "),
+          featured: false,
+        }));
+      const friItems = byDay("Fri");
+      const satItems = byDay("Sat");
+      const sunItems = byDay("Sun");
+      const dayCount = [friItems, satItems, sunItems].filter(a => a.length > 0).length;
+      const regionCount = new Set(events.map(e => e.region).filter(Boolean)).size;
+      const typeCount = new Set(events.map(e => e.type).filter(Boolean)).size;
+
+      const slides = [
+        {
+          mode: "cover",
+          name: "01_cover",
+          cfg: {
+            photo,
+            headline: `This weekend in NJ has ${events.length} events. Here's what you need to know`,
+            highlights: new Set([5, 6, 9]),
+            accent, dots: 1, totalDots: 5,
+            subtitle: "WEEKEND GUIDE",
+            opacity,
+          },
+        },
+        ...(friItems.length > 0 ? [{
+          mode: "list",
+          name: "02_friday",
+          cfg: { items: friItems, accent, bgKey: "purple", dots: 2, totalDots: 5, listTitle: "FRIDAY", listSubtitle: "TOP PICKS" },
+        }] : []),
+        ...(satItems.length > 0 ? [{
+          mode: "list",
+          name: "03_saturday",
+          cfg: { items: satItems, accent, bgKey: "wine", dots: 3, totalDots: 5, listTitle: "SATURDAY", listSubtitle: "TOP PICKS" },
+        }] : []),
+        ...(sunItems.length > 0 ? [{
+          mode: "list",
+          name: "04_sunday",
+          cfg: { items: sunItems, accent, bgKey: "emerald", dots: 4, totalDots: 5, listTitle: "SUNDAY", listSubtitle: "TOP PICKS" },
+        }] : []),
+        {
+          mode: "stat",
+          name: "05_stat",
+          cfg: {
+            statNumber: String(events.length),
+            statLabel: "EVENTS",
+            statSub: `Across ${dayCount} day${dayCount === 1 ? "" : "s"}, ${regionCount} region${regionCount === 1 ? "" : "s"},\nand ${typeCount} categor${typeCount === 1 ? "y" : "ies"}`,
+            accent, bgKey: "black", dots: 5, totalDots: 5,
+          },
+        },
+      ];
+
+      // Re-tag dots based on the actual slide count (some days may be empty).
+      slides.forEach((s, i) => {
+        s.cfg.dots = i + 1;
+        s.cfg.totalDots = slides.length;
+      });
+
+      const zip = new JSZip();
+      for (const s of slides) {
+        const cv = document.createElement("canvas");
+        if (s.mode === "cover") renderCover(cv, s.cfg);
+        else if (s.mode === "list") renderList(cv, s.cfg);
+        else if (s.mode === "stat") renderStat(cv, s.cfg);
+        const blob = await new Promise(res => cv.toBlob(res, "image/png"));
+        zip.file(`CGE_carousel_${s.name}.png`, blob);
+      }
+      const zipBlob = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(zipBlob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `CGE_weekend_carousel_${Date.now()}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Auto-generate failed:", err);
+      alert("Auto-generate failed — see console.");
+    } finally {
+      setIsAutoGen(false);
+    }
+  };
+
   return(
     <div style={{minHeight:"calc(100vh - 60px)",background:"#080808",color:"#F5F0E8",fontFamily:"'DM Sans',sans-serif"}}>
       <div style={{maxWidth:1150,margin:"0 auto",padding:"1.25rem"}}>
@@ -320,6 +421,48 @@ export default function MediaTool() {
         <div style={{display:"flex",gap:"0.3rem",marginBottom:"1rem"}}>
           {MODES.map(([k,lb])=><button key={k} onClick={()=>setMode(k)} style={{padding:"6px 16px",borderRadius:"5px",fontSize:"0.7rem",fontWeight:700,cursor:"pointer",border:mode===k?"2px solid #FACC15":"2px solid rgba(245,240,232,0.06)",background:mode===k?"rgba(250,204,21,0.12)":"transparent",color:mode===k?"#FACC15":"rgba(245,240,232,0.25)",fontFamily:"'Syne',sans-serif",letterSpacing:"1px",textTransform:"uppercase"}}>{lb}</button>)}
         </div>
+
+        {events.length > 0 && (
+          <div style={{
+            marginBottom: "1rem",
+            padding: "10px 14px",
+            background: "rgba(229,188,79,0.06)",
+            border: "1px solid rgba(229,188,79,0.22)",
+            borderRadius: "6px",
+            display: "flex",
+            alignItems: "center",
+            gap: "0.75rem",
+          }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: "0.6rem", color: "#E5BC4F", letterSpacing: "1.5px", textTransform: "uppercase", marginBottom: "2px" }}>
+                Auto-generate weekend carousel
+              </div>
+              <div style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.55)" }}>
+                {events.length} events → Cover + Fri / Sat / Sun lists + closing stat · zipped as 5 PNGs
+              </div>
+            </div>
+            <button
+              onClick={autoGenerateCarousel}
+              disabled={isAutoGen}
+              style={{
+                padding: "8px 14px",
+                background: isAutoGen ? "rgba(229,188,79,0.4)" : "#E5BC4F",
+                color: "#000",
+                border: "none",
+                borderRadius: "4px",
+                fontSize: "0.65rem",
+                fontWeight: 700,
+                letterSpacing: "1.5px",
+                textTransform: "uppercase",
+                cursor: isAutoGen ? "wait" : "pointer",
+                fontFamily: "'Syne', sans-serif",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {isAutoGen ? "Generating…" : "Generate ZIP"}
+            </button>
+          </div>
+        )}
 
         <div style={{display:"grid",gridTemplateColumns:"1fr 400px",gap:"1.5rem",alignItems:"start"}}>
           <div>
