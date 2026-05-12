@@ -259,11 +259,21 @@ export default function ReviewQueue() {
     // Sort-to-top by group (narrow — wins over tag sort): when a specific
     // numbered flag pill is clicked, float just THAT group to the very top.
     // VENUE #17 (the 2 events sharing that group) above the broader VENUE
-    // bucket. Lets the user line up dupes/conflicts side-by-side for compare.
+    // bucket. Logic inlined here (not calling isPillInHighlightedGroup which
+    // is declared later in the component — would TDZ-error on re-render).
     if (highlightedGroup) {
+      const targetMatch = highlightedGroup.match(/#(\d+)/);
+      const targetNum = targetMatch ? targetMatch[1] : null;
+      const targetPrefix = highlightedGroup.replace(/#\d+.*$/, "").trim();
       const groupMatch = (ev) => {
+        if (!targetNum) return false;
         const ws = warnings[ev.id] || [];
-        return ws.some(w => isPillInHighlightedGroup(w.msg));
+        return ws.some(w => {
+          const wNum = w.msg.match(/#(\d+)/);
+          if (!wNum) return false;
+          const wPrefix = w.msg.replace(/#\d+.*$/, "").trim();
+          return wPrefix === targetPrefix && wNum[1] === targetNum;
+        });
       };
       list = [...list].sort((a, b) => {
         const aIn = groupMatch(a);
