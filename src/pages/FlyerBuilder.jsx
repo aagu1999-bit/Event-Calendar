@@ -11,6 +11,19 @@ const STYLE_B = { padding: "7px 10px", background: "rgba(245,240,232,0.04)", bor
 const STYLE_Bact = { ...STYLE_B, background: "rgba(229,188,79,0.15)", borderColor: "#E5BC4F", color: "#E5BC4F" };
 function Section({ children }) { return <div style={{ marginBottom: "16px" }}>{children}</div>; }
 
+// Crop/reposition helper: build the style props for an <img> from a photoCrop
+// {x, y, zoom}. objectPosition pans within the cover-fit; scale+origin zooms
+// around the chosen point so the same control feels like "pinch + drag" UX.
+function photoCropStyle(crop) {
+  const c = crop || { x: 50, y: 50, zoom: 1 };
+  return {
+    objectFit: "cover",
+    objectPosition: `${c.x}% ${c.y}%`,
+    transform: `scale(${c.zoom})`,
+    transformOrigin: `${c.x}% ${c.y}%`,
+  };
+}
+
 // ==================== THEMES ====================
 // Mirrors Calendar's COLORS palette so flyers match slide families.
 // `spot` is "R,G,B" (used to compose rgba spotlights).
@@ -276,7 +289,8 @@ function NightclubLayout({ data, theme, photoMode, photoUrl, bgOpacity, titleFon
         <>
           <img src={photoUrl} alt="" style={{
             position: "absolute", inset: 0,
-            width: "100%", height: "100%", objectFit: "cover",
+            width: "100%", height: "100%",
+            ...photoCropStyle(data.photoCrop),
           }} />
           <div style={{
             position: "absolute", inset: 0,
@@ -390,7 +404,8 @@ function NightclubLayout({ data, theme, photoMode, photoUrl, bgOpacity, titleFon
                 boxShadow: "0 14px 40px rgba(0,0,0,0.4)",
               }}>
                 <img src={photoUrl} alt="" style={{
-                  width: "100%", height: "100%", objectFit: "cover", display: "block",
+                  width: "100%", height: "100%", display: "block",
+                  ...photoCropStyle(data.photoCrop),
                 }} />
               </div>
             ) : (
@@ -623,7 +638,8 @@ function PhotoHeroLayout({ data, theme, photoUrl, bgOpacity, titleFont, bodyFont
         <>
           <img src={photoUrl} alt="" style={{
             position: "absolute", inset: 0,
-            width: "100%", height: "100%", objectFit: "cover",
+            width: "100%", height: "100%",
+            ...photoCropStyle(data.photoCrop),
           }} />
           <div style={{
             position: "absolute", inset: 0,
@@ -830,8 +846,8 @@ function BoutiqueLayout({ data, theme, photoUrl, titleFont, bodyFont, bgSize, ti
           {photoUrl ? (
             <img src={photoUrl} alt="" style={{
               width: `${photoW}px`, height: `${photoH}px`,
-              objectFit: "cover",
               display: "block",
+              ...photoCropStyle(data.photoCrop),
             }} />
           ) : (
             <div style={{
@@ -938,8 +954,9 @@ function TornPaperLayout({ data, theme, photoUrl, bgOpacity, titleFont, bodyFont
         <>
           <img src={photoUrl} alt="" style={{
             position: "absolute", inset: 0,
-            width: "100%", height: "100%", objectFit: "cover",
+            width: "100%", height: "100%",
             filter: "saturate(0.8) brightness(0.55)",
+            ...photoCropStyle(data.photoCrop),
           }} />
           <div style={{
             position: "absolute", inset: 0,
@@ -1024,7 +1041,8 @@ function TornPaperLayout({ data, theme, photoUrl, bgOpacity, titleFont, bodyFont
                   overflow: "hidden",
                 }}>
                   <img src={photoUrl} alt="" style={{
-                    width: "100%", height: "100%", objectFit: "cover", display: "block",
+                    width: "100%", height: "100%", display: "block",
+                    ...photoCropStyle(data.photoCrop),
                   }} />
                 </div>
               </div>
@@ -1375,8 +1393,9 @@ function GoldenSeriesLayout({ data, goldenFlavor = "sunset", photoUrl, bgOpacity
               boxShadow: "0 14px 40px rgba(0,0,0,0.35)",
             }}>
               <img src={photoUrl} alt="" style={{
-                width: "100%", height: "100%", objectFit: "cover", display: "block",
+                width: "100%", height: "100%", display: "block",
                 filter: flavor.photoFilter,
+                ...photoCropStyle(data.photoCrop),
               }} />
               {/* Subtle gradient at bottom for any future overlay text */}
               <div style={{
@@ -1489,6 +1508,10 @@ export default function FlyerBuilder() {
     // PhotoHero/Mixer-specific: up to 3 sponsor logos as data URLs.
     // When empty, the template falls back to footerItems text stand-ins.
     sponsorLogos: [],
+    // Photo crop/reposition — applied to every photo-using template.
+    // x/y are 0-100 (objectPosition %), zoom is 1.0-2.5 (scale around the
+    // x/y point). Reset to 50/50/1 whenever a new photo is uploaded.
+    photoCrop: { x: 50, y: 50, zoom: 1 },
   });
 
   const [template, setTemplate] = useState("nightclub");
@@ -1513,7 +1536,11 @@ export default function FlyerBuilder() {
     const f = e.target.files?.[0];
     if (!f) return;
     const reader = new FileReader();
-    reader.onload = ev => setPhotoUrl(ev.target.result);
+    reader.onload = ev => {
+      setPhotoUrl(ev.target.result);
+      // Reset crop to defaults when a new photo is loaded
+      update("photoCrop", { x: 50, y: 50, zoom: 1 });
+    };
     reader.readAsDataURL(f);
   };
 
@@ -1901,6 +1928,45 @@ export default function FlyerBuilder() {
             <input type="range" min="0.30" max="0.92" step="0.01" value={bgOpacity}
               onChange={e => setBgOpacity(parseFloat(e.target.value))}
               style={{ width: "100%", accentColor: "#E5BC4F" }} />
+          </Section>
+        )}
+
+        {/* Photo crop/reposition — shown whenever a photo is uploaded */}
+        {photoUrl && (
+          <Section>
+            <label style={L}>Photo position & zoom</label>
+            <div style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", gap: "4px 8px", alignItems: "center", fontSize: "0.55rem", color: "rgba(245,240,232,0.5)" }}>
+              <span style={{ letterSpacing: "1px", textTransform: "uppercase" }}>X</span>
+              <input
+                type="range" min="0" max="100" step="1"
+                value={data.photoCrop?.x ?? 50}
+                onChange={e => update("photoCrop", { ...(data.photoCrop || { x: 50, y: 50, zoom: 1 }), x: parseInt(e.target.value) })}
+                style={{ width: "100%", accentColor: "#E5BC4F" }}
+              />
+              <span style={{ minWidth: "26px", textAlign: "right" }}>{data.photoCrop?.x ?? 50}%</span>
+              <span style={{ letterSpacing: "1px", textTransform: "uppercase" }}>Y</span>
+              <input
+                type="range" min="0" max="100" step="1"
+                value={data.photoCrop?.y ?? 50}
+                onChange={e => update("photoCrop", { ...(data.photoCrop || { x: 50, y: 50, zoom: 1 }), y: parseInt(e.target.value) })}
+                style={{ width: "100%", accentColor: "#E5BC4F" }}
+              />
+              <span style={{ minWidth: "26px", textAlign: "right" }}>{data.photoCrop?.y ?? 50}%</span>
+              <span style={{ letterSpacing: "1px", textTransform: "uppercase" }}>Zoom</span>
+              <input
+                type="range" min="1" max="2.5" step="0.05"
+                value={data.photoCrop?.zoom ?? 1}
+                onChange={e => update("photoCrop", { ...(data.photoCrop || { x: 50, y: 50, zoom: 1 }), zoom: parseFloat(e.target.value) })}
+                style={{ width: "100%", accentColor: "#E5BC4F" }}
+              />
+              <span style={{ minWidth: "26px", textAlign: "right" }}>{(data.photoCrop?.zoom ?? 1).toFixed(2)}×</span>
+            </div>
+            <button
+              onClick={() => update("photoCrop", { x: 50, y: 50, zoom: 1 })}
+              style={{ ...B, marginTop: "6px", fontSize: "0.55rem", padding: "5px 8px" }}
+            >
+              Reset crop
+            </button>
           </Section>
         )}
 
