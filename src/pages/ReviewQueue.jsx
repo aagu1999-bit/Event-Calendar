@@ -326,6 +326,27 @@ export default function ReviewQueue() {
     return ws.some(w => isPillInHighlightedGroup(w.msg));
   };
 
+  // Delete row(s) from pending entirely — distinct from "skip" which keeps
+  // the row in the upload but unchecked. Delete removes them from view
+  // completely and they won't count toward the breakdown anymore.
+  const deleteRow = (id) => {
+    setPending(p => p.filter(e => e.id !== id));
+    setApprovals(a => { const next = { ...a }; delete next[id]; return next; });
+    if (editingId === id) { setEditingId(null); setEditDraft({}); }
+  };
+  const deleteVisible = () => {
+    if (visible.length === 0) return;
+    if (visible.length > 5 && !window.confirm(`Delete ${visible.length} rows from the upload? They'll be gone from this review — re-upload the sheet to get them back.`)) return;
+    const ids = new Set(visible.map(e => e.id));
+    setPending(p => p.filter(e => !ids.has(e.id)));
+    setApprovals(a => {
+      const next = { ...a };
+      ids.forEach(id => { delete next[id]; });
+      return next;
+    });
+    if (editingId && ids.has(editingId)) { setEditingId(null); setEditDraft({}); }
+  };
+
   // Inline-edit helpers
   const startEdit = (ev) => {
     setEditingId(ev.id);
@@ -540,6 +561,16 @@ export default function ReviewQueue() {
               <button onClick={approveAll} style={B}>Approve all</button>
               <button onClick={rejectAll} style={B}>Skip all</button>
               <button
+                onClick={deleteVisible}
+                disabled={visible.length === 0}
+                title="Remove all visible rows from this review entirely (not skip — delete)"
+                style={visible.length > 0
+                  ? { ...B, background: "rgba(251,113,133,0.1)", borderColor: "rgba(251,113,133,0.35)", color: "#FB7185" }
+                  : { ...B, opacity: 0.4, cursor: "not-allowed" }}
+              >
+                Delete {visible.length} visible
+              </button>
+              <button
                 onClick={importApproved}
                 disabled={approvedCount === 0}
                 style={approvedCount > 0 ? Bgold : { ...B, opacity: 0.4, cursor: "not-allowed" }}
@@ -628,14 +659,18 @@ export default function ReviewQueue() {
                       background: inHighlightedGroup
                         ? "rgba(229,188,79,0.12)"
                         : isEditing ? "rgba(229,188,79,0.06)"
-                          : approved ? "rgba(52,211,153,0.05)" : "rgba(245,240,232,0.03)",
+                          : approved ? "rgba(52,211,153,0.05)" : "rgba(245,240,232,0.06)",
                       border: `1px solid ${
                         inHighlightedGroup ? "#E5BC4F" :
                         isEditing ? "#E5BC4F" :
-                        approved ? "rgba(52,211,153,0.18)" : "rgba(245,240,232,0.06)"
+                        approved ? "rgba(52,211,153,0.18)" : "rgba(245,240,232,0.12)"
                       }`,
                       borderRadius: isEditing ? "5px 5px 0 0" : "5px",
-                      opacity: approved ? 1 : 0.65,
+                      // Keep full readability on unapproved rows — visual
+                      // "won't import" cue comes from the unchecked box +
+                      // muted bg, not from opacity (which made text hard to
+                      // read on the dark theme).
+                      opacity: approved ? 1 : 0.88,
                       transition: "background 120ms ease, border-color 120ms ease",
                     }}
                   >
@@ -699,22 +734,40 @@ export default function ReviewQueue() {
                         </span>
                       )}
                     </div>
-                    <button
-                      onClick={() => isEditing ? cancelEdit() : startEdit(ev)}
-                      title={isEditing ? "Cancel edit" : "Edit this event in place"}
-                      style={{
-                        padding: "5px 9px",
-                        background: isEditing ? "#E5BC4F" : "rgba(245,240,232,0.04)",
-                        color: isEditing ? "#000" : "#F5F0E8",
-                        border: `1px solid ${isEditing ? "#E5BC4F" : "rgba(245,240,232,0.1)"}`,
-                        borderRadius: "4px",
-                        fontSize: "0.7rem",
-                        cursor: "pointer",
-                        fontFamily: "inherit",
-                      }}
-                    >
-                      {isEditing ? "✕" : "✎"}
-                    </button>
+                    <div style={{ display: "flex", gap: "4px" }}>
+                      <button
+                        onClick={() => isEditing ? cancelEdit() : startEdit(ev)}
+                        title={isEditing ? "Cancel edit" : "Edit this event in place"}
+                        style={{
+                          padding: "5px 9px",
+                          background: isEditing ? "#E5BC4F" : "rgba(245,240,232,0.04)",
+                          color: isEditing ? "#000" : "#F5F0E8",
+                          border: `1px solid ${isEditing ? "#E5BC4F" : "rgba(245,240,232,0.1)"}`,
+                          borderRadius: "4px",
+                          fontSize: "0.7rem",
+                          cursor: "pointer",
+                          fontFamily: "inherit",
+                        }}
+                      >
+                        {isEditing ? "✕" : "✎"}
+                      </button>
+                      <button
+                        onClick={() => deleteRow(ev.id)}
+                        title="Delete this row from the upload entirely (not skip — delete)"
+                        style={{
+                          padding: "5px 9px",
+                          background: "rgba(251,113,133,0.06)",
+                          color: "rgba(251,113,133,0.7)",
+                          border: "1px solid rgba(251,113,133,0.2)",
+                          borderRadius: "4px",
+                          fontSize: "0.7rem",
+                          cursor: "pointer",
+                          fontFamily: "inherit",
+                        }}
+                      >
+                        ✕
+                      </button>
+                    </div>
                   </div>
 
                   {/* Inline edit form — expands below the row */}
