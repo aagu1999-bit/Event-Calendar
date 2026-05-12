@@ -1,6 +1,15 @@
 import { useState, useRef } from "react";
 import { useEventsStore } from "../store";
 
+// ==================== CONTROL-PANE STYLES & PRIMITIVES ====================
+// Defined at module scope (NOT inside FlyerBuilder) so React doesn't
+// recreate them every render and unmount focused <input>s mid-keystroke.
+const STYLE_L = { fontSize: "0.6rem", color: "rgba(245,240,232,0.55)", letterSpacing: "1.5px", textTransform: "uppercase", display: "block", marginBottom: "6px" };
+const STYLE_I = { width: "100%", padding: "8px 10px", background: "rgba(245,240,232,0.04)", border: "1px solid rgba(245,240,232,0.1)", borderRadius: "4px", color: "#F5F0E8", fontFamily: "inherit", fontSize: "0.78rem" };
+const STYLE_B = { padding: "7px 10px", background: "rgba(245,240,232,0.04)", border: "1px solid rgba(245,240,232,0.1)", borderRadius: "4px", color: "#F5F0E8", fontFamily: "inherit", fontSize: "0.65rem", cursor: "pointer", letterSpacing: "1px", textTransform: "uppercase" };
+const STYLE_Bact = { ...STYLE_B, background: "rgba(229,188,79,0.15)", borderColor: "#E5BC4F", color: "#E5BC4F" };
+function Section({ children }) { return <div style={{ marginBottom: "16px" }}>{children}</div>; }
+
 // ==================== THEMES ====================
 // Mirrors Calendar's COLORS palette so flyers match slide families.
 // `spot` is "R,G,B" (used to compose rgba spotlights).
@@ -119,6 +128,91 @@ function TwinSparkle({ color, size = 180 }) {
     </svg>
   );
 }
+
+// === GOLDEN SERIES ORNAMENTS ===
+// Three flavor-specific marks. Each replaces the generic twin-sparkle for
+// the Golden Series template — distinct identity per flavor.
+
+// Sunset Gold — horizon line with a half-sun rising and rays.
+function HorizonOrnament({ color, size = 200 }) {
+  return (
+    <svg width={size} height={size * 0.45} viewBox="0 0 360 162" style={{ display: "block" }}>
+      <g fill="none" stroke={color} strokeWidth="3.5" strokeLinecap="round">
+        <line x1="20" y1="120" x2="340" y2="120" />
+        <line x1="180" y1="38" x2="180" y2="18" />
+        <line x1="140" y1="52" x2="120" y2="32" />
+        <line x1="220" y1="52" x2="240" y2="32" />
+        <line x1="112" y1="82" x2="88" y2="70" />
+        <line x1="248" y1="82" x2="272" y2="70" />
+      </g>
+      <path d="M 138 120 A 42 42 0 0 1 222 120" fill={color} />
+    </svg>
+  );
+}
+
+// Patio Cream — organic stem-and-leaves botanical mark.
+function LeafOrnament({ color, size = 200 }) {
+  return (
+    <svg width={size} height={size * 0.5} viewBox="0 0 360 180" style={{ display: "block" }}>
+      <g fill={color}>
+        <rect x="178" y="40" width="4" height="120" rx="2" />
+        <ellipse cx="148" cy="62" rx="34" ry="14" transform="rotate(-28 148 62)" />
+        <ellipse cx="212" cy="62" rx="34" ry="14" transform="rotate(28 212 62)" />
+        <ellipse cx="142" cy="100" rx="40" ry="16" transform="rotate(-22 142 100)" />
+        <ellipse cx="218" cy="100" rx="40" ry="16" transform="rotate(22 218 100)" />
+        <ellipse cx="180" cy="36" rx="14" ry="22" />
+      </g>
+    </svg>
+  );
+}
+
+// After-Five Black — single oversized 4-point starburst.
+// After-Five Black — minimal art-deco mark. Two thin parallel rules with
+// a small bracket motif in the center. Evening / supper-club feel without
+// borrowing any star or sparkle shape.
+function DecoMarkOrnament({ color, size = 200 }) {
+  return (
+    <svg width={size} height={size * 0.3} viewBox="0 0 360 108" style={{ display: "block" }}>
+      <g stroke={color} strokeWidth="2.5" strokeLinecap="round" fill="none">
+        <line x1="30" y1="34" x2="155" y2="34" />
+        <line x1="205" y1="34" x2="330" y2="34" />
+        <line x1="30" y1="74" x2="155" y2="74" />
+        <line x1="205" y1="74" x2="330" y2="74" />
+      </g>
+      <g fill={color}>
+        <rect x="170" y="30" width="3" height="48" />
+        <rect x="187" y="30" width="3" height="48" />
+        <circle cx="178.5" cy="54" r="4" />
+      </g>
+    </svg>
+  );
+}
+
+// === GOLDEN SERIES FLAVOR CONFIG ===
+// Each flavor locks theme + photo filter + ornament + accent bar color.
+const GOLDEN_FLAVORS = {
+  sunset: {
+    name: "Sunset Gold",
+    theme: "gold",
+    photoFilter: "saturate(1.05) sepia(0.18) hue-rotate(-8deg) brightness(0.95)",
+    Ornament: HorizonOrnament,
+    description: "Patio at golden hour",
+  },
+  cream: {
+    name: "Patio Cream",
+    theme: "cream",
+    photoFilter: "saturate(0.85) brightness(1.05) contrast(0.95)",
+    Ornament: LeafOrnament,
+    description: "Sunday afternoon, no pressure",
+  },
+  afterfive: {
+    name: "After-Five Black",
+    theme: "black",
+    photoFilter: "saturate(0.78) brightness(0.82) contrast(1.08)",
+    Ornament: DecoMarkOrnament,
+    description: "Dinner-and-drinks crowd",
+  },
+};
 
 // ==================== FLYER SURFACE (1080x1350) ====================
 // Title-size tiers. Each tier has a one-line size and a tighter two-line size
@@ -256,12 +350,15 @@ function NightclubLayout({ data, theme, photoMode, photoUrl, bgOpacity, titleFon
           );
         })()}
 
-        {/* ORNAMENT */}
+        {/* Hairline rule (replaces the previous twin-sparkle ornament) */}
         <div style={{
           display: "flex", justifyContent: "center",
-          margin: "28px 0 22px",
+          margin: "30px 0 26px",
         }}>
-          <TwinSparkle color={textColor} size={200} />
+          <div style={{
+            width: "120px", height: "2px",
+            background: textColor, opacity: 0.45,
+          }} />
         </div>
 
         {/* META ROW: DATE | VENUE | TIME */}
@@ -288,7 +385,6 @@ function NightclubLayout({ data, theme, photoMode, photoUrl, bgOpacity, titleFon
               <div style={{
                 position: "absolute", inset: 0,
                 borderRadius: "22px", overflow: "hidden",
-                border: `4px solid ${t.title}`,
                 background: "#000",
                 boxShadow: "0 14px 40px rgba(0,0,0,0.4)",
               }}>
@@ -300,7 +396,7 @@ function NightclubLayout({ data, theme, photoMode, photoUrl, bgOpacity, titleFon
               <div style={{
                 position: "absolute", inset: 0,
                 borderRadius: "22px",
-                border: `3px dashed ${t.title}55`,
+                border: `2px dashed ${t.title}40`,
                 display: "flex", alignItems: "center", justifyContent: "center",
                 color: `${t.title}66`,
                 fontSize: "22px", letterSpacing: "3px",
@@ -341,7 +437,14 @@ function NightclubLayout({ data, theme, photoMode, photoUrl, bgOpacity, titleFon
                 <div style={{ ...frameBase, flexDirection: "column", justifyContent: "space-between", padding: "55px 60px" }}>
                   {innerPattern()}
                   <div style={{ position: "relative", zIndex: 2, display: "flex", justifyContent: "flex-end" }}>
-                    <TwinSparkle color={textColor} size={90} />
+                    <div style={{
+                      fontFamily: "'DM Sans', sans-serif",
+                      fontSize: "14px", letterSpacing: "4px",
+                      color: textColor, opacity: 0.5,
+                      textTransform: "uppercase",
+                    }}>
+                      № {(data.eventType || "EVT").slice(0,3)}
+                    </div>
                   </div>
                   <div style={{ position: "relative", zIndex: 2 }}>
                     <div style={{
@@ -385,14 +488,18 @@ function NightclubLayout({ data, theme, photoMode, photoUrl, bgOpacity, titleFon
               );
             }
 
-            // Frame — intentional empty. Just the texture + a tiny ornament
-            // anchor in the bottom-right corner. Reads as a confident card.
+            // Frame — intentional empty. Just texture + a tiny corner mark.
+            // Reads as a confident card.
             if (noPhotoStyle === "frame") {
               return (
                 <div style={{ ...frameBase, alignItems: "flex-end", justifyContent: "flex-end", padding: "32px" }}>
                   {innerPattern(undefined, t.light ? 0.22 : isBlack ? 0.24 : 0.22)}
-                  <div style={{ position: "relative", zIndex: 2, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "10px" }}>
-                    <TwinSparkle color={textColor} size={60} />
+                  <div style={{ position: "relative", zIndex: 2, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "8px" }}>
+                    {/* Minimal corner mark — two stacked rules, no star/sparkle */}
+                    <div style={{ display: "flex", flexDirection: "column", gap: "5px", alignItems: "flex-end" }}>
+                      <div style={{ width: "44px", height: "2px", background: textColor, opacity: 0.6 }} />
+                      <div style={{ width: "28px", height: "2px", background: textColor, opacity: 0.6 }} />
+                    </div>
                     <div style={{
                       fontFamily: "'DM Sans', sans-serif",
                       fontSize: "12px", letterSpacing: "4px",
@@ -404,14 +511,12 @@ function NightclubLayout({ data, theme, photoMode, photoUrl, bgOpacity, titleFon
               );
             }
 
-            // Ornament — original layout. Twin-sparkle centered + giant
-            // event-type word.
+            // Fallback (legacy "ornament" state value) — single big event-type
+            // word, no ornament. Effectively the same as Statement but kept
+            // here so old state values still render something sensible.
             return (
               <div style={{ ...frameBase, flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "20px" }}>
                 {innerPattern()}
-                <div style={{ position: "relative", zIndex: 2 }}>
-                  <TwinSparkle color={textColor} size={260} />
-                </div>
                 <div style={{
                   position: "relative", zIndex: 2,
                   fontFamily: bFont, fontWeight: bWeight,
@@ -1138,12 +1243,199 @@ function HolidayPromoLayout({ data, theme, titleFont, bodyFont, bgSize, titleSiz
   );
 }
 
+// ==================== TEMPLATE 6: GOLDEN SERIES ====================
+// CGE flagship recurring series. Series name is the visual hero (big);
+// each event is a variant with its own edition title + photo. Three
+// "flavor" sub-modes lock theme + photo filter + ornament for the
+// occasion: Sunset Gold (patio at golden hour), Patio Cream (Sunday
+// daytime, no pressure), After-Five Black (dinner-and-drinks evening).
+function GoldenSeriesLayout({ data, goldenFlavor = "sunset", photoUrl, bgOpacity, titleFont, bodyFont, bgSize, titleSize }) {
+  const flavor = GOLDEN_FLAVORS[goldenFlavor] || GOLDEN_FLAVORS.sunset;
+  const t = THEMES[flavor.theme];
+  const W = 1080, H = 1350;
+  const Ornament = flavor.Ornament;
+
+  const isYellow = flavor.theme === "yellow";
+  const isBlack = flavor.theme === "black";
+  // Text color: same rule as the other templates. Cream gets dark text;
+  // Black gets gold accent; others get white.
+  const textColor = isYellow ? "#000000"
+    : isBlack ? t.accent
+      : t.light ? "#1A1A1A"
+        : "#FFFFFF";
+  const accentBar = t.accent;
+
+  const tFont = fontStack(titleFont);
+  const tWeight = fontWeight(titleFont);
+  const bFont = fontStack(bodyFont);
+  const bWeight = fontWeight(bodyFont);
+
+  // Series name (wordmark slot) is the hero, much bigger than other templates.
+  const ts = TITLE_SIZES[titleSize] || TITLE_SIZES.m;
+  const seriesPx = Math.round(ts.one * 1.05);   // big — the series IS the brand
+  const editionPx = 32;                          // small caps subtitle below
+
+  return (
+    <div style={{
+      position: "relative", width: `${W}px`, height: `${H}px`,
+      background: t.bg, overflow: "hidden",
+      fontFamily: "'DM Sans', sans-serif",
+      color: textColor,
+    }}>
+      {/* CGE letter pattern — same brand DNA as every template */}
+      <CgeLetterPattern
+        color={isBlack ? t.accent : (t.light ? "#000000" : "#FFFFFF")}
+        opacity={isBlack ? 0.12 : (t.light ? 0.10 : 0.08)}
+        size={bgSize}
+        surfaceW={W} surfaceH={H}
+      />
+
+      {/* Soft single-direction spotlight (gentler than Nightclub's 3-layer) */}
+      <div style={{
+        position: "absolute", inset: 0,
+        background: `radial-gradient(circle 520px at 50% -10%,
+          rgba(${t.spot},${t.spotA * 0.85}) 0%,
+          rgba(${t.spot},${t.spotA * 0.35}) 35%,
+          transparent 70%)`,
+        pointerEvents: "none",
+      }} />
+
+      <div style={{
+        position: "relative", zIndex: 2,
+        padding: "80px 70px 60px",
+        height: "100%",
+        display: "flex", flexDirection: "column",
+      }}>
+        {/* Small CGE wordmark anchor top-left (locked, branded) */}
+        <div style={{
+          fontSize: "14px", fontWeight: 700, letterSpacing: "3.5px",
+          color: textColor, opacity: 0.55,
+          textTransform: "uppercase",
+        }}>
+          CGE · NJ WEEKEND EVENTS
+        </div>
+
+        {/* SERIES NAME — the hero. Uses the wordmark data field so user
+            can name their series ("THE GOLDEN SERIES", "GOLDEN HOUR", etc). */}
+        <div style={{
+          fontFamily: tFont, fontWeight: tWeight,
+          fontSize: `${seriesPx}px`, lineHeight: 0.92,
+          color: textColor, textTransform: "uppercase",
+          letterSpacing: "1px",
+          textAlign: "center",
+          marginTop: "44px",
+        }}>
+          {data.wordmark || "THE GOLDEN SERIES"}
+        </div>
+
+        {/* Hairline rule + edition subtitle */}
+        <div style={{ display: "flex", justifyContent: "center", marginTop: "20px" }}>
+          <div style={{ width: "80px", height: "2px", background: textColor, opacity: 0.45 }} />
+        </div>
+        <div style={{
+          fontFamily: bFont, fontWeight: bWeight,
+          fontSize: `${editionPx}px`,
+          letterSpacing: "5px", textTransform: "uppercase",
+          color: textColor, opacity: 0.85,
+          textAlign: "center",
+          marginTop: "16px",
+        }}>
+          {data.title1 || "EDITION ONE"}
+          {data.title2 && <span style={{ opacity: 0.6 }}> · {data.title2}</span>}
+        </div>
+
+        {/* Hero photo (flavor-filtered) */}
+        <div style={{ flex: 1, position: "relative", marginTop: "28px", marginBottom: "24px" }}>
+          {photoUrl ? (
+            <div style={{
+              position: "absolute", inset: 0,
+              borderRadius: "16px", overflow: "hidden",
+              border: `3px solid ${textColor}`,
+              background: "#000",
+              boxShadow: "0 14px 40px rgba(0,0,0,0.35)",
+            }}>
+              <img src={photoUrl} alt="" style={{
+                width: "100%", height: "100%", objectFit: "cover", display: "block",
+                filter: flavor.photoFilter,
+              }} />
+              {/* Subtle gradient at bottom for any future overlay text */}
+              <div style={{
+                position: "absolute", inset: 0,
+                background: `linear-gradient(180deg, transparent 60%, rgba(0,0,0,${bgOpacity * 0.25}) 100%)`,
+                pointerEvents: "none",
+              }} />
+            </div>
+          ) : (
+            <div style={{
+              position: "absolute", inset: 0,
+              borderRadius: "16px",
+              border: `3px dashed ${textColor}55`,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              color: `${textColor}66`,
+              fontSize: "20px", letterSpacing: "3px", textTransform: "uppercase",
+            }}>
+              add a photo
+            </div>
+          )}
+        </div>
+
+        {/* Flavor ornament */}
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: "20px" }}>
+          <Ornament color={textColor} size={200} />
+        </div>
+
+        {/* Bottom meta: venue / date · time */}
+        <div style={{ textAlign: "center" }}>
+          {data.venue && (
+            <div style={{
+              fontFamily: tFont, fontWeight: tWeight,
+              fontSize: "44px", color: textColor,
+              textTransform: "uppercase", letterSpacing: "2.5px",
+              lineHeight: 1.05,
+              marginBottom: "8px",
+            }}>
+              {data.venue}
+            </div>
+          )}
+          <div style={{
+            fontFamily: bFont, fontWeight: bWeight,
+            fontSize: "22px", letterSpacing: "4px",
+            color: textColor, opacity: 0.85,
+            textTransform: "uppercase",
+          }}>
+            {[data.date, data.time].filter(Boolean).join(" · ")}
+          </div>
+          {data.footerItems && data.footerItems.length > 0 && (
+            <div style={{
+              fontFamily: bFont, fontWeight: bWeight,
+              fontSize: "14px", letterSpacing: "3px",
+              color: textColor, opacity: 0.5,
+              textTransform: "uppercase",
+              marginTop: "14px",
+            }}>
+              {data.footerLabel ? `${data.footerLabel} ` : ""}{data.footerItems.join(" · ")}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Bottom accent bar */}
+      <div style={{
+        position: "absolute", left: 0, right: 0, bottom: 0,
+        height: "10px",
+        background: accentBar,
+      }} />
+    </div>
+  );
+}
+
 // ==================== TEMPLATE DISPATCHER ====================
 function FlyerSurface({ template, ...rest }) {
-  if (template === "photohero") return <PhotoHeroLayout {...rest} />;
-  if (template === "boutique")  return <BoutiqueLayout {...rest} />;
-  if (template === "tornpaper") return <TornPaperLayout {...rest} />;
-  if (template === "holiday")   return <HolidayPromoLayout {...rest} />;
+  if (template === "photohero")    return <PhotoHeroLayout {...rest} />;
+  if (template === "boutique")     return <BoutiqueLayout {...rest} />;
+  if (template === "tornpaper")    return <TornPaperLayout {...rest} />;
+  if (template === "holiday")      return <HolidayPromoLayout {...rest} />;
+  if (template === "goldenseries") return <GoldenSeriesLayout {...rest} />;
   return <NightclubLayout {...rest} />;
 }
 
@@ -1188,6 +1480,7 @@ export default function FlyerBuilder() {
   const [bgSize, setBgSize] = useState("regular");
   const [titleSize, setTitleSize] = useState("m");
   const [noPhotoStyle, setNoPhotoStyle] = useState("editorial");
+  const [goldenFlavor, setGoldenFlavor] = useState("sunset");
 
   const fileRef = useRef(null);
   const handlePhoto = (e) => {
@@ -1218,11 +1511,10 @@ export default function FlyerBuilder() {
   };
 
   // Style helpers (match the rest of the app)
-  const L = { fontSize: "0.6rem", color: "rgba(245,240,232,0.55)", letterSpacing: "1.5px", textTransform: "uppercase", display: "block", marginBottom: "6px" };
-  const I = { width: "100%", padding: "8px 10px", background: "rgba(245,240,232,0.04)", border: "1px solid rgba(245,240,232,0.1)", borderRadius: "4px", color: "#F5F0E8", fontFamily: "inherit", fontSize: "0.78rem" };
-  const B = { padding: "7px 10px", background: "rgba(245,240,232,0.04)", border: "1px solid rgba(245,240,232,0.1)", borderRadius: "4px", color: "#F5F0E8", fontFamily: "inherit", fontSize: "0.65rem", cursor: "pointer", letterSpacing: "1px", textTransform: "uppercase" };
-  const Bact = { ...B, background: "rgba(229,188,79,0.15)", borderColor: "#E5BC4F", color: "#E5BC4F" };
-  const Section = ({ children }) => <div style={{ marginBottom: "16px" }}>{children}</div>;
+  const L = STYLE_L;
+  const I = STYLE_I;
+  const B = STYLE_B;
+  const Bact = STYLE_Bact;
 
   const W = 1080, H = 1350;
 
@@ -1243,23 +1535,42 @@ export default function FlyerBuilder() {
           <label style={L}>Template</label>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "6px" }}>
             {[
-              ["nightclub", "Series"],
-              ["photohero", "Mixer"],
-              ["boutique",  "Pop-Up"],
-              ["tornpaper", "Headliner"],
-              ["holiday",   "Specials"],
+              ["nightclub",    "Series"],
+              ["photohero",    "Mixer"],
+              ["boutique",     "Pop-Up"],
+              ["tornpaper",    "Headliner"],
+              ["holiday",      "Specials"],
+              ["goldenseries", "Golden ★"],
             ].map(([k, lbl]) => (
               <button key={k} onClick={() => setTemplate(k)} style={template === k ? Bact : B}>{lbl}</button>
             ))}
           </div>
           <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: "0.5px", marginTop: "6px", lineHeight: 1.4 }}>
-            {template === "nightclub" && "SERIES — recurring branded night · CTA: see you again next time"}
-            {template === "photohero" && "MIXER — ticketed / RSVP event · CTA: register, get tickets, networking"}
-            {template === "boutique"  && "POP-UP — daytime / lifestyle / wellness · CTA: come through, curated moment"}
-            {template === "tornpaper" && "HEADLINER — club night with named DJs/acts · CTA: pull up tonight"}
-            {template === "holiday"   && "SPECIALS — theme night with deals · CTA: $X drinks, free entry, promo"}
+            {template === "nightclub"    && "SERIES — recurring branded night · CTA: see you again next time"}
+            {template === "photohero"    && "MIXER — ticketed / RSVP event · CTA: register, get tickets, networking"}
+            {template === "boutique"     && "POP-UP — daytime / lifestyle / wellness · CTA: come through, curated moment"}
+            {template === "tornpaper"    && "HEADLINER — club night with named DJs/acts · CTA: pull up tonight"}
+            {template === "holiday"      && "SPECIALS — theme night with deals · CTA: $X drinks, free entry, promo"}
+            {template === "goldenseries" && "GOLDEN SERIES — CGE flagship · light-pressure social hour for young pros · pick a flavor below"}
           </div>
         </Section>
+
+        {template === "goldenseries" && (
+          <Section>
+            <label style={L}>Golden Series flavor</label>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "6px" }}>
+              {Object.entries(GOLDEN_FLAVORS).map(([k, v]) => (
+                <button key={k} onClick={() => setGoldenFlavor(k)} style={goldenFlavor === k ? Bact : B}>{v.name.split(" ")[0]}</button>
+              ))}
+            </div>
+            <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.55)", letterSpacing: "0.5px", marginTop: "6px", lineHeight: 1.4 }}>
+              {GOLDEN_FLAVORS[goldenFlavor]?.description} · locks theme + photo filter + ornament
+            </div>
+            <div style={{ fontSize: "0.55rem", color: "rgba(229,188,79,0.55)", letterSpacing: "0.5px", marginTop: "4px" }}>
+              Tip — set Wordmark to "THE GOLDEN SERIES" and Title 1 to the edition (e.g. "EDITION ONE")
+            </div>
+          </Section>
+        )}
 
         {events.length > 0 && (
           <Section>
@@ -1410,21 +1721,23 @@ export default function FlyerBuilder() {
           </div>
         </Section>
 
-        <Section>
-          <label style={L}>Theme</label>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "6px" }}>
-            {Object.entries(THEMES).map(([k, v]) => (
-              <button key={k} onClick={() => setTheme(k)} style={{
-                padding: "8px 4px", fontSize: "0.55rem",
-                background: v.bg, color: v.title,
-                border: `2px solid ${theme === k ? "#FFFFFF" : "transparent"}`,
-                borderRadius: "4px",
-                fontFamily: "inherit", letterSpacing: "1px",
-                textTransform: "uppercase", cursor: "pointer", fontWeight: 600,
-              }}>{v.name}</button>
-            ))}
-          </div>
-        </Section>
+        {template !== "goldenseries" && (
+          <Section>
+            <label style={L}>Theme</label>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "6px" }}>
+              {Object.entries(THEMES).map(([k, v]) => (
+                <button key={k} onClick={() => setTheme(k)} style={{
+                  padding: "8px 4px", fontSize: "0.55rem",
+                  background: v.bg, color: v.title,
+                  border: `2px solid ${theme === k ? "#FFFFFF" : "transparent"}`,
+                  borderRadius: "4px",
+                  fontFamily: "inherit", letterSpacing: "1px",
+                  textTransform: "uppercase", cursor: "pointer", fontWeight: 600,
+                }}>{v.name}</button>
+              ))}
+            </div>
+          </Section>
+        )}
 
         {template === "nightclub" && (
           <Section>
@@ -1440,12 +1753,11 @@ export default function FlyerBuilder() {
         {template === "nightclub" && photoMode === "block" && (
           <Section>
             <label style={L}>No-Photo style</label>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "6px" }}>
               {[
                 ["editorial", "Editorial"],
                 ["statement", "Statement"],
                 ["frame",     "Frame"],
-                ["ornament",  "Ornament"],
               ].map(([k, lbl]) => (
                 <button key={k} onClick={() => setNoPhotoStyle(k)} style={noPhotoStyle === k ? Bact : B}>{lbl}</button>
               ))}
@@ -1539,6 +1851,7 @@ export default function FlyerBuilder() {
               bgSize={bgSize}
               titleSize={titleSize}
               noPhotoStyle={noPhotoStyle}
+              goldenFlavor={goldenFlavor}
             />
           </div>
         </div>
