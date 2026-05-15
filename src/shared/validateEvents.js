@@ -90,7 +90,7 @@ export function computeWarnings(events) {
     for (const [word, abbr] of Object.entries(dayNames)) {
       if (nameLower.includes(word) && ev.day !== abbr) {
         if (!warnings[ev.id]) warnings[ev.id] = [];
-        warnings[ev.id].push({ type: "yellow", msg: "WRONG DAY?" });
+        warnings[ev.id].push({ type: "gray", msg: "WRONG DAY?" });
         break;
       }
     }

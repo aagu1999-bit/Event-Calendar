@@ -142,17 +142,14 @@ function renderFrame(canvas, events, cfg, time) {
     ctx.save(); ctx.beginPath(); ctx.rect(0, evTop, W, evAreaH); ctx.clip();
     let dy = evTop - scrollOff;
     rgs.forEach(rg => {
-      if (rgs.length > 1) {
-        ctx.globalAlpha = evAlpha;
-        // Region divider bar
-        ctx.fillStyle = "rgba(0,0,0,0.35)";
-        ctx.beginPath(); ctx.roundRect(60, dy, W-120, regDivH-8, 10); ctx.fill();
-        ctx.fillStyle = "rgba(255,255,255,0.12)"; ctx.fillRect(60, dy, 4, regDivH-8);
-        ctx.font = "800 48px 'Syne',sans-serif"; ctx.fillStyle = "#FFF"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-        ctx.fillText(rg.region.toUpperCase(), W/2, dy+regDivH/2-4);
-        ctx.textAlign = "left"; ctx.textBaseline = "top";
-        dy += regDivH;
-      }
+      ctx.globalAlpha = evAlpha;
+      ctx.fillStyle = "rgba(0,0,0,0.35)";
+      ctx.beginPath(); ctx.roundRect(60, dy, W-120, regDivH-8, 10); ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.12)"; ctx.fillRect(60, dy, 4, regDivH-8);
+      ctx.font = "800 48px 'Syne',sans-serif"; ctx.fillStyle = "#FFF"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText((rg.region || "—").toUpperCase(), W/2, dy+regDivH/2-4);
+      ctx.textAlign = "left"; ctx.textBaseline = "top";
+      dy += regDivH;
       rg.events.forEach(ev => {
         if (dy+rowH > evTop-20 && dy < evTop+evAreaH+20) {
           ctx.globalAlpha = evAlpha;
@@ -304,17 +301,14 @@ function renderFrame(canvas, events, cfg, time) {
     let dy = evTop + batchSlide;
 
     rgs.forEach(rg => {
-      if (rgs.length > 1) {
-        ctx.globalAlpha = batchAlpha;
-        // Region divider bar
-        ctx.fillStyle = "rgba(0,0,0,0.35)";
-        ctx.beginPath(); ctx.roundRect(60, dy, W-120, regDivH-8, 10); ctx.fill();
-        ctx.fillStyle = "rgba(255,255,255,0.12)"; ctx.fillRect(60, dy, 4, regDivH-8);
-        ctx.font = "800 48px 'Syne',sans-serif"; ctx.fillStyle = "#FFF"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-        ctx.fillText(rg.region.toUpperCase(), W/2, dy+regDivH/2-4);
-        ctx.textAlign = "left"; ctx.textBaseline = "top";
-        dy += regDivH;
-      }
+      ctx.globalAlpha = batchAlpha;
+      ctx.fillStyle = "rgba(0,0,0,0.35)";
+      ctx.beginPath(); ctx.roundRect(60, dy, W-120, regDivH-8, 10); ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.12)"; ctx.fillRect(60, dy, 4, regDivH-8);
+      ctx.font = "800 48px 'Syne',sans-serif"; ctx.fillStyle = "#FFF"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText((rg.region || "—").toUpperCase(), W/2, dy+regDivH/2-4);
+      ctx.textAlign = "left"; ctx.textBaseline = "top";
+      dy += regDivH;
       rg.events.forEach(ev => {
         ctx.globalAlpha = batchAlpha;
         // CGE Pick glow
@@ -396,7 +390,7 @@ export default function ReelTool(){
   const seenVD={};
   events.forEach(ev=>{if(!ev.venue||!ev.venue.trim())return;const key=normalize(ev.venue)+"|"+(ev.day||"");if(seenVD[key]){if(!seenVD[key].group)seenVD[key].group=flagGroup++;const g=seenVD[key].group;seenVD[key].ids.push(ev.id);seenVD[key].ids.forEach(id=>{if(!warnings[id])warnings[id]=[];if(!warnings[id].some(w=>w.msg.startsWith("VENUE")))warnings[id].push({type:"gray",msg:`VENUE #${g}`});});}else{seenVD[key]={ids:[ev.id],group:null};}});
   const dayNames={"friday":"Fri","fridays":"Fri","saturday":"Sat","saturdays":"Sat","sunday":"Sun","sundays":"Sun"};
-  events.forEach(ev=>{if(!ev.name)return;const nl=ev.name.toLowerCase();for(const[dw,da]of Object.entries(dayNames)){if(nl.includes(dw)&&ev.day!==da){if(!warnings[ev.id])warnings[ev.id]=[];warnings[ev.id].push({type:"yellow",msg:"WRONG DAY?"});break;}}});
+  events.forEach(ev=>{if(!ev.name)return;const nl=ev.name.toLowerCase();for(const[dw,da]of Object.entries(dayNames)){if(nl.includes(dw)&&ev.day!==da){if(!warnings[ev.id])warnings[ev.id]=[];warnings[ev.id].push({type:"gray",msg:"WRONG DAY?"});break;}}});
   const activeWarnings=Object.entries(warnings).filter(([id])=>!dismissed.has(Number(id)||id));
   const totalWarnings=activeWarnings.length;
   const findFlagPartners=(evId,flagMsg)=>{const match=flagMsg.match(/#(\d+)/);if(!match)return[];const gn=match[1];return Object.entries(warnings).filter(([id,ws])=>String(id)!==String(evId)&&ws.some(w=>w.msg.includes(`#${gn}`))).map(([id])=>Number(id)||id);};

@@ -129,7 +129,10 @@ export default function ReviewQueue() {
   const [approvals, setApprovals] = useState({}); // id -> bool
   const [filter, setFilter] = useState("all"); // all | clean | flagged | unapproved
   const [sortByTag, setSortByTag] = useState(null); // tag name to float to top (separate from filter)
-  const [highlightedGroup, setHighlightedGroup] = useState(null); // e.g. "DUPE #3" — flag-msg string
+  // Highlighted group captures the event IDs at click time so the sort/highlight
+  // survives re-validation (group numbers renumber when events are deleted).
+  // Shape: { prefix: "VENUE", label: "VENUE #31", ids: Set<id> } or null.
+  const [highlightedGroup, setHighlightedGroup] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [storeOpen, setStoreOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);   // event id being inline-edited
@@ -143,6 +146,12 @@ export default function ReviewQueue() {
   });
   useEffect(() => { try { localStorage.setItem("review_legendOpen", String(legendOpen)); } catch {} }, [legendOpen]);
   useEffect(() => { try { localStorage.setItem("review_summaryOpen", String(summaryOpen)); } catch {} }, [summaryOpen]);
+  // Auto-clear highlighted group when all its events are gone from pending
+  useEffect(() => {
+    if (!highlightedGroup) return;
+    const stillThere = pending.some(e => highlightedGroup.ids.has(e.id));
+    if (!stillThere) setHighlightedGroup(null);
+  }, [pending, highlightedGroup]);
   const fileRef = useRef(null);
   const rowsRef = useRef(null);
 
@@ -223,7 +232,7 @@ export default function ReviewQueue() {
     let list;
     if (filter === "all") list = pending;
     else if (filter === "clean") list = pending.filter(e => (warnings[e.id] || []).length === 0);
-    else if (filter === "flagged") list = pending.filter(e => (warnings[e.id] || []).length > 0);
+    else if (filter === "flagged") list = pending.filter(e => (warnings[e.id] || []).length > 0 && !approvals[e.id]);
     else if (filter === "unapproved") list = pending.filter(e => !approvals[e.id]);
     else list = pending;
 
@@ -256,28 +265,14 @@ export default function ReviewQueue() {
       });
     }
 
-    // Sort-to-top by group (narrow — wins over tag sort): when a specific
-    // numbered flag pill is clicked, float just THAT group to the very top.
-    // VENUE #17 (the 2 events sharing that group) above the broader VENUE
-    // bucket. Logic inlined here (not calling isPillInHighlightedGroup which
-    // is declared later in the component — would TDZ-error on re-render).
+    // Sort-to-top by group (narrow — wins over tag sort): float events whose
+    // IDs were captured when the user clicked the numbered flag pill. IDs are
+    // stable across re-validation, so deleting a row doesn't break the focus.
     if (highlightedGroup) {
-      const targetMatch = highlightedGroup.match(/#(\d+)/);
-      const targetNum = targetMatch ? targetMatch[1] : null;
-      const targetPrefix = highlightedGroup.replace(/#\d+.*$/, "").trim();
-      const groupMatch = (ev) => {
-        if (!targetNum) return false;
-        const ws = warnings[ev.id] || [];
-        return ws.some(w => {
-          const wNum = w.msg.match(/#(\d+)/);
-          if (!wNum) return false;
-          const wPrefix = w.msg.replace(/#\d+.*$/, "").trim();
-          return wPrefix === targetPrefix && wNum[1] === targetNum;
-        });
-      };
+      const ids = highlightedGroup.ids;
       list = [...list].sort((a, b) => {
-        const aIn = groupMatch(a);
-        const bIn = groupMatch(b);
+        const aIn = ids.has(a.id);
+        const bIn = ids.has(b.id);
         if (aIn && !bIn) return -1;
         if (!aIn && bIn) return 1;
         return 0;
@@ -301,48 +296,43 @@ export default function ReviewQueue() {
     });
   };
 
-  // Click flag pill → highlight all events in same group (if it has #N).
-  // Click again on same group → clear.
+  // Click flag pill → capture all event ids sharing that group at click time
+  // (stable across re-validation). Click again on same group → clear.
   const clickFlag = (msg) => {
     if (!/#\d+/.test(msg)) return; // only grouped flags are clickable
-    setHighlightedGroup(prev => prev === msg ? null : msg);
+    if (highlightedGroup && highlightedGroup.label === msg) {
+      setHighlightedGroup(null);
+      return;
+    }
+    const numMatch = msg.match(/#(\d+)/);
+    if (!numMatch) return;
+    const num = numMatch[1];
+    const prefix = msg.replace(/#\d+.*$/, "").trim();
+    const ids = new Set();
+    Object.entries(warnings).forEach(([id, ws]) => {
+      if (ws.some(w => {
+        const wm = w.msg.match(/#(\d+)/);
+        const wp = w.msg.replace(/#\d+.*$/, "").trim();
+        return wm && wp === prefix && wm[1] === num;
+      })) ids.add(id);
+    });
+    setHighlightedGroup({ prefix, label: msg, ids });
   };
-  const groupMatchKey = (msg) => {
-    const m = msg.match(/#(\d+)/);
-    return m ? m[1] : null;
-  };
-  const isPillInHighlightedGroup = (msg) => {
+  const isPillInHighlightedGroup = (msg, evId) => {
     if (!highlightedGroup) return false;
-    const a = groupMatchKey(highlightedGroup);
-    const b = groupMatchKey(msg);
-    if (!a || !b) return false;
-    // Same flag-type prefix + same #N number
-    const prefixA = highlightedGroup.replace(/#\d+.*$/, "");
-    const prefixB = msg.replace(/#\d+.*$/, "");
-    return prefixA === prefixB && a === b;
+    if (!highlightedGroup.ids.has(evId)) return false;
+    const wp = msg.replace(/#\d+.*$/, "").trim();
+    return wp === highlightedGroup.prefix;
   };
   const isRowInHighlightedGroup = (ev) => {
-    const ws = warnings[ev.id] || [];
-    return ws.some(w => isPillInHighlightedGroup(w.msg));
+    return highlightedGroup ? highlightedGroup.ids.has(ev.id) : false;
   };
 
-  // Events in the currently highlighted group (clicked numbered flag pill).
-  // Used by the "Approve / Skip / Delete group" mini-actions in the indicator.
+  // Events in the currently highlighted group — by captured ids, not by
+  // current group number (which may have renumbered after deletions).
   const eventsInHighlightedGroup = () => {
     if (!highlightedGroup) return [];
-    const targetMatch = highlightedGroup.match(/#(\d+)/);
-    if (!targetMatch) return [];
-    const targetNum = targetMatch[1];
-    const targetPrefix = highlightedGroup.replace(/#\d+.*$/, "").trim();
-    return pending.filter(ev => {
-      const ws = warnings[ev.id] || [];
-      return ws.some(w => {
-        const wNum = w.msg.match(/#(\d+)/);
-        if (!wNum) return false;
-        const wPrefix = w.msg.replace(/#\d+.*$/, "").trim();
-        return wPrefix === targetPrefix && wNum[1] === targetNum;
-      });
-    });
+    return pending.filter(ev => highlightedGroup.ids.has(ev.id));
   };
   const approveGroup = () => {
     const ids = eventsInHighlightedGroup().map(e => e.id);
@@ -665,7 +655,7 @@ export default function ReviewQueue() {
                 </span>
                 {highlightedGroup && (
                   <span style={{ marginLeft: "auto", color: "#E5BC4F", display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
-                    <strong>{highlightedGroup}</strong> at top
+                    <strong>{highlightedGroup.label}</strong> at top
                     <button
                       onClick={approveGroup}
                       title="Approve every event in this group"
@@ -779,7 +769,7 @@ export default function ReviewQueue() {
                     <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", maxWidth: "320px", justifyContent: "flex-end" }}>
                       {w.map((warn, i) => {
                         const hasGroup = /#\d+/.test(warn.msg);
-                        const isHighlighted = isPillInHighlightedGroup(warn.msg);
+                        const isHighlighted = isPillInHighlightedGroup(warn.msg, ev.id);
                         const style = isHighlighted ? PILL_HIGHLIGHTED : PILL_STYLE;
                         return (
                           <span
