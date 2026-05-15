@@ -1,6 +1,8 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useRegularsStore, useEventsStore } from "../store";
 import { regularToEvent } from "../shared/regulars";
+
+const norm = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
 const FLAG_DESC = {
   STALE: "Last occurrence > 8 weeks ago. Might have ended.",
@@ -48,17 +50,50 @@ export default function Regulars() {
   const lastImport = useRegularsStore(s => s.lastImport);
   const stats = useRegularsStore(s => s.stats);
   const addManual = useRegularsStore(s => s.addManual);
+  const updateRegular = useRegularsStore(s => s.updateRegular);
   const events = useEventsStore(s => s.events);
   const addEvents = useEventsStore(s => s.addEvents);
+  const updateEvents = useEventsStore(s => s.updateEvents);
 
   const [dayFilter, setDayFilter] = useState("all");
   const [showRejected, setShowRejected] = useState(false);
   const [showFlaggedOnly, setShowFlaggedOnly] = useState(false);
+  const [showUnusedOnly, setShowUnusedOnly] = useState(false);
   const [query, setQuery] = useState("");
   const [sortMode, setSortMode] = useState("confidence");
   const [friDate, setFriDate] = useState(defaultFridayStr());
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
+
+  // Auto-sync lastSeen on tab mount: if an event in the current store matches
+  // a regular's (name+venue+day), bump that regular's lastSeen to today. The
+  // events store doesn't carry full dates for upload-imported events, so we
+  // proxy with today's date — close enough to "this week" for the use case.
+  const syncDoneRef = useRef(false);
+  useEffect(() => {
+    if (syncDoneRef.current || !regulars.length || !events.length) return;
+    syncDoneRef.current = true;
+    const today = new Date().toISOString().slice(0, 10);
+    const regIndex = new Map();
+    regulars.forEach(r => {
+      if (r.rejected) return;
+      regIndex.set(`${norm(r.name)}|${norm(r.venue)}|${r.day}`, r);
+    });
+    const updates = [];
+    events.forEach(ev => {
+      const r = regIndex.get(`${norm(ev.name)}|${norm(ev.venue)}|${ev.day}`);
+      if (r && (!r.lastSeen || r.lastSeen < today)) {
+        updates.push({ id: r.id, lastSeen: today });
+      }
+    });
+    // Dedupe updates (multiple events per regular)
+    const seen = new Set();
+    updates.forEach(u => {
+      if (seen.has(u.id)) return;
+      seen.add(u.id);
+      updateRegular(u.id, { lastSeen: u.lastSeen });
+    });
+  }, [regulars, events, updateRegular]);
 
   // Stamp regular as already used this week if an event in the store has a
   // matching fromRegular link. Dedupes the visual cue across the list.
@@ -71,6 +106,7 @@ export default function Regulars() {
   const visible = useMemo(() => {
     let list = regulars.filter(r => showRejected ? r.rejected : !r.rejected);
     if (showFlaggedOnly) list = list.filter(r => r.flagged);
+    if (showUnusedOnly) list = list.filter(r => !r.usedCount);
     if (dayFilter !== "all") list = list.filter(r => r.day === dayFilter);
     const q = query.trim().toLowerCase();
     if (q) {
@@ -85,31 +121,48 @@ export default function Regulars() {
     else if (sortMode === "recent") sorted.sort((a, b) => (b.lastSeen || "").localeCompare(a.lastSeen || ""));
     else if (sortMode === "count") sorted.sort((a, b) => b.occurrenceCount - a.occurrenceCount);
     return sorted;
-  }, [regulars, dayFilter, showRejected, showFlaggedOnly, query, sortMode]);
+  }, [regulars, dayFilter, showRejected, showFlaggedOnly, showUnusedOnly, query, sortMode]);
 
   const counts = useMemo(() => ({
     total: regulars.length,
     active: regulars.filter(r => !r.rejected).length,
     rejected: regulars.filter(r => r.rejected).length,
     flagged: regulars.filter(r => !r.rejected && r.flagged).length,
+    unused: regulars.filter(r => !r.rejected && !r.usedCount).length,
     Fri: regulars.filter(r => !r.rejected && r.day === "Fri").length,
     Sat: regulars.filter(r => !r.rejected && r.day === "Sat").length,
     Sun: regulars.filter(r => !r.rejected && r.day === "Sun").length,
   }), [regulars]);
 
+  // Add a regular to this week's events + bump usedCount/lastUsed.
   const useOne = (r) => {
     const ev = regularToEvent(r, friDate);
     if (!ev) { alert("Set this Friday's date first (e.g. 5/15)."); return; }
     const res = addEvents([ev]);
-    if (res.added === 0 && res.skipped > 0) {
+    if (res.added > 0) {
+      updateRegular(r.id, { usedCount: (r.usedCount || 0) + 1, lastUsed: new Date().toISOString() });
+    } else if (res.skipped > 0) {
       alert("Already in this week's events list.");
     }
+  };
+  // Remove the event(s) that came from this regular from the current store.
+  const unuseOne = (r) => {
+    updateEvents(prev => prev.filter(e => e.fromRegular !== r.id));
   };
   const useAllVisible = () => {
     if (visible.length === 0) return;
     const evs = visible.map(r => regularToEvent(r, friDate)).filter(Boolean);
     if (evs.length === 0) { alert("Set this Friday's date first (e.g. 5/15)."); return; }
     const res = addEvents(evs);
+    // Credit each visible regular as used. Only credit ones whose event made
+    // it into the store (skipped events were duplicates — already credited
+    // last time they were added).
+    if (res.added > 0) {
+      const nowIso = new Date().toISOString();
+      visible.slice(0, res.added).forEach(r => {
+        updateRegular(r.id, { usedCount: (r.usedCount || 0) + 1, lastUsed: nowIso });
+      });
+    }
     alert(`Added ${res.added} regular${res.added === 1 ? "" : "s"} for the week of ${friDate}.${res.skipped > 0 ? ` (${res.skipped} already there.)` : ""}`);
   };
 
@@ -209,6 +262,10 @@ export default function Regulars() {
                 Flagged only ({counts.flagged})
               </label>
               <label style={{ fontSize: "0.65rem", color: "rgba(245,240,232,0.55)", display: "flex", alignItems: "center", gap: "5px", cursor: "pointer" }}>
+                <input type="checkbox" checked={showUnusedOnly} onChange={e => setShowUnusedOnly(e.target.checked)} style={{ accentColor: "#34D399" }} />
+                Never used ({counts.unused})
+              </label>
+              <label style={{ fontSize: "0.65rem", color: "rgba(245,240,232,0.55)", display: "flex", alignItems: "center", gap: "5px", cursor: "pointer" }}>
                 <input type="checkbox" checked={showRejected} onChange={e => setShowRejected(e.target.checked)} style={{ accentColor: "#FB7185" }} />
                 Show rejected ({counts.rejected})
               </label>
@@ -234,6 +291,7 @@ export default function Regulars() {
                   r={r}
                   used={usedThisWeek.has(r.id)}
                   onUse={() => useOne(r)}
+                  onUnuse={() => unuseOne(r)}
                   onEdit={() => setEditingId(editingId === r.id ? null : r.id)}
                   isEditing={editingId === r.id}
                   onCancelEdit={() => setEditingId(null)}
@@ -247,7 +305,7 @@ export default function Regulars() {
   );
 }
 
-function RegularRow({ r, used, onUse, onEdit, isEditing, onCancelEdit }) {
+function RegularRow({ r, used, onUse, onUnuse, onEdit, isEditing, onCancelEdit }) {
   const reject = useRegularsStore(s => s.reject);
   const restore = useRegularsStore(s => s.restore);
   const updateRegular = useRegularsStore(s => s.updateRegular);
@@ -304,6 +362,11 @@ function RegularRow({ r, used, onUse, onEdit, isEditing, onCancelEdit }) {
         <div style={{ textAlign: "center" }}>
           <div style={{ fontSize: "0.9rem", fontWeight: 800, color: confColor }}>{confPct}%</div>
           <div style={{ fontSize: "0.5rem", color: "rgba(245,240,232,0.4)", letterSpacing: "1px", textTransform: "uppercase" }}>conf</div>
+          {r.usedCount > 0 && (
+            <div title={`Used ${r.usedCount} time${r.usedCount === 1 ? "" : "s"} this season`} style={{ marginTop: "3px", fontSize: "0.48rem", color: "rgba(52,211,153,0.7)", letterSpacing: "1px", textTransform: "uppercase" }}>
+              ✓ {r.usedCount}×
+            </div>
+          )}
         </div>
 
         <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", justifyContent: "flex-start" }}>
@@ -335,8 +398,8 @@ function RegularRow({ r, used, onUse, onEdit, isEditing, onCancelEdit }) {
           {!r.rejected && (
             <>
               <button
-                onClick={onUse}
-                title={used ? "Already added to this week's events" : "Add to this week's events"}
+                onClick={used ? onUnuse : onUse}
+                title={used ? "Click to remove from this week's events" : "Add to this week's events"}
                 style={{
                   padding: "5px 9px",
                   background: used ? "rgba(52,211,153,0.25)" : "rgba(52,211,153,0.08)",
