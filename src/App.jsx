@@ -8,8 +8,35 @@ import RecapPicker from "./pages/RecapPicker.jsx";
 import ReviewQueue from "./pages/ReviewQueue.jsx";
 import { useEventsStore } from "./store";
 
+// Wrap a CSV cell — quote if it contains a comma, quote, or newline.
+const csvCell = (v) => {
+  const s = v == null ? "" : String(v);
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+};
+
+function exportEventsCsv(events) {
+  if (!events.length) return;
+  const cols = ["day", "time", "name", "venue", "area", "region", "type", "link", "featured", "emoji"];
+  const lines = [cols.join(",")];
+  for (const ev of events) {
+    lines.push(cols.map(c => csvCell(ev[c])).join(","));
+  }
+  const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  const d = new Date();
+  const stamp = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  a.download = `CGE_events_${stamp}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 function Nav() {
-  const eventCount = useEventsStore(s => s.events.length);
+  const events = useEventsStore(s => s.events);
+  const eventCount = events.length;
   const clear = useEventsStore(s => s.clearEvents);
 
   const linkBase = {
@@ -66,23 +93,43 @@ function Nav() {
         {eventCount} event{eventCount === 1 ? "" : "s"} loaded
       </div>
       {eventCount > 0 && (
-        <button
-          onClick={() => { if (confirm("Clear all events from all tools?")) clear(); }}
-          style={{
-            padding: "4px 10px",
-            background: "rgba(251,113,133,0.08)",
-            border: "1px solid rgba(251,113,133,0.2)",
-            borderRadius: "4px",
-            color: "#FB7185",
-            fontSize: "0.6rem",
-            letterSpacing: "1px",
-            textTransform: "uppercase",
-            cursor: "pointer",
-            fontFamily: "inherit",
-          }}
-        >
-          Clear all
-        </button>
+        <>
+          <button
+            onClick={() => exportEventsCsv(events)}
+            title="Download the current events list (all tools) as CSV"
+            style={{
+              padding: "4px 10px",
+              background: "rgba(229,188,79,0.10)",
+              border: "1px solid rgba(229,188,79,0.3)",
+              borderRadius: "4px",
+              color: "#E5BC4F",
+              fontSize: "0.6rem",
+              letterSpacing: "1px",
+              textTransform: "uppercase",
+              cursor: "pointer",
+              fontFamily: "inherit",
+            }}
+          >
+            Export CSV
+          </button>
+          <button
+            onClick={() => { if (confirm("Clear all events from all tools?")) clear(); }}
+            style={{
+              padding: "4px 10px",
+              background: "rgba(251,113,133,0.08)",
+              border: "1px solid rgba(251,113,133,0.2)",
+              borderRadius: "4px",
+              color: "#FB7185",
+              fontSize: "0.6rem",
+              letterSpacing: "1px",
+              textTransform: "uppercase",
+              cursor: "pointer",
+              fontFamily: "inherit",
+            }}
+          >
+            Clear all
+          </button>
+        </>
       )}
     </nav>
   );
