@@ -390,6 +390,7 @@ function buildPlainText(events, intro, friDate, showPicks) {
 export default function NewsletterBuilder() {
   const events = useEventsStore(s => s.events);
   const setEvents = useEventsStore(s => s.updateEvents);
+  const addEvents = useEventsStore(s => s.addEvents);
   const [friDate, setFriDate] = useState("4/25");
   const [intro, setIntro] = useState("");
   const [showPicks, setShowPicks] = useState(true);
@@ -463,8 +464,10 @@ export default function NewsletterBuilder() {
     }).filter(e => e.name && e.day !== null);
 
     if (parsed.length === 0) { alert("No valid events found with this mapping."); return; }
-    setEvents(parsed);
+    const { added, skipped } = addEvents(parsed);
     setShowMapping(false);
+    if (skipped > 0) alert(`Added ${added} new events (${skipped} duplicate${skipped === 1 ? "" : "s"} skipped).`);
+    else if (added > 0) alert(`Added ${added} new event${added === 1 ? "" : "s"}.`);
 
     // Auto-detect Friday date
     if (hasDateCol) {
@@ -518,7 +521,6 @@ export default function NewsletterBuilder() {
     });
     setColMap(newMap);
     setShowMapping(true);
-    setEvents([]);
   };
 
   const copyRich = () => {

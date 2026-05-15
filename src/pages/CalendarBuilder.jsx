@@ -951,6 +951,7 @@ function renderPreview(canvas, pageEvents, cfg) {
 export default function CalendarBuilder() {
   const events = useEventsStore(s => s.events);
   const setEvents = useEventsStore(s => s.updateEvents);
+  const addEvents = useEventsStore(s => s.addEvents);
   const [dayColors, setDayColors] = useState({ Fri: "yellow", Sat: "emerald", Sun: "gold" });
   const [friDate, setFriDate] = useState("4/18");
   const [sz, setSz] = useState("4:5");
@@ -1261,7 +1262,7 @@ export default function CalendarBuilder() {
     return parseStructuredRows(rows, "North");
   };
 
-  const handleEdImport = () => { setEvents(p => [...p, ...importLines(edTxt)]); setShowEd(false); setEdTxt(""); setDismissed(new Set()); };
+  const handleEdImport = () => { addEvents(importLines(edTxt)); setShowEd(false); setEdTxt(""); setDismissed(new Set()); };
 
   const loadRows = (rows) => {
     if (!rows || !rows.length) return;
@@ -1292,9 +1293,11 @@ export default function CalendarBuilder() {
       return { id: Date.now() + Math.random() * 100000, day, time: formatTime(g("time")), name: g("name"), venue: g("venue"), area: g("area"), region, type, emoji: getEmoji(type), featured: false };
     }).filter(e => e.name && e.day !== null);
     if (parsed.length === 0) { alert("No valid events found with this mapping."); return; }
-    setEvents(p => [...p, ...parsed]);
+    const { added, skipped } = addEvents(parsed);
     setDismissed(new Set());
     setShowMapping(false);
+    if (skipped > 0) alert(`Added ${added} new events (${skipped} duplicate${skipped === 1 ? "" : "s"} skipped).`);
+    else if (added > 0) alert(`Added ${added} new event${added === 1 ? "" : "s"}.`);
     // Auto-detect Friday date
     if (hasDateCol) {
       for (const r of dataRows) {

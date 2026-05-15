@@ -365,6 +365,7 @@ function renderFrame(canvas, events, cfg, time) {
 export default function ReelTool(){
   const events = useEventsStore(s => s.events);
   const setEvents = useEventsStore(s => s.updateEvents);
+  const addEvents = useEventsStore(s => s.addEvents);
   const[color,setColor]=useState("purple");
   const[style,setStyle]=useState("paparazzi");
   const[duration,setDuration]=useState(8);
@@ -408,7 +409,7 @@ export default function ReelTool(){
   }
   const batchCount = Math.max(1, batches.length);
 
-  const handleFile=(e)=>{const f=e.target.files[0];if(!f)return;const ext=f.name.split(".").pop().toLowerCase();if(ext==="xlsx"||ext==="xls"){const r=new FileReader();r.onload=ev=>{try{const wb=XLSX.read(ev.target.result,{type:"array"});const ws=wb.Sheets[wb.SheetNames[0]];setEvents(pF(XLSX.utils.sheet_to_json(ws,{header:1,defval:"",raw:false}),"North"));setDismissed(new Set());}catch(err){alert("Error: "+err.message);}};r.readAsArrayBuffer(f);}else{const r=new FileReader();r.onload=ev=>{const ls=ev.target.result.split("\n").filter(l=>l.trim());const rs=ls.map(l=>l.includes("\t")?l.split("\t").map(s=>s.trim()):l.split(",").map(s=>s.trim()));setEvents(pF(rs,"North"));setDismissed(new Set());};r.readAsText(f);}e.target.value="";};
+  const handleFile=(e)=>{const f=e.target.files[0];if(!f)return;const ext=f.name.split(".").pop().toLowerCase();if(ext==="xlsx"||ext==="xls"){const r=new FileReader();r.onload=ev=>{try{const wb=XLSX.read(ev.target.result,{type:"array"});const ws=wb.Sheets[wb.SheetNames[0]];const r2=addEvents(pF(XLSX.utils.sheet_to_json(ws,{header:1,defval:"",raw:false}),"North"));setDismissed(new Set());if(r2.skipped>0)alert(`Added ${r2.added} new events (${r2.skipped} duplicate${r2.skipped===1?"":"s"} skipped).`);else if(r2.added>0)alert(`Added ${r2.added} new event${r2.added===1?"":"s"}.`);}catch(err){alert("Error: "+err.message);}};r.readAsArrayBuffer(f);}else{const r=new FileReader();r.onload=ev=>{const ls=ev.target.result.split("\n").filter(l=>l.trim());const rs=ls.map(l=>l.includes("\t")?l.split("\t").map(s=>s.trim()):l.split(",").map(s=>s.trim()));const r2=addEvents(pF(rs,"North"));setDismissed(new Set());if(r2.skipped>0)alert(`Added ${r2.added} new events (${r2.skipped} duplicate${r2.skipped===1?"":"s"} skipped).`);else if(r2.added>0)alert(`Added ${r2.added} new event${r2.added===1?"":"s"}.`);};r.readAsText(f);}e.target.value="";};
 
   const animate=useCallback(ts=>{
     if(!startRef.current)startRef.current=ts;
