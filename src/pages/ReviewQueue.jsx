@@ -1,8 +1,9 @@
 import { useState, useRef, useMemo, useEffect, Fragment } from "react";
 import * as XLSX from "xlsx";
-import { useEventsStore } from "../store";
+import { useEventsStore, useRegularsStore } from "../store";
 import { parseRows, DAYFUL, getEmoji } from "../shared/parseEvents";
 import { computeWarnings, findFlagPartners } from "../shared/validateEvents";
+import { detectRegulars } from "../shared/regulars";
 
 // Flag glossary — shown in the collapsible cheat sheet. Order matters
 // (most-severe first); descriptions are 1-line so the grid stays tight.
@@ -153,7 +154,43 @@ export default function ReviewQueue() {
     if (!stillThere) setHighlightedGroup(null);
   }, [pending, highlightedGroup]);
   const fileRef = useRef(null);
+  const masterFileRef = useRef(null);
   const rowsRef = useRef(null);
+
+  // Weekly Regulars — master-sheet importer.
+  const regulars = useRegularsStore(s => s.regulars);
+  const lastRegularsImport = useRegularsStore(s => s.lastImport);
+  const replaceRegulars = useRegularsStore(s => s.replaceAll);
+  const [masterImporting, setMasterImporting] = useState(false);
+
+  const handleMasterSheet = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setMasterImporting(true);
+    try {
+      // Read as text so xlsx doesn't convert ISO date strings into serial
+      // numbers (which then get timezone-shifted on the way back to strings).
+      const text = await file.text();
+      const wb = XLSX.read(text, { type: "string", raw: true });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: "" });
+      const { regulars: regs, stats } = detectRegulars(rows);
+      replaceRegulars(regs, stats);
+      const flagLine = Object.entries(stats.byFlag).map(([k, v]) => `${k}: ${v}`).join(" · ");
+      alert(
+        `Master sheet imported.\n\n` +
+        `${stats.parsed.toLocaleString()} weekend events parsed · ${stats.skipped.toLocaleString()} skipped\n` +
+        `${regs.length} weekly regulars detected\n\n` +
+        `Internal flags — ${flagLine || "(none)"}`
+      );
+    } catch (err) {
+      console.error("Master sheet import failed:", err);
+      alert("Couldn't import master sheet. Make sure it's a CSV with the expected columns. Error: " + err.message);
+    } finally {
+      setMasterImporting(false);
+      if (masterFileRef.current) masterFileRef.current.value = "";
+    }
+  };
 
   // When a sort activates (tag chip or group pill), scroll the list top into
   // view so the user sees the floated events without manual scrolling.
@@ -445,6 +482,46 @@ export default function ReviewQueue() {
           <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" onChange={handleFile} style={{ display: "none" }} />
           <button onClick={() => fileRef.current?.click()} style={Bgold}>
             {pending.length === 0 ? "Upload sheet" : "Re-upload"}
+          </button>
+        </div>
+
+        {/* Weekly Regulars — master-sheet importer (step 1: no browse UI yet). */}
+        <div style={{
+          marginBottom: "1rem",
+          padding: "10px 14px",
+          background: "rgba(124,58,237,0.06)",
+          border: "1px solid rgba(124,58,237,0.18)",
+          borderRadius: "6px",
+          display: "flex",
+          alignItems: "center",
+          gap: "0.8rem",
+        }}>
+          <div style={{ flex: 1, fontSize: "0.65rem", color: "rgba(245,240,232,0.7)", lineHeight: 1.5 }}>
+            <strong style={{ color: "#C084FC", letterSpacing: "1.5px", textTransform: "uppercase", fontSize: "0.6rem", display: "block", marginBottom: "3px" }}>
+              Weekly Regulars · master sheet
+            </strong>
+            {regulars.length === 0
+              ? <>Upload your full history CSV (e.g. <em>Instagram_Events_Master</em>) to detect recurring Fri/Sat/Sun events. Stored locally; browse UI coming next step.</>
+              : <>
+                  <strong style={{ color: "#C084FC" }}>{regulars.length}</strong> weekly regulars detected ·
+                  imported {lastRegularsImport ? new Date(lastRegularsImport).toLocaleDateString() : "—"}
+                </>
+            }
+          </div>
+          <input ref={masterFileRef} type="file" accept=".csv,.tsv,.txt" onChange={handleMasterSheet} style={{ display: "none" }} />
+          <button
+            onClick={() => masterFileRef.current?.click()}
+            disabled={masterImporting}
+            style={{
+              ...B,
+              background: masterImporting ? "rgba(124,58,237,0.15)" : "rgba(124,58,237,0.18)",
+              borderColor: "rgba(124,58,237,0.45)",
+              color: "#C084FC",
+              opacity: masterImporting ? 0.6 : 1,
+              cursor: masterImporting ? "wait" : "pointer",
+            }}
+          >
+            {masterImporting ? "Detecting…" : regulars.length > 0 ? "Re-import" : "Import master CSV"}
           </button>
         </div>
 
