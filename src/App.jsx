@@ -6,6 +6,7 @@ import FlyerBuilder from "./pages/FlyerBuilder.jsx";
 import MediaTool from "./pages/MediaTool.jsx";
 import RecapPicker from "./pages/RecapPicker.jsx";
 import ReviewQueue from "./pages/ReviewQueue.jsx";
+import Regulars from "./pages/Regulars.jsx";
 import { useEventsStore } from "./store";
 
 // Wrap a CSV cell — quote if it contains a comma, quote, or newline.
@@ -83,6 +84,7 @@ function Nav() {
       <NavLink to="/media" style={({ isActive }) => isActive ? linkActive : linkBase}>Media</NavLink>
       <NavLink to="/recap" style={({ isActive }) => isActive ? linkActive : linkBase}>Recap</NavLink>
       <NavLink to="/review" style={({ isActive }) => isActive ? linkActive : linkBase}>Review</NavLink>
+      <NavLink to="/regulars" style={({ isActive }) => isActive ? linkActive : linkBase}>Regulars</NavLink>
       <div style={{ flex: 1 }} />
       <div style={{
         fontSize: "0.6rem",
@@ -148,6 +150,7 @@ export default function App() {
         <Route path="/media" element={<MediaTool />} />
         <Route path="/recap" element={<RecapPicker />} />
         <Route path="/review" element={<ReviewQueue />} />
+        <Route path="/regulars" element={<Regulars />} />
         <Route path="*" element={<Navigate to="/calendar" replace />} />
       </Routes>
     </BrowserRouter>

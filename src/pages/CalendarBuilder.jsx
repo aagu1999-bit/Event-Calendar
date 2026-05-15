@@ -1732,7 +1732,14 @@ export default function CalendarBuilder() {
                     <option value="__custom__">✏️ Pick...</option>
                   </select>
                   <span style={{ color: co.accent, fontWeight: 600, minWidth: 38 }}>{ev.time || "—"}</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
+                  <div
+                    onClick={() => {
+                      const pi = allPages.findIndex(p => (p.events || []).some(e => e.id === ev.id));
+                      if (pi >= 0 && pi !== pg) setPg(pi);
+                    }}
+                    title="Click to jump to the slide containing this event"
+                    style={{ flex: 1, minWidth: 0, cursor: "pointer" }}
+                  >
                     <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.58rem", fontWeight: 700, textTransform: "uppercase", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", margin: 0 }}>{ev.name || "(no name)"}</p>
                     <p style={{ fontSize: "0.48rem", color: "rgba(245,240,232,0.25)", margin: 0 }}>{ev.venue || "(no venue)"}{ev.area ? ` · ${ev.area}` : ""}</p>
                   </div>
