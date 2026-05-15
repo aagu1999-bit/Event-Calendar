@@ -543,6 +543,7 @@ function renderCal(canvas, events, cfg) {
         curY += rowH;
         return;
       }
+      if (cfg._eventRows) cfg._eventRows.push({ id: ev.id, x: px, y: rY, w: rW, h: rH });
 
       // CGE Pick yellow glow
       if (ev.featured) {
@@ -889,6 +890,7 @@ function renderPreview(canvas, pageEvents, cfg) {
 
     // Skip if overlaps footer
     if (rowY + rowH > H - footerH - 6 * s) return;
+    if (cfg._eventRows) cfg._eventRows.push({ id: ev.id, x: colX, y: rowY, w: colW, h: rowH });
 
     // Emoji
     ctx.save();
@@ -992,6 +994,7 @@ export default function CalendarBuilder() {
   const [emojiPickId, setEmojiPickId] = useState(null);
   const [emojiPickPos, setEmojiPickPos] = useState({ x: 0, y: 0 });
   const emojiPositionsRef = useRef([]);
+  const eventRowsRef = useRef([]);
   const ALL_EMOJIS = ["🎧","💃","🥂","🎭","🎨","🎤","🛍️","🍷","💪","🎬","😂","🎪","🎲","🤝",""];
   const [listFilter, setListFilter] = useState("all"); // "all" | "flagged"
   const eventRefs = useRef({});
@@ -1024,12 +1027,23 @@ export default function CalendarBuilder() {
     const scaleY = canvas.height / rect.height;
     const cx = (e.clientX - rect.left) * scaleX;
     const cy = (e.clientY - rect.top) * scaleY;
-    const hit = emojiPositionsRef.current.find(p => cx >= p.x && cx <= p.x + p.w && cy >= p.y && cy <= p.y + p.h);
-    if (hit) {
-      setEmojiPickId(hit.id);
+    const emojiHit = emojiPositionsRef.current.find(p => cx >= p.x && cx <= p.x + p.w && cy >= p.y && cy <= p.y + p.h);
+    if (emojiHit) {
+      setEmojiPickId(emojiHit.id);
       setEmojiPickPos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
-    } else {
-      setEmojiPickId(null);
+      return;
+    }
+    setEmojiPickId(null);
+    // Row hit → scroll list to that event and open the edit form pre-filled.
+    const rowHit = eventRowsRef.current.find(p => cx >= p.x && cx <= p.x + p.w && cy >= p.y && cy <= p.y + p.h);
+    if (rowHit) {
+      const ev = events.find(x => x.id === rowHit.id);
+      if (ev) {
+        setNev({ ...ev });
+        setEditId(ev.id);
+        setShowAdd(true);
+        scrollToEvent(ev.id);
+      }
     }
   };
 
@@ -1236,12 +1250,14 @@ export default function CalendarBuilder() {
     const cv = canvasRef.current;
     if (!cv) return;
     const positions = [];
+    const rows = [];
     if (mode === "preview") {
-      renderPreview(cv, pgEvts, { colorKey: previewColor, friDate, size: SIZES[sz], dates, texture, bgImage, bgOpacity, pageDay: pgDay, isContinuation: pgIsCont, pageIdx: safePg, totalPages: pages, _emojiPositions: positions });
+      renderPreview(cv, pgEvts, { colorKey: previewColor, friDate, size: SIZES[sz], dates, texture, bgImage, bgOpacity, pageDay: pgDay, isContinuation: pgIsCont, pageIdx: safePg, totalPages: pages, _emojiPositions: positions, _eventRows: rows });
     } else {
-      renderCal(cv, pgEvts, { colorKey: activeColor, friDate, size: SIZES[sz], pageIdx: safePg, totalPages: pages, dates, texture, isContinuation: pgIsCont, _emojiPositions: positions });
+      renderCal(cv, pgEvts, { colorKey: activeColor, friDate, size: SIZES[sz], pageIdx: safePg, totalPages: pages, dates, texture, isContinuation: pgIsCont, _emojiPositions: positions, _eventRows: rows });
     }
     emojiPositionsRef.current = positions;
+    eventRowsRef.current = rows;
   }, [pgEvts, activeColor, previewColor, friDate, sz, safePg, pages, dates, texture, pgIsCont, mode, bgImage, bgOpacity, pgDay]);
 
   useEffect(() => { const t = setTimeout(render, 60); return () => clearTimeout(t); }, [render]);
