@@ -96,15 +96,22 @@ function renderCover(canvas, cfg) {
 
 // === LIST RENDERER ===
 function renderList(canvas, cfg) {
-  const { items, accent, bgKey, dots, totalDots, listTitle, listSubtitle } = cfg;
+  const { items, accent, bgKey, dots, totalDots, listTitle, listSubtitle, photo, opacity } = cfg;
   const W=1080,H=1080; canvas.width=W; canvas.height=H;
   const ctx=canvas.getContext("2d");
-  const bg=BG_COLORS[bgKey]||BG_COLORS.black;
-  ctx.fillStyle=bg.hex; ctx.fillRect(0,0,W,H);
-  const isBlack=bgKey==="black";
-  drawTexture(ctx,W,H,isBlack?"#FACC15":"#000",isBlack?0.04:0.14);
-  if(!isBlack) drawSpotlight(ctx,W,H,"255,255,255",0.40);
-  else drawSpotlight(ctx,W,H,"229,188,79",0.30);
+  if (photo) {
+    const s=Math.max(W/photo.width,H/photo.height); const dw=photo.width*s,dh=photo.height*s;
+    ctx.drawImage(photo,(W-dw)/2,(H-dh)/2,dw,dh);
+    ctx.fillStyle=`rgba(0,0,0,${opacity||0.75})`; ctx.fillRect(0,0,W,H);
+    drawTexture(ctx,W,H,"#FFF",0.03);
+  } else {
+    const bg=BG_COLORS[bgKey]||BG_COLORS.black;
+    ctx.fillStyle=bg.hex; ctx.fillRect(0,0,W,H);
+    const isBlack=bgKey==="black";
+    drawTexture(ctx,W,H,isBlack?"#FACC15":"#000",isBlack?0.04:0.14);
+    if(!isBlack) drawSpotlight(ctx,W,H,"255,255,255",0.40);
+    else drawSpotlight(ctx,W,H,"229,188,79",0.30);
+  }
 
   ctx.globalAlpha=1; ctx.textBaseline="top"; ctx.textAlign="left";
   drawDots(ctx,W,dots,totalDots,accent);
@@ -131,15 +138,22 @@ function renderList(canvas, cfg) {
 
 // === STAT RENDERER ===
 function renderStat(canvas, cfg) {
-  const { statNumber, statLabel, statSub, accent, bgKey, dots, totalDots } = cfg;
+  const { statNumber, statLabel, statSub, accent, bgKey, dots, totalDots, photo, opacity } = cfg;
   const W=1080,H=1080; canvas.width=W; canvas.height=H;
   const ctx=canvas.getContext("2d");
-  const bg=BG_COLORS[bgKey]||BG_COLORS.purple;
-  ctx.fillStyle=bg.hex; ctx.fillRect(0,0,W,H);
-  const isBlack=bgKey==="black";
-  drawTexture(ctx,W,H,isBlack?"#FACC15":"#000",isBlack?0.06:0.14);
-  if(!isBlack) drawSpotlight(ctx,W,H,"255,255,255",0.45);
-  else drawSpotlight(ctx,W,H,"229,188,79",0.35);
+  if (photo) {
+    const s=Math.max(W/photo.width,H/photo.height); const dw=photo.width*s,dh=photo.height*s;
+    ctx.drawImage(photo,(W-dw)/2,(H-dh)/2,dw,dh);
+    ctx.fillStyle=`rgba(0,0,0,${opacity||0.85})`; ctx.fillRect(0,0,W,H);
+    drawTexture(ctx,W,H,"#FFF",0.03);
+  } else {
+    const bg=BG_COLORS[bgKey]||BG_COLORS.purple;
+    ctx.fillStyle=bg.hex; ctx.fillRect(0,0,W,H);
+    const isBlack=bgKey==="black";
+    drawTexture(ctx,W,H,isBlack?"#FACC15":"#000",isBlack?0.06:0.14);
+    if(!isBlack) drawSpotlight(ctx,W,H,"255,255,255",0.45);
+    else drawSpotlight(ctx,W,H,"229,188,79",0.35);
+  }
 
   ctx.globalAlpha=1;
   ctx.font="800 280px 'Syne',sans-serif"; ctx.fillStyle="#FFF"; ctx.textBaseline="middle"; ctx.textAlign="center";
@@ -263,9 +277,19 @@ export default function MediaTool() {
   const [totalPages, setTotalPages] = useState(5);
   const [textPhoto, setTextPhoto] = useState(null);
   const [textOpacity, setTextOpacity] = useState(0.85);
+  const [listPhoto, setListPhoto] = useState(null);
+  const [listOpacity, setListOpacity] = useState(0.75);
+  const [statPhoto, setStatPhoto] = useState(null);
+  const [statOpacity, setStatOpacity] = useState(0.85);
   const [editItem, setEditItem] = useState(null);
+  // In-memory photo bin — drag-drop multiple images, click a thumbnail to
+  // bind it to the active slide. Carousel auto-gen falls back to the bin
+  // by position when a slide has no explicit photo pinned.
+  const [photoBin, setPhotoBin] = useState([]);
+  const [dragOver, setDragOver] = useState(false);
 
   const cvRef = useRef(null), fileRef = useRef(null), textFileRef = useRef(null);
+  const listFileRef = useRef(null), statFileRef = useRef(null), binFileRef = useRef(null);
   const accent = COLORS[accentKey]?.hex || "#FACC15";
   const words = headline.split(/\s+/).filter(w=>w);
   const textWords = textTitle.split(/\s+/).filter(w=>w);
@@ -290,20 +314,85 @@ export default function MediaTool() {
   const render = useCallback(()=>{
     const cv=cvRef.current; if(!cv) return;
     if(mode==="cover") renderCover(cv,{photo,headline,highlights,accent,dots,totalDots,subtitle,opacity});
-    else if(mode==="list") renderList(cv,{items,accent,bgKey,dots,totalDots,listTitle,listSubtitle});
-    else if(mode==="stat") renderStat(cv,{statNumber,statLabel,statSub,accent,bgKey,dots,totalDots});
+    else if(mode==="list") renderList(cv,{items,accent,bgKey,dots,totalDots,listTitle,listSubtitle,photo:listPhoto,opacity:listOpacity});
+    else if(mode==="stat") renderStat(cv,{statNumber,statLabel,statSub,accent,bgKey,dots,totalDots,photo:statPhoto,opacity:statOpacity});
     else if(mode==="text") renderText(cv,{textTitle,textTitleHighlights:textTitleHL,textBody,accent,bgKey,dots,totalDots,pageNum,totalPages,photo:textPhoto,textOpacity});
-  },[mode,photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,items,bgKey,listTitle,listSubtitle,statNumber,statLabel,statSub,textTitle,textTitleHL,textBody,pageNum,totalPages,textPhoto,textOpacity]);
+  },[mode,photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,items,bgKey,listTitle,listSubtitle,listPhoto,listOpacity,statNumber,statLabel,statSub,statPhoto,statOpacity,textTitle,textTitleHL,textBody,pageNum,totalPages,textPhoto,textOpacity]);
 
   useEffect(()=>{const t=setTimeout(render,60);return()=>clearTimeout(t);},[render]);
 
-  const handlePhoto=(e)=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{const img=new Image();img.onload=()=>setPhoto(img);img.src=ev.target.result;};r.readAsDataURL(f);e.target.value="";};
-  const handleTextPhoto=(e)=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{const img=new Image();img.onload=()=>setTextPhoto(img);img.src=ev.target.result;};r.readAsDataURL(f);e.target.value="";};
+  // Convert a File to a decoded Image (data-URL src) — used by both the bin
+  // and the per-slide upload buttons. Returns a Promise so callers can chain.
+  const fileToImage = (file) => new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onerror = reject;
+    r.onload = ev => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = ev.target.result;
+    };
+    r.readAsDataURL(file);
+  });
+  // Per-slide uploads now also drop the photo into the bin so it can be
+  // re-used on other slides without re-uploading.
+  const handleSlidePhoto = async (file, setter) => {
+    try {
+      const img = await fileToImage(file);
+      setter(img);
+      setPhotoBin(prev => [...prev, img]);
+    } catch (err) { console.error("Photo load failed:", err); }
+  };
+  const handlePhoto     = (e) => { const f = e.target.files[0]; if (f) handleSlidePhoto(f, setPhoto);     e.target.value = ""; };
+  const handleTextPhoto = (e) => { const f = e.target.files[0]; if (f) handleSlidePhoto(f, setTextPhoto); e.target.value = ""; };
+  const handleListPhoto = (e) => { const f = e.target.files[0]; if (f) handleSlidePhoto(f, setListPhoto); e.target.value = ""; };
+  const handleStatPhoto = (e) => { const f = e.target.files[0]; if (f) handleSlidePhoto(f, setStatPhoto); e.target.value = ""; };
+
+  // Bin-only adds — multi-file picker and drag-drop. Doesn't auto-bind to
+  // any slide; user clicks a thumbnail to pin to the active slide, or the
+  // carousel auto-gen picks them up by position.
+  const addFilesToBin = async (files) => {
+    const list = Array.from(files || []).filter(f => f.type.startsWith("image/"));
+    if (list.length === 0) return;
+    const imgs = await Promise.all(list.map(f => fileToImage(f).catch(() => null)));
+    const ok = imgs.filter(Boolean);
+    if (ok.length) setPhotoBin(prev => [...prev, ...ok]);
+  };
+  const handleBinFileInput = (e) => { addFilesToBin(e.target.files); e.target.value = ""; };
+  const handleBinDrop = (e) => {
+    e.preventDefault();
+    setDragOver(false);
+    addFilesToBin(e.dataTransfer?.files);
+  };
+  const removeFromBin = (idx) => {
+    const removed = photoBin[idx];
+    setPhotoBin(prev => prev.filter((_, i) => i !== idx));
+    // If any slide was pinned to this photo, clear its pin so the slide
+    // either falls back to bin-by-position (in carousel) or has no photo.
+    if (photo === removed)     setPhoto(null);
+    if (listPhoto === removed) setListPhoto(null);
+    if (statPhoto === removed) setStatPhoto(null);
+    if (textPhoto === removed) setTextPhoto(null);
+  };
+
+  // Active slide → which photo state to read/write when the user clicks a
+  // bin thumbnail. Keeps the bin UI mode-aware without separate strips.
+  const activePhoto =
+    mode === "cover" ? photo :
+    mode === "list"  ? listPhoto :
+    mode === "stat"  ? statPhoto :
+    mode === "text"  ? textPhoto : null;
+  const setActivePhoto = (img) => {
+    if (mode === "cover") setPhoto(img);
+    else if (mode === "list") setListPhoto(img);
+    else if (mode === "stat") setStatPhoto(img);
+    else if (mode === "text") setTextPhoto(img);
+  };
 
   const dl=()=>{const cv=document.createElement("canvas");
     if(mode==="cover") renderCover(cv,{photo,headline,highlights,accent,dots,totalDots,subtitle,opacity});
-    else if(mode==="list") renderList(cv,{items,accent,bgKey,dots,totalDots,listTitle,listSubtitle});
-    else if(mode==="stat") renderStat(cv,{statNumber,statLabel,statSub,accent,bgKey,dots,totalDots});
+    else if(mode==="list") renderList(cv,{items,accent,bgKey,dots,totalDots,listTitle,listSubtitle,photo:listPhoto,opacity:listOpacity});
+    else if(mode==="stat") renderStat(cv,{statNumber,statLabel,statSub,accent,bgKey,dots,totalDots,photo:statPhoto,opacity:statOpacity});
     else if(mode==="text") renderText(cv,{textTitle,textTitleHighlights:textTitleHL,textBody,accent,bgKey,dots,totalDots,pageNum,totalPages,photo:textPhoto,textOpacity});
     cv.toBlob(blob=>{const url=URL.createObjectURL(blob);const a=document.createElement("a");a.download=`CGE_${mode}_slide.png`;a.href=url;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);},"image/png");
   };
@@ -338,12 +427,16 @@ export default function MediaTool() {
       const regionCount = new Set(events.map(e => e.region).filter(Boolean)).size;
       const typeCount = new Set(events.map(e => e.type).filter(Boolean)).size;
 
+      // Bin-by-position fallback: if a slide has no explicit photo pinned,
+      // use the bin photo at its intended carousel position (1-indexed slot:
+      // cover=0, fri=1, sat=2, sun=3, stat=4 in the bin). Manual pins win.
+      const binAt = (i) => photoBin[i] || null;
       const slides = [
         {
           mode: "cover",
           name: "01_cover",
           cfg: {
-            photo,
+            photo: photo || binAt(0),
             headline: `This weekend in NJ has ${events.length} events. Here's what you need to know`,
             highlights: new Set([5, 6, 9]),
             accent, dots: 1, totalDots: 5,
@@ -354,17 +447,17 @@ export default function MediaTool() {
         ...(friItems.length > 0 ? [{
           mode: "list",
           name: "02_friday",
-          cfg: { items: friItems, accent, bgKey: "purple", dots: 2, totalDots: 5, listTitle: "FRIDAY", listSubtitle: "TOP PICKS" },
+          cfg: { items: friItems, accent, bgKey: "purple", dots: 2, totalDots: 5, listTitle: "FRIDAY", listSubtitle: "TOP PICKS", photo: listPhoto || binAt(1), opacity: listOpacity },
         }] : []),
         ...(satItems.length > 0 ? [{
           mode: "list",
           name: "03_saturday",
-          cfg: { items: satItems, accent, bgKey: "wine", dots: 3, totalDots: 5, listTitle: "SATURDAY", listSubtitle: "TOP PICKS" },
+          cfg: { items: satItems, accent, bgKey: "wine", dots: 3, totalDots: 5, listTitle: "SATURDAY", listSubtitle: "TOP PICKS", photo: listPhoto || binAt(2), opacity: listOpacity },
         }] : []),
         ...(sunItems.length > 0 ? [{
           mode: "list",
           name: "04_sunday",
-          cfg: { items: sunItems, accent, bgKey: "emerald", dots: 4, totalDots: 5, listTitle: "SUNDAY", listSubtitle: "TOP PICKS" },
+          cfg: { items: sunItems, accent, bgKey: "emerald", dots: 4, totalDots: 5, listTitle: "SUNDAY", listSubtitle: "TOP PICKS", photo: listPhoto || binAt(3), opacity: listOpacity },
         }] : []),
         {
           mode: "stat",
@@ -374,6 +467,7 @@ export default function MediaTool() {
             statLabel: "EVENTS",
             statSub: `Across ${dayCount} day${dayCount === 1 ? "" : "s"}, ${regionCount} region${regionCount === 1 ? "" : "s"},\nand ${typeCount} categor${typeCount === 1 ? "y" : "ies"}`,
             accent, bgKey: "black", dots: 5, totalDots: 5,
+            photo: statPhoto || binAt(4), opacity: statOpacity,
           },
         },
       ];
@@ -464,6 +558,80 @@ export default function MediaTool() {
           </div>
         )}
 
+        {/* Photo Bin — drop multiple, click a thumbnail to bind to the active
+            slide. Carousel auto-gen falls back to bin-by-position when a
+            slide has no explicit pin. In-memory only (clears on refresh). */}
+        <div
+          onDragOver={e => { e.preventDefault(); if (!dragOver) setDragOver(true); }}
+          onDragLeave={e => { e.preventDefault(); setDragOver(false); }}
+          onDrop={handleBinDrop}
+          style={{
+            marginBottom: "1rem",
+            padding: "10px 14px",
+            background: dragOver ? "rgba(250,204,21,0.10)" : "rgba(245,240,232,0.03)",
+            border: `1px ${dragOver ? "solid #FACC15" : "dashed rgba(245,240,232,0.15)"}`,
+            borderRadius: "6px",
+            transition: "background 100ms, border-color 100ms",
+          }}
+        >
+          <div style={{display:"flex",alignItems:"center",gap:"0.6rem",marginBottom: photoBin.length ? "8px" : 0}}>
+            <div style={{flex:1}}>
+              <div style={{fontSize:"0.6rem",color:accent,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:"2px",fontWeight:700}}>
+                Photo Bin · {photoBin.length} {photoBin.length === 1 ? "photo" : "photos"}
+              </div>
+              <div style={{fontSize:"0.6rem",color:"rgba(245,240,232,0.45)"}}>
+                {photoBin.length === 0
+                  ? <>Drop multiple photos here, or click <strong>Add Photos</strong>. Carousel auto-gen uses them in order — position #1 = Cover, #2 = Fri, #3 = Sat, #4 = Sun, #5 = Stat.</>
+                  : <>Click a thumbnail to use it on the <strong style={{color:accent}}>{mode}</strong> slide. Numbered badges show default carousel position.</>
+                }
+              </div>
+            </div>
+            <button onClick={()=>binFileRef.current?.click()} style={{...B,whiteSpace:"nowrap"}}>+ Add Photos</button>
+            <input ref={binFileRef} type="file" accept="image/*" multiple onChange={handleBinFileInput} style={{display:"none"}}/>
+          </div>
+          {photoBin.length > 0 && (
+            <div style={{display:"flex",gap:"6px",overflowX:"auto",paddingBottom:"2px"}}>
+              {photoBin.map((img, i) => {
+                const isActive = activePhoto === img;
+                return (
+                  <div key={i} style={{position:"relative",flexShrink:0}}>
+                    <button
+                      onClick={()=>setActivePhoto(isActive ? null : img)}
+                      title={isActive ? `Currently on ${mode} · click to unpin` : `Pin to ${mode} slide`}
+                      style={{
+                        width:62, height:62, padding:0, cursor:"pointer",
+                        background:`url(${img.src}) center/cover`,
+                        border:`2px solid ${isActive ? "#FACC15" : "rgba(255,255,255,0.12)"}`,
+                        borderRadius:"5px",
+                        boxShadow: isActive ? "0 0 8px rgba(250,204,21,0.4)" : "none",
+                      }}
+                    />
+                    <span style={{
+                      position:"absolute",top:2,left:2,
+                      background:"rgba(0,0,0,0.7)",color:accent,
+                      fontSize:"0.5rem",fontWeight:700,
+                      padding:"1px 4px",borderRadius:"2px",
+                      letterSpacing:"0.5px",pointerEvents:"none",
+                    }}>{i+1}</span>
+                    <button
+                      onClick={()=>removeFromBin(i)}
+                      title="Remove from bin"
+                      style={{
+                        position:"absolute",top:-6,right:-6,
+                        width:18,height:18,padding:0,
+                        background:"#FB7185",color:"#000",
+                        border:"none",borderRadius:"50%",
+                        fontSize:"0.65rem",fontWeight:800,
+                        cursor:"pointer",lineHeight:1,
+                      }}
+                    >×</button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
         <div style={{display:"grid",gridTemplateColumns:"1fr 400px",gap:"1.5rem",alignItems:"start"}}>
           <div>
             {mode==="cover"&&<>
@@ -479,12 +647,24 @@ export default function MediaTool() {
             </>}
 
             {mode==="list"&&<>
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Background Photo (optional)</label>
+                <div style={{display:"flex",gap:"0.3rem",alignItems:"center"}}>
+                  <button onClick={()=>listFileRef.current?.click()} style={{...B,flex:1}}>{listPhoto?"Change Photo":"Upload Photo"}</button>
+                  {listPhoto&&<button onClick={()=>setListPhoto(null)} style={{...B,color:"rgba(251,113,133,0.5)"}}>×</button>}
+                  <input ref={listFileRef} type="file" accept="image/*" onChange={handleListPhoto} style={{display:"none"}}/>
+                </div>
+                {listPhoto&&<div style={{display:"flex",alignItems:"center",gap:"6px",marginTop:"4px"}}>
+                  <span style={{fontSize:"0.45rem",color:"rgba(245,240,232,0.3)"}}>50%</span>
+                  <input type="range" min="0.50" max="0.95" step="0.01" value={listOpacity} onChange={e=>setListOpacity(parseFloat(e.target.value))} style={{flex:1,accentColor:accent}}/>
+                  <span style={{fontSize:"0.45rem",color:"rgba(245,240,232,0.3)"}}>95%</span>
+                </div>}
+              </div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0.4rem",marginBottom:"0.6rem"}}>
                 <div><label style={L}>Title</label><input value={listTitle} onChange={e=>setListTitle(e.target.value)} style={I}/></div>
                 <div><label style={L}>Subtitle</label><input value={listSubtitle} onChange={e=>setListSubtitle(e.target.value)} style={I}/></div>
               </div>
-              <div style={{marginBottom:"0.6rem"}}><label style={L}>Background</label><div style={{display:"flex",gap:"3px"}}>
-                {Object.entries(BG_COLORS).map(([k,v])=><button key={k} onClick={()=>setBgKey(k)} style={{width:28,height:28,borderRadius:"5px",cursor:"pointer",background:v.hex,border:bgKey===k?"2px solid #FFF":"2px solid transparent",boxShadow:bgKey===k?"0 0 6px rgba(255,255,255,0.3)":"none"}} title={v.name}/>)}</div></div>
+              {!listPhoto&&<div style={{marginBottom:"0.6rem"}}><label style={L}>Background Color</label><div style={{display:"flex",gap:"3px"}}>
+                {Object.entries(BG_COLORS).map(([k,v])=><button key={k} onClick={()=>setBgKey(k)} style={{width:28,height:28,borderRadius:"5px",cursor:"pointer",background:v.hex,border:bgKey===k?"2px solid #FFF":"2px solid transparent",boxShadow:bgKey===k?"0 0 6px rgba(255,255,255,0.3)":"none"}} title={v.name}/>)}</div></div>}
               {events.length > 0 && (
                 <div style={{marginBottom:"0.6rem",padding:"0.5rem",background:"rgba(229,188,79,0.06)",border:"1px solid rgba(229,188,79,0.18)",borderRadius:"4px"}}>
                   <label style={L}>Pull from event store · {events.length} loaded</label>
@@ -517,13 +697,25 @@ export default function MediaTool() {
             </>}
 
             {mode==="stat"&&<>
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Background Photo (optional)</label>
+                <div style={{display:"flex",gap:"0.3rem",alignItems:"center"}}>
+                  <button onClick={()=>statFileRef.current?.click()} style={{...B,flex:1}}>{statPhoto?"Change Photo":"Upload Photo"}</button>
+                  {statPhoto&&<button onClick={()=>setStatPhoto(null)} style={{...B,color:"rgba(251,113,133,0.5)"}}>×</button>}
+                  <input ref={statFileRef} type="file" accept="image/*" onChange={handleStatPhoto} style={{display:"none"}}/>
+                </div>
+                {statPhoto&&<div style={{display:"flex",alignItems:"center",gap:"6px",marginTop:"4px"}}>
+                  <span style={{fontSize:"0.45rem",color:"rgba(245,240,232,0.3)"}}>70%</span>
+                  <input type="range" min="0.70" max="0.98" step="0.01" value={statOpacity} onChange={e=>setStatOpacity(parseFloat(e.target.value))} style={{flex:1,accentColor:accent}}/>
+                  <span style={{fontSize:"0.45rem",color:"rgba(245,240,232,0.3)"}}>98%</span>
+                </div>}
+              </div>
               <div style={{display:"grid",gridTemplateColumns:"120px 1fr",gap:"0.4rem",marginBottom:"0.6rem"}}>
                 <div><label style={L}>Number</label><input value={statNumber} onChange={e=>setStatNumber(e.target.value)} style={{...I,fontSize:"1.2rem",fontWeight:800,textAlign:"center",fontFamily:"'Syne'"}}/></div>
                 <div><label style={L}>Label</label><input value={statLabel} onChange={e=>setStatLabel(e.target.value)} style={I}/></div>
               </div>
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Subtitle (use \n for line breaks)</label><textarea value={statSub} onChange={e=>setStatSub(e.target.value)} style={{...I,height:50,resize:"vertical"}}/></div>
-              <div style={{marginBottom:"0.6rem"}}><label style={L}>Background</label><div style={{display:"flex",gap:"3px"}}>
-                {Object.entries(BG_COLORS).map(([k,v])=><button key={k} onClick={()=>setBgKey(k)} style={{width:28,height:28,borderRadius:"5px",cursor:"pointer",background:v.hex,border:bgKey===k?"2px solid #FFF":"2px solid transparent",boxShadow:bgKey===k?"0 0 6px rgba(255,255,255,0.3)":"none"}} title={v.name}/>)}</div></div>
+              {!statPhoto&&<div style={{marginBottom:"0.6rem"}}><label style={L}>Background Color</label><div style={{display:"flex",gap:"3px"}}>
+                {Object.entries(BG_COLORS).map(([k,v])=><button key={k} onClick={()=>setBgKey(k)} style={{width:28,height:28,borderRadius:"5px",cursor:"pointer",background:v.hex,border:bgKey===k?"2px solid #FFF":"2px solid transparent",boxShadow:bgKey===k?"0 0 6px rgba(255,255,255,0.3)":"none"}} title={v.name}/>)}</div></div>}
             </>}
 
             {mode==="text"&&<>
