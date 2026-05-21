@@ -246,10 +246,13 @@ export default function ReviewQueue() {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
+      // Read as raw so xlsx doesn't convert date cells into TZ-shifted strings
+      // (Excel stores 2026-05-22 as serial 46164; raw:false + EST locale would
+      // render that as "5/21/26"). parseDateToDay handles both serials and ISO.
       const buf = await file.arrayBuffer();
-      const wb = XLSX.read(buf, { type: "array" });
+      const wb = XLSX.read(buf, { type: "array", cellDates: false });
       const sheet = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: "" });
+      const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: "" });
       const parsed = parseRows(rows);
       // Give each event a stable string id so React keys + approvals work
       const withIds = parsed.map((ev, i) => ({ ...ev, id: `pending_${Date.now()}_${i}` }));

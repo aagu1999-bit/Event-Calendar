@@ -273,13 +273,18 @@ export function parseRows(rows, defaultRegion = "North") {
           ? String(r[fm[field]] ?? "").replace(/^["']+|["']+$/g, "").trim()
           : "";
 
-      const rawDate = hasDateCol ? get("date") : "";
+      const rawCell = hasDateCol ? get("date") : "";
       let day = null;
+      let parsedDate = null;
       if (hasDayCol) day = parseDay(get("day"));
-      if (!day && hasDateCol) {
-        const di = parseDateToDay(rawDate);
-        if (di) day = di.day;
+      if (hasDateCol) {
+        parsedDate = parseDateToDay(rawCell);
+        if (!day && parsedDate) day = parsedDate.day;
       }
+      // For display: prefer the TZ-safe "M/D" from parseDateToDay over the
+      // raw cell value (which is a numeric Excel serial when reading XLSX
+      // with raw:true).
+      const rawDate = parsedDate ? parsedDate.date : rawCell;
       const dayFromFallback = !day;
       if (!day) day = "Fri";
 
