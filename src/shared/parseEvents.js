@@ -127,10 +127,14 @@ export function parseDateToDay(dateStr) {
   const raw = String(dateStr).trim();
   let d = null;
 
-  // Excel serial number (e.g. 46132)
+  // Excel serial number (e.g. 46132). Build via UTC components so we don't
+  // get a TZ shift — `new Date(millis)` lands on UTC midnight, and reading
+  // d.getDay() in any timezone west of UTC then returns the *previous* day,
+  // which turned Fri May 22 dates into Thu and made the day badge render "?".
   const num = parseFloat(raw);
   if (!isNaN(num) && num > 40000 && num < 60000) {
-    d = new Date((num - 25569) * 86400000);
+    const utc = new Date((num - 25569) * 86400000);
+    d = new Date(utc.getUTCFullYear(), utc.getUTCMonth(), utc.getUTCDate());
   }
   // M/D/YYYY or M/D/YY or M/D
   if (!d) {
@@ -269,18 +273,22 @@ export function parseRows(rows, defaultRegion = "North") {
           ? String(r[fm[field]] ?? "").replace(/^["']+|["']+$/g, "").trim()
           : "";
 
+      const rawDate = hasDateCol ? get("date") : "";
       let day = null;
       if (hasDayCol) day = parseDay(get("day"));
       if (!day && hasDateCol) {
-        const di = parseDateToDay(get("date"));
+        const di = parseDateToDay(rawDate);
         if (di) day = di.day;
       }
+      const dayFromFallback = !day;
       if (!day) day = "Fri";
 
       const type = get("type");
       return {
         id: Date.now() + Math.random() * 1e5,
         day,
+        rawDate,
+        dayFromFallback,
         time: formatTime(get("time")),
         name: get("name"),
         venue: get("venue"),
