@@ -439,15 +439,26 @@ export default function ReviewQueue() {
   const editField = (k, v) => setEditDraft(d => ({ ...d, [k]: v }));
 
   const importApproved = () => {
-    const approved = pending.filter(e => approvals[e.id]).map(e => ({
+    const approvedSrc = pending.filter(e => approvals[e.id]);
+    if (approvedSrc.length === 0) return;
+    const approved = approvedSrc.map(e => ({
       ...e,
       id: Date.now() + Math.random() * 1e5,  // give them fresh numeric IDs for the store
     }));
-    if (approved.length === 0) return;
+    const importedIds = new Set(approvedSrc.map(e => e.id));
     updateEvents(prev => [...prev, ...approved]);
-    setPending([]);
-    setApprovals({});
-    alert(`Imported ${approved.length} events to the store.`);
+    setPending(prev => prev.filter(e => !importedIds.has(e.id)));
+    setApprovals(a => {
+      const next = { ...a };
+      importedIds.forEach(id => delete next[id]);
+      return next;
+    });
+    const remaining = pending.length - approvedSrc.length;
+    alert(
+      remaining > 0
+        ? `Imported ${approved.length} events to the store.\n${remaining} unapproved event${remaining === 1 ? "" : "s"} still in the queue — fix flags or skip them.`
+        : `Imported ${approved.length} events to the store.`
+    );
   };
 
   return (
