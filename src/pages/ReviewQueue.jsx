@@ -1,6 +1,6 @@
 import { useState, useRef, useMemo, useEffect, Fragment } from "react";
 import * as XLSX from "xlsx";
-import { useEventsStore, useRegularsStore } from "../store";
+import { useEventsStore, useRegularsStore, useReviewQueueStore } from "../store";
 import { parseRows, DAYFUL, getEmoji } from "../shared/parseEvents";
 import { computeWarnings, findFlagPartners } from "../shared/validateEvents";
 import { detectRegulars } from "../shared/regulars";
@@ -137,8 +137,13 @@ export default function ReviewQueue() {
   const events = useEventsStore(s => s.events);
   const updateEvents = useEventsStore(s => s.updateEvents);
 
-  const [pending, setPending] = useState([]); // parsed Event[]
-  const [approvals, setApprovals] = useState({}); // id -> bool
+  // pending + approvals persist via Zustand so closing the tab mid-review
+  // doesn't wipe the upload. Hooks are wired up to mirror useState's
+  // signature, including functional updaters.
+  const pending = useReviewQueueStore(s => s.pending);
+  const setPending = useReviewQueueStore(s => s.setPending);
+  const approvals = useReviewQueueStore(s => s.approvals);
+  const setApprovals = useReviewQueueStore(s => s.setApprovals);
   const [filter, setFilter] = useState("all"); // all | clean | flagged | unapproved
   const [sortByTag, setSortByTag] = useState(null); // tag name to float to top (separate from filter)
   // Highlighted group captures the event IDs at click time so the sort/highlight

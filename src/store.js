@@ -43,6 +43,32 @@ export const useRegularsStore = create(
   )
 );
 
+// Review queue store — persists in-progress uploads (parsed-but-not-yet-imported
+// events + the per-event approval checkboxes). Lives outside useEventsStore
+// because the review queue is workflow state, not part of the shared event list
+// that the other tools render; mixing them would mean "Clear all" wipes both.
+// The setPending / setApprovals signatures intentionally mirror useState so the
+// review UI can use functional updaters (`setPending(p => p.filter(...))`).
+export const useReviewQueueStore = create(
+  persist(
+    (set) => ({
+      pending: [],
+      approvals: {},
+      setPending: (pendingOrFn) => set(state => ({
+        pending: typeof pendingOrFn === "function" ? pendingOrFn(state.pending) : pendingOrFn,
+      })),
+      setApprovals: (approvalsOrFn) => set(state => ({
+        approvals: typeof approvalsOrFn === "function" ? approvalsOrFn(state.approvals) : approvalsOrFn,
+      })),
+      clearReviewQueue: () => set({ pending: [], approvals: {} }),
+    }),
+    {
+      name: "cge-review-queue",
+      version: 1,
+    }
+  )
+);
+
 export const useEventsStore = create(
   persist(
     (set, get) => ({
