@@ -257,16 +257,42 @@ export default function MediaTool() {
   const [dots, setDots] = useState(1);
   const [totalDots, setTotalDots] = useState(5);
   const [opacity, setOpacity] = useState(0.92);
-  const [items, setItems] = useState([
-    {name:"R&B Friday at Halftime",detail:"Jersey City · 8 PM",featured:true},
-    {name:"Afrobeat Night",detail:"Suite 2, New Brunswick · 9 PM",featured:true},
-    {name:"Comedy Night",detail:"Stress Factory · 7 PM",featured:true},
-    {name:"Wine Tasting",detail:"Porta, Jersey City · 6 PM",featured:false},
-    {name:"Open Mic Night",detail:"Caribrew, Newark · 6 PM",featured:false},
-    {name:"Day Party",detail:"Blvd, New Brunswick · 3 PM",featured:false},
+  // List slides are now paginated: an array of pages, each with its own
+  // items + title + subtitle. The editor shows one page at a time; the
+  // navigator switches between them. Initial state is a single seeded
+  // page so the editor has something to show before "Generate pages".
+  const [listPages, setListPages] = useState([
+    {
+      listTitle: "FRIDAY",
+      listSubtitle: "TOP PICKS",
+      items: [
+        {name:"R&B Friday at Halftime",detail:"Jersey City · 8 PM",featured:true},
+        {name:"Afrobeat Night",detail:"Suite 2, New Brunswick · 9 PM",featured:true},
+        {name:"Comedy Night",detail:"Stress Factory · 7 PM",featured:true},
+        {name:"Wine Tasting",detail:"Porta, Jersey City · 6 PM",featured:false},
+        {name:"Open Mic Night",detail:"Caribrew, Newark · 6 PM",featured:false},
+        {name:"Day Party",detail:"Blvd, New Brunswick · 3 PM",featured:false},
+      ],
+    },
   ]);
-  const [listTitle, setListTitle] = useState("FRIDAY");
-  const [listSubtitle, setListSubtitle] = useState("TOP PICKS");
+  const [listPageIndex, setListPageIndex] = useState(0);
+  // Derived current-page accessors + setters. Existing code reads `items`,
+  // `listTitle`, `listSubtitle` and calls `setItems` / `setListTitle` /
+  // `setListSubtitle` as if they were single-page state; routing them
+  // through the page array means none of the editor JSX had to change.
+  const currentListPage =
+    listPages[listPageIndex] || listPages[0] || { items: [], listTitle: "FRIDAY", listSubtitle: "TOP PICKS" };
+  const items = currentListPage.items;
+  const listTitle = currentListPage.listTitle;
+  const listSubtitle = currentListPage.listSubtitle;
+  const updateCurrentListPage = (patchOrFn) => setListPages(pages =>
+    pages.map((p, i) => i === listPageIndex ? { ...p, ...(typeof patchOrFn === "function" ? patchOrFn(p) : patchOrFn) } : p)
+  );
+  const setItems = (newItemsOrFn) => updateCurrentListPage(p => ({
+    items: typeof newItemsOrFn === "function" ? newItemsOrFn(p.items) : newItemsOrFn,
+  }));
+  const setListTitle = (title) => updateCurrentListPage({ listTitle: title });
+  const setListSubtitle = (subtitle) => updateCurrentListPage({ listSubtitle: subtitle });
   const [statNumber, setStatNumber] = useState("47");
   const [statLabel, setStatLabel] = useState("EVENTS");
   const [statSub, setStatSub] = useState("Across 3 days, 3 regions,\nand 12 categories");
@@ -297,18 +323,52 @@ export default function MediaTool() {
   const toggleHL = (idx) => setHighlights(p=>{const n=new Set(p);n.has(idx)?n.delete(idx):n.add(idx);return n;});
   const toggleTextHL = (idx) => setTextTitleHL(p=>{const n=new Set(p);n.has(idx)?n.delete(idx):n.add(idx);return n;});
 
-  // Cross-tool: pull events from the shared store into the List slide.
-  // Filters by day if a day is picked; "all" pulls everything.
-  const [listImportDay, setListImportDay] = useState("all");
-  const importFromStore = () => {
+  // Generate paginated list pages from the events store: group by day
+  // (Fri/Sat/Sun/Mon), then split each day into pages of 8. So a Friday
+  // with 18 events becomes 3 pages ("FRIDAY · PAGE 1 OF 3", etc.) and
+  // each page is independently editable. Replaces existing pages.
+  const LIST_PAGE_SIZE = 8;
+  const DAY_LABEL = { Fri: "FRIDAY", Sat: "SATURDAY", Sun: "SUNDAY", Mon: "MONDAY" };
+  const generatePagesFromStore = () => {
     if (events.length === 0) return;
-    const filtered = listImportDay === "all" ? events : events.filter(e => e.day === listImportDay);
-    const next = filtered.slice(0, 8).map(e => ({
-      name: e.name || "Untitled",
-      detail: [e.venue, e.area, e.time].filter(Boolean).join(" · "),
-      featured: false,
-    }));
-    if (next.length > 0) setItems(next);
+    if (listPages.length > 1 || listPages[0]?.items?.[0]?.name !== "R&B Friday at Halftime") {
+      // The default page hasn't been touched — silently replace. Otherwise
+      // ask before nuking user edits.
+      if (!window.confirm("Replace your current list pages with freshly-paginated events from the store? Your edits to existing pages will be lost.")) return;
+    }
+    const byDay = { Fri: [], Sat: [], Sun: [], Mon: [] };
+    events.forEach(e => { if (byDay[e.day]) byDay[e.day].push(e); });
+    const pages = [];
+    ["Fri", "Sat", "Sun", "Mon"].forEach(day => {
+      const dayEvents = byDay[day];
+      if (dayEvents.length === 0) return;
+      const total = Math.ceil(dayEvents.length / LIST_PAGE_SIZE);
+      for (let p = 0; p < total; p++) {
+        const slice = dayEvents.slice(p * LIST_PAGE_SIZE, (p + 1) * LIST_PAGE_SIZE);
+        pages.push({
+          listTitle: DAY_LABEL[day],
+          listSubtitle: total > 1 ? `PAGE ${p + 1} OF ${total}` : "TOP PICKS",
+          items: slice.map(e => ({
+            name: e.name || "Untitled",
+            detail: [e.venue, e.area, e.time].filter(Boolean).join(" · "),
+            featured: !!e.featured,
+          })),
+        });
+      }
+    });
+    if (pages.length === 0) return;
+    setListPages(pages);
+    setListPageIndex(0);
+  };
+  const addBlankListPage = () => {
+    setListPages(pages => [...pages, { listTitle: "FRIDAY", listSubtitle: "TOP PICKS", items: [] }]);
+    setListPageIndex(listPages.length);
+  };
+  const deleteCurrentListPage = () => {
+    if (listPages.length <= 1) return;
+    if (!window.confirm(`Delete page ${listPageIndex + 1} (${listTitle})?`)) return;
+    setListPages(pages => pages.filter((_, i) => i !== listPageIndex));
+    setListPageIndex(i => Math.max(0, i - (listPageIndex === listPages.length - 1 ? 1 : 0)));
   };
 
   const render = useCallback(()=>{
@@ -320,6 +380,9 @@ export default function MediaTool() {
   },[mode,photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,items,bgKey,listTitle,listSubtitle,listPhoto,listOpacity,statNumber,statLabel,statSub,statPhoto,statOpacity,textTitle,textTitleHL,textBody,pageNum,totalPages,textPhoto,textOpacity]);
 
   useEffect(()=>{const t=setTimeout(render,60);return()=>clearTimeout(t);},[render]);
+  // Reset in-progress item edit when switching list pages — item index N on
+  // page 1 isn't the same row as item index N on page 2.
+  useEffect(() => { setEditItem(null); }, [listPageIndex]);
 
   // Convert a File to a decoded Image (data-URL src) — used by both the bin
   // and the per-slide upload buttons. Returns a Promise so callers can chain.
@@ -659,6 +722,38 @@ export default function MediaTool() {
                   <span style={{fontSize:"0.45rem",color:"rgba(245,240,232,0.3)"}}>95%</span>
                 </div>}
               </div>
+              {/* Page navigator — switches which page the editor + preview show.
+                  Mirrors the Calendar tab's slide-bucketing pattern: each page is
+                  one List slide, edited independently. */}
+              <div style={{marginBottom:"0.6rem",padding:"6px 8px",background:"rgba(229,188,79,0.06)",border:"1px solid rgba(229,188,79,0.22)",borderRadius:"5px"}}>
+                <div style={{display:"flex",alignItems:"center",gap:"4px"}}>
+                  <button
+                    onClick={()=>setListPageIndex(i=>Math.max(0,i-1))}
+                    disabled={listPageIndex===0}
+                    style={{...B,padding:"4px 8px",opacity:listPageIndex===0?0.3:1,cursor:listPageIndex===0?"not-allowed":"pointer"}}
+                    title="Previous page"
+                  >←</button>
+                  <div style={{flex:1,textAlign:"center",fontSize:"0.6rem",letterSpacing:"1.5px",textTransform:"uppercase",color:"#E5BC4F",fontWeight:700}}>
+                    Page {listPageIndex+1} of {listPages.length}
+                    <span style={{color:"rgba(245,240,232,0.4)",marginLeft:"6px",fontWeight:500}}>· {listTitle}</span>
+                  </div>
+                  <button
+                    onClick={()=>setListPageIndex(i=>Math.min(listPages.length-1,i+1))}
+                    disabled={listPageIndex>=listPages.length-1}
+                    style={{...B,padding:"4px 8px",opacity:listPageIndex>=listPages.length-1?0.3:1,cursor:listPageIndex>=listPages.length-1?"not-allowed":"pointer"}}
+                    title="Next page"
+                  >→</button>
+                </div>
+                <div style={{display:"flex",gap:"4px",marginTop:"4px"}}>
+                  <button onClick={addBlankListPage} style={{...B,flex:1,padding:"3px 6px",fontSize:"0.55rem"}}>+ Add page</button>
+                  <button
+                    onClick={deleteCurrentListPage}
+                    disabled={listPages.length<=1}
+                    title="Delete this page"
+                    style={{...B,flex:1,padding:"3px 6px",fontSize:"0.55rem",background:"rgba(251,113,133,0.08)",borderColor:"rgba(251,113,133,0.25)",color:listPages.length<=1?"rgba(251,113,133,0.25)":"rgba(251,113,133,0.7)",cursor:listPages.length<=1?"not-allowed":"pointer"}}
+                  >× Delete page</button>
+                </div>
+              </div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0.4rem",marginBottom:"0.6rem"}}>
                 <div><label style={L}>Title</label><input value={listTitle} onChange={e=>setListTitle(e.target.value)} style={I}/></div>
                 <div><label style={L}>Subtitle</label><input value={listSubtitle} onChange={e=>setListSubtitle(e.target.value)} style={I}/></div>
@@ -667,15 +762,12 @@ export default function MediaTool() {
                 {Object.entries(BG_COLORS).map(([k,v])=><button key={k} onClick={()=>setBgKey(k)} style={{width:28,height:28,borderRadius:"5px",cursor:"pointer",background:v.hex,border:bgKey===k?"2px solid #FFF":"2px solid transparent",boxShadow:bgKey===k?"0 0 6px rgba(255,255,255,0.3)":"none"}} title={v.name}/>)}</div></div>}
               {events.length > 0 && (
                 <div style={{marginBottom:"0.6rem",padding:"0.5rem",background:"rgba(229,188,79,0.06)",border:"1px solid rgba(229,188,79,0.18)",borderRadius:"4px"}}>
-                  <label style={L}>Pull from event store · {events.length} loaded</label>
-                  <div style={{display:"flex",gap:"0.3rem",marginTop:"4px"}}>
-                    <select value={listImportDay} onChange={e=>setListImportDay(e.target.value)} style={{...I,flex:1,fontSize:"0.65rem"}}>
-                      <option value="all">All days</option>
-                      <option value="Fri">Friday</option>
-                      <option value="Sat">Saturday</option>
-                      <option value="Sun">Sunday</option>
-                    </select>
-                    <button onClick={importFromStore} style={{...B,whiteSpace:"nowrap"}}>Import top 8</button>
+                  <label style={L}>Auto-generate pages · {events.length} events loaded</label>
+                  <div style={{display:"flex",gap:"0.3rem",marginTop:"4px",alignItems:"center"}}>
+                    <div style={{flex:1,fontSize:"0.55rem",color:"rgba(245,240,232,0.6)",lineHeight:1.4}}>
+                      Group by day (Fri/Sat/Sun/Mon), 8 per page. Replaces current pages.
+                    </div>
+                    <button onClick={generatePagesFromStore} style={{...B,whiteSpace:"nowrap"}}>Generate pages</button>
                   </div>
                 </div>
               )}
