@@ -935,6 +935,7 @@ export default function ReviewQueue() {
                           <option value="Fri">Fri</option>
                           <option value="Sat">Sat</option>
                           <option value="Sun">Sun</option>
+                          <option value="Mon">Mon</option>
                         </select>
                         <input
                           value={editDraft.time || ""}

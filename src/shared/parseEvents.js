@@ -4,11 +4,13 @@
 // and the most permissive region parser ("North", "Northern NJ", "South Jersey",
 // "Shore", etc).
 
-export const DAY_ORDER = { Fri: 0, Sat: 1, Sun: 2 };
+export const DAY_ORDER = { Fri: 0, Sat: 1, Sun: 2, Mon: 3 };
 export const REGION_ORDER = { North: 0, Central: 1, South: 2 };
-export const DAYFUL = { Fri: "FRIDAY", Sat: "SATURDAY", Sun: "SUNDAY" };
-export const DAY_EMOJI = { Fri: "🌙", Sat: "🔥", Sun: "☀️" };
-export const WEEKDAYS = ["Fri", "Sat", "Sun"];
+export const DAYFUL = { Fri: "FRIDAY", Sat: "SATURDAY", Sun: "SUNDAY", Mon: "MONDAY" };
+export const DAY_EMOJI = { Fri: "🌙", Sat: "🔥", Sun: "☀️", Mon: "🎆" };
+// Mon supported for holiday-extended weekends (Memorial Day, Labor Day, etc.)
+// — sorts after Sun so a four-day weekend reads Fri → Sat → Sun → Mon.
+export const WEEKDAYS = ["Fri", "Sat", "Sun", "Mon"];
 export const REGIONS = ["North", "Central", "South"];
 
 // Superset emoji map (union of Newsletter and Reel; Calendar was a strict subset).
@@ -103,6 +105,7 @@ export function parseDay(d) {
   if (l.startsWith("fri") || l === "f") return "Fri";
   if (l.startsWith("sat") || l === "sa" || l === "s") return "Sat";
   if (l.startsWith("sun") || l === "su") return "Sun";
+  if (l.startsWith("mon") || l === "m" || l === "mo") return "Mon";
   return null;
 }
 
