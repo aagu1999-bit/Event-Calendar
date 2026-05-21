@@ -423,6 +423,7 @@ export default function ReviewQueue() {
       area:   ev.area   || "",
       region: ev.region || "North",
       type:   ev.type   || "",
+      link:   ev.link   || "",
     });
   };
   const saveEdit = () => {
@@ -878,6 +879,50 @@ export default function ReviewQueue() {
                       )}
                     </div>
                     <div style={{ display: "flex", gap: "4px" }}>
+                      {ev.link ? (
+                        <a
+                          href={ev.link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={e => e.stopPropagation()}
+                          title={`Open link to verify: ${ev.link}`}
+                          style={{
+                            padding: "5px 9px",
+                            background: "rgba(96,165,250,0.08)",
+                            color: "#60A5FA",
+                            border: "1px solid rgba(96,165,250,0.3)",
+                            borderRadius: "4px",
+                            fontSize: "0.7rem",
+                            cursor: "pointer",
+                            fontFamily: "inherit",
+                            textDecoration: "none",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            lineHeight: 1,
+                          }}
+                        >
+                          🔗
+                        </a>
+                      ) : (
+                        <button
+                          disabled
+                          title="No link on this event — add one via edit (✎) to enable verification"
+                          style={{
+                            padding: "5px 9px",
+                            background: "rgba(245,240,232,0.02)",
+                            color: "rgba(245,240,232,0.2)",
+                            border: "1px dashed rgba(245,240,232,0.1)",
+                            borderRadius: "4px",
+                            fontSize: "0.7rem",
+                            cursor: "not-allowed",
+                            fontFamily: "inherit",
+                            opacity: 0.5,
+                          }}
+                        >
+                          🔗
+                        </button>
+                      )}
                       <button
                         onClick={() => isEditing ? cancelEdit() : startEdit(ev)}
                         title={isEditing ? "Cancel edit" : "Edit this event in place"}
@@ -949,7 +994,7 @@ export default function ReviewQueue() {
                           style={editInputStyle}
                         />
                       </div>
-                      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr auto auto", gap: "8px", alignItems: "center" }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: "8px", marginBottom: "8px" }}>
                         <input
                           value={editDraft.venue || ""}
                           onChange={e => editField("venue", e.target.value)}
@@ -967,6 +1012,15 @@ export default function ReviewQueue() {
                           <option value="Central">Central</option>
                           <option value="South">South</option>
                         </select>
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: "8px", alignItems: "center" }}>
+                        <input
+                          type="url"
+                          value={editDraft.link || ""}
+                          onChange={e => editField("link", e.target.value)}
+                          placeholder="Link / URL (for verifying event info)"
+                          style={editInputStyle}
+                        />
                         <button onClick={cancelEdit} style={B}>Cancel</button>
                         <button onClick={saveEdit} style={Bgold}>Save & re-validate</button>
                       </div>
