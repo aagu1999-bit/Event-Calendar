@@ -1,6 +1,6 @@
 import { useState, useRef, useMemo, useEffect, Fragment } from "react";
 import * as XLSX from "xlsx";
-import { useEventsStore, useRegularsStore } from "../store";
+import { useEventsStore, useRegularsStore, useReviewQueueStore } from "../store";
 import { parseRows, DAYFUL, getEmoji } from "../shared/parseEvents";
 import { computeWarnings, findFlagPartners } from "../shared/validateEvents";
 import { detectRegulars } from "../shared/regulars";
@@ -19,6 +19,7 @@ const FLAG_GLOSSARY = [
   { tag: "VENUE #N",                desc: "Same venue+day, different name (possible mix-up). Click to trace." },
   { tag: "MULTI #N",                desc: "Same event listed on multiple days. Could be a real recurring event." },
   { tag: "WRONG DAY?",              desc: "Name mentions a day that doesn't match the assigned day." },
+  { tag: "DATE?",                   desc: "Day couldn't be determined from the date or day column. Defaulted to Friday — check the raw date shown under the day badge." },
   { tag: "ALREADY IN STORE",        desc: "Same name+day already exists in your shared events store (used by every tool — Calendar/Newsletter/Reel/Flyer/Media). Probably a re-import." },
   { tag: "SAME VENUE/DAY IN STORE", desc: "Different event with same venue+day as something already in the shared store. Possible double-booking or scheduling conflict." },
   { tag: "REGION? (... NORTH)",     desc: "Union County city not tagged NORTH per local convention." },
@@ -53,6 +54,16 @@ function augmentEvents(newEvents, existingEvents) {
   // Start from existing validateEvents warning system (covers missing fields,
   // name+day dupes, venue+day collisions, multi-day reposts, wrong-day mentions).
   const warnings = computeWarnings(newEvents);
+
+  // Day defaulted to Fri because neither a day column nor a parseable date
+  // was available. Flag so the user can verify against the raw date shown
+  // in the row.
+  newEvents.forEach(ev => {
+    if (ev.dayFromFallback) {
+      if (!warnings[ev.id]) warnings[ev.id] = [];
+      warnings[ev.id].push({ type: "yellow", msg: "DATE?" });
+    }
+  });
 
   // NJ region override — Union County cities should be NORTH locally.
   newEvents.forEach(ev => {
@@ -126,8 +137,13 @@ export default function ReviewQueue() {
   const events = useEventsStore(s => s.events);
   const updateEvents = useEventsStore(s => s.updateEvents);
 
-  const [pending, setPending] = useState([]); // parsed Event[]
-  const [approvals, setApprovals] = useState({}); // id -> bool
+  // pending + approvals persist via Zustand so closing the tab mid-review
+  // doesn't wipe the upload. Hooks are wired up to mirror useState's
+  // signature, including functional updaters.
+  const pending = useReviewQueueStore(s => s.pending);
+  const setPending = useReviewQueueStore(s => s.setPending);
+  const approvals = useReviewQueueStore(s => s.approvals);
+  const setApprovals = useReviewQueueStore(s => s.setApprovals);
   const [filter, setFilter] = useState("all"); // all | clean | flagged | unapproved
   const [sortByTag, setSortByTag] = useState(null); // tag name to float to top (separate from filter)
   // Highlighted group captures the event IDs at click time so the sort/highlight
@@ -838,9 +854,16 @@ export default function ReviewQueue() {
                     <span style={{ fontSize: "1rem", width: "20px", textAlign: "center", lineHeight: 1 }}>
                       {isFlagged ? "🚩" : ""}
                     </span>
-                    <span style={{ fontFamily: "'Syne', sans-serif", fontSize: "0.8rem", fontWeight: 700, color: "#E5BC4F", letterSpacing: "1px" }}>
-                      {DAYFUL[ev.day]?.slice(0, 3) || "?"}
-                    </span>
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", lineHeight: 1 }}>
+                      <span style={{ fontFamily: "'Syne', sans-serif", fontSize: "0.8rem", fontWeight: 700, color: "#E5BC4F", letterSpacing: "1px" }}>
+                        {DAYFUL[ev.day]?.slice(0, 3) || "?"}
+                      </span>
+                      {ev.rawDate && (
+                        <span title={`Raw date from sheet: ${ev.rawDate}`} style={{ fontSize: "0.5rem", color: "rgba(245,240,232,0.4)", marginTop: "3px", whiteSpace: "nowrap" }}>
+                          {ev.rawDate}
+                        </span>
+                      )}
+                    </div>
                     <div>
                       <div style={{ fontSize: "0.85rem", fontWeight: 700, marginBottom: "2px" }}>
                         {getEmoji(ev.type)} {ev.name || <em style={{ color: "#FB7185" }}>(no name)</em>}
@@ -991,6 +1014,7 @@ export default function ReviewQueue() {
                           <option value="Fri">Fri</option>
                           <option value="Sat">Sat</option>
                           <option value="Sun">Sun</option>
+                          <option value="Mon">Mon</option>
                         </select>
                         <input
                           value={editDraft.time || ""}

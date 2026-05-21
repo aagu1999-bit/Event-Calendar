@@ -4,11 +4,13 @@
 // and the most permissive region parser ("North", "Northern NJ", "South Jersey",
 // "Shore", etc).
 
-export const DAY_ORDER = { Fri: 0, Sat: 1, Sun: 2 };
+export const DAY_ORDER = { Fri: 0, Sat: 1, Sun: 2, Mon: 3 };
 export const REGION_ORDER = { North: 0, Central: 1, South: 2 };
-export const DAYFUL = { Fri: "FRIDAY", Sat: "SATURDAY", Sun: "SUNDAY" };
-export const DAY_EMOJI = { Fri: "🌙", Sat: "🔥", Sun: "☀️" };
-export const WEEKDAYS = ["Fri", "Sat", "Sun"];
+export const DAYFUL = { Fri: "FRIDAY", Sat: "SATURDAY", Sun: "SUNDAY", Mon: "MONDAY" };
+export const DAY_EMOJI = { Fri: "🌙", Sat: "🔥", Sun: "☀️", Mon: "🎆" };
+// Mon supported for holiday-extended weekends (Memorial Day, Labor Day, etc.)
+// — sorts after Sun so a four-day weekend reads Fri → Sat → Sun → Mon.
+export const WEEKDAYS = ["Fri", "Sat", "Sun", "Mon"];
 export const REGIONS = ["North", "Central", "South"];
 
 // Superset emoji map (union of Newsletter and Reel; Calendar was a strict subset).
@@ -103,6 +105,7 @@ export function parseDay(d) {
   if (l.startsWith("fri") || l === "f") return "Fri";
   if (l.startsWith("sat") || l === "sa" || l === "s") return "Sat";
   if (l.startsWith("sun") || l === "su") return "Sun";
+  if (l.startsWith("mon") || l === "m" || l === "mo") return "Mon";
   return null;
 }
 
@@ -124,10 +127,14 @@ export function parseDateToDay(dateStr) {
   const raw = String(dateStr).trim();
   let d = null;
 
-  // Excel serial number (e.g. 46132)
+  // Excel serial number (e.g. 46132). Build via UTC components so we don't
+  // get a TZ shift — `new Date(millis)` lands on UTC midnight, and reading
+  // d.getDay() in any timezone west of UTC then returns the *previous* day,
+  // which turned Fri May 22 dates into Thu and made the day badge render "?".
   const num = parseFloat(raw);
   if (!isNaN(num) && num > 40000 && num < 60000) {
-    d = new Date((num - 25569) * 86400000);
+    const utc = new Date((num - 25569) * 86400000);
+    d = new Date(utc.getUTCFullYear(), utc.getUTCMonth(), utc.getUTCDate());
   }
   // M/D/YYYY or M/D/YY or M/D
   if (!d) {
@@ -266,18 +273,22 @@ export function parseRows(rows, defaultRegion = "North") {
           ? String(r[fm[field]] ?? "").replace(/^["']+|["']+$/g, "").trim()
           : "";
 
+      const rawDate = hasDateCol ? get("date") : "";
       let day = null;
       if (hasDayCol) day = parseDay(get("day"));
       if (!day && hasDateCol) {
-        const di = parseDateToDay(get("date"));
+        const di = parseDateToDay(rawDate);
         if (di) day = di.day;
       }
+      const dayFromFallback = !day;
       if (!day) day = "Fri";
 
       const type = get("type");
       return {
         id: Date.now() + Math.random() * 1e5,
         day,
+        rawDate,
+        dayFromFallback,
         time: formatTime(get("time")),
         name: get("name"),
         venue: get("venue"),
