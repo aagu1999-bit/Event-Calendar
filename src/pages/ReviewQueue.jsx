@@ -128,8 +128,11 @@ export default function ReviewQueue() {
   const updateEvents = useEventsStore(s => s.updateEvents);
 
   const [pending, setPending] = useState([]); // parsed Event[]
-  const [approvals, setApprovals] = useState({}); // id -> bool
-  const [filter, setFilter] = useState("all"); // all | clean | flagged | unapproved
+  const [approvals, setApprovals] = useState({}); // id -> bool — SELECTION state (checkbox / bulk-action target)
+  // Approval is a separate stamp from selection: marking a row "approved"
+  // says it has been vetted, distinct from "selected for an action".
+  const [approvedSet, setApprovedSet] = useState(() => new Set());
+  const [filter, setFilter] = useState("all"); // all | clean | flagged | unapproved | approved
   const [sortByTag, setSortByTag] = useState(null); // tag name to float to top (separate from filter)
   // Highlighted group captures the event IDs at click time so the sort/highlight
   // survives re-validation (group numbers renumber when events are deleted).
@@ -239,11 +242,12 @@ export default function ReviewQueue() {
       // Give each event a stable string id so React keys + selection work
       const withIds = parsed.map((ev, i) => ({ ...ev, id: `pending_${Date.now()}_${i}` }));
       setPending(withIds);
-      // Nothing pre-selected — clicking the checkbox now means "select for a
-      // bulk action", not "auto-approve for import". User wants explicit
-      // control: hit + Add on a row to push it straight to the calendar, or
-      // multi-select then bulk-add/delete.
+      // Nothing pre-selected and nothing pre-approved — clicking the checkbox
+      // now means "select for a bulk action", and Approve is a separate
+      // explicit stamp. User wants full control: hit + Add to push straight
+      // to the calendar, or multi-select then bulk-approve / bulk-add / delete.
       setApprovals({});
+      setApprovedSet(new Set());
     } catch (err) {
       console.error("CSV parse failed:", err);
       alert("Couldn't parse that file. Make sure it's CSV/XLSX with a header row.");
@@ -273,6 +277,7 @@ export default function ReviewQueue() {
     updateEvents(prev => [...prev, fresh]);
     setPending(p => p.filter(e => e.id !== id));
     setApprovals(a => { const next = { ...a }; delete next[id]; return next; });
+    setApprovedSet(s => { const next = new Set(s); next.delete(id); return next; });
     if (editingId === id) { setEditingId(null); setEditDraft({}); }
   };
 
@@ -285,7 +290,27 @@ export default function ReviewQueue() {
     const ids = new Set(sel.map(e => e.id));
     setPending(p => p.filter(e => !ids.has(e.id)));
     setApprovals(a => { const next = { ...a }; ids.forEach(id => { delete next[id]; }); return next; });
+    setApprovedSet(s => { const next = new Set(s); ids.forEach(id => next.delete(id)); return next; });
     if (editingId && ids.has(editingId)) { setEditingId(null); setEditDraft({}); }
+  };
+
+  // Approval is independent of selection: a row can be selected, approved,
+  // both, or neither. Approve stamps "I've vetted this"; the row stays in the
+  // queue (use + Add or bulk-add to push it to the calendar).
+  const toggleApprove = (id) => setApprovedSet(s => {
+    const next = new Set(s);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
+  const approveSelected = () => {
+    const ids = pending.filter(e => approvals[e.id]).map(e => e.id);
+    if (ids.length === 0) return;
+    setApprovedSet(s => { const next = new Set(s); ids.forEach(id => next.add(id)); return next; });
+  };
+  const unapproveSelected = () => {
+    const ids = pending.filter(e => approvals[e.id]).map(e => e.id);
+    if (ids.length === 0) return;
+    setApprovedSet(s => { const next = new Set(s); ids.forEach(id => next.delete(id)); return next; });
   };
 
   // Bulk-delete: remove every currently-selected event from the pending list.
@@ -295,6 +320,7 @@ export default function ReviewQueue() {
     if (ids.size > 5 && !window.confirm(`Delete ${ids.size} selected rows from this review?`)) return;
     setPending(p => p.filter(e => !ids.has(e.id)));
     setApprovals(a => { const next = { ...a }; ids.forEach(id => { delete next[id]; }); return next; });
+    setApprovedSet(s => { const next = new Set(s); ids.forEach(id => next.delete(id)); return next; });
     if (editingId && ids.has(editingId)) { setEditingId(null); setEditDraft({}); }
   };
 
@@ -303,6 +329,7 @@ export default function ReviewQueue() {
     if (filter === "all") list = pending;
     else if (filter === "clean") list = pending.filter(e => (warnings[e.id] || []).length === 0);
     else if (filter === "flagged") list = pending.filter(e => (warnings[e.id] || []).length > 0 && !approvals[e.id]);
+    else if (filter === "approved") list = pending.filter(e => approvedSet.has(e.id));
     else if (filter === "unapproved") list = pending.filter(e => !approvals[e.id]);
     else list = pending;
 
@@ -349,7 +376,7 @@ export default function ReviewQueue() {
       });
     }
     return list;
-  }, [pending, warnings, approvals, filter, searchQuery, sortByTag, highlightedGroup]);
+  }, [pending, warnings, approvals, approvedSet, filter, searchQuery, sortByTag, highlightedGroup]);
 
   const approvedCount = pending.filter(e => approvals[e.id]).length;
   const flaggedCount = pending.filter(e => (warnings[e.id] || []).length > 0).length;
@@ -421,15 +448,17 @@ export default function ReviewQueue() {
     const ids = new Set(grp.map(e => e.id));
     setPending(p => p.filter(e => !ids.has(e.id)));
     setApprovals(a => { const next = { ...a }; ids.forEach(id => { delete next[id]; }); return next; });
+    setApprovedSet(s => { const next = new Set(s); ids.forEach(id => next.delete(id)); return next; });
     setHighlightedGroup(null);
   };
 
-  // Delete row(s) from pending entirely — distinct from "skip" which keeps
-  // the row in the upload but unchecked. Delete removes them from view
-  // completely and they won't count toward the breakdown anymore.
+  // Delete row(s) from pending entirely — distinct from "deselect" which
+  // leaves the row in view. Delete removes them and they no longer count
+  // toward any tally.
   const deleteRow = (id) => {
     setPending(p => p.filter(e => e.id !== id));
     setApprovals(a => { const next = { ...a }; delete next[id]; return next; });
+    setApprovedSet(s => { const next = new Set(s); next.delete(id); return next; });
     if (editingId === id) { setEditingId(null); setEditDraft({}); }
   };
   const deleteVisible = () => {
@@ -442,6 +471,7 @@ export default function ReviewQueue() {
       ids.forEach(id => { delete next[id]; });
       return next;
     });
+    setApprovedSet(s => { const next = new Set(s); ids.forEach(id => next.delete(id)); return next; });
     if (editingId && ids.has(editingId)) { setEditingId(null); setEditDraft({}); }
   };
 
@@ -492,10 +522,11 @@ export default function ReviewQueue() {
         }}>
           <div style={{ flex: 1, fontSize: "0.7rem", color: "rgba(245,240,232,0.7)" }}>
             {pending.length === 0
-              ? <>Upload your cleaned <strong>CSV or XLSX</strong> from Excel / Google Sheets. The augmenter will flag missing fields, dupes (within batch <em>and</em> against the {events.length}-event store), region-convention mismatches, and suspicious time/type combos. Hit <strong>+ Add</strong> on a row to push it straight to the calendar, or use the checkboxes to multi-select for bulk actions.</>
+              ? <>Upload your cleaned <strong>CSV or XLSX</strong> from Excel / Google Sheets. The augmenter will flag missing fields, dupes (within batch <em>and</em> against the {events.length}-event store), region-convention mismatches, and suspicious time/type combos. Hit <strong>+ Add</strong> on a row to push it straight to the calendar, <strong>Approve</strong> to mark as vetted, or use the checkboxes to multi-select for bulk actions.</>
               : <>
                   <strong>{pending.length}</strong> events parsed ·
                   <strong style={{ marginLeft: 8 }}>{flaggedCount}</strong> flagged ·
+                  <strong style={{ marginLeft: 8 }}>{approvedSet.size}</strong> approved ·
                   <strong style={{ marginLeft: 8 }}>{approvedCount}</strong> selected
                 </>
             }
@@ -668,7 +699,7 @@ export default function ReviewQueue() {
             {/* Filter + sort */}
             <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", marginBottom: "0.5rem", flexWrap: "wrap" }}>
               <span style={{ ...L, marginBottom: 0, marginRight: "4px" }}>Filter</span>
-              {[["all", "All"], ["clean", "Clean"], ["flagged", "Flagged"], ["unapproved", "Unselected"]].map(([k, lbl]) => (
+              {[["all", "All"], ["clean", "Clean"], ["flagged", "Flagged"], ["approved", "Approved"], ["unapproved", "Unselected"]].map(([k, lbl]) => (
                 <button
                   key={k}
                   onClick={() => setFilter(k)}
@@ -709,8 +740,22 @@ export default function ReviewQueue() {
                   </span>
                   <div style={{ flex: 1 }} />
                   <button
+                    onClick={approveSelected}
+                    style={{ ...B, background: "rgba(52,211,153,0.10)", borderColor: "rgba(52,211,153,0.4)", color: "#34D399" }}
+                    title="Mark every selected row as approved (vetted). Doesn't push to the calendar."
+                  >
+                    ✓ Approve {approvedCount}
+                  </button>
+                  <button
+                    onClick={unapproveSelected}
+                    style={B}
+                    title="Un-approve every selected row"
+                  >
+                    Un-approve
+                  </button>
+                  <button
                     onClick={addSelectedToCalendar}
-                    style={{ ...B, background: "rgba(52,211,153,0.15)", borderColor: "rgba(52,211,153,0.4)", color: "#34D399", fontWeight: 700 }}
+                    style={{ ...B, background: "rgba(52,211,153,0.18)", borderColor: "rgba(52,211,153,0.5)", color: "#34D399", fontWeight: 700 }}
                     title="Add every selected row to the calendar / store"
                   >
                     + Add {approvedCount} to calendar
@@ -827,6 +872,7 @@ export default function ReviewQueue() {
               {visible.map(ev => {
                 const w = warnings[ev.id] || [];
                 const approved = approvals[ev.id];
+                const isApproved = approvedSet.has(ev.id);
                 const isFlagged = w.length > 0;
                 const inHighlightedGroup = isRowInHighlightedGroup(ev);
                 const isEditing = editingId === ev.id;
@@ -839,13 +885,18 @@ export default function ReviewQueue() {
                       gap: "12px",
                       alignItems: "center",
                       padding: "10px 14px",
+                      // Approved rows get a stronger green tint so the vetted
+                      // stamp is obvious at a glance (independent of selection).
                       background: inHighlightedGroup
                         ? "rgba(229,188,79,0.12)"
                         : isEditing ? "rgba(229,188,79,0.06)"
+                          : isApproved ? "rgba(52,211,153,0.12)"
                           : approved ? "rgba(52,211,153,0.05)" : "rgba(245,240,232,0.06)",
+                      borderLeft: isApproved ? "3px solid #34D399" : undefined,
                       border: `1px solid ${
                         inHighlightedGroup ? "#E5BC4F" :
                         isEditing ? "#E5BC4F" :
+                        isApproved ? "#34D399" :
                         approved ? "rgba(52,211,153,0.18)" : "rgba(245,240,232,0.12)"
                       }`,
                       borderRadius: isEditing ? "5px 5px 0 0" : "5px",
@@ -935,6 +986,25 @@ export default function ReviewQueue() {
                       )}
                     </div>
                     <div style={{ display: "flex", gap: "4px" }}>
+                      <button
+                        onClick={() => toggleApprove(ev.id)}
+                        title={approvedSet.has(ev.id) ? "Approved — click to un-approve" : "Mark as approved (vetted). Doesn't push to the calendar — use + Add for that."}
+                        style={{
+                          padding: "5px 9px",
+                          background: approvedSet.has(ev.id) ? "#34D399" : "rgba(52,211,153,0.06)",
+                          color: approvedSet.has(ev.id) ? "#0a0a0a" : "#34D399",
+                          border: `1px solid ${approvedSet.has(ev.id) ? "#34D399" : "rgba(52,211,153,0.3)"}`,
+                          borderRadius: "4px",
+                          fontSize: "0.6rem",
+                          fontWeight: 700,
+                          letterSpacing: "0.5px",
+                          textTransform: "uppercase",
+                          cursor: "pointer",
+                          fontFamily: "inherit",
+                        }}
+                      >
+                        {approvedSet.has(ev.id) ? "✓ Approved" : "Approve"}
+                      </button>
                       <button
                         onClick={() => addRowToCalendar(ev.id)}
                         title="Add this event to the calendar / store right now (no queue)"
