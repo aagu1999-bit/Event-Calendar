@@ -4,6 +4,7 @@ import { useEventsStore, useRegularsStore } from "../store";
 import { parseRows, DAYFUL, getEmoji } from "../shared/parseEvents";
 import { computeWarnings, findFlagPartners } from "../shared/validateEvents";
 import { detectRegulars } from "../shared/regulars";
+import { UInput } from "../shared/inputs.jsx";
 
 // Flag glossary — shown in the collapsible cheat sheet. Order matters
 // (most-severe first); descriptions are 1-line so the grid stays tight.
@@ -235,17 +236,14 @@ export default function ReviewQueue() {
       const sheet = wb.Sheets[wb.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: "" });
       const parsed = parseRows(rows);
-      // Give each event a stable string id so React keys + approvals work
+      // Give each event a stable string id so React keys + selection work
       const withIds = parsed.map((ev, i) => ({ ...ev, id: `pending_${Date.now()}_${i}` }));
       setPending(withIds);
-      // Default-approve every event EXCEPT those with red (severe) warnings
-      const tempWarnings = augmentEvents(withIds, events);
-      const initial = {};
-      withIds.forEach(ev => {
-        const w = tempWarnings[ev.id] || [];
-        initial[ev.id] = !w.some(x => x.type === "red");
-      });
-      setApprovals(initial);
+      // Nothing pre-selected — clicking the checkbox now means "select for a
+      // bulk action", not "auto-approve for import". User wants explicit
+      // control: hit + Add on a row to push it straight to the calendar, or
+      // multi-select then bulk-add/delete.
+      setApprovals({});
     } catch (err) {
       console.error("CSV parse failed:", err);
       alert("Couldn't parse that file. Make sure it's CSV/XLSX with a header row.");
@@ -264,6 +262,41 @@ export default function ReviewQueue() {
     setApprovals(next);
   };
   const rejectAll = () => setApprovals(Object.fromEntries(pending.map(e => [e.id, false])));
+
+  // Direct-add: push a single event to the events store immediately, no
+  // queue / no "import" step. User asked for an explicit + Add button per
+  // row that bypasses the selection model.
+  const addRowToCalendar = (id) => {
+    const ev = pending.find(e => e.id === id);
+    if (!ev) return;
+    const fresh = { ...ev, id: Date.now() + Math.random() * 1e5 };
+    updateEvents(prev => [...prev, fresh]);
+    setPending(p => p.filter(e => e.id !== id));
+    setApprovals(a => { const next = { ...a }; delete next[id]; return next; });
+    if (editingId === id) { setEditingId(null); setEditDraft({}); }
+  };
+
+  // Bulk-add: push every currently-selected event to the store at once.
+  const addSelectedToCalendar = () => {
+    const sel = pending.filter(e => approvals[e.id]);
+    if (sel.length === 0) return;
+    const fresh = sel.map(e => ({ ...e, id: Date.now() + Math.random() * 1e5 }));
+    updateEvents(prev => [...prev, ...fresh]);
+    const ids = new Set(sel.map(e => e.id));
+    setPending(p => p.filter(e => !ids.has(e.id)));
+    setApprovals(a => { const next = { ...a }; ids.forEach(id => { delete next[id]; }); return next; });
+    if (editingId && ids.has(editingId)) { setEditingId(null); setEditDraft({}); }
+  };
+
+  // Bulk-delete: remove every currently-selected event from the pending list.
+  const deleteSelected = () => {
+    const ids = new Set(pending.filter(e => approvals[e.id]).map(e => e.id));
+    if (ids.size === 0) return;
+    if (ids.size > 5 && !window.confirm(`Delete ${ids.size} selected rows from this review?`)) return;
+    setPending(p => p.filter(e => !ids.has(e.id)));
+    setApprovals(a => { const next = { ...a }; ids.forEach(id => { delete next[id]; }); return next; });
+    if (editingId && ids.has(editingId)) { setEditingId(null); setEditDraft({}); }
+  };
 
   const visible = useMemo(() => {
     let list;
@@ -437,18 +470,6 @@ export default function ReviewQueue() {
   };
   const editField = (k, v) => setEditDraft(d => ({ ...d, [k]: v }));
 
-  const importApproved = () => {
-    const approved = pending.filter(e => approvals[e.id]).map(e => ({
-      ...e,
-      id: Date.now() + Math.random() * 1e5,  // give them fresh numeric IDs for the store
-    }));
-    if (approved.length === 0) return;
-    updateEvents(prev => [...prev, ...approved]);
-    setPending([]);
-    setApprovals({});
-    alert(`Imported ${approved.length} events to the store.`);
-  };
-
   return (
     <div style={{ minHeight: "calc(100vh - 60px)", background: "#080808", color: "#F5F0E8", fontFamily: "'DM Sans', sans-serif" }}>
       <div style={{ maxWidth: 1400, margin: "0 auto", padding: "1.5rem" }}>
@@ -471,11 +492,11 @@ export default function ReviewQueue() {
         }}>
           <div style={{ flex: 1, fontSize: "0.7rem", color: "rgba(245,240,232,0.7)" }}>
             {pending.length === 0
-              ? <>Upload your cleaned <strong>CSV or XLSX</strong> from Excel / Google Sheets. The augmenter will flag missing fields, dupes (within batch <em>and</em> against the {events.length}-event store), region-convention mismatches, and suspicious time/type combos.</>
+              ? <>Upload your cleaned <strong>CSV or XLSX</strong> from Excel / Google Sheets. The augmenter will flag missing fields, dupes (within batch <em>and</em> against the {events.length}-event store), region-convention mismatches, and suspicious time/type combos. Hit <strong>+ Add</strong> on a row to push it straight to the calendar, or use the checkboxes to multi-select for bulk actions.</>
               : <>
                   <strong>{pending.length}</strong> events parsed ·
                   <strong style={{ marginLeft: 8 }}>{flaggedCount}</strong> flagged ·
-                  <strong style={{ marginLeft: 8 }}>{approvedCount}</strong> approved for import
+                  <strong style={{ marginLeft: 8 }}>{approvedCount}</strong> selected
                 </>
             }
           </div>
@@ -644,10 +665,10 @@ export default function ReviewQueue() {
               </details>
             )}
 
-            {/* Bulk actions + filter */}
+            {/* Filter + sort */}
             <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", marginBottom: "0.5rem", flexWrap: "wrap" }}>
               <span style={{ ...L, marginBottom: 0, marginRight: "4px" }}>Filter</span>
-              {[["all", "All"], ["clean", "Clean"], ["flagged", "Flagged"], ["unapproved", "Skipped"]].map(([k, lbl]) => (
+              {[["all", "All"], ["clean", "Clean"], ["flagged", "Flagged"], ["unapproved", "Unselected"]].map(([k, lbl]) => (
                 <button
                   key={k}
                   onClick={() => setFilter(k)}
@@ -662,31 +683,67 @@ export default function ReviewQueue() {
                 >× Sorting {sortByTag} to top</button>
               )}
               <div style={{ flex: 1 }} />
-              <button onClick={approveClean} style={B}>Approve clean only</button>
-              <button onClick={approveAll} style={B}>Approve all</button>
-              <button onClick={rejectAll} style={B}>Skip all</button>
-              <button
-                onClick={deleteVisible}
-                disabled={visible.length === 0}
-                title="Remove all visible rows from this review entirely (not skip — delete)"
-                style={visible.length > 0
-                  ? { ...B, background: "rgba(251,113,133,0.1)", borderColor: "rgba(251,113,133,0.35)", color: "#FB7185" }
-                  : { ...B, opacity: 0.4, cursor: "not-allowed" }}
-              >
-                Delete {visible.length} visible
-              </button>
-              <button
-                onClick={importApproved}
-                disabled={approvedCount === 0}
-                style={approvedCount > 0 ? Bgold : { ...B, opacity: 0.4, cursor: "not-allowed" }}
-              >
-                Import {approvedCount} → store
-              </button>
+              <button onClick={approveClean} style={B} title="Select all clean (no warnings) rows for bulk action">Select clean</button>
+              <button onClick={approveAll} style={B} title="Select every row">Select all</button>
+              <button onClick={rejectAll} style={B} title="Clear selection">Clear selection</button>
             </div>
+
+            {/* Bulk action bar — appears when something is selected. Selection
+                is decoupled from approval/import: the checkbox just marks rows
+                for a follow-up action (add to calendar, delete, ...). */}
+            <div style={{
+              display: "flex", gap: "0.4rem", alignItems: "center",
+              padding: approvedCount > 0 ? "8px 12px" : 0,
+              marginBottom: approvedCount > 0 ? "0.5rem" : 0,
+              background: approvedCount > 0 ? "rgba(52,211,153,0.06)" : "transparent",
+              border: approvedCount > 0 ? "1px solid rgba(52,211,153,0.25)" : "none",
+              borderRadius: "5px",
+              flexWrap: "wrap",
+              height: approvedCount > 0 ? "auto" : 0,
+              overflow: "hidden",
+            }}>
+              {approvedCount > 0 && (
+                <>
+                  <span style={{ fontSize: "0.65rem", color: "#34D399", letterSpacing: "1px", textTransform: "uppercase", fontWeight: 700 }}>
+                    {approvedCount} selected — pick a bulk action:
+                  </span>
+                  <div style={{ flex: 1 }} />
+                  <button
+                    onClick={addSelectedToCalendar}
+                    style={{ ...B, background: "rgba(52,211,153,0.15)", borderColor: "rgba(52,211,153,0.4)", color: "#34D399", fontWeight: 700 }}
+                    title="Add every selected row to the calendar / store"
+                  >
+                    + Add {approvedCount} to calendar
+                  </button>
+                  <button
+                    onClick={deleteSelected}
+                    style={{ ...B, background: "rgba(251,113,133,0.1)", borderColor: "rgba(251,113,133,0.35)", color: "#FB7185" }}
+                    title="Delete every selected row from this review"
+                  >
+                    ✕ Delete {approvedCount} selected
+                  </button>
+                  <button onClick={rejectAll} style={B} title="Unselect all">Clear</button>
+                </>
+              )}
+            </div>
+
+            {/* Visible-row maintenance (delete-visible kept for filter-scoped cleanup) */}
+            {visible.length > 0 && (
+              <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", marginBottom: "0.5rem", flexWrap: "wrap" }}>
+                <div style={{ flex: 1 }} />
+                <button
+                  onClick={deleteVisible}
+                  title="Remove all visible rows from this review entirely (not skip — delete)"
+                  style={{ ...B, background: "rgba(251,113,133,0.06)", borderColor: "rgba(251,113,133,0.2)", color: "rgba(251,113,133,0.85)" }}
+                >
+                  Delete {visible.length} visible
+                </button>
+              </div>
+            )}
 
             {/* Search row */}
             <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", marginBottom: "0.75rem" }}>
-              <input
+              <UInput
                 type="text"
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
@@ -728,24 +785,24 @@ export default function ReviewQueue() {
                   style={{ width: 18, height: 18, accentColor: "#E5BC4F", cursor: "pointer" }}
                 />
                 <span>
-                  {allVisibleApproved ? "Skip" : "Select"} all in this filter ({visible.length} visible)
+                  {allVisibleApproved ? "Deselect" : "Select"} all in this filter ({visible.length} visible)
                 </span>
                 {highlightedGroup && (
                   <span style={{ marginLeft: "auto", color: "#E5BC4F", display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
                     <strong>{highlightedGroup.label}</strong> at top
                     <button
                       onClick={approveGroup}
-                      title="Approve every event in this group"
+                      title="Select every event in this group for bulk action"
                       style={{ ...B, padding: "3px 8px", fontSize: "0.5rem", background: "rgba(52,211,153,0.15)", borderColor: "rgba(52,211,153,0.4)", color: "#34D399" }}
                     >
-                      ✓ Approve group
+                      ✓ Select group
                     </button>
                     <button
                       onClick={skipGroup}
-                      title="Skip every event in this group (uncheck, but keep in view)"
+                      title="Unselect every event in this group"
                       style={{ ...B, padding: "3px 8px", fontSize: "0.5rem" }}
                     >
-                      Skip group
+                      Unselect group
                     </button>
                     <button
                       onClick={deleteGroup}
@@ -802,7 +859,7 @@ export default function ReviewQueue() {
                   >
                     <button
                       onClick={() => toggle(ev.id)}
-                      title={approved ? "Will import — click to skip" : "Will skip — click to approve"}
+                      title={approved ? "Selected — click to deselect" : "Click to select for bulk action (delete, add to calendar, …)"}
                       style={{
                         width: 28,
                         height: 28,
@@ -879,6 +936,25 @@ export default function ReviewQueue() {
                     </div>
                     <div style={{ display: "flex", gap: "4px" }}>
                       <button
+                        onClick={() => addRowToCalendar(ev.id)}
+                        title="Add this event to the calendar / store right now (no queue)"
+                        style={{
+                          padding: "5px 9px",
+                          background: "rgba(52,211,153,0.12)",
+                          color: "#34D399",
+                          border: "1px solid rgba(52,211,153,0.4)",
+                          borderRadius: "4px",
+                          fontSize: "0.65rem",
+                          fontWeight: 700,
+                          letterSpacing: "0.5px",
+                          textTransform: "uppercase",
+                          cursor: "pointer",
+                          fontFamily: "inherit",
+                        }}
+                      >
+                        + Add
+                      </button>
+                      <button
                         onClick={() => isEditing ? cancelEdit() : startEdit(ev)}
                         title={isEditing ? "Cancel edit" : "Edit this event in place"}
                         style={{
@@ -924,7 +1000,7 @@ export default function ReviewQueue() {
                       marginTop: "-0.4rem",
                     }}>
                       <div style={{ display: "grid", gridTemplateColumns: "2fr 80px 1fr 1fr", gap: "8px", marginBottom: "8px" }}>
-                        <input
+                        <UInput
                           autoFocus
                           value={editDraft.name || ""}
                           onChange={e => editField("name", e.target.value)}
@@ -936,13 +1012,13 @@ export default function ReviewQueue() {
                           <option value="Sat">Sat</option>
                           <option value="Sun">Sun</option>
                         </select>
-                        <input
+                        <UInput
                           value={editDraft.time || ""}
                           onChange={e => editField("time", e.target.value)}
                           placeholder="Time (e.g. 8 PM)"
                           style={editInputStyle}
                         />
-                        <input
+                        <UInput
                           value={editDraft.type || ""}
                           onChange={e => editField("type", e.target.value)}
                           placeholder="Type (PARTY, BRUNCH...)"
@@ -950,13 +1026,13 @@ export default function ReviewQueue() {
                         />
                       </div>
                       <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr auto auto", gap: "8px", alignItems: "center" }}>
-                        <input
+                        <UInput
                           value={editDraft.venue || ""}
                           onChange={e => editField("venue", e.target.value)}
                           placeholder="Venue"
                           style={editInputStyle}
                         />
-                        <input
+                        <UInput
                           value={editDraft.area || ""}
                           onChange={e => editField("area", e.target.value)}
                           placeholder="City / area"

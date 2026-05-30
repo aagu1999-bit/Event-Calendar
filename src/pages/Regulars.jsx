@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { useRegularsStore, useEventsStore } from "../store";
 import { regularToEvent } from "../shared/regulars";
+import { UInput, todaysFridayMD } from "../shared/inputs.jsx";
 
 const norm = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
@@ -36,14 +37,9 @@ function formatLastSeen(iso) {
   return `${Math.floor(n / 30)}mo ago`;
 }
 
-// Compute next upcoming Friday (local time) as "M/D".
-function defaultFridayStr() {
-  const d = new Date();
-  const dow = d.getDay(); // Sun=0 .. Sat=6
-  const offset = dow <= 5 ? (5 - dow) : 6; // days until next Fri
-  d.setDate(d.getDate() + offset);
-  return `${d.getMonth() + 1}/${d.getDate()}`;
-}
+// Friday-date default now comes from the shared helper so Calendar +
+// Regulars stay in sync.
+const defaultFridayStr = todaysFridayMD;
 
 export default function Regulars() {
   const regulars = useRegularsStore(s => s.regulars);
@@ -51,6 +47,7 @@ export default function Regulars() {
   const stats = useRegularsStore(s => s.stats);
   const addManual = useRegularsStore(s => s.addManual);
   const updateRegular = useRegularsStore(s => s.updateRegular);
+  const rejectRegular = useRegularsStore(s => s.reject);
   const events = useEventsStore(s => s.events);
   const addEvents = useEventsStore(s => s.addEvents);
   const updateEvents = useEventsStore(s => s.updateEvents);
@@ -64,6 +61,10 @@ export default function Regulars() {
   const [friDate, setFriDate] = useState(defaultFridayStr());
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  // Selected regulars (by id) — feeds the bulk-action bar. Decoupled from
+  // "rejected" / "flagged" / "used" so user can mix bulk delete, bulk add,
+  // and bulk open-all-links without flipping any state until they click.
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
 
   // Auto-sync lastSeen on tab mount: if an event in the current store matches
   // a regular's (name+venue+day), bump that regular's lastSeen to today. The
@@ -133,6 +134,57 @@ export default function Regulars() {
     Sat: regulars.filter(r => !r.rejected && r.day === "Sat").length,
     Sun: regulars.filter(r => !r.rejected && r.day === "Sun").length,
   }), [regulars]);
+
+  // ===== Selection + bulk actions =====
+  const toggleSel = (id) => setSelectedIds(s => {
+    const next = new Set(s);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
+  const clearSel = () => setSelectedIds(new Set());
+  // Select-all toggle scoped to whatever rows are currently visible.
+  const selectAllVisible = () => {
+    const ids = visible.map(r => r.id);
+    const allSel = ids.length > 0 && ids.every(id => selectedIds.has(id));
+    setSelectedIds(allSel ? new Set() : new Set(ids));
+  };
+  // Bulk add — every selected regular gets pushed to this week's events.
+  const bulkAdd = () => {
+    const sel = regulars.filter(r => selectedIds.has(r.id) && !r.rejected);
+    if (sel.length === 0) return;
+    const evs = sel.map(r => regularToEvent(r, friDate)).filter(Boolean);
+    if (evs.length === 0) { alert("Set this Friday's date first (e.g. 5/15)."); return; }
+    const res = addEvents(evs);
+    if (res.added > 0) {
+      const nowIso = new Date().toISOString();
+      sel.slice(0, res.added).forEach(r => {
+        updateRegular(r.id, { usedCount: (r.usedCount || 0) + 1, lastUsed: nowIso });
+      });
+    }
+    alert(`Added ${res.added} regular${res.added === 1 ? "" : "s"} for the week of ${friDate}.${res.skipped > 0 ? ` (${res.skipped} already there.)` : ""}`);
+  };
+  // Bulk open — every selected regular with a postUrl gets opened in a new
+  // tab. Saves clicking 30+ links one at a time. Browsers throttle a flood
+  // of window.open calls, so we stagger them slightly.
+  const bulkOpenLinks = () => {
+    const links = regulars.filter(r => selectedIds.has(r.id) && r.postUrl).map(r => r.postUrl);
+    if (links.length === 0) { alert("None of the selected regulars have source URLs."); return; }
+    if (links.length > 8 && !window.confirm(`Open ${links.length} links in new tabs? Your browser may block more than a few — make sure pop-ups are allowed for this site.`)) return;
+    links.forEach((u, i) => setTimeout(() => window.open(u, "_blank", "noopener,noreferrer"), i * 60));
+  };
+  const bulkReject = () => {
+    if (selectedIds.size === 0) return;
+    if (!window.confirm(`Reject ${selectedIds.size} selected regulars? They'll hide from future suggestions (use "Show rejected" to restore).`)) return;
+    selectedIds.forEach(id => { rejectRegular(id); });
+    setSelectedIds(new Set());
+  };
+  const bulkFlag = () => {
+    if (selectedIds.size === 0) return;
+    selectedIds.forEach(id => {
+      const r = regulars.find(x => x.id === id);
+      if (r) updateRegular(id, { flagged: !r.flagged });
+    });
+  };
 
   // Add a regular to this week's events + bump usedCount/lastUsed.
   const useOne = (r) => {
@@ -250,7 +302,7 @@ export default function Regulars() {
             </div>
 
             <div style={{ display: "flex", gap: "0.6rem", alignItems: "center", marginBottom: "0.75rem", flexWrap: "wrap" }}>
-              <input
+              <UInput
                 type="text"
                 value={query}
                 onChange={e => setQuery(e.target.value)}
@@ -275,8 +327,64 @@ export default function Regulars() {
               <RegularForm onSave={(reg) => { addManual(reg); setShowAddForm(false); }} onCancel={() => setShowAddForm(false)} />
             )}
 
-            <div style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.4)", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "0.4rem" }}>
-              Showing {visible.length} of {showRejected ? counts.rejected : counts.active}
+            {/* Bulk action bar — appears when ≥1 row is selected. Selection
+                is independent of "used / rejected / flagged"; user picks the
+                action (add, open links, reject, flag) here. */}
+            {selectedIds.size > 0 && (
+              <div style={{
+                display: "flex", gap: "0.4rem", alignItems: "center",
+                padding: "8px 12px", marginBottom: "0.5rem",
+                background: "rgba(52,211,153,0.06)",
+                border: "1px solid rgba(52,211,153,0.3)",
+                borderRadius: "5px", flexWrap: "wrap",
+              }}>
+                <span style={{ fontSize: "0.65rem", color: "#34D399", letterSpacing: "1px", textTransform: "uppercase", fontWeight: 700 }}>
+                  {selectedIds.size} selected — pick a bulk action:
+                </span>
+                <div style={{ flex: 1 }} />
+                <button
+                  onClick={bulkAdd}
+                  style={{ ...B, background: "rgba(52,211,153,0.18)", borderColor: "rgba(52,211,153,0.45)", color: "#34D399", fontWeight: 700 }}
+                  title={`Add every selected regular to the calendar for ${friDate}`}
+                >
+                  + Add {selectedIds.size} to calendar
+                </button>
+                <button
+                  onClick={bulkOpenLinks}
+                  style={{ ...B, background: "rgba(229,188,79,0.12)", borderColor: "rgba(229,188,79,0.4)", color: "#E5BC4F" }}
+                  title="Open every selected regular's source URL in new tabs"
+                >
+                  ↗ Open all links
+                </button>
+                <button
+                  onClick={bulkFlag}
+                  style={{ ...B, background: "rgba(250,204,21,0.12)", borderColor: "rgba(250,204,21,0.4)", color: "#FACC15" }}
+                  title="Toggle the flag on every selected regular"
+                >
+                  🚩 Flag
+                </button>
+                <button
+                  onClick={bulkReject}
+                  style={{ ...B, background: "rgba(251,113,133,0.1)", borderColor: "rgba(251,113,133,0.35)", color: "#FB7185" }}
+                  title="Reject every selected regular (hides from future suggestions)"
+                >
+                  ✕ Reject
+                </button>
+                <button onClick={clearSel} style={B}>Clear</button>
+              </div>
+            )}
+
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.4rem", fontSize: "0.6rem", color: "rgba(245,240,232,0.4)", letterSpacing: "1px", textTransform: "uppercase" }}>
+              <span>Showing {visible.length} of {showRejected ? counts.rejected : counts.active}</span>
+              {visible.length > 0 && (
+                <button
+                  onClick={selectAllVisible}
+                  style={{ ...B, padding: "3px 8px", fontSize: "0.55rem" }}
+                  title="Select / deselect every currently-visible row"
+                >
+                  {visible.every(r => selectedIds.has(r.id)) ? "Deselect all visible" : `Select all ${visible.length} visible`}
+                </button>
+              )}
             </div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
@@ -290,6 +398,8 @@ export default function Regulars() {
                   key={r.id}
                   r={r}
                   used={usedThisWeek.has(r.id)}
+                  selected={selectedIds.has(r.id)}
+                  onToggleSel={() => toggleSel(r.id)}
                   onUse={() => useOne(r)}
                   onUnuse={() => unuseOne(r)}
                   onEdit={() => setEditingId(editingId === r.id ? null : r.id)}
@@ -305,7 +415,7 @@ export default function Regulars() {
   );
 }
 
-function RegularRow({ r, used, onUse, onUnuse, onEdit, isEditing, onCancelEdit }) {
+function RegularRow({ r, used, selected, onToggleSel, onUse, onUnuse, onEdit, isEditing, onCancelEdit }) {
   const reject = useRegularsStore(s => s.reject);
   const restore = useRegularsStore(s => s.restore);
   const updateRegular = useRegularsStore(s => s.updateRegular);
@@ -318,16 +428,18 @@ function RegularRow({ r, used, onUse, onUnuse, onEdit, isEditing, onCancelEdit }
     <>
       <div style={{
         display: "grid",
-        gridTemplateColumns: "44px 1fr 70px 70px 60px 1fr auto",
+        gridTemplateColumns: "26px 44px 1fr 70px 70px 60px 1fr auto",
         gap: "10px",
         alignItems: "center",
         padding: "10px 14px",
-        background: used
-          ? "rgba(52,211,153,0.06)"
+        background: selected
+          ? "rgba(229,188,79,0.10)"
+          : used ? "rgba(52,211,153,0.06)"
           : r.rejected ? "rgba(251,113,133,0.04)"
           : r.flagged ? "rgba(250,204,21,0.05)"
           : "rgba(245,240,232,0.04)",
         border: `1px solid ${
+          selected ? "#E5BC4F" :
           used ? "rgba(52,211,153,0.25)" :
           r.rejected ? "rgba(251,113,133,0.15)" :
           r.flagged ? "rgba(250,204,21,0.2)" :
@@ -336,6 +448,13 @@ function RegularRow({ r, used, onUse, onUnuse, onEdit, isEditing, onCancelEdit }
         borderRadius: isEditing ? "5px 5px 0 0" : "5px",
         opacity: r.rejected ? 0.7 : 1,
       }}>
+        <input
+          type="checkbox"
+          checked={!!selected}
+          onChange={onToggleSel}
+          title={selected ? "Selected — click to deselect" : "Click to select for a bulk action (add to calendar, open links, …)"}
+          style={{ width: 18, height: 18, accentColor: "#E5BC4F", cursor: "pointer" }}
+        />
         <span style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, color: "#C084FC", letterSpacing: "1.5px", fontSize: "0.8rem" }}>
           {r.day.toUpperCase()}
         </span>
@@ -399,17 +518,19 @@ function RegularRow({ r, used, onUse, onUnuse, onEdit, isEditing, onCancelEdit }
             <>
               <button
                 onClick={used ? onUnuse : onUse}
-                title={used ? "Click to remove from this week's events" : "Add to this week's events"}
+                title={used ? "Already added to this week's events — click to remove" : "Add this regular to the calendar right now"}
                 style={{
                   padding: "5px 9px",
-                  background: used ? "rgba(52,211,153,0.25)" : "rgba(52,211,153,0.08)",
+                  background: used ? "rgba(52,211,153,0.25)" : "rgba(52,211,153,0.12)",
                   color: used ? "#0a0a0a" : "#34D399",
-                  border: used ? "1px solid #34D399" : "1px solid rgba(52,211,153,0.25)",
-                  borderRadius: "4px", fontSize: "0.7rem", cursor: "pointer", fontFamily: "inherit",
-                  fontWeight: used ? 700 : 400,
+                  border: used ? "1px solid #34D399" : "1px solid rgba(52,211,153,0.4)",
+                  borderRadius: "4px", fontSize: "0.65rem", cursor: "pointer", fontFamily: "inherit",
+                  fontWeight: 700,
+                  letterSpacing: "0.5px",
+                  textTransform: "uppercase",
                 }}
               >
-                {used ? "✓ added" : "✓"}
+                {used ? "✓ Added" : "+ Add"}
               </button>
               <button
                 onClick={() => updateRegular(r.id, { flagged: !r.flagged })}
@@ -509,16 +630,16 @@ function RegularForm({ editing, onSave, onCancel, attachedAbove }) {
       borderRadius: attachedAbove ? "0 0 5px 5px" : "5px",
     }}>
       <div style={{ display: "grid", gridTemplateColumns: "2fr 70px 90px 1fr", gap: "8px", marginBottom: "8px" }}>
-        <input autoFocus value={draft.name} onChange={e => field("name", e.target.value)} placeholder="Event name *" style={I} />
+        <UInput autoFocus value={draft.name} onChange={e => field("name", e.target.value)} placeholder="Event name *" style={I} />
         <select value={draft.day} onChange={e => field("day", e.target.value)} style={I}>
           <option value="Fri">Fri</option><option value="Sat">Sat</option><option value="Sun">Sun</option>
         </select>
-        <input value={draft.time} onChange={e => field("time", e.target.value)} placeholder="Time (e.g. 9 PM)" style={I} />
-        <input value={draft.type} onChange={e => field("type", e.target.value)} placeholder="Type (PARTY, BRUNCH…)" style={I} />
+        <UInput value={draft.time} onChange={e => field("time", e.target.value)} placeholder="Time (e.g. 9 PM)" style={I} />
+        <UInput value={draft.type} onChange={e => field("type", e.target.value)} placeholder="Type (PARTY, BRUNCH…)" style={I} />
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 90px 2fr auto auto", gap: "8px", alignItems: "center" }}>
-        <input value={draft.venue} onChange={e => field("venue", e.target.value)} placeholder="Venue *" style={I} />
-        <input value={draft.area} onChange={e => field("area", e.target.value)} placeholder="City" style={I} />
+        <UInput value={draft.venue} onChange={e => field("venue", e.target.value)} placeholder="Venue *" style={I} />
+        <UInput value={draft.area} onChange={e => field("area", e.target.value)} placeholder="City" style={I} />
         <select value={draft.region} onChange={e => field("region", e.target.value)} style={I}>
           <option value="North">North</option><option value="Central">Central</option><option value="South">South</option>
         </select>

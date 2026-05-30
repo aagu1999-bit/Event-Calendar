@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import * as XLSX from "xlsx";
 import { useEventsStore } from "../store";
 import { EMOJI_MAP, getEmoji as getEmojiShared, parseRegion as parseRegionShared } from "../shared/parseEvents";
+import { UInput, UTextarea, todaysFridayMD } from "../shared/inputs.jsx";
 
 // ==================== COLOR SYSTEM ====================
 const COLORS = {
@@ -955,7 +956,9 @@ export default function CalendarBuilder() {
   const setEvents = useEventsStore(s => s.updateEvents);
   const addEvents = useEventsStore(s => s.addEvents);
   const [dayColors, setDayColors] = useState({ Fri: "yellow", Sat: "emerald", Sun: "gold" });
-  const [friDate, setFriDate] = useState("4/18");
+  // Default to the current week's Friday based on the user's system clock.
+  // Excel imports with a real Date column override this in applyMapping().
+  const [friDate, setFriDate] = useState(() => todaysFridayMD());
   const [sz, setSz] = useState("4:5");
   const [texture, setTexture] = useState("large");
   const [mode, setMode] = useState("calendar"); // "calendar" or "preview"
@@ -1641,7 +1644,7 @@ export default function CalendarBuilder() {
                   <strong style={{ color: "#FACC15" }}>Headers:</strong> Day · Time · Name · Venue · Area · Region · Type/Category<br />
                   Type column auto-maps to emoji categories (🎧🥂🎭🍷💪🎬😂🎪🎲🤝)
                 </div>
-                <textarea value={edTxt} onChange={e => setEdTxt(e.target.value)} placeholder={"Paste from Excel or type:\nFri, 7 PM, Jazz Night, Blue Note, Newark, North, Live Music"} style={{ ...I, height: 130, resize: "vertical", fontFamily: "monospace", fontSize: "0.63rem", lineHeight: 1.7 }} />
+                <UTextarea value={edTxt} onChange={e => setEdTxt(e.target.value)} placeholder={"Paste from Excel or type:\nFri, 7 PM, Jazz Night, Blue Note, Newark, North, Live Music"} style={{ ...I, height: 130, resize: "vertical", fontFamily: "monospace", fontSize: "0.63rem", lineHeight: 1.7 }} />
                 <div style={{ display: "flex", gap: "0.3rem", marginTop: "0.3rem" }}>
                   <button onClick={handleEdImport} style={{ ...B, background: "#FACC15", color: "#000", fontWeight: 700 }}>Import</button>
                   <button onClick={() => { setShowEd(false); setEdTxt(""); }} style={B}>Cancel</button>
@@ -1654,12 +1657,12 @@ export default function CalendarBuilder() {
               <div style={{ marginBottom: "0.4rem", padding: "0.5rem", background: "#1A1A1A", borderRadius: "5px", border: "1px solid rgba(255,255,255,0.06)" }}>
                 <div style={{ display: "grid", gridTemplateColumns: "50px 58px 1fr 1fr 70px 70px 85px", gap: "0.25rem", marginBottom: "0.3rem" }}>
                   <select value={nev.day} onChange={e => setNev({ ...nev, day: e.target.value })} style={I}>{WEEKDAYS.map(d => <option key={d}>{d}</option>)}</select>
-                  <input value={nev.time} onChange={e => setNev({ ...nev, time: e.target.value })} placeholder="7 PM" style={I} />
-                  <input value={nev.name} onChange={e => setNev({ ...nev, name: e.target.value })} placeholder="Event Name" style={I} />
-                  <input value={nev.venue} onChange={e => setNev({ ...nev, venue: e.target.value })} placeholder="Venue" style={I} />
-                  <input value={nev.area} onChange={e => setNev({ ...nev, area: e.target.value })} placeholder="City" style={I} />
+                  <UInput value={nev.time} onChange={e => setNev({ ...nev, time: e.target.value })} placeholder="7 PM" style={I} />
+                  <UInput value={nev.name} onChange={e => setNev({ ...nev, name: e.target.value })} placeholder="Event Name" style={I} />
+                  <UInput value={nev.venue} onChange={e => setNev({ ...nev, venue: e.target.value })} placeholder="Venue" style={I} />
+                  <UInput value={nev.area} onChange={e => setNev({ ...nev, area: e.target.value })} placeholder="City" style={I} />
                   <select value={nev.region} onChange={e => setNev({ ...nev, region: e.target.value })} style={I}>{REGIONS.map(r => <option key={r}>{r}</option>)}</select>
-                  <input value={nev.type} onChange={e => setNev({ ...nev, type: e.target.value })} placeholder="Type" style={I} />
+                  <UInput value={nev.type} onChange={e => setNev({ ...nev, type: e.target.value })} placeholder="Type" style={I} />
                 </div>
                 <div style={{ display: "flex", gap: "0.3rem", alignItems: "center" }}>
                   <label style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.4)", display: "flex", alignItems: "center", gap: "4px", cursor: "pointer" }}><input type="checkbox" checked={nev.featured} onChange={e => setNev({ ...nev, featured: e.target.checked })} /> CGE Pick</label>
