@@ -638,6 +638,7 @@ export default function MediaTool() {
   const [captions, setCaptions] = useState([]);
   const [captionsError, setCaptionsError] = useState("");
   const [copiedIdx, setCopiedIdx] = useState(null);
+  const [useVision, setUseVision] = useState(false);
   const saveKey = (v) => {
     setUiKey(v);
     try {
@@ -656,7 +657,8 @@ export default function MediaTool() {
         statNumber, statLabel, statSub,
         ctaDate, ctaVenue, ctaUrl,
       };
-      const results = await generateCaptions(geminiKey, ctx);
+      const images = (useVision && carousel.length > 0) ? carousel.map(s => s.thumb) : [];
+      const results = await generateCaptions(geminiKey, ctx, images);
       if (!results.length) throw new Error("Got 0 captions back");
       setCaptions(results);
     } catch (err) {
@@ -1049,7 +1051,7 @@ export default function MediaTool() {
             <button
               onClick={runCaptions}
               disabled={isGenCaptions || !geminiKey}
-              title={!geminiKey ? "Paste your Gemini API key above first" : "Generate 5 caption variants"}
+              title={!geminiKey ? "Paste your Gemini API key above first" : useVision && carousel.length>0 ? `Generate 8 captions using vision (${carousel.length} slide images)` : "Generate 8 caption variants"}
               style={{
                 padding: "8px 14px",
                 background: isGenCaptions ? "rgba(99,179,237,0.4)" : (geminiKey ? "#63B3ED" : "rgba(99,179,237,0.25)"),
@@ -1059,7 +1061,24 @@ export default function MediaTool() {
                 cursor: !geminiKey ? "not-allowed" : (isGenCaptions ? "wait" : "pointer"),
                 fontFamily: "'Syne', sans-serif", whiteSpace: "nowrap",
               }}
-            >{isGenCaptions ? "Writing…" : "Captions"}</button>
+            >{isGenCaptions ? "Writing…" : (useVision && carousel.length>0 ? `👁 Captions` : "Captions")}</button>
+            <button
+              onClick={()=>setUseVision(v=>!v)}
+              disabled={carousel.length===0}
+              title={carousel.length===0 ? "Add slides to the carousel first to enable vision" : "Toggle vision: send rendered slide images to Gemini for richer captions"}
+              style={{
+                padding: "6px 10px",
+                background: useVision && carousel.length>0 ? "rgba(99,179,237,0.18)" : "transparent",
+                color: useVision && carousel.length>0 ? "#63B3ED" : "rgba(245,240,232,0.4)",
+                border: useVision && carousel.length>0 ? "2px solid #63B3ED" : "2px solid rgba(245,240,232,0.1)",
+                borderRadius: "4px",
+                fontSize: "0.55rem", fontWeight: 700, letterSpacing: "1.5px",
+                textTransform: "uppercase",
+                cursor: carousel.length===0 ? "not-allowed" : "pointer",
+                fontFamily: "'Syne', sans-serif", whiteSpace: "nowrap",
+                opacity: carousel.length===0 ? 0.4 : 1,
+              }}
+            >👁 Vision {useVision && carousel.length>0 ? "ON" : ""}</button>
           </div>
 
           {template === "weekend" && (

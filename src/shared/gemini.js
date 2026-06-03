@@ -1,16 +1,25 @@
 const MODEL = "gemini-2.5-flash";
 const URL_BASE = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 
-export async function generateCaptions(apiKey, eventCtx) {
+export async function generateCaptions(apiKey, eventCtx, images = []) {
   if (!apiKey) throw new Error("Missing Gemini API key");
 
-  const prompt = buildCaptionPrompt(eventCtx);
+  const hasVision = Array.isArray(images) && images.length > 0;
+  const prompt = buildCaptionPrompt(eventCtx, hasVision);
+
+  const parts = [{ text: prompt }];
+  if (hasVision) {
+    for (const img of images) {
+      const b64 = img.startsWith("data:") ? img.split(",")[1] : img;
+      parts.push({ inline_data: { mime_type: "image/png", data: b64 } });
+    }
+  }
 
   const res = await fetch(`${URL_BASE}?key=${encodeURIComponent(apiKey)}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
+      contents: [{ parts }],
       generationConfig: {
         responseMimeType: "application/json",
         temperature: 0.9,
@@ -34,7 +43,7 @@ export async function generateCaptions(apiKey, eventCtx) {
   return Array.isArray(parsed?.captions) ? parsed.captions : [];
 }
 
-function buildCaptionPrompt(ctx) {
+function buildCaptionPrompt(ctx, hasVision = false) {
   const facts = [];
   if (ctx.headline) facts.push(`Cover headline: "${ctx.headline}"`);
   if (ctx.subtitle) facts.push(`Subtitle: "${ctx.subtitle}"`);
@@ -54,6 +63,13 @@ function buildCaptionPrompt(ctx) {
     "Event context:",
     ...facts.map(f => `- ${f}`),
     "",
+    ...(hasVision ? [
+      "I'm also attaching the actual rendered carousel slide images in order.",
+      "Use visual details from the slides — colors, photography, layout, what's visible —",
+      "to write captions that feel grounded in the real artwork, not just the text above.",
+      "If a slide has a strong photo, you can reference it specifically (e.g. \"the golden-hour shot\").",
+      "",
+    ] : []),
     "Write 8 caption variants for the SAME event, each in a different tone.",
     "Follow each spec precisely — these tones are DIFFERENT and should feel different:",
     "",
