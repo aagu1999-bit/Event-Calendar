@@ -3,3 +3,7 @@ dist
 .DS_Store
 *.log
 .vite
+
+# Local environment — contains API keys, never commit
+.env.local
+.env.*.local

@@ -401,16 +401,18 @@ export default function MediaTool() {
   const [ctaVenue, setCtaVenue] = useState("Pickleball HQ — Aberdeen");
   const [ctaUrl, setCtaUrl] = useState("pbdates.org");
 
-  const [geminiKey, setGeminiKey] = useState(() => {
+  const envKey = (import.meta.env.VITE_GEMINI_API_KEY || "").trim();
+  const [uiKey, setUiKey] = useState(() => {
     try { return localStorage.getItem("cge_gemini_key") || ""; } catch { return ""; }
   });
+  const geminiKey = envKey || uiKey;
   const [showKey, setShowKey] = useState(false);
   const [isGenCaptions, setIsGenCaptions] = useState(false);
   const [captions, setCaptions] = useState([]);
   const [captionsError, setCaptionsError] = useState("");
   const [copiedIdx, setCopiedIdx] = useState(null);
   const saveKey = (v) => {
-    setGeminiKey(v);
+    setUiKey(v);
     try {
       if (v) localStorage.setItem("cge_gemini_key", v);
       else localStorage.removeItem("cge_gemini_key");
@@ -680,15 +682,23 @@ export default function MediaTool() {
           <div style={{fontSize:"0.55rem",color:"#63B3ED",letterSpacing:"1.5px",textTransform:"uppercase",flexShrink:0,fontWeight:700}}>
             Gemini Key
           </div>
-          <input
-            type={showKey ? "text" : "password"}
-            value={geminiKey}
-            onChange={e=>saveKey(e.target.value)}
-            placeholder="Paste Google Gemini API key — stored in this browser only"
-            style={{...I,flex:1,fontSize:"0.6rem"}}
-          />
-          <button onClick={()=>setShowKey(v=>!v)} style={{...B,padding:"5px 10px",fontSize:"0.55rem"}}>{showKey ? "Hide" : "Show"}</button>
-          {geminiKey && <span style={{fontSize:"0.5rem",color:"#34D399",letterSpacing:"1px"}}>✓ SAVED</span>}
+          {envKey ? (
+            <div style={{flex:1,fontSize:"0.6rem",color:"rgba(245,240,232,0.7)"}}>
+              ✓ Loaded from <code style={{color:"#34D399",background:"rgba(52,211,153,0.1)",padding:"1px 5px",borderRadius:"3px",fontSize:"0.55rem"}}>.env.local</code>
+            </div>
+          ) : (
+            <>
+              <input
+                type={showKey ? "text" : "password"}
+                value={uiKey}
+                onChange={e=>saveKey(e.target.value)}
+                placeholder="Paste key — or set VITE_GEMINI_API_KEY in .env.local + restart"
+                style={{...I,flex:1,fontSize:"0.6rem"}}
+              />
+              <button onClick={()=>setShowKey(v=>!v)} style={{...B,padding:"5px 10px",fontSize:"0.55rem"}}>{showKey ? "Hide" : "Show"}</button>
+              {uiKey && <span style={{fontSize:"0.5rem",color:"#34D399",letterSpacing:"1px"}}>✓ SAVED</span>}
+            </>
+          )}
         </div>
 
         <div style={{
