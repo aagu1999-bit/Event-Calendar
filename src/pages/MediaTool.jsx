@@ -582,6 +582,10 @@ export default function MediaTool() {
   const [captionSecondary, setCaptionSecondary] = useState("JERSEY CITY · APRIL 2026");
   const [captionAlign, setCaptionAlign] = useState("left");
 
+  // Custom carousel composer — snapshots of slides, reorderable, exportable
+  const [carousel, setCarousel] = useState([]);
+  const [dragIdx, setDragIdx] = useState(null);
+
   const envKey = (import.meta.env.VITE_GEMINI_API_KEY || "").trim();
   const [uiKey, setUiKey] = useState(() => {
     try { return localStorage.getItem("cge_gemini_key") || ""; } catch { return ""; }
@@ -843,6 +847,137 @@ export default function MediaTool() {
     if (template === "client") return generateClientEventCarousel();
   };
 
+  // === CAROUSEL COMPOSER ===
+  const renderSlide = (cv, type, s, dotsNum, dotsTot) => {
+    const common = { accent: s.accent, dots: dotsNum, totalDots: dotsTot };
+    if (type === "cover") renderCover(cv, { ...common, photo: s.photo, headline: s.headline,
+      highlights: s.highlights instanceof Set ? s.highlights : new Set(s.highlights || []),
+      subtitle: s.subtitle, opacity: s.opacity, ribbon: s.ribbon });
+    else if (type === "list") renderList(cv, { ...common, items: s.items, bgKey: s.bgKey,
+      listTitle: s.listTitle, listSubtitle: s.listSubtitle });
+    else if (type === "stat") renderStat(cv, { ...common, statNumber: s.statNumber,
+      statLabel: s.statLabel, statSub: s.statSub, bgKey: s.bgKey });
+    else if (type === "text") renderText(cv, { ...common, textTitle: s.textTitle,
+      textTitleHighlights: s.textTitleHL instanceof Set ? s.textTitleHL : new Set(s.textTitleHL || []),
+      textBody: s.textBody, bgKey: s.bgKey, pageNum: s.pageNum, totalPages: s.totalPages,
+      photo: s.photo, textOpacity: s.textOpacity });
+    else if (type === "cta") renderCTA(cv, { ...common, ctaKicker: s.ctaKicker, ctaDate: s.ctaDate,
+      ctaVenue: s.ctaVenue, ctaUrl: s.ctaUrl, photo: s.photo, bgKey: s.bgKey, opacity: s.textOpacity });
+    else if (type === "features") renderFeatures(cv, { ...common, featuresTitle: s.featuresTitle,
+      features: s.features, bgKey: s.bgKey, photo: s.photo, opacity: s.textOpacity });
+    else if (type === "photo") renderPhotoCaption(cv, { ...common, photo: s.photo,
+      caption: s.caption, captionSecondary: s.captionSecondary, alignment: s.captionAlign,
+      bgKey: s.bgKey });
+  };
+
+  const makeSnapshot = () => {
+    const common = { accent, accentKey, bgKey };
+    switch (mode) {
+      case "cover": return { ...common, photo, headline, highlights, subtitle, opacity, ribbon };
+      case "list": return { ...common, items: items.map(x=>({...x})), listTitle, listSubtitle };
+      case "stat": return { ...common, statNumber, statLabel, statSub };
+      case "text": return { ...common, textTitle, textTitleHL, textBody, photo: textPhoto, textOpacity, pageNum, totalPages };
+      case "cta": return { ...common, ctaKicker, ctaDate, ctaVenue, ctaUrl, photo: textPhoto, textOpacity };
+      case "features": return { ...common, featuresTitle, features: features.map(f=>({...f})), photo: textPhoto, textOpacity };
+      case "photo": return { ...common, photo: captionPhoto, caption, captionSecondary, captionAlign };
+      default: return common;
+    }
+  };
+
+  const loadSnapshot = (snapshot, type) => {
+    setMode(type);
+    if (snapshot.accentKey) setAccentKey(snapshot.accentKey);
+    if (snapshot.bgKey) setBgKey(snapshot.bgKey);
+    switch (type) {
+      case "cover":
+        setPhoto(snapshot.photo); setHeadline(snapshot.headline);
+        setHighlights(snapshot.highlights instanceof Set ? new Set(snapshot.highlights) : new Set(snapshot.highlights || []));
+        setSubtitle(snapshot.subtitle); setOpacity(snapshot.opacity); setRibbon(snapshot.ribbon || "");
+        break;
+      case "list":
+        setItems(snapshot.items.map(x=>({...x})));
+        setListTitle(snapshot.listTitle); setListSubtitle(snapshot.listSubtitle);
+        break;
+      case "stat":
+        setStatNumber(snapshot.statNumber); setStatLabel(snapshot.statLabel); setStatSub(snapshot.statSub);
+        break;
+      case "text":
+        setTextTitle(snapshot.textTitle);
+        setTextTitleHL(snapshot.textTitleHL instanceof Set ? new Set(snapshot.textTitleHL) : new Set(snapshot.textTitleHL || []));
+        setTextBody(snapshot.textBody); setTextPhoto(snapshot.photo); setTextOpacity(snapshot.textOpacity);
+        setPageNum(snapshot.pageNum); setTotalPages(snapshot.totalPages);
+        break;
+      case "cta":
+        setCtaKicker(snapshot.ctaKicker); setCtaDate(snapshot.ctaDate);
+        setCtaVenue(snapshot.ctaVenue); setCtaUrl(snapshot.ctaUrl);
+        setTextPhoto(snapshot.photo); setTextOpacity(snapshot.textOpacity);
+        break;
+      case "features":
+        setFeaturesTitle(snapshot.featuresTitle);
+        setFeatures(snapshot.features.map(f=>({...f})));
+        setTextPhoto(snapshot.photo); setTextOpacity(snapshot.textOpacity);
+        break;
+      case "photo":
+        setCaptionPhoto(snapshot.photo); setCaption(snapshot.caption);
+        setCaptionSecondary(snapshot.captionSecondary); setCaptionAlign(snapshot.captionAlign);
+        break;
+    }
+  };
+
+  const addToCarousel = async () => {
+    await document.fonts.ready;
+    const snapshot = makeSnapshot();
+    const cv = document.createElement("canvas");
+    renderSlide(cv, mode, snapshot, 1, 1);
+    const thumb = cv.toDataURL("image/png");
+    setCarousel(prev => [...prev, {
+      id: `s_${Date.now()}_${Math.random().toString(36).slice(2,6)}`,
+      type: mode, snapshot, thumb,
+    }]);
+  };
+
+  const deleteSlide = (idx) => setCarousel(p => p.filter((_, i) => i !== idx));
+  const clearCarousel = () => { if (confirm("Clear all carousel slides?")) setCarousel([]); };
+
+  const exportCarouselZip = async () => {
+    if (carousel.length === 0 || isAutoGen) return;
+    setIsAutoGen(true);
+    try {
+      await document.fonts.ready;
+      const zip = new JSZip();
+      for (let i = 0; i < carousel.length; i++) {
+        const s = carousel[i];
+        const cv = document.createElement("canvas");
+        renderSlide(cv, s.type, s.snapshot, i+1, carousel.length);
+        const blob = await new Promise(r => cv.toBlob(r, "image/png"));
+        zip.file(`CGE_carousel_${String(i+1).padStart(2,"0")}_${s.type}.png`, blob);
+      }
+      const zipBlob = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(zipBlob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `CGE_custom_carousel_${Date.now()}.zip`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error(err); alert("Export failed — see console");
+    } finally {
+      setIsAutoGen(false);
+    }
+  };
+
+  const onDragStart = (idx) => setDragIdx(idx);
+  const onDragOver = (e) => e.preventDefault();
+  const onDrop = (targetIdx) => {
+    if (dragIdx === null || dragIdx === targetIdx) { setDragIdx(null); return; }
+    setCarousel(prev => {
+      const next = [...prev];
+      const [moved] = next.splice(dragIdx, 1);
+      next.splice(targetIdx, 0, moved);
+      return next;
+    });
+    setDragIdx(null);
+  };
+
   return(
     <div style={{minHeight:"calc(100vh - 60px)",background:"#080808",color:"#F5F0E8",fontFamily:"'DM Sans',sans-serif"}}>
       <div style={{maxWidth:1150,margin:"0 auto",padding:"1.25rem"}}>
@@ -992,6 +1127,77 @@ export default function MediaTool() {
             ))}
           </div>
         )}
+
+        <div style={{
+          marginBottom: "1rem",
+          padding: "10px 12px",
+          background: "rgba(168,85,247,0.04)",
+          border: "1px solid rgba(168,85,247,0.18)",
+          borderRadius: "6px",
+        }}>
+          <div style={{display:"flex",alignItems:"center",gap:"0.5rem",marginBottom: carousel.length > 0 ? "8px" : "0",flexWrap:"wrap"}}>
+            <div style={{fontSize:"0.55rem",color:"#A855F7",letterSpacing:"1.5px",textTransform:"uppercase",fontWeight:700,flex:"0 0 auto"}}>
+              Carousel ({carousel.length})
+            </div>
+            <button
+              onClick={addToCarousel}
+              style={{padding:"6px 12px",background:"#A855F7",color:"#FFF",border:"none",borderRadius:"4px",fontSize:"0.6rem",fontWeight:700,letterSpacing:"1px",textTransform:"uppercase",cursor:"pointer",fontFamily:"'Syne',sans-serif",whiteSpace:"nowrap"}}
+              title="Snapshot the current slide and add it to the carousel"
+            >+ Add Current Slide</button>
+            {carousel.length > 0 && <>
+              <button
+                onClick={exportCarouselZip}
+                disabled={isAutoGen}
+                style={{padding:"6px 12px",background:isAutoGen?"rgba(168,85,247,0.4)":"#7C3AED",color:"#FFF",border:"none",borderRadius:"4px",fontSize:"0.6rem",fontWeight:700,letterSpacing:"1px",textTransform:"uppercase",cursor:isAutoGen?"wait":"pointer",fontFamily:"'Syne',sans-serif",whiteSpace:"nowrap"}}
+              >{isAutoGen ? "Exporting…" : `Export ZIP (${carousel.length})`}</button>
+              <button
+                onClick={clearCarousel}
+                style={{padding:"6px 12px",background:"transparent",color:"rgba(251,113,133,0.8)",border:"1px solid rgba(251,113,133,0.4)",borderRadius:"4px",fontSize:"0.6rem",fontWeight:700,letterSpacing:"1px",textTransform:"uppercase",cursor:"pointer",fontFamily:"'Syne',sans-serif",whiteSpace:"nowrap"}}
+              >Clear</button>
+              <div style={{fontSize:"0.5rem",color:"rgba(245,240,232,0.4)",marginLeft:"auto"}}>
+                Drag to reorder · Click thumb to edit
+              </div>
+            </>}
+          </div>
+          {carousel.length > 0 && (
+            <div style={{display:"flex",gap:"6px",overflowX:"auto",paddingBottom:"4px"}}>
+              {carousel.map((slide, idx) => (
+                <div key={slide.id}
+                  draggable
+                  onDragStart={()=>onDragStart(idx)}
+                  onDragOver={onDragOver}
+                  onDrop={()=>onDrop(idx)}
+                  style={{
+                    position:"relative",
+                    minWidth:"86px", width:"86px", height:"86px",
+                    borderRadius:"4px", overflow:"hidden",
+                    cursor:"grab",
+                    border: dragIdx===idx ? "2px solid #A855F7" : "1px solid rgba(168,85,247,0.3)",
+                    background:"#000",
+                    flexShrink:0,
+                    opacity: dragIdx===idx ? 0.5 : 1,
+                  }}
+                  title={`Slide ${idx+1} · ${slide.type} · click to edit, drag to reorder`}
+                >
+                  <img
+                    src={slide.thumb}
+                    alt={slide.type}
+                    onClick={()=>loadSnapshot(slide.snapshot, slide.type)}
+                    style={{width:"100%",height:"100%",objectFit:"cover",cursor:"pointer",pointerEvents:dragIdx===idx?"none":"auto"}}
+                  />
+                  <div style={{position:"absolute",bottom:0,left:0,right:0,background:"rgba(0,0,0,0.75)",padding:"2px 4px",fontSize:"0.45rem",color:"#FFF",letterSpacing:"1px",textTransform:"uppercase",fontWeight:700,textAlign:"center",pointerEvents:"none"}}>
+                    {idx+1} · {slide.type}
+                  </div>
+                  <button
+                    onClick={(e)=>{e.stopPropagation();deleteSlide(idx);}}
+                    style={{position:"absolute",top:"2px",right:"2px",width:"18px",height:"18px",background:"rgba(0,0,0,0.75)",color:"#FFF",border:"none",borderRadius:"3px",fontSize:"0.85rem",lineHeight:"14px",cursor:"pointer",padding:0,fontFamily:"sans-serif"}}
+                    title="Remove from carousel"
+                  >×</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         <div style={{display:"grid",gridTemplateColumns:"1fr 400px",gap:"1.5rem",alignItems:"start"}}>
           <div>
