@@ -14,11 +14,27 @@ const BG_COLORS = {
   gold:{name:"Gold",hex:"#D4943A"},yellow:{name:"Yellow",hex:"#EAB308"},
 };
 
+// Module-level state for fonts + watermark, synced from the React component.
+// Renderers read these so we don't have to thread them through every cfg.
+let _displayFont = "Syne";
+let _bodyFont = "DM Sans";
+let _watermark = true;
+const ff = (s) => s.replace(/'Syne'/g, `'${_displayFont}'`).replace(/'DM Sans'/g, `'${_bodyFont}'`);
+const setActiveFonts = (d, b) => { _displayFont = d; _bodyFont = b; };
+const setActiveWatermark = (w) => { _watermark = w; };
+
+const FONT_PAIRS = {
+  default: { name: "Syne + DM Sans", display: "Syne", body: "DM Sans" },
+  bold:    { name: "Bebas + Inter", display: "Bebas Neue", body: "Inter" },
+  serif:   { name: "Playfair + Inter", display: "Playfair Display", body: "Inter" },
+  modern:  { name: "Space Grotesk + Inter", display: "Space Grotesk", body: "Inter" },
+};
+
 function drawTexture(ctx, W, H, color, alpha, startY = 0) {
   ctx.save();
   if (startY > 0) { ctx.beginPath(); ctx.rect(0, startY, W, H - startY); ctx.clip(); }
   ctx.translate(W/2, H*0.6); ctx.rotate(-5*Math.PI/180); ctx.translate(-W/2, -H*0.6);
-  ctx.font = "800 22px 'Syne',sans-serif"; ctx.fillStyle = color; ctx.globalAlpha = alpha;
+  ctx.font=ff("800 22px 'Syne',sans-serif"); ctx.fillStyle = color; ctx.globalAlpha = alpha;
   ctx.textBaseline = "middle"; ctx.textAlign = "center";
   const lts = ["C","G","E"]; let li = 0;
   for (let y = -60; y < H + 60; y += 32) {
@@ -37,13 +53,14 @@ function drawSpotlight(ctx, W, H, sCol, sA) {
 }
 
 function drawLogo(ctx, accent, W) {
+  if (!_watermark) return;
   ctx.globalAlpha = 1;
   ctx.fillStyle = `${accent}25`; ctx.strokeStyle = `${accent}50`; ctx.lineWidth = 2.5;
   ctx.beginPath(); ctx.arc(58,52,28,0,Math.PI*2); ctx.fill(); ctx.stroke();
-  ctx.font = "800 17px 'Syne',sans-serif"; ctx.fillStyle = accent; ctx.textBaseline = "middle"; ctx.textAlign = "center";
+  ctx.font=ff("800 17px 'Syne',sans-serif"); ctx.fillStyle = accent; ctx.textBaseline = "middle"; ctx.textAlign = "center";
   ctx.fillText("CGE",58,53); ctx.textAlign = "left";
-  ctx.font = "700 22px 'DM Sans',sans-serif"; ctx.fillStyle = "#FFF"; ctx.textBaseline = "top"; ctx.fillText("Central Group Events",96,35);
-  ctx.font = "500 17px 'DM Sans',sans-serif"; ctx.fillStyle = "rgba(255,255,255,0.50)"; ctx.fillText("@centralgroupevents",96,60);
+  ctx.font=ff("700 22px 'DM Sans',sans-serif"); ctx.fillStyle = "#FFF"; ctx.textBaseline = "top"; ctx.fillText("Central Group Events",96,35);
+  ctx.font=ff("500 17px 'DM Sans',sans-serif"); ctx.fillStyle = "rgba(255,255,255,0.50)"; ctx.fillText("@centralgroupevents",96,60);
 }
 
 function drawDots(ctx, W, current, total, accent) {
@@ -56,17 +73,18 @@ function drawDots(ctx, W, current, total, accent) {
 }
 
 function drawFooter(ctx, W, H) {
+  if (!_watermark) return;
   ctx.globalAlpha = 1;
   ctx.fillStyle = "rgba(255,255,255,0.08)"; ctx.fillRect(60, H-38, W-120, 1);
-  ctx.font = "800 16px 'Syne',sans-serif"; ctx.fillStyle = "rgba(255,255,255,0.20)"; ctx.textBaseline = "bottom"; ctx.textAlign = "left";
+  ctx.font=ff("800 16px 'Syne',sans-serif"); ctx.fillStyle = "rgba(255,255,255,0.20)"; ctx.textBaseline = "bottom"; ctx.textAlign = "left";
   ctx.fillText("CENTRAL GROUP EVENTS", 60, H-14);
-  ctx.font = "500 14px 'DM Sans',sans-serif"; ctx.fillStyle = "rgba(255,255,255,0.15)"; ctx.textAlign = "right";
+  ctx.font=ff("500 14px 'DM Sans',sans-serif"); ctx.fillStyle = "rgba(255,255,255,0.15)"; ctx.textAlign = "right";
   ctx.fillText("centralgroupevents.com", W-60, H-14); ctx.textAlign = "left";
 }
 
 function drawPageNum(ctx, W, H, current, total, accent) {
   if (total <= 1) return;
-  ctx.font = "600 16px 'DM Sans',sans-serif"; ctx.fillStyle = "rgba(255,255,255,0.20)";
+  ctx.font=ff("600 16px 'DM Sans',sans-serif"); ctx.fillStyle = "rgba(255,255,255,0.20)";
   ctx.textBaseline = "bottom"; ctx.textAlign = "right";
   ctx.fillText(`${current}/${total}`, W-60, H-14); ctx.textAlign = "left";
 }
@@ -81,17 +99,17 @@ function renderCover(canvas, cfg) {
   const grd=ctx.createLinearGradient(0,H*0.25,0,H); grd.addColorStop(0,"transparent"); grd.addColorStop(0.3,`rgba(0,0,0,${opacity*0.6})`); grd.addColorStop(0.55,`rgba(0,0,0,${opacity*0.88})`); grd.addColorStop(1,`rgba(0,0,0,${opacity})`); ctx.fillStyle=grd; ctx.fillRect(0,0,W,H);
   drawTexture(ctx,W,H,"#FFF",0.04,H*0.4);
   drawLogo(ctx,accent,W); drawDots(ctx,W,dots,totalDots,accent);
-  if (subtitle?.trim()) { ctx.font="700 24px 'DM Sans',sans-serif"; ctx.fillStyle=accent; ctx.textBaseline="top"; ctx.letterSpacing="3px"; }
+  if (subtitle?.trim()) { ctx.font=ff("700 24px 'DM Sans',sans-serif"); ctx.fillStyle=accent; ctx.textBaseline="top"; ctx.letterSpacing="3px"; }
   if (!headline?.trim()) { drawFooter(ctx,W,H); return; }
   const words=headline.split(/\s+/).filter(w=>w), px=60, maxW=W-px*2;
-  let fs=72; ctx.font=`800 ${fs}px 'Syne',sans-serif`;
-  const wrap=(f)=>{ ctx.font=`800 ${f}px 'Syne',sans-serif`; const r=[]; let cl=[],cw=0; const sw=ctx.measureText(" ").width;
+  let fs=72; ctx.font=ff(`800 ${fs}px 'Syne',sans-serif`);
+  const wrap=(f)=>{ ctx.font=ff(`800 ${f}px 'Syne',sans-serif`); const r=[]; let cl=[],cw=0; const sw=ctx.measureText(" ").width;
     for(let i=0;i<words.length;i++){const t=words[i].toUpperCase(),ww=ctx.measureText(t).width;if(cl.length>0&&cw+sw+ww>maxW){r.push(cl);cl=[{text:t,idx:i,width:ww}];cw=ww;}else{cw+=(cl.length>0?sw:0)+ww;cl.push({text:t,idx:i,width:ww});}}if(cl.length)r.push(cl);return r;};
   let lines=wrap(fs); while(lines.length*(fs*1.05)>H*0.55&&fs>36){fs-=2;lines=wrap(fs);}
   const lh=fs*1.05, totalH=lines.length*lh, startY=H-50-totalH;
   if(ribbon?.trim()){
     const rt=ribbon.toUpperCase();
-    ctx.font="800 22px 'Syne',sans-serif"; ctx.letterSpacing="4px";
+    ctx.font=ff("800 22px 'Syne',sans-serif"); ctx.letterSpacing="4px";
     const tw=ctx.measureText(rt).width, rpadX=20, rectW=tw+rpadX*2, rectH=44;
     const ribbonY=subtitle?.trim()?startY-94:startY-60;
     ctx.fillStyle=accent; ctx.beginPath(); ctx.roundRect(60,ribbonY,rectW,rectH,4); ctx.fill();
@@ -99,8 +117,8 @@ function renderCover(canvas, cfg) {
     ctx.fillText(rt,60+rpadX,ribbonY+rectH/2);
     ctx.letterSpacing="0px"; ctx.textBaseline="top";
   }
-  if(subtitle?.trim()){ctx.font="700 24px 'DM Sans',sans-serif";ctx.fillStyle=accent;ctx.textBaseline="bottom";ctx.letterSpacing="3px";ctx.fillText(subtitle.toUpperCase(),60,startY-12);ctx.letterSpacing="0px";}
-  ctx.font=`800 ${fs}px 'Syne',sans-serif`; ctx.textBaseline="top"; const sw=ctx.measureText(" ").width;
+  if(subtitle?.trim()){ctx.font=ff("700 24px 'DM Sans',sans-serif");ctx.fillStyle=accent;ctx.textBaseline="bottom";ctx.letterSpacing="3px";ctx.fillText(subtitle.toUpperCase(),60,startY-12);ctx.letterSpacing="0px";}
+  ctx.font=ff(`800 ${fs}px 'Syne',sans-serif`); ctx.textBaseline="top"; const sw=ctx.measureText(" ").width;
   lines.forEach((lw,li)=>{let x=px;const y=startY+li*lh;lw.forEach(w=>{ctx.fillStyle=highlights.has(w.idx)?accent:"#FFF";ctx.fillText(w.text,x,y);x+=w.width+sw;});});
   drawFooter(ctx,W,H);
 }
@@ -119,8 +137,8 @@ function renderList(canvas, cfg) {
 
   ctx.globalAlpha=1; ctx.textBaseline="top"; ctx.textAlign="left";
   drawDots(ctx,W,dots,totalDots,accent);
-  ctx.font="800 52px 'Syne',sans-serif"; ctx.fillStyle=accent; ctx.fillText((listTitle||"FRIDAY").toUpperCase(),60,50);
-  ctx.font="700 22px 'DM Sans',sans-serif"; ctx.fillStyle="rgba(255,255,255,0.35)"; ctx.letterSpacing="2px";
+  ctx.font=ff("800 52px 'Syne',sans-serif"); ctx.fillStyle=accent; ctx.fillText((listTitle||"FRIDAY").toUpperCase(),60,50);
+  ctx.font=ff("700 22px 'DM Sans',sans-serif"); ctx.fillStyle="rgba(255,255,255,0.35)"; ctx.letterSpacing="2px";
   ctx.fillText((listSubtitle||"TOP PICKS").toUpperCase(),60,108); ctx.letterSpacing="0px";
   ctx.fillStyle = `${accent}30`; ctx.fillRect(60,140,W-120,2);
 
@@ -130,10 +148,10 @@ function renderList(canvas, cfg) {
     ctx.fillStyle="rgba(255,255,255,0.06)"; ctx.beginPath(); ctx.roundRect(60,y,W-120,rowH-12,10); ctx.fill();
     ctx.fillStyle=item.featured?accent:"rgba(255,255,255,0.10)";
     ctx.beginPath(); ctx.roundRect(60,y,4,rowH-12,[10,0,0,10]); ctx.fill();
-    ctx.font="700 34px 'DM Sans',sans-serif"; ctx.fillStyle=item.featured?accent:"#FFF"; ctx.textBaseline="top";
+    ctx.font=ff("700 34px 'DM Sans',sans-serif"); ctx.fillStyle=item.featured?accent:"#FFF"; ctx.textBaseline="top";
     let nm=item.name.toUpperCase(); if(ctx.measureText(nm).width>W-240){while(ctx.measureText(nm+"..").width>W-240&&nm.length>0)nm=nm.slice(0,-1);nm+="..";}
     ctx.fillText(nm,82,y+14);
-    ctx.font="400 26px 'DM Sans',sans-serif"; ctx.fillStyle="rgba(255,255,255,0.45)";
+    ctx.font=ff("400 26px 'DM Sans',sans-serif"); ctx.fillStyle="rgba(255,255,255,0.45)";
     ctx.fillText(item.detail||"",82,y+54);
   });
 
@@ -153,18 +171,18 @@ function renderStat(canvas, cfg) {
   else drawSpotlight(ctx,W,H,"229,188,79",0.35);
 
   ctx.globalAlpha=1;
-  ctx.font="800 280px 'Syne',sans-serif"; ctx.fillStyle="#FFF"; ctx.textBaseline="middle"; ctx.textAlign="center";
-  let numFS=280; ctx.font=`800 ${numFS}px 'Syne',sans-serif`;
-  while(ctx.measureText(statNumber||"47").width>W-160&&numFS>80){numFS-=10;ctx.font=`800 ${numFS}px 'Syne',sans-serif`;}
+  ctx.font=ff("800 280px 'Syne',sans-serif"); ctx.fillStyle="#FFF"; ctx.textBaseline="middle"; ctx.textAlign="center";
+  let numFS=280; ctx.font=ff(`800 ${numFS}px 'Syne',sans-serif`);
+  while(ctx.measureText(statNumber||"47").width>W-160&&numFS>80){numFS-=10;ctx.font=ff(`800 ${numFS}px 'Syne',sans-serif`);}
   ctx.fillText(statNumber||"47",W/2,H*0.42);
 
-  ctx.font="800 52px 'Syne',sans-serif"; ctx.fillStyle="#FFF"; ctx.letterSpacing="6px";
+  ctx.font=ff("800 52px 'Syne',sans-serif"); ctx.fillStyle="#FFF"; ctx.letterSpacing="6px";
   ctx.fillText((statLabel||"EVENTS").toUpperCase(),W/2,H*0.58); ctx.letterSpacing="0px";
 
   ctx.fillStyle="rgba(255,255,255,0.25)"; ctx.fillRect(W/2-40,H*0.64,80,3);
 
   if(statSub?.trim()){
-    ctx.font="400 28px 'DM Sans',sans-serif"; ctx.fillStyle="rgba(255,255,255,0.55)"; ctx.textBaseline="top";
+    ctx.font=ff("400 28px 'DM Sans',sans-serif"); ctx.fillStyle="rgba(255,255,255,0.55)"; ctx.textBaseline="top";
     const subLines=statSub.split("\n");
     subLines.forEach((ln,i)=>ctx.fillText(ln.trim(),W/2,H*0.67+i*36));
   }
@@ -196,8 +214,8 @@ function renderText(canvas, cfg) {
 
   const words=(textTitle||"").split(/\s+/).filter(w=>w);
   const px=60, maxW=W-px*2;
-  let fs=60; ctx.font=`800 ${fs}px 'Syne',sans-serif`;
-  const wrap=(f)=>{ctx.font=`800 ${f}px 'Syne',sans-serif`;const r=[];let cl=[],cw=0;const sw=ctx.measureText(" ").width;
+  let fs=60; ctx.font=ff(`800 ${fs}px 'Syne',sans-serif`);
+  const wrap=(f)=>{ctx.font=ff(`800 ${f}px 'Syne',sans-serif`);const r=[];let cl=[],cw=0;const sw=ctx.measureText(" ").width;
     for(let i=0;i<words.length;i++){const t=words[i].toUpperCase(),ww=ctx.measureText(t).width;if(cl.length>0&&cw+sw+ww>maxW){r.push(cl);cl=[{text:t,idx:i,width:ww}];cw=ww;}else{cw+=(cl.length>0?sw:0)+ww;cl.push({text:t,idx:i,width:ww});}}if(cl.length)r.push(cl);return r;};
   let lines=wrap(fs); while(lines.length*(fs*1.05)>H*0.30&&fs>30){fs-=2;lines=wrap(fs);}
   const lh=fs*1.05, sw=ctx.measureText(" ").width;
@@ -212,7 +230,7 @@ function renderText(canvas, cfg) {
   ctx.fillStyle=accent; ctx.fillRect(W/2-25,barY,50,4);
 
   if(textBody?.trim()){
-    ctx.font="400 30px 'DM Sans',sans-serif"; ctx.fillStyle="rgba(255,255,255,0.65)";
+    ctx.font=ff("400 30px 'DM Sans',sans-serif"); ctx.fillStyle="rgba(255,255,255,0.65)";
     const paragraphs=textBody.split("\n");
     const bodyLines=[];
     for(const para of paragraphs){
@@ -239,10 +257,10 @@ function renderText(canvas, cfg) {
       let lineW=0;
       parts.forEach(part=>{
         if(part.startsWith("*")&&part.endsWith("*")){
-          ctx.font="700 30px 'DM Sans',sans-serif";
+          ctx.font=ff("700 30px 'DM Sans',sans-serif");
           lineW+=ctx.measureText(part.slice(1,-1)).width;
         } else {
-          ctx.font="400 30px 'DM Sans',sans-serif";
+          ctx.font=ff("400 30px 'DM Sans',sans-serif");
           lineW+=ctx.measureText(part).width;
         }
       });
@@ -250,9 +268,9 @@ function renderText(canvas, cfg) {
       parts.forEach(part=>{
         if(part.startsWith("*")&&part.endsWith("*")){
           const inner=part.slice(1,-1);
-          ctx.font="700 30px 'DM Sans',sans-serif"; ctx.fillStyle="#FFF";
+          ctx.font=ff("700 30px 'DM Sans',sans-serif"); ctx.fillStyle="#FFF";
           ctx.fillText(inner,x,y); x+=ctx.measureText(inner).width;
-          ctx.font="400 30px 'DM Sans',sans-serif"; ctx.fillStyle="rgba(255,255,255,0.65)";
+          ctx.font=ff("400 30px 'DM Sans',sans-serif"); ctx.fillStyle="rgba(255,255,255,0.65)";
         } else {
           ctx.fillText(part,x,y); x+=ctx.measureText(part).width;
         }
@@ -260,9 +278,11 @@ function renderText(canvas, cfg) {
     });
   }
 
-  ctx.fillStyle="rgba(255,255,255,0.08)"; ctx.fillRect(60,H-38,W-120,1);
-  ctx.font="800 16px 'Syne',sans-serif"; ctx.fillStyle="rgba(255,255,255,0.20)"; ctx.textBaseline="bottom";
-  ctx.fillText("CENTRAL GROUP EVENTS",60,H-14);
+  if (_watermark) {
+    ctx.fillStyle="rgba(255,255,255,0.08)"; ctx.fillRect(60,H-38,W-120,1);
+    ctx.font=ff("800 16px 'Syne',sans-serif"); ctx.fillStyle="rgba(255,255,255,0.20)"; ctx.textBaseline="bottom";
+    ctx.fillText("CENTRAL GROUP EVENTS",60,H-14);
+  }
   drawPageNum(ctx,W,H,pageNum,totalPages,accent);
   drawDots(ctx,W,dots,totalDots,accent);
 }
@@ -293,7 +313,7 @@ function renderCTA(canvas, cfg) {
   // Kicker pill, top-center
   if (ctaKicker?.trim()) {
     const kt = ctaKicker.toUpperCase();
-    ctx.font="800 22px 'Syne',sans-serif"; ctx.letterSpacing="4px";
+    ctx.font=ff("800 22px 'Syne',sans-serif"); ctx.letterSpacing="4px";
     const tw = ctx.measureText(kt).width;
     const padX=20, rectW=tw+padX*2, rectH=44;
     const rx = (W-rectW)/2, ry = 170;
@@ -308,11 +328,11 @@ function renderCTA(canvas, cfg) {
   const dateLines = (ctaDate||"").split("\n").map(l=>l.trim()).filter(l=>l);
   let dfs = 84;
   const measureDate = (f) => {
-    ctx.font=`800 ${f}px 'Syne',sans-serif`;
+    ctx.font=ff(`800 ${f}px 'Syne',sans-serif`);
     return dateLines.length ? Math.max(...dateLines.map(l => ctx.measureText(l.toUpperCase()).width)) : 0;
   };
   while (dateLines.length && measureDate(dfs) > W-120 && dfs > 44) { dfs -= 4; }
-  ctx.font=`800 ${dfs}px 'Syne',sans-serif`;
+  ctx.font=ff(`800 ${dfs}px 'Syne',sans-serif`);
   ctx.fillStyle="#FFF"; ctx.textAlign="center";
   const dlh = dfs*1.1;
   const dateY = 340;
@@ -326,7 +346,7 @@ function renderCTA(canvas, cfg) {
 
   // Venue
   const venueY = divY + 38;
-  ctx.font="700 38px 'DM Sans',sans-serif"; ctx.fillStyle="rgba(255,255,255,0.88)";
+  ctx.font=ff("700 38px 'DM Sans',sans-serif"); ctx.fillStyle="rgba(255,255,255,0.88)";
   // wrap venue if too long
   const venueText = ctaVenue || "";
   if (ctx.measureText(venueText).width > W-120) {
@@ -344,7 +364,7 @@ function renderCTA(canvas, cfg) {
 
   // URL — accent color
   const urlY = venueY + 64;
-  ctx.font="700 36px 'DM Sans',sans-serif"; ctx.fillStyle=accent;
+  ctx.font=ff("700 36px 'DM Sans',sans-serif"); ctx.fillStyle=accent;
   ctx.fillText(ctaUrl||"", W/2, urlY);
 
   ctx.textAlign="left";
@@ -386,7 +406,7 @@ function renderPhotoCaption(canvas, cfg) {
     const words = caption.split(/\s+/).filter(w=>w);
     let fs = 58;
     const wrap = (f) => {
-      ctx.font=`800 ${f}px 'Syne',sans-serif`;
+      ctx.font=ff(`800 ${f}px 'Syne',sans-serif`);
       const r=[]; let bl="";
       for (const w of words) {
         const test=bl?bl+" "+w:w;
@@ -403,13 +423,13 @@ function renderPhotoCaption(canvas, cfg) {
     const bottomMargin = captionSecondary?.trim() ? 130 : 90;
     const startY = H - bottomMargin - totalH;
     ctx.fillStyle="#FFF"; ctx.textAlign=align;
-    ctx.font=`800 ${fs}px 'Syne',sans-serif`;
+    ctx.font=ff(`800 ${fs}px 'Syne',sans-serif`);
     lines.forEach((ln,i)=>ctx.fillText(ln, ax, startY+i*lh));
   }
 
   // Secondary line — small, letterspaced, accent
   if (captionSecondary?.trim()) {
-    ctx.font="700 22px 'DM Sans',sans-serif";
+    ctx.font=ff("700 22px 'DM Sans',sans-serif");
     ctx.fillStyle=accent; ctx.letterSpacing="3px"; ctx.textAlign=align; ctx.textBaseline="bottom";
     ctx.fillText(captionSecondary.toUpperCase(), ax, H-60);
     ctx.letterSpacing="0px"; ctx.textBaseline="top";
@@ -447,9 +467,9 @@ function renderFeatures(canvas, cfg) {
   let titleBottom = 70;
   if (featuresTitle?.trim()) {
     let fs = 52;
-    ctx.font=`800 ${fs}px 'Syne',sans-serif`;
+    ctx.font=ff(`800 ${fs}px 'Syne',sans-serif`);
     const t = featuresTitle.toUpperCase();
-    while (ctx.measureText(t).width > W-120 && fs > 32) { fs -= 2; ctx.font=`800 ${fs}px 'Syne',sans-serif`; }
+    while (ctx.measureText(t).width > W-120 && fs > 32) { fs -= 2; ctx.font=ff(`800 ${fs}px 'Syne',sans-serif`); }
     ctx.fillStyle="#FFF"; ctx.textAlign="center";
     ctx.fillText(t, W/2, 80);
     const barY = 80 + fs + 18;
@@ -481,7 +501,7 @@ function renderFeatures(canvas, cfg) {
 
     // Emoji
     if (card.emoji?.trim()) {
-      ctx.font = "78px 'Apple Color Emoji','Segoe UI Emoji','Noto Color Emoji',sans-serif";
+      ctx.font=ff("78px 'Apple Color Emoji','Segoe UI Emoji','Noto Color Emoji',sans-serif");
       ctx.textAlign = "left"; ctx.textBaseline = "top";
       ctx.fillStyle = "#FFF";
       ctx.fillText(card.emoji, x + 28, y + 30);
@@ -491,9 +511,9 @@ function renderFeatures(canvas, cfg) {
     if (card.headline?.trim()) {
       let hfs = 30;
       const headlineText = card.headline.toUpperCase();
-      ctx.font = `800 ${hfs}px 'Syne',sans-serif`;
+      ctx.font=ff(`800 ${hfs}px 'Syne',sans-serif`);
       while (ctx.measureText(headlineText).width > cw - 50 && hfs > 18) {
-        hfs -= 2; ctx.font = `800 ${hfs}px 'Syne',sans-serif`;
+        hfs -= 2; ctx.font=ff(`800 ${hfs}px 'Syne',sans-serif`);
       }
       ctx.fillStyle = "#FFF"; ctx.textAlign = "left"; ctx.textBaseline = "top";
       ctx.fillText(headlineText, x + 28, y + 144);
@@ -501,7 +521,7 @@ function renderFeatures(canvas, cfg) {
 
     // Sub (wrap to 2 lines max)
     if (card.sub?.trim()) {
-      ctx.font = "400 20px 'DM Sans',sans-serif";
+      ctx.font=ff("400 20px 'DM Sans',sans-serif");
       ctx.fillStyle = "rgba(255,255,255,0.6)";
       const subWords = card.sub.split(/\s+/);
       const subLines = []; let bl = "";
@@ -586,6 +606,28 @@ export default function MediaTool() {
   const [carousel, setCarousel] = useState([]);
   const [dragIdx, setDragIdx] = useState(null);
 
+  // Global render flags — synced into module-level vars via useEffect.
+  const [watermark, setWatermark] = useState(true);
+  const [fontPairKey, setFontPairKey] = useState("default");
+  useEffect(() => { setActiveWatermark(watermark); }, [watermark]);
+  useEffect(() => {
+    const pair = FONT_PAIRS[fontPairKey];
+    setActiveFonts(pair.display, pair.body);
+    const displayQ = pair.display.replace(/ /g, "+") + ":wght@800";
+    const bodyQ = pair.body.replace(/ /g, "+") + ":wght@400;500;700";
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = `https://fonts.googleapis.com/css2?family=${displayQ}&family=${bodyQ}&display=swap`;
+    document.head.appendChild(link);
+    // Wait for the new fonts to load, then trigger a re-render of the preview.
+    document.fonts.ready.then(() => {
+      // Force preview re-render by toggling state; simplest: bump a tick.
+      setFontTick(t => t + 1);
+    });
+    return () => { document.head.removeChild(link); };
+  }, [fontPairKey]);
+  const [fontTick, setFontTick] = useState(0);
+
   const envKey = (import.meta.env.VITE_GEMINI_API_KEY || "").trim();
   const [uiKey, setUiKey] = useState(() => {
     try { return localStorage.getItem("cge_gemini_key") || ""; } catch { return ""; }
@@ -665,7 +707,7 @@ export default function MediaTool() {
     else if(mode==="cta") renderCTA(cv,{ctaKicker,ctaDate,ctaVenue,ctaUrl,photo:textPhoto,accent,bgKey,dots,totalDots,opacity:textOpacity});
     else if(mode==="features") renderFeatures(cv,{featuresTitle,features,accent,bgKey,dots,totalDots,photo:textPhoto,opacity:textOpacity});
     else if(mode==="photo") renderPhotoCaption(cv,{photo:captionPhoto,caption,captionSecondary,alignment:captionAlign,accent,bgKey,dots,totalDots});
-  },[mode,photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,items,bgKey,listTitle,listSubtitle,statNumber,statLabel,statSub,textTitle,textTitleHL,textBody,pageNum,totalPages,textPhoto,textOpacity,ctaKicker,ctaDate,ctaVenue,ctaUrl,featuresTitle,features,captionPhoto,caption,captionSecondary,captionAlign]);
+  },[mode,photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,items,bgKey,listTitle,listSubtitle,statNumber,statLabel,statSub,textTitle,textTitleHL,textBody,pageNum,totalPages,textPhoto,textOpacity,ctaKicker,ctaDate,ctaVenue,ctaUrl,featuresTitle,features,captionPhoto,caption,captionSecondary,captionAlign,watermark,fontTick]);
 
   useEffect(()=>{const t=setTimeout(render,60);return()=>clearTimeout(t);},[render]);
 
@@ -928,8 +970,22 @@ export default function MediaTool() {
           <span style={{fontSize:"0.6rem",color:accent,letterSpacing:"1.5px",textTransform:"uppercase",padding:"2px 8px",border:"1px solid rgba(255,255,255,0.08)",borderRadius:"14px"}}>{mode} Slide · 1:1</span>
         </div>
 
-        <div style={{display:"flex",gap:"0.3rem",marginBottom:"1rem"}}>
+        <div style={{display:"flex",gap:"0.3rem",marginBottom:"0.6rem",flexWrap:"wrap",alignItems:"center"}}>
           {MODES.map(([k,lb])=><button key={k} onClick={()=>setMode(k)} style={{padding:"6px 16px",borderRadius:"5px",fontSize:"0.7rem",fontWeight:700,cursor:"pointer",border:mode===k?"2px solid #FACC15":"2px solid rgba(245,240,232,0.06)",background:mode===k?"rgba(250,204,21,0.12)":"transparent",color:mode===k?"#FACC15":"rgba(245,240,232,0.25)",fontFamily:"'Syne',sans-serif",letterSpacing:"1px",textTransform:"uppercase"}}>{lb}</button>)}
+          <div style={{flex:1}}/>
+          <button
+            onClick={()=>setWatermark(v=>!v)}
+            title="Toggle CGE logo + footer text on/off"
+            style={{padding:"6px 12px",borderRadius:"5px",fontSize:"0.6rem",fontWeight:700,cursor:"pointer",border:watermark?"2px solid #34D399":"2px solid rgba(245,240,232,0.1)",background:watermark?"rgba(52,211,153,0.12)":"transparent",color:watermark?"#34D399":"rgba(245,240,232,0.4)",fontFamily:"'Syne',sans-serif",letterSpacing:"1.5px",textTransform:"uppercase"}}
+          >{watermark ? "✓ Watermark" : "○ Watermark"}</button>
+          <select
+            value={fontPairKey}
+            onChange={e=>setFontPairKey(e.target.value)}
+            title="Choose a font pair · loads from Google Fonts"
+            style={{padding:"6px 10px",borderRadius:"5px",fontSize:"0.6rem",fontWeight:700,cursor:"pointer",border:"2px solid rgba(245,240,232,0.1)",background:"transparent",color:"rgba(245,240,232,0.7)",fontFamily:"'Syne',sans-serif",letterSpacing:"1px",textTransform:"uppercase",outline:"none"}}
+          >
+            {Object.entries(FONT_PAIRS).map(([k,p])=><option key={k} value={k} style={{color:"#000"}}>{p.name}</option>)}
+          </select>
         </div>
 
         <div style={{
