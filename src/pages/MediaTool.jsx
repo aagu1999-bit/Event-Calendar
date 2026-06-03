@@ -72,7 +72,7 @@ function drawPageNum(ctx, W, H, current, total, accent) {
 
 // === COVER RENDERER ===
 function renderCover(canvas, cfg) {
-  const { photo, headline, highlights, accent, dots, totalDots, subtitle, opacity } = cfg;
+  const { photo, headline, highlights, accent, dots, totalDots, subtitle, opacity, ribbon } = cfg;
   const W=1080, H=1080; canvas.width=W; canvas.height=H;
   const ctx = canvas.getContext("2d");
   if (photo) { const s=Math.max(W/photo.width,H/photo.height); const dw=photo.width*s,dh=photo.height*s; ctx.drawImage(photo,(W-dw)/2,(H-dh)/2,dw,dh); }
@@ -88,6 +88,16 @@ function renderCover(canvas, cfg) {
     for(let i=0;i<words.length;i++){const t=words[i].toUpperCase(),ww=ctx.measureText(t).width;if(cl.length>0&&cw+sw+ww>maxW){r.push(cl);cl=[{text:t,idx:i,width:ww}];cw=ww;}else{cw+=(cl.length>0?sw:0)+ww;cl.push({text:t,idx:i,width:ww});}}if(cl.length)r.push(cl);return r;};
   let lines=wrap(fs); while(lines.length*(fs*1.05)>H*0.55&&fs>36){fs-=2;lines=wrap(fs);}
   const lh=fs*1.05, totalH=lines.length*lh, startY=H-50-totalH;
+  if(ribbon?.trim()){
+    const rt=ribbon.toUpperCase();
+    ctx.font="800 22px 'Syne',sans-serif"; ctx.letterSpacing="4px";
+    const tw=ctx.measureText(rt).width, rpadX=20, rectW=tw+rpadX*2, rectH=44;
+    const ribbonY=subtitle?.trim()?startY-94:startY-60;
+    ctx.fillStyle=accent; ctx.beginPath(); ctx.roundRect(60,ribbonY,rectW,rectH,4); ctx.fill();
+    ctx.fillStyle="#000"; ctx.textBaseline="middle"; ctx.textAlign="left";
+    ctx.fillText(rt,60+rpadX,ribbonY+rectH/2);
+    ctx.letterSpacing="0px"; ctx.textBaseline="top";
+  }
   if(subtitle?.trim()){ctx.font="700 24px 'DM Sans',sans-serif";ctx.fillStyle=accent;ctx.textBaseline="bottom";ctx.letterSpacing="3px";ctx.fillText(subtitle.toUpperCase(),60,startY-12);ctx.letterSpacing="0px";}
   ctx.font=`800 ${fs}px 'Syne',sans-serif`; ctx.textBaseline="top"; const sw=ctx.measureText(" ").width;
   lines.forEach((lw,li)=>{let x=px;const y=startY+li*lh;lw.forEach(w=>{ctx.fillStyle=highlights.has(w.idx)?accent:"#FFF";ctx.fillText(w.text,x,y);x+=w.width+sw;});});
@@ -190,25 +200,52 @@ function renderText(canvas, cfg) {
     for(let i=0;i<words.length;i++){const t=words[i].toUpperCase(),ww=ctx.measureText(t).width;if(cl.length>0&&cw+sw+ww>maxW){r.push(cl);cl=[{text:t,idx:i,width:ww}];cw=ww;}else{cw+=(cl.length>0?sw:0)+ww;cl.push({text:t,idx:i,width:ww});}}if(cl.length)r.push(cl);return r;};
   let lines=wrap(fs); while(lines.length*(fs*1.05)>H*0.30&&fs>30){fs-=2;lines=wrap(fs);}
   const lh=fs*1.05, sw=ctx.measureText(" ").width;
-  const titleY=55;
-  lines.forEach((lw,li)=>{let x=px;const y=titleY+li*lh;lw.forEach(w=>{ctx.fillStyle=textTitleHighlights.has(w.idx)?accent:"#FFF";ctx.fillText(w.text,x,y);x+=w.width+sw;});});
+  const titleY=70;
+  lines.forEach((lw,li)=>{
+    const lineW=lw.reduce((a,w)=>a+w.width,0)+(lw.length-1)*sw;
+    let x=(W-lineW)/2; const y=titleY+li*lh;
+    lw.forEach(w=>{ctx.fillStyle=textTitleHighlights.has(w.idx)?accent:"#FFF";ctx.fillText(w.text,x,y);x+=w.width+sw;});
+  });
 
-  const barY=titleY+lines.length*lh+16;
-  ctx.fillStyle=accent; ctx.fillRect(px,barY,50,4);
+  const barY=titleY+lines.length*lh+18;
+  ctx.fillStyle=accent; ctx.fillRect(W/2-25,barY,50,4);
 
   if(textBody?.trim()){
     ctx.font="400 30px 'DM Sans',sans-serif"; ctx.fillStyle="rgba(255,255,255,0.65)";
-    const bodyY=barY+28;
-    const bodyWords=textBody.split(/\s+/);
-    const bodyLines=[];let bl="";
-    for(const w of bodyWords){const test=bl?bl+" "+w:w;if(ctx.measureText(test).width>maxW&&bl){bodyLines.push(bl);bl=w;}else bl=test;}
-    if(bl)bodyLines.push(bl);
+    const paragraphs=textBody.split("\n");
+    const bodyLines=[];
+    for(const para of paragraphs){
+      if(!para.trim()){bodyLines.push("");continue;}
+      const ws=para.split(/\s+/); let bl="";
+      for(const w of ws){
+        const test=bl?bl+" "+w:w;
+        const measured=test.replace(/\*/g,"");
+        if(ctx.measureText(measured).width>maxW&&bl){bodyLines.push(bl);bl=w;}
+        else bl=test;
+      }
+      if(bl)bodyLines.push(bl);
+    }
+    const lineH=42, blockH=bodyLines.length*lineH;
+    let startY=H/2-blockH/2;
+    const minY=barY+30, maxBottom=H-70;
+    if(startY<minY)startY=minY;
+    if(startY+blockH>maxBottom)startY=maxBottom-blockH;
 
     bodyLines.forEach((ln,i)=>{
-      const y=bodyY+i*42;
-      if(y>H-60) return;
-      let x=px;
+      const y=startY+i*lineH;
+      if(y<0||y>H-40) return;
       const parts=ln.split(/(\*[^*]+\*)/g);
+      let lineW=0;
+      parts.forEach(part=>{
+        if(part.startsWith("*")&&part.endsWith("*")){
+          ctx.font="700 30px 'DM Sans',sans-serif";
+          lineW+=ctx.measureText(part.slice(1,-1)).width;
+        } else {
+          ctx.font="400 30px 'DM Sans',sans-serif";
+          lineW+=ctx.measureText(part).width;
+        }
+      });
+      let x=(W-lineW)/2;
       parts.forEach(part=>{
         if(part.startsWith("*")&&part.endsWith("*")){
           const inner=part.slice(1,-1);
@@ -229,6 +266,91 @@ function renderText(canvas, cfg) {
   drawDots(ctx,W,dots,totalDots,accent);
 }
 
+// === CTA RENDERER ===
+function renderCTA(canvas, cfg) {
+  const { ctaKicker, ctaDate, ctaVenue, ctaUrl, photo, accent, bgKey, dots, totalDots, opacity } = cfg;
+  const W=1080, H=1080; canvas.width=W; canvas.height=H;
+  const ctx = canvas.getContext("2d");
+
+  if (photo) {
+    const s=Math.max(W/photo.width,H/photo.height);
+    const dw=photo.width*s, dh=photo.height*s;
+    ctx.drawImage(photo,(W-dw)/2,(H-dh)/2,dw,dh);
+    ctx.fillStyle=`rgba(0,0,0,${opacity||0.88})`; ctx.fillRect(0,0,W,H);
+    drawTexture(ctx,W,H,"#FFF",0.03);
+  } else {
+    const bg = BG_COLORS[bgKey]||BG_COLORS.black;
+    ctx.fillStyle=bg.hex; ctx.fillRect(0,0,W,H);
+    const isBlack = bgKey==="black";
+    drawTexture(ctx,W,H,isBlack?"#FACC15":"#000",isBlack?0.04:0.10);
+    if(!isBlack) drawSpotlight(ctx,W,H,"255,255,255",0.40);
+    else drawSpotlight(ctx,W,H,"229,188,79",0.30);
+  }
+
+  ctx.globalAlpha=1; ctx.textBaseline="top";
+
+  // Kicker pill, top-center
+  if (ctaKicker?.trim()) {
+    const kt = ctaKicker.toUpperCase();
+    ctx.font="800 22px 'Syne',sans-serif"; ctx.letterSpacing="4px";
+    const tw = ctx.measureText(kt).width;
+    const padX=20, rectW=tw+padX*2, rectH=44;
+    const rx = (W-rectW)/2, ry = 170;
+    ctx.fillStyle=accent;
+    ctx.beginPath(); ctx.roundRect(rx,ry,rectW,rectH,4); ctx.fill();
+    ctx.fillStyle="#000"; ctx.textBaseline="middle"; ctx.textAlign="left";
+    ctx.fillText(kt, rx+padX, ry+rectH/2);
+    ctx.letterSpacing="0px"; ctx.textBaseline="top";
+  }
+
+  // Date — biggest text, centered (multi-line via \n)
+  const dateLines = (ctaDate||"").split("\n").map(l=>l.trim()).filter(l=>l);
+  let dfs = 84;
+  const measureDate = (f) => {
+    ctx.font=`800 ${f}px 'Syne',sans-serif`;
+    return dateLines.length ? Math.max(...dateLines.map(l => ctx.measureText(l.toUpperCase()).width)) : 0;
+  };
+  while (dateLines.length && measureDate(dfs) > W-120 && dfs > 44) { dfs -= 4; }
+  ctx.font=`800 ${dfs}px 'Syne',sans-serif`;
+  ctx.fillStyle="#FFF"; ctx.textAlign="center";
+  const dlh = dfs*1.1;
+  const dateY = 340;
+  dateLines.forEach((ln,i) => ctx.fillText(ln.toUpperCase(), W/2, dateY+i*dlh));
+  const dateBlockH = dateLines.length*dlh;
+
+  // Divider
+  const divY = dateY + dateBlockH + 36;
+  ctx.fillStyle = `${accent}66`;
+  ctx.fillRect(W/2-50, divY, 100, 3);
+
+  // Venue
+  const venueY = divY + 38;
+  ctx.font="700 38px 'DM Sans',sans-serif"; ctx.fillStyle="rgba(255,255,255,0.88)";
+  // wrap venue if too long
+  const venueText = ctaVenue || "";
+  if (ctx.measureText(venueText).width > W-120) {
+    // simple wrap
+    const ws = venueText.split(/\s+/); const ln=[]; let cur="";
+    for (const w of ws) {
+      const t = cur ? cur+" "+w : w;
+      if (ctx.measureText(t).width > W-120 && cur) { ln.push(cur); cur=w; } else cur=t;
+    }
+    if (cur) ln.push(cur);
+    ln.forEach((l,i) => ctx.fillText(l, W/2, venueY + i*44));
+  } else {
+    ctx.fillText(venueText, W/2, venueY);
+  }
+
+  // URL — accent color
+  const urlY = venueY + 64;
+  ctx.font="700 36px 'DM Sans',sans-serif"; ctx.fillStyle=accent;
+  ctx.fillText(ctaUrl||"", W/2, urlY);
+
+  ctx.textAlign="left";
+  drawDots(ctx,W,dots,totalDots,accent);
+  drawFooter(ctx,W,H);
+}
+
 // === MEDIA TOOL ===
 export default function MediaTool() {
   const events = useEventsStore(s => s.events);
@@ -243,6 +365,7 @@ export default function MediaTool() {
   const [dots, setDots] = useState(1);
   const [totalDots, setTotalDots] = useState(5);
   const [opacity, setOpacity] = useState(0.92);
+  const [ribbon, setRibbon] = useState("");
   const [items, setItems] = useState([
     {name:"R&B Friday at Halftime",detail:"Jersey City · 8 PM",featured:true},
     {name:"Afrobeat Night",detail:"Suite 2, New Brunswick · 9 PM",featured:true},
@@ -264,6 +387,18 @@ export default function MediaTool() {
   const [textPhoto, setTextPhoto] = useState(null);
   const [textOpacity, setTextOpacity] = useState(0.85);
   const [editItem, setEditItem] = useState(null);
+  const [template, setTemplate] = useState("weekend");
+  const [clientCfg, setClientCfg] = useState({
+    problemTitle: "Tired of swiping?",
+    problemHighlights: "swiping",
+    problemBody: "Apps put you in a queue of profiles. *Real life puts you in a room of people.* Sunday, June 14 — we're filling that room.",
+    benefitsTitle: "Here's the night",
+    benefits: "*Pickleball games* — no partner needed\n*Speed connections* — meet everyone\n*Bachata dancing* — beginner friendly\n*Gift baskets* — good vibes",
+  });
+  const [ctaKicker, setCtaKicker] = useState("SAVE YOUR SPOT");
+  const [ctaDate, setCtaDate] = useState("Sunday, June 14 · 6 PM");
+  const [ctaVenue, setCtaVenue] = useState("Pickleball HQ — Aberdeen");
+  const [ctaUrl, setCtaUrl] = useState("pbdates.org");
 
   const cvRef = useRef(null), fileRef = useRef(null), textFileRef = useRef(null);
   const accent = COLORS[accentKey]?.hex || "#FACC15";
@@ -289,11 +424,12 @@ export default function MediaTool() {
 
   const render = useCallback(()=>{
     const cv=cvRef.current; if(!cv) return;
-    if(mode==="cover") renderCover(cv,{photo,headline,highlights,accent,dots,totalDots,subtitle,opacity});
+    if(mode==="cover") renderCover(cv,{photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon});
     else if(mode==="list") renderList(cv,{items,accent,bgKey,dots,totalDots,listTitle,listSubtitle});
     else if(mode==="stat") renderStat(cv,{statNumber,statLabel,statSub,accent,bgKey,dots,totalDots});
     else if(mode==="text") renderText(cv,{textTitle,textTitleHighlights:textTitleHL,textBody,accent,bgKey,dots,totalDots,pageNum,totalPages,photo:textPhoto,textOpacity});
-  },[mode,photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,items,bgKey,listTitle,listSubtitle,statNumber,statLabel,statSub,textTitle,textTitleHL,textBody,pageNum,totalPages,textPhoto,textOpacity]);
+    else if(mode==="cta") renderCTA(cv,{ctaKicker,ctaDate,ctaVenue,ctaUrl,photo:textPhoto,accent,bgKey,dots,totalDots,opacity:textOpacity});
+  },[mode,photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,items,bgKey,listTitle,listSubtitle,statNumber,statLabel,statSub,textTitle,textTitleHL,textBody,pageNum,totalPages,textPhoto,textOpacity,ctaKicker,ctaDate,ctaVenue,ctaUrl]);
 
   useEffect(()=>{const t=setTimeout(render,60);return()=>clearTimeout(t);},[render]);
 
@@ -301,14 +437,15 @@ export default function MediaTool() {
   const handleTextPhoto=(e)=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{const img=new Image();img.onload=()=>setTextPhoto(img);img.src=ev.target.result;};r.readAsDataURL(f);e.target.value="";};
 
   const dl=()=>{const cv=document.createElement("canvas");
-    if(mode==="cover") renderCover(cv,{photo,headline,highlights,accent,dots,totalDots,subtitle,opacity});
+    if(mode==="cover") renderCover(cv,{photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon});
     else if(mode==="list") renderList(cv,{items,accent,bgKey,dots,totalDots,listTitle,listSubtitle});
     else if(mode==="stat") renderStat(cv,{statNumber,statLabel,statSub,accent,bgKey,dots,totalDots});
     else if(mode==="text") renderText(cv,{textTitle,textTitleHighlights:textTitleHL,textBody,accent,bgKey,dots,totalDots,pageNum,totalPages,photo:textPhoto,textOpacity});
+    else if(mode==="cta") renderCTA(cv,{ctaKicker,ctaDate,ctaVenue,ctaUrl,photo:textPhoto,accent,bgKey,dots,totalDots,opacity:textOpacity});
     cv.toBlob(blob=>{const url=URL.createObjectURL(blob);const a=document.createElement("a");a.download=`CGE_${mode}_slide.png`;a.href=url;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);},"image/png");
   };
 
-  const MODES=[["cover","Cover"],["list","List"],["stat","Stat"],["text","Text"]];
+  const MODES=[["cover","Cover"],["list","List"],["stat","Stat"],["text","Text"],["cta","CTA"]];
 
   // Auto-generate a 5-slide weekend carousel from the events store:
   //   1. Cover — headline with event count
@@ -410,6 +547,67 @@ export default function MediaTool() {
     }
   };
 
+  const generateClientEventCarousel = async () => {
+    if (isAutoGen) return;
+    setIsAutoGen(true);
+    try {
+      await document.fonts.ready;
+
+      const problemWords = clientCfg.problemTitle.split(/\s+/).filter(w => w);
+      const hlWords = clientCfg.problemHighlights.toLowerCase().split(/\s+/).filter(w => w);
+      const problemHLSet = new Set();
+      problemWords.forEach((w, i) => { if (hlWords.includes(w.toLowerCase())) problemHLSet.add(i); });
+
+      const slides = [
+        { mode: "cover", name: "01_hook",
+          cfg: { photo, headline, highlights, ribbon, subtitle, accent, dots: 1, totalDots: 5, opacity } },
+        { mode: "text", name: "02_problem",
+          cfg: { textTitle: clientCfg.problemTitle, textTitleHighlights: problemHLSet,
+            textBody: clientCfg.problemBody, accent, bgKey, dots: 2, totalDots: 5,
+            pageNum: 2, totalPages: 5, photo: textPhoto, textOpacity } },
+        { mode: "text", name: "03_benefits",
+          cfg: { textTitle: clientCfg.benefitsTitle, textTitleHighlights: new Set(),
+            textBody: clientCfg.benefits, accent, bgKey, dots: 3, totalDots: 5,
+            pageNum: 3, totalPages: 5, photo: null, textOpacity } },
+        { mode: "stat", name: "04_stat",
+          cfg: { statNumber, statLabel, statSub, accent, bgKey, dots: 4, totalDots: 5 } },
+        { mode: "cta", name: "05_cta",
+          cfg: { ctaKicker, ctaDate, ctaVenue, ctaUrl,
+            photo: textPhoto, accent, bgKey, dots: 5, totalDots: 5, opacity: textOpacity } },
+      ];
+
+      const zip = new JSZip();
+      for (const s of slides) {
+        const cv = document.createElement("canvas");
+        if (s.mode === "cover") renderCover(cv, s.cfg);
+        else if (s.mode === "text") renderText(cv, s.cfg);
+        else if (s.mode === "stat") renderStat(cv, s.cfg);
+        else if (s.mode === "cta") renderCTA(cv, s.cfg);
+        const blob = await new Promise(res => cv.toBlob(res, "image/png"));
+        zip.file(`CGE_client_${s.name}.png`, blob);
+      }
+      const zipBlob = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(zipBlob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `CGE_client_carousel_${Date.now()}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Client carousel failed:", err);
+      alert("Generation failed — see console.");
+    } finally {
+      setIsAutoGen(false);
+    }
+  };
+
+  const handleGenerate = () => {
+    if (template === "weekend") return autoGenerateCarousel();
+    if (template === "client") return generateClientEventCarousel();
+  };
+
   return(
     <div style={{minHeight:"calc(100vh - 60px)",background:"#080808",color:"#F5F0E8",fontFamily:"'DM Sans',sans-serif"}}>
       <div style={{maxWidth:1150,margin:"0 auto",padding:"1.25rem"}}>
@@ -422,47 +620,69 @@ export default function MediaTool() {
           {MODES.map(([k,lb])=><button key={k} onClick={()=>setMode(k)} style={{padding:"6px 16px",borderRadius:"5px",fontSize:"0.7rem",fontWeight:700,cursor:"pointer",border:mode===k?"2px solid #FACC15":"2px solid rgba(245,240,232,0.06)",background:mode===k?"rgba(250,204,21,0.12)":"transparent",color:mode===k?"#FACC15":"rgba(245,240,232,0.25)",fontFamily:"'Syne',sans-serif",letterSpacing:"1px",textTransform:"uppercase"}}>{lb}</button>)}
         </div>
 
-        {events.length > 0 && (
-          <div style={{
-            marginBottom: "1rem",
-            padding: "10px 14px",
-            background: "rgba(229,188,79,0.06)",
-            border: "1px solid rgba(229,188,79,0.22)",
-            borderRadius: "6px",
-            display: "flex",
-            alignItems: "center",
-            gap: "0.75rem",
-          }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: "0.6rem", color: "#E5BC4F", letterSpacing: "1.5px", textTransform: "uppercase", marginBottom: "2px" }}>
-                Auto-generate weekend carousel
-              </div>
-              <div style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.55)" }}>
-                {events.length} events → Cover + Fri / Sat / Sun lists + closing stat · zipped as 5 PNGs
-              </div>
-            </div>
+        <div style={{
+          marginBottom: "1rem",
+          padding: "10px 14px",
+          background: "rgba(229,188,79,0.06)",
+          border: "1px solid rgba(229,188,79,0.22)",
+          borderRadius: "6px",
+        }}>
+          <div style={{display:"flex",alignItems:"center",gap:"0.5rem"}}>
+            <div style={{ fontSize: "0.6rem", color: "#E5BC4F", letterSpacing: "1.5px", textTransform: "uppercase", flexShrink: 0 }}>Template</div>
+            <select value={template} onChange={e=>setTemplate(e.target.value)} style={{...I, flex: 1, fontSize: "0.7rem"}}>
+              <option value="weekend">Weekend Roundup{events.length > 0 ? ` (${events.length} events)` : " (no events)"}</option>
+              <option value="client">Client Event · Hype + Benefits</option>
+            </select>
             <button
-              onClick={autoGenerateCarousel}
-              disabled={isAutoGen}
+              onClick={handleGenerate}
+              disabled={isAutoGen || (template === "weekend" && events.length === 0)}
               style={{
                 padding: "8px 14px",
-                background: isAutoGen ? "rgba(229,188,79,0.4)" : "#E5BC4F",
-                color: "#000",
-                border: "none",
-                borderRadius: "4px",
-                fontSize: "0.65rem",
-                fontWeight: 700,
-                letterSpacing: "1.5px",
+                background: (isAutoGen || (template === "weekend" && events.length === 0)) ? "rgba(229,188,79,0.4)" : "#E5BC4F",
+                color: "#000", border: "none", borderRadius: "4px",
+                fontSize: "0.65rem", fontWeight: 700, letterSpacing: "1.5px",
                 textTransform: "uppercase",
                 cursor: isAutoGen ? "wait" : "pointer",
-                fontFamily: "'Syne', sans-serif",
-                whiteSpace: "nowrap",
+                fontFamily: "'Syne', sans-serif", whiteSpace: "nowrap",
               }}
-            >
-              {isAutoGen ? "Generating…" : "Generate ZIP"}
-            </button>
+            >{isAutoGen ? "Generating…" : "Generate ZIP"}</button>
           </div>
-        )}
+
+          {template === "weekend" && (
+            <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.55)", marginTop: "6px" }}>
+              {events.length > 0
+                ? `${events.length} events → Cover + Fri / Sat / Sun lists + closing stat · 5 PNGs`
+                : "Import events on Calendar tab to enable this template."}
+            </div>
+          )}
+
+          {template === "client" && (
+            <div style={{ marginTop: "10px", display: "flex", flexDirection: "column", gap: "8px" }}>
+              <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.55)", lineHeight: 1.5 }}>
+                <strong style={{color:"#E5BC4F"}}>Slide 1</strong> uses Cover tab (headline · subtitle · ribbon · photo · highlights).{" "}
+                <strong style={{color:"#E5BC4F"}}>Slide 2</strong> photo uses Text tab's photo.{" "}
+                <strong style={{color:"#E5BC4F"}}>Slide 4</strong> uses Stat tab (number · label · sub).
+              </div>
+              <div><label style={L}>Slide 2 Title (problem hook)</label>
+                <input value={clientCfg.problemTitle} onChange={e=>setClientCfg(p=>({...p,problemTitle:e.target.value}))} style={I}/></div>
+              <div><label style={L}>Slide 2 highlights (space-separated words)</label>
+                <input value={clientCfg.problemHighlights} onChange={e=>setClientCfg(p=>({...p,problemHighlights:e.target.value}))} style={I}/></div>
+              <div><label style={L}>Slide 2 Body (*bold*)</label>
+                <textarea value={clientCfg.problemBody} onChange={e=>setClientCfg(p=>({...p,problemBody:e.target.value}))} style={{...I,height:60,resize:"vertical"}}/></div>
+              <div><label style={L}>Slide 3 Title (benefits)</label>
+                <input value={clientCfg.benefitsTitle} onChange={e=>setClientCfg(p=>({...p,benefitsTitle:e.target.value}))} style={I}/></div>
+              <div><label style={L}>Slide 3 Body — one per line (*bold*)</label>
+                <textarea value={clientCfg.benefits} onChange={e=>setClientCfg(p=>({...p,benefits:e.target.value}))} style={{...I,height:90,resize:"vertical"}}/></div>
+              <div><label style={L}>CTA Kicker pill</label><input value={ctaKicker} onChange={e=>setCtaKicker(e.target.value)} style={I} placeholder="SAVE YOUR SPOT"/></div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0.4rem"}}>
+                <div><label style={L}>CTA Date</label><input value={ctaDate} onChange={e=>setCtaDate(e.target.value)} style={I}/></div>
+                <div><label style={L}>CTA Venue</label><input value={ctaVenue} onChange={e=>setCtaVenue(e.target.value)} style={I}/></div>
+              </div>
+              <div><label style={L}>CTA URL</label>
+                <input value={ctaUrl} onChange={e=>setCtaUrl(e.target.value)} style={I}/></div>
+            </div>
+          )}
+        </div>
 
         <div style={{display:"grid",gridTemplateColumns:"1fr 400px",gap:"1.5rem",alignItems:"start"}}>
           <div>
@@ -470,6 +690,7 @@ export default function MediaTool() {
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Background Photo</label>
                 <div style={{display:"flex",gap:"0.3rem"}}><button onClick={()=>fileRef.current?.click()} style={{...B,flex:1}}>{photo?"Change Photo":"Upload Photo"}</button>{photo&&<button onClick={()=>setPhoto(null)} style={{...B,color:"rgba(251,113,133,0.5)"}}>×</button>}<input ref={fileRef} type="file" accept="image/*" onChange={handlePhoto} style={{display:"none"}}/></div></div>
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Subtitle (optional)</label><input value={subtitle} onChange={e=>setSubtitle(e.target.value)} style={I} placeholder="e.g. WEEKEND GUIDE · APRIL 2026"/></div>
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Ribbon (optional · short kicker)</label><input value={ribbon} onChange={e=>setRibbon(e.target.value)} style={I} placeholder="e.g. ANNOUNCING / EXCLUSIVE / BREAKING"/></div>
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Headline</label><textarea value={headline} onChange={e=>setHeadline(e.target.value)} style={{...I,height:55,resize:"vertical"}} placeholder="Type headline..."/></div>
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Click words to highlight</label>
                 <div style={{display:"flex",flexWrap:"wrap",gap:"3px",padding:"6px",background:"#111",borderRadius:"6px",border:"1px solid rgba(245,240,232,0.04)"}}>
@@ -549,6 +770,26 @@ export default function MediaTool() {
                 <div><label style={L}>Page #</label><input type="number" min="1" value={pageNum} onChange={e=>setPageNum(parseInt(e.target.value)||1)} style={{...I,textAlign:"center",fontWeight:700}}/></div>
                 <div><label style={L}>Total pages</label><input type="number" min="1" value={totalPages} onChange={e=>setTotalPages(parseInt(e.target.value)||1)} style={{...I,textAlign:"center",fontWeight:700}}/></div>
               </div>
+              {!textPhoto&&<div style={{marginBottom:"0.6rem"}}><label style={L}>Background Color</label><div style={{display:"flex",gap:"3px"}}>
+                {Object.entries(BG_COLORS).map(([k,v])=><button key={k} onClick={()=>setBgKey(k)} style={{width:28,height:28,borderRadius:"5px",cursor:"pointer",background:v.hex,border:bgKey===k?"2px solid #FFF":"2px solid transparent",boxShadow:bgKey===k?"0 0 6px rgba(255,255,255,0.3)":"none"}} title={v.name}/>)}</div></div>}
+            </>}
+
+            {mode==="cta"&&<>
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Background Photo (optional · shares Text-mode photo)</label>
+                <div style={{display:"flex",gap:"0.3rem",alignItems:"center"}}>
+                  <button onClick={()=>textFileRef.current?.click()} style={{...B,flex:1}}>{textPhoto?"Change Photo":"Upload Photo"}</button>
+                  {textPhoto&&<button onClick={()=>setTextPhoto(null)} style={{...B,color:"rgba(251,113,133,0.5)"}}>×</button>}
+                </div>
+                {textPhoto&&<div style={{display:"flex",alignItems:"center",gap:"6px",marginTop:"4px"}}>
+                  <span style={{fontSize:"0.45rem",color:"rgba(245,240,232,0.3)"}}>70%</span>
+                  <input type="range" min="0.70" max="1.0" step="0.01" value={textOpacity} onChange={e=>setTextOpacity(parseFloat(e.target.value))} style={{flex:1,accentColor:accent}}/>
+                  <span style={{fontSize:"0.45rem",color:"rgba(245,240,232,0.3)"}}>100%</span>
+                </div>}
+              </div>
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Kicker pill (top)</label><input value={ctaKicker} onChange={e=>setCtaKicker(e.target.value)} style={I} placeholder="e.g. SAVE YOUR SPOT / JOIN US"/></div>
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Date (use \n for multi-line)</label><textarea value={ctaDate} onChange={e=>setCtaDate(e.target.value)} style={{...I,height:55,resize:"vertical"}} placeholder="e.g. Sunday, June 14 · 6 PM"/></div>
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Venue</label><input value={ctaVenue} onChange={e=>setCtaVenue(e.target.value)} style={I} placeholder="e.g. Pickleball HQ — Aberdeen"/></div>
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>URL</label><input value={ctaUrl} onChange={e=>setCtaUrl(e.target.value)} style={I} placeholder="e.g. pbdates.org"/></div>
               {!textPhoto&&<div style={{marginBottom:"0.6rem"}}><label style={L}>Background Color</label><div style={{display:"flex",gap:"3px"}}>
                 {Object.entries(BG_COLORS).map(([k,v])=><button key={k} onClick={()=>setBgKey(k)} style={{width:28,height:28,borderRadius:"5px",cursor:"pointer",background:v.hex,border:bgKey===k?"2px solid #FFF":"2px solid transparent",boxShadow:bgKey===k?"0 0 6px rgba(255,255,255,0.3)":"none"}} title={v.name}/>)}</div></div>}
             </>}
