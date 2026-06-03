@@ -686,13 +686,9 @@ export default function MediaTool() {
 
   const MODES=[["cover","Cover"],["list","List"],["stat","Stat"],["text","Text"],["cta","CTA"],["features","Features"],["photo","Photo"]];
 
-  // Auto-generate a 5-slide weekend carousel from the events store:
-  //   1. Cover — headline with event count
-  //   2. List — Friday top picks
-  //   3. List — Saturday top picks
-  //   4. List — Sunday top picks
-  //   5. Stat — closing event-count slide
-  // All zipped + downloaded in one click. Photo (if uploaded) used on Cover.
+  // Templates push snapshots into the carousel composer.
+  // Weekend (5 slides): Cover + Fri/Sat/Sun lists + Stat.
+  // Client (6 slides): Cover + Text + Features + Photo + Stat + CTA.
   const [isAutoGen, setIsAutoGen] = useState(false);
   const autoGenerateCarousel = async () => {
     if (events.length === 0 || isAutoGen) return;
@@ -713,74 +709,26 @@ export default function MediaTool() {
       const dayCount = [friItems, satItems, sunItems].filter(a => a.length > 0).length;
       const regionCount = new Set(events.map(e => e.region).filter(Boolean)).size;
       const typeCount = new Set(events.map(e => e.type).filter(Boolean)).size;
-
-      const slides = [
-        {
-          mode: "cover",
-          name: "01_cover",
-          cfg: {
-            photo,
-            headline: `This weekend in NJ has ${events.length} events. Here's what you need to know`,
-            highlights: new Set([5, 6, 9]),
-            accent, dots: 1, totalDots: 5,
-            subtitle: "WEEKEND GUIDE",
-            opacity,
-          },
-        },
-        ...(friItems.length > 0 ? [{
-          mode: "list",
-          name: "02_friday",
-          cfg: { items: friItems, accent, bgKey: "purple", dots: 2, totalDots: 5, listTitle: "FRIDAY", listSubtitle: "TOP PICKS" },
-        }] : []),
-        ...(satItems.length > 0 ? [{
-          mode: "list",
-          name: "03_saturday",
-          cfg: { items: satItems, accent, bgKey: "wine", dots: 3, totalDots: 5, listTitle: "SATURDAY", listSubtitle: "TOP PICKS" },
-        }] : []),
-        ...(sunItems.length > 0 ? [{
-          mode: "list",
-          name: "04_sunday",
-          cfg: { items: sunItems, accent, bgKey: "emerald", dots: 4, totalDots: 5, listTitle: "SUNDAY", listSubtitle: "TOP PICKS" },
-        }] : []),
-        {
-          mode: "stat",
-          name: "05_stat",
-          cfg: {
-            statNumber: String(events.length),
-            statLabel: "EVENTS",
-            statSub: `Across ${dayCount} day${dayCount === 1 ? "" : "s"}, ${regionCount} region${regionCount === 1 ? "" : "s"},\nand ${typeCount} categor${typeCount === 1 ? "y" : "ies"}`,
-            accent, bgKey: "black", dots: 5, totalDots: 5,
-          },
-        },
+      const common = { accent, accentKey };
+      const snapshots = [
+        { type: "cover", snapshot: { ...common, bgKey, photo,
+          headline: `This weekend in NJ has ${events.length} events. Here's what you need to know`,
+          highlights: new Set([5, 6, 9]),
+          subtitle: "WEEKEND GUIDE", opacity, ribbon: "" } },
+        ...(friItems.length > 0 ? [{ type: "list", snapshot: { ...common, bgKey: "purple",
+          items: friItems, listTitle: "FRIDAY", listSubtitle: "TOP PICKS" } }] : []),
+        ...(satItems.length > 0 ? [{ type: "list", snapshot: { ...common, bgKey: "wine",
+          items: satItems, listTitle: "SATURDAY", listSubtitle: "TOP PICKS" } }] : []),
+        ...(sunItems.length > 0 ? [{ type: "list", snapshot: { ...common, bgKey: "emerald",
+          items: sunItems, listTitle: "SUNDAY", listSubtitle: "TOP PICKS" } }] : []),
+        { type: "stat", snapshot: { ...common, bgKey: "black",
+          statNumber: String(events.length), statLabel: "EVENTS",
+          statSub: `Across ${dayCount} day${dayCount === 1 ? "" : "s"}, ${regionCount} region${regionCount === 1 ? "" : "s"},\nand ${typeCount} categor${typeCount === 1 ? "y" : "ies"}` } },
       ];
-
-      // Re-tag dots based on the actual slide count (some days may be empty).
-      slides.forEach((s, i) => {
-        s.cfg.dots = i + 1;
-        s.cfg.totalDots = slides.length;
-      });
-
-      const zip = new JSZip();
-      for (const s of slides) {
-        const cv = document.createElement("canvas");
-        if (s.mode === "cover") renderCover(cv, s.cfg);
-        else if (s.mode === "list") renderList(cv, s.cfg);
-        else if (s.mode === "stat") renderStat(cv, s.cfg);
-        const blob = await new Promise(res => cv.toBlob(res, "image/png"));
-        zip.file(`CGE_carousel_${s.name}.png`, blob);
-      }
-      const zipBlob = await zip.generateAsync({ type: "blob" });
-      const url = URL.createObjectURL(zipBlob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `CGE_weekend_carousel_${Date.now()}.zip`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      buildCarouselFromSnapshots(snapshots);
     } catch (err) {
-      console.error("Auto-generate failed:", err);
-      alert("Auto-generate failed — see console.");
+      console.error("Weekend template failed:", err);
+      alert("Build failed — see console.");
     } finally {
       setIsAutoGen(false);
     }
@@ -791,52 +739,31 @@ export default function MediaTool() {
     setIsAutoGen(true);
     try {
       await document.fonts.ready;
-
       const problemWords = clientCfg.problemTitle.split(/\s+/).filter(w => w);
       const hlWords = clientCfg.problemHighlights.toLowerCase().split(/\s+/).filter(w => w);
       const problemHLSet = new Set();
       problemWords.forEach((w, i) => { if (hlWords.includes(w.toLowerCase())) problemHLSet.add(i); });
-
-      const slides = [
-        { mode: "cover", name: "01_hook",
-          cfg: { photo, headline, highlights, ribbon, subtitle, accent, dots: 1, totalDots: 5, opacity } },
-        { mode: "text", name: "02_problem",
-          cfg: { textTitle: clientCfg.problemTitle, textTitleHighlights: problemHLSet,
-            textBody: clientCfg.problemBody, accent, bgKey, dots: 2, totalDots: 5,
-            pageNum: 2, totalPages: 5, photo: textPhoto, textOpacity } },
-        { mode: "features", name: "03_benefits",
-          cfg: { featuresTitle: clientCfg.benefitsTitle, features,
-            accent, bgKey, dots: 3, totalDots: 5, photo: null, opacity: textOpacity } },
-        { mode: "stat", name: "04_stat",
-          cfg: { statNumber, statLabel, statSub, accent, bgKey, dots: 4, totalDots: 5 } },
-        { mode: "cta", name: "05_cta",
-          cfg: { ctaKicker, ctaDate, ctaVenue, ctaUrl,
-            photo: textPhoto, accent, bgKey, dots: 5, totalDots: 5, opacity: textOpacity } },
+      const common = { accent, accentKey, bgKey };
+      const snapshots = [
+        { type: "cover", snapshot: { ...common, photo, headline,
+          highlights: new Set(highlights), subtitle, opacity, ribbon } },
+        { type: "text", snapshot: { ...common,
+          textTitle: clientCfg.problemTitle, textTitleHL: problemHLSet,
+          textBody: clientCfg.problemBody, photo: textPhoto, textOpacity,
+          pageNum: 2, totalPages: 6 } },
+        { type: "features", snapshot: { ...common,
+          featuresTitle: clientCfg.benefitsTitle,
+          features: features.map(f => ({...f})), photo: null, textOpacity } },
+        { type: "photo", snapshot: { ...common, photo: captionPhoto,
+          caption, captionSecondary, captionAlign } },
+        { type: "stat", snapshot: { ...common, statNumber, statLabel, statSub } },
+        { type: "cta", snapshot: { ...common, ctaKicker, ctaDate, ctaVenue, ctaUrl,
+          photo: textPhoto, textOpacity } },
       ];
-
-      const zip = new JSZip();
-      for (const s of slides) {
-        const cv = document.createElement("canvas");
-        if (s.mode === "cover") renderCover(cv, s.cfg);
-        else if (s.mode === "text") renderText(cv, s.cfg);
-        else if (s.mode === "stat") renderStat(cv, s.cfg);
-        else if (s.mode === "cta") renderCTA(cv, s.cfg);
-        else if (s.mode === "features") renderFeatures(cv, s.cfg);
-        const blob = await new Promise(res => cv.toBlob(res, "image/png"));
-        zip.file(`CGE_client_${s.name}.png`, blob);
-      }
-      const zipBlob = await zip.generateAsync({ type: "blob" });
-      const url = URL.createObjectURL(zipBlob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `CGE_client_carousel_${Date.now()}.zip`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      buildCarouselFromSnapshots(snapshots);
     } catch (err) {
-      console.error("Client carousel failed:", err);
-      alert("Generation failed — see console.");
+      console.error("Client template failed:", err);
+      alert("Build failed — see console.");
     } finally {
       setIsAutoGen(false);
     }
@@ -934,6 +861,21 @@ export default function MediaTool() {
       id: `s_${Date.now()}_${Math.random().toString(36).slice(2,6)}`,
       type: mode, snapshot, thumb,
     }]);
+  };
+
+  // Templates call this to push their snapshot list into the carousel.
+  const buildCarouselFromSnapshots = (snapshots) => {
+    if (carousel.length > 0 && !confirm(`Replace ${carousel.length} existing carousel slide${carousel.length===1?"":"s"} with this template?`)) return;
+    const newSlides = snapshots.map((s, i) => {
+      const cv = document.createElement("canvas");
+      renderSlide(cv, s.type, s.snapshot, 1, 1);
+      const thumb = cv.toDataURL("image/png");
+      return {
+        id: `s_${Date.now()}_${i}_${Math.random().toString(36).slice(2,4)}`,
+        type: s.type, snapshot: s.snapshot, thumb,
+      };
+    });
+    setCarousel(newSlides);
   };
 
   const deleteSlide = (idx) => setCarousel(p => p.filter((_, i) => i !== idx));
@@ -1047,7 +989,7 @@ export default function MediaTool() {
                 cursor: isAutoGen ? "wait" : "pointer",
                 fontFamily: "'Syne', sans-serif", whiteSpace: "nowrap",
               }}
-            >{isAutoGen ? "Generating…" : "Generate ZIP"}</button>
+            >{isAutoGen ? "Building…" : "→ Carousel"}</button>
             <button
               onClick={runCaptions}
               disabled={isGenCaptions || !geminiKey}
@@ -1067,7 +1009,7 @@ export default function MediaTool() {
           {template === "weekend" && (
             <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.55)", marginTop: "6px" }}>
               {events.length > 0
-                ? `${events.length} events → Cover + Fri / Sat / Sun lists + closing stat · 5 PNGs`
+                ? `${events.length} events → 5 slides pushed to carousel (Cover + Fri/Sat/Sun + Stat). Edit/reorder below, then Export ZIP.`
                 : "Import events on Calendar tab to enable this template."}
             </div>
           )}
@@ -1075,10 +1017,7 @@ export default function MediaTool() {
           {template === "client" && (
             <div style={{ marginTop: "10px", display: "flex", flexDirection: "column", gap: "8px" }}>
               <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.55)", lineHeight: 1.5 }}>
-                <strong style={{color:"#E5BC4F"}}>Slide 1</strong> uses Cover tab (headline · subtitle · ribbon · photo · highlights).{" "}
-                <strong style={{color:"#E5BC4F"}}>Slide 2</strong> photo uses Text tab's photo.{" "}
-                <strong style={{color:"#E5BC4F"}}>Slide 3</strong> uses Features tab (4 emoji-cards).{" "}
-                <strong style={{color:"#E5BC4F"}}>Slide 4</strong> uses Stat tab (number · label · sub).
+                <strong style={{color:"#E5BC4F"}}>Slide 1</strong> Cover · <strong style={{color:"#E5BC4F"}}>2</strong> Text+photo · <strong style={{color:"#E5BC4F"}}>3</strong> Features · <strong style={{color:"#E5BC4F"}}>4</strong> Photo+caption · <strong style={{color:"#E5BC4F"}}>5</strong> Stat · <strong style={{color:"#E5BC4F"}}>6</strong> CTA. → pushes to carousel below, edit/reorder/export from there.
               </div>
               <div><label style={L}>Slide 2 Title (problem hook)</label>
                 <input value={clientCfg.problemTitle} onChange={e=>setClientCfg(p=>({...p,problemTitle:e.target.value}))} style={I}/></div>
