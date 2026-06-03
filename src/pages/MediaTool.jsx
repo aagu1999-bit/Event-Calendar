@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import JSZip from "jszip";
 import { useEventsStore } from "../store";
+import { generateCaptions } from "../shared/gemini";
 
 const COLORS = {
   yellow:{name:"Yellow",hex:"#FACC15"},purple:{name:"Purple",hex:"#C084FC"},
@@ -400,6 +401,52 @@ export default function MediaTool() {
   const [ctaVenue, setCtaVenue] = useState("Pickleball HQ — Aberdeen");
   const [ctaUrl, setCtaUrl] = useState("pbdates.org");
 
+  const [geminiKey, setGeminiKey] = useState(() => {
+    try { return localStorage.getItem("cge_gemini_key") || ""; } catch { return ""; }
+  });
+  const [showKey, setShowKey] = useState(false);
+  const [isGenCaptions, setIsGenCaptions] = useState(false);
+  const [captions, setCaptions] = useState([]);
+  const [captionsError, setCaptionsError] = useState("");
+  const [copiedIdx, setCopiedIdx] = useState(null);
+  const saveKey = (v) => {
+    setGeminiKey(v);
+    try {
+      if (v) localStorage.setItem("cge_gemini_key", v);
+      else localStorage.removeItem("cge_gemini_key");
+    } catch { /* private mode etc */ }
+  };
+  const runCaptions = async () => {
+    if (!geminiKey || isGenCaptions) return;
+    setIsGenCaptions(true); setCaptionsError(""); setCaptions([]);
+    try {
+      const ctx = {
+        headline, subtitle, ribbon,
+        problemTitle: clientCfg.problemTitle, problemBody: clientCfg.problemBody,
+        benefits: clientCfg.benefits,
+        statNumber, statLabel, statSub,
+        ctaDate, ctaVenue, ctaUrl,
+      };
+      const results = await generateCaptions(geminiKey, ctx);
+      if (!results.length) throw new Error("Got 0 captions back");
+      setCaptions(results);
+    } catch (err) {
+      console.error(err);
+      setCaptionsError(err.message || "Generation failed");
+    } finally {
+      setIsGenCaptions(false);
+    }
+  };
+  const copyCaption = async (text, idx) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedIdx(idx);
+      setTimeout(() => setCopiedIdx(null), 1500);
+    } catch (err) {
+      console.error("Copy failed", err);
+    }
+  };
+
   const cvRef = useRef(null), fileRef = useRef(null), textFileRef = useRef(null);
   const accent = COLORS[accentKey]?.hex || "#FACC15";
   const words = headline.split(/\s+/).filter(w=>w);
@@ -622,6 +669,30 @@ export default function MediaTool() {
 
         <div style={{
           marginBottom: "1rem",
+          padding: "8px 12px",
+          background: "rgba(99,179,237,0.04)",
+          border: "1px solid rgba(99,179,237,0.18)",
+          borderRadius: "6px",
+          display: "flex",
+          alignItems: "center",
+          gap: "0.5rem",
+        }}>
+          <div style={{fontSize:"0.55rem",color:"#63B3ED",letterSpacing:"1.5px",textTransform:"uppercase",flexShrink:0,fontWeight:700}}>
+            Gemini Key
+          </div>
+          <input
+            type={showKey ? "text" : "password"}
+            value={geminiKey}
+            onChange={e=>saveKey(e.target.value)}
+            placeholder="Paste Google Gemini API key — stored in this browser only"
+            style={{...I,flex:1,fontSize:"0.6rem"}}
+          />
+          <button onClick={()=>setShowKey(v=>!v)} style={{...B,padding:"5px 10px",fontSize:"0.55rem"}}>{showKey ? "Hide" : "Show"}</button>
+          {geminiKey && <span style={{fontSize:"0.5rem",color:"#34D399",letterSpacing:"1px"}}>✓ SAVED</span>}
+        </div>
+
+        <div style={{
+          marginBottom: "1rem",
           padding: "10px 14px",
           background: "rgba(229,188,79,0.06)",
           border: "1px solid rgba(229,188,79,0.22)",
@@ -646,6 +717,20 @@ export default function MediaTool() {
                 fontFamily: "'Syne', sans-serif", whiteSpace: "nowrap",
               }}
             >{isAutoGen ? "Generating…" : "Generate ZIP"}</button>
+            <button
+              onClick={runCaptions}
+              disabled={isGenCaptions || !geminiKey}
+              title={!geminiKey ? "Paste your Gemini API key above first" : "Generate 5 caption variants"}
+              style={{
+                padding: "8px 14px",
+                background: isGenCaptions ? "rgba(99,179,237,0.4)" : (geminiKey ? "#63B3ED" : "rgba(99,179,237,0.25)"),
+                color: "#000", border: "none", borderRadius: "4px",
+                fontSize: "0.65rem", fontWeight: 700, letterSpacing: "1.5px",
+                textTransform: "uppercase",
+                cursor: !geminiKey ? "not-allowed" : (isGenCaptions ? "wait" : "pointer"),
+                fontFamily: "'Syne', sans-serif", whiteSpace: "nowrap",
+              }}
+            >{isGenCaptions ? "Writing…" : "Captions"}</button>
           </div>
 
           {template === "weekend" && (
@@ -683,6 +768,35 @@ export default function MediaTool() {
             </div>
           )}
         </div>
+
+        {captionsError && (
+          <div style={{marginBottom:"1rem",padding:"10px 14px",background:"rgba(251,113,133,0.08)",border:"1px solid rgba(251,113,133,0.3)",borderRadius:"6px",fontSize:"0.6rem",color:"rgba(251,113,133,0.9)"}}>
+            <strong>Captions error:</strong> {captionsError}
+          </div>
+        )}
+
+        {captions.length > 0 && (
+          <div style={{marginBottom:"1rem",display:"flex",flexDirection:"column",gap:"6px"}}>
+            <div style={{fontSize:"0.55rem",color:"#63B3ED",letterSpacing:"1.5px",textTransform:"uppercase",fontWeight:700,marginBottom:"2px"}}>
+              {captions.length} captions · click Copy
+            </div>
+            {captions.map((c, i) => (
+              <div key={i} style={{padding:"10px 12px",background:"rgba(99,179,237,0.04)",border:"1px solid rgba(99,179,237,0.15)",borderRadius:"6px"}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"6px"}}>
+                  <div style={{fontSize:"0.55rem",color:"#63B3ED",letterSpacing:"2px",textTransform:"uppercase",fontWeight:700,fontFamily:"'Syne',sans-serif"}}>
+                    {c.tone || `Variant ${i+1}`}
+                  </div>
+                  <button onClick={()=>copyCaption(c.text || "", i)} style={{padding:"4px 10px",background:copiedIdx===i?"#34D399":"rgba(99,179,237,0.18)",color:copiedIdx===i?"#000":"#63B3ED",border:"none",borderRadius:"3px",fontSize:"0.55rem",fontWeight:700,letterSpacing:"1px",textTransform:"uppercase",cursor:"pointer",fontFamily:"'Syne',sans-serif"}}>
+                    {copiedIdx===i?"Copied ✓":"Copy"}
+                  </button>
+                </div>
+                <div style={{fontSize:"0.65rem",lineHeight:1.6,whiteSpace:"pre-wrap",color:"rgba(245,240,232,0.8)"}}>
+                  {c.text}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
 
         <div style={{display:"grid",gridTemplateColumns:"1fr 400px",gap:"1.5rem",alignItems:"start"}}>
           <div>
