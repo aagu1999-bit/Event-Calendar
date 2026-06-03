@@ -31,6 +31,7 @@ const FONT_PAIRS = {
 };
 
 function drawTexture(ctx, W, H, color, alpha, startY = 0) {
+  if (!_watermark) return;
   ctx.save();
   if (startY > 0) { ctx.beginPath(); ctx.rect(0, startY, W, H - startY); ctx.clip(); }
   ctx.translate(W/2, H*0.6); ctx.rotate(-5*Math.PI/180); ctx.translate(-W/2, -H*0.6);
@@ -97,7 +98,7 @@ function renderCover(canvas, cfg) {
   if (photo) { const s=Math.max(W/photo.width,H/photo.height); const dw=photo.width*s,dh=photo.height*s; ctx.drawImage(photo,(W-dw)/2,(H-dh)/2,dw,dh); }
   else { ctx.fillStyle="#111"; ctx.fillRect(0,0,W,H); }
   const grd=ctx.createLinearGradient(0,H*0.25,0,H); grd.addColorStop(0,"transparent"); grd.addColorStop(0.3,`rgba(0,0,0,${opacity*0.6})`); grd.addColorStop(0.55,`rgba(0,0,0,${opacity*0.88})`); grd.addColorStop(1,`rgba(0,0,0,${opacity})`); ctx.fillStyle=grd; ctx.fillRect(0,0,W,H);
-  drawTexture(ctx,W,H,"#FFF",0.04,H*0.4);
+  drawTexture(ctx,W,H,"#FFF",0.04);
   drawLogo(ctx,accent,W); drawDots(ctx,W,dots,totalDots,accent);
   if (subtitle?.trim()) { ctx.font=ff("700 24px 'DM Sans',sans-serif"); ctx.fillStyle=accent; ctx.textBaseline="top"; ctx.letterSpacing="3px"; }
   if (!headline?.trim()) { drawFooter(ctx,W,H); return; }
