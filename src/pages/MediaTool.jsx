@@ -352,6 +352,75 @@ function renderCTA(canvas, cfg) {
   drawFooter(ctx,W,H);
 }
 
+// === PHOTO + CAPTION RENDERER ===
+function renderPhotoCaption(canvas, cfg) {
+  const { photo, caption, captionSecondary, alignment, accent, bgKey, dots, totalDots } = cfg;
+  const W=1080, H=1080; canvas.width=W; canvas.height=H;
+  const ctx = canvas.getContext("2d");
+
+  if (photo) {
+    const s=Math.max(W/photo.width,H/photo.height);
+    const dw=photo.width*s, dh=photo.height*s;
+    ctx.drawImage(photo,(W-dw)/2,(H-dh)/2,dw,dh);
+  } else {
+    const bg=BG_COLORS[bgKey]||BG_COLORS.black;
+    ctx.fillStyle=bg.hex; ctx.fillRect(0,0,W,H);
+    drawTexture(ctx,W,H,"#FFF",0.05);
+  }
+
+  // Bottom gradient for legibility
+  if (caption?.trim() || captionSecondary?.trim()) {
+    const grd=ctx.createLinearGradient(0,H*0.50,0,H);
+    grd.addColorStop(0,"transparent");
+    grd.addColorStop(0.4,"rgba(0,0,0,0.55)");
+    grd.addColorStop(1,"rgba(0,0,0,0.88)");
+    ctx.fillStyle=grd; ctx.fillRect(0,0,W,H);
+  }
+
+  ctx.globalAlpha=1; ctx.textBaseline="top";
+  const align = alignment === "center" ? "center" : "left";
+  const ax = align === "center" ? W/2 : 60;
+
+  // Primary caption — auto-wraps + scales
+  if (caption?.trim()) {
+    const words = caption.split(/\s+/).filter(w=>w);
+    let fs = 58;
+    const wrap = (f) => {
+      ctx.font=`800 ${f}px 'Syne',sans-serif`;
+      const r=[]; let bl="";
+      for (const w of words) {
+        const test=bl?bl+" "+w:w;
+        if (ctx.measureText(test).width > W-120 && bl) { r.push(bl); bl=w; }
+        else bl=test;
+      }
+      if (bl) r.push(bl);
+      return r;
+    };
+    let lines = wrap(fs);
+    while (lines.length > 3 && fs > 32) { fs -= 4; lines = wrap(fs); }
+    const lh = fs*1.1;
+    const totalH = lines.length*lh;
+    const bottomMargin = captionSecondary?.trim() ? 130 : 90;
+    const startY = H - bottomMargin - totalH;
+    ctx.fillStyle="#FFF"; ctx.textAlign=align;
+    ctx.font=`800 ${fs}px 'Syne',sans-serif`;
+    lines.forEach((ln,i)=>ctx.fillText(ln, ax, startY+i*lh));
+  }
+
+  // Secondary line — small, letterspaced, accent
+  if (captionSecondary?.trim()) {
+    ctx.font="700 22px 'DM Sans',sans-serif";
+    ctx.fillStyle=accent; ctx.letterSpacing="3px"; ctx.textAlign=align; ctx.textBaseline="bottom";
+    ctx.fillText(captionSecondary.toUpperCase(), ax, H-60);
+    ctx.letterSpacing="0px"; ctx.textBaseline="top";
+  }
+
+  ctx.textAlign="left";
+  drawLogo(ctx, accent, W);
+  drawDots(ctx, W, dots, totalDots, accent);
+  drawFooter(ctx, W, H);
+}
+
 // === FEATURES RENDERER (2x2 emoji-card grid) ===
 function renderFeatures(canvas, cfg) {
   const { featuresTitle, features, accent, bgKey, dots, totalDots, photo, opacity } = cfg;
@@ -508,6 +577,11 @@ export default function MediaTool() {
     { emoji: "🎁", headline: "Gift Baskets", sub: "And good vibes" },
   ]);
 
+  const [captionPhoto, setCaptionPhoto] = useState(null);
+  const [caption, setCaption] = useState("When the music finds you.");
+  const [captionSecondary, setCaptionSecondary] = useState("JERSEY CITY · APRIL 2026");
+  const [captionAlign, setCaptionAlign] = useState("left");
+
   const envKey = (import.meta.env.VITE_GEMINI_API_KEY || "").trim();
   const [uiKey, setUiKey] = useState(() => {
     try { return localStorage.getItem("cge_gemini_key") || ""; } catch { return ""; }
@@ -556,7 +630,7 @@ export default function MediaTool() {
     }
   };
 
-  const cvRef = useRef(null), fileRef = useRef(null), textFileRef = useRef(null);
+  const cvRef = useRef(null), fileRef = useRef(null), textFileRef = useRef(null), captionFileRef = useRef(null);
   const accent = COLORS[accentKey]?.hex || "#FACC15";
   const words = headline.split(/\s+/).filter(w=>w);
   const textWords = textTitle.split(/\s+/).filter(w=>w);
@@ -586,12 +660,14 @@ export default function MediaTool() {
     else if(mode==="text") renderText(cv,{textTitle,textTitleHighlights:textTitleHL,textBody,accent,bgKey,dots,totalDots,pageNum,totalPages,photo:textPhoto,textOpacity});
     else if(mode==="cta") renderCTA(cv,{ctaKicker,ctaDate,ctaVenue,ctaUrl,photo:textPhoto,accent,bgKey,dots,totalDots,opacity:textOpacity});
     else if(mode==="features") renderFeatures(cv,{featuresTitle,features,accent,bgKey,dots,totalDots,photo:textPhoto,opacity:textOpacity});
-  },[mode,photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,items,bgKey,listTitle,listSubtitle,statNumber,statLabel,statSub,textTitle,textTitleHL,textBody,pageNum,totalPages,textPhoto,textOpacity,ctaKicker,ctaDate,ctaVenue,ctaUrl,featuresTitle,features]);
+    else if(mode==="photo") renderPhotoCaption(cv,{photo:captionPhoto,caption,captionSecondary,alignment:captionAlign,accent,bgKey,dots,totalDots});
+  },[mode,photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,items,bgKey,listTitle,listSubtitle,statNumber,statLabel,statSub,textTitle,textTitleHL,textBody,pageNum,totalPages,textPhoto,textOpacity,ctaKicker,ctaDate,ctaVenue,ctaUrl,featuresTitle,features,captionPhoto,caption,captionSecondary,captionAlign]);
 
   useEffect(()=>{const t=setTimeout(render,60);return()=>clearTimeout(t);},[render]);
 
   const handlePhoto=(e)=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{const img=new Image();img.onload=()=>setPhoto(img);img.src=ev.target.result;};r.readAsDataURL(f);e.target.value="";};
   const handleTextPhoto=(e)=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{const img=new Image();img.onload=()=>setTextPhoto(img);img.src=ev.target.result;};r.readAsDataURL(f);e.target.value="";};
+  const handleCaptionPhoto=(e)=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{const img=new Image();img.onload=()=>setCaptionPhoto(img);img.src=ev.target.result;};r.readAsDataURL(f);e.target.value="";};
 
   const dl=()=>{const cv=document.createElement("canvas");
     if(mode==="cover") renderCover(cv,{photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon});
@@ -600,10 +676,11 @@ export default function MediaTool() {
     else if(mode==="text") renderText(cv,{textTitle,textTitleHighlights:textTitleHL,textBody,accent,bgKey,dots,totalDots,pageNum,totalPages,photo:textPhoto,textOpacity});
     else if(mode==="cta") renderCTA(cv,{ctaKicker,ctaDate,ctaVenue,ctaUrl,photo:textPhoto,accent,bgKey,dots,totalDots,opacity:textOpacity});
     else if(mode==="features") renderFeatures(cv,{featuresTitle,features,accent,bgKey,dots,totalDots,photo:textPhoto,opacity:textOpacity});
+    else if(mode==="photo") renderPhotoCaption(cv,{photo:captionPhoto,caption,captionSecondary,alignment:captionAlign,accent,bgKey,dots,totalDots});
     cv.toBlob(blob=>{const url=URL.createObjectURL(blob);const a=document.createElement("a");a.download=`CGE_${mode}_slide.png`;a.href=url;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);},"image/png");
   };
 
-  const MODES=[["cover","Cover"],["list","List"],["stat","Stat"],["text","Text"],["cta","CTA"],["features","Features"]];
+  const MODES=[["cover","Cover"],["list","List"],["stat","Stat"],["text","Text"],["cta","CTA"],["features","Features"],["photo","Photo"]];
 
   // Auto-generate a 5-slide weekend carousel from the events store:
   //   1. Cover — headline with event count
@@ -1023,6 +1100,26 @@ export default function MediaTool() {
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Venue</label><input value={ctaVenue} onChange={e=>setCtaVenue(e.target.value)} style={I} placeholder="e.g. Pickleball HQ — Aberdeen"/></div>
               <div style={{marginBottom:"0.6rem"}}><label style={L}>URL</label><input value={ctaUrl} onChange={e=>setCtaUrl(e.target.value)} style={I} placeholder="e.g. pbdates.org"/></div>
               {!textPhoto&&<div style={{marginBottom:"0.6rem"}}><label style={L}>Background Color</label><div style={{display:"flex",gap:"3px"}}>
+                {Object.entries(BG_COLORS).map(([k,v])=><button key={k} onClick={()=>setBgKey(k)} style={{width:28,height:28,borderRadius:"5px",cursor:"pointer",background:v.hex,border:bgKey===k?"2px solid #FFF":"2px solid transparent",boxShadow:bgKey===k?"0 0 6px rgba(255,255,255,0.3)":"none"}} title={v.name}/>)}</div></div>}
+            </>}
+
+            {mode==="photo"&&<>
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Photo</label>
+                <div style={{display:"flex",gap:"0.3rem"}}>
+                  <button onClick={()=>captionFileRef.current?.click()} style={{...B,flex:1}}>{captionPhoto?"Change Photo":"Upload Photo"}</button>
+                  {captionPhoto&&<button onClick={()=>setCaptionPhoto(null)} style={{...B,color:"rgba(251,113,133,0.5)"}}>×</button>}
+                  <input ref={captionFileRef} type="file" accept="image/*" onChange={handleCaptionPhoto} style={{display:"none"}}/>
+                </div>
+              </div>
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Caption (primary)</label>
+                <textarea value={caption} onChange={e=>setCaption(e.target.value)} style={{...I,height:55,resize:"vertical"}} placeholder="e.g. When the music finds you."/></div>
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Sub-caption (small, optional)</label>
+                <input value={captionSecondary} onChange={e=>setCaptionSecondary(e.target.value)} style={I} placeholder="e.g. JERSEY CITY · APRIL 2026"/></div>
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Alignment</label>
+                <div style={{display:"flex",gap:"4px"}}>
+                  {["left","center"].map(a=><button key={a} onClick={()=>setCaptionAlign(a)} style={{padding:"5px 12px",borderRadius:"4px",cursor:"pointer",fontSize:"0.6rem",fontWeight:700,border:captionAlign===a?"2px solid #FACC15":"2px solid rgba(245,240,232,0.06)",background:captionAlign===a?"rgba(250,204,21,0.12)":"transparent",color:captionAlign===a?"#FACC15":"rgba(245,240,232,0.35)",fontFamily:"'Syne'",letterSpacing:"1px",textTransform:"uppercase"}}>{a}</button>)}
+                </div></div>
+              {!captionPhoto&&<div style={{marginBottom:"0.6rem"}}><label style={L}>Background Color (no photo)</label><div style={{display:"flex",gap:"3px"}}>
                 {Object.entries(BG_COLORS).map(([k,v])=><button key={k} onClick={()=>setBgKey(k)} style={{width:28,height:28,borderRadius:"5px",cursor:"pointer",background:v.hex,border:bgKey===k?"2px solid #FFF":"2px solid transparent",boxShadow:bgKey===k?"0 0 6px rgba(255,255,255,0.3)":"none"}} title={v.name}/>)}</div></div>}
             </>}
 
