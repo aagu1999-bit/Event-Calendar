@@ -352,6 +352,105 @@ function renderCTA(canvas, cfg) {
   drawFooter(ctx,W,H);
 }
 
+// === FEATURES RENDERER (2x2 emoji-card grid) ===
+function renderFeatures(canvas, cfg) {
+  const { featuresTitle, features, accent, bgKey, dots, totalDots, photo, opacity } = cfg;
+  const W=1080, H=1080; canvas.width=W; canvas.height=H;
+  const ctx = canvas.getContext("2d");
+
+  if (photo) {
+    const s=Math.max(W/photo.width,H/photo.height);
+    const dw=photo.width*s, dh=photo.height*s;
+    ctx.drawImage(photo,(W-dw)/2,(H-dh)/2,dw,dh);
+    ctx.fillStyle=`rgba(0,0,0,${opacity||0.88})`; ctx.fillRect(0,0,W,H);
+    drawTexture(ctx,W,H,"#FFF",0.03);
+  } else {
+    const bg=BG_COLORS[bgKey]||BG_COLORS.black;
+    ctx.fillStyle=bg.hex; ctx.fillRect(0,0,W,H);
+    const isBlack=bgKey==="black";
+    drawTexture(ctx,W,H,isBlack?"#FACC15":"#000",isBlack?0.04:0.10);
+    if(!isBlack) drawSpotlight(ctx,W,H,"255,255,255",0.35);
+  }
+
+  ctx.globalAlpha=1; ctx.textBaseline="top";
+
+  // Title at top, centered
+  let titleBottom = 70;
+  if (featuresTitle?.trim()) {
+    let fs = 52;
+    ctx.font=`800 ${fs}px 'Syne',sans-serif`;
+    const t = featuresTitle.toUpperCase();
+    while (ctx.measureText(t).width > W-120 && fs > 32) { fs -= 2; ctx.font=`800 ${fs}px 'Syne',sans-serif`; }
+    ctx.fillStyle="#FFF"; ctx.textAlign="center";
+    ctx.fillText(t, W/2, 80);
+    const barY = 80 + fs + 18;
+    ctx.fillStyle=accent; ctx.fillRect(W/2-25, barY, 50, 4);
+    titleBottom = barY + 18;
+  }
+
+  // 2x2 grid of cards
+  const cards = (features || []).slice(0, 4);
+  const margin = 60;
+  const gap = 36;
+  const cw = (W - margin*2 - gap) / 2;
+  const ch = 300;
+  const gridTop = Math.max(titleBottom + 40, 240);
+
+  cards.forEach((card, i) => {
+    const col = i % 2;
+    const row = Math.floor(i / 2);
+    const x = margin + col * (cw + gap);
+    const y = gridTop + row * (ch + gap);
+
+    // Card bg
+    ctx.fillStyle = "rgba(255,255,255,0.06)";
+    ctx.beginPath(); ctx.roundRect(x, y, cw, ch, 12); ctx.fill();
+
+    // Left accent stripe
+    ctx.fillStyle = accent;
+    ctx.beginPath(); ctx.roundRect(x, y, 5, ch, [12, 0, 0, 12]); ctx.fill();
+
+    // Emoji
+    if (card.emoji?.trim()) {
+      ctx.font = "78px 'Apple Color Emoji','Segoe UI Emoji','Noto Color Emoji',sans-serif";
+      ctx.textAlign = "left"; ctx.textBaseline = "top";
+      ctx.fillStyle = "#FFF";
+      ctx.fillText(card.emoji, x + 28, y + 30);
+    }
+
+    // Headline
+    if (card.headline?.trim()) {
+      let hfs = 30;
+      const headlineText = card.headline.toUpperCase();
+      ctx.font = `800 ${hfs}px 'Syne',sans-serif`;
+      while (ctx.measureText(headlineText).width > cw - 50 && hfs > 18) {
+        hfs -= 2; ctx.font = `800 ${hfs}px 'Syne',sans-serif`;
+      }
+      ctx.fillStyle = "#FFF"; ctx.textAlign = "left"; ctx.textBaseline = "top";
+      ctx.fillText(headlineText, x + 28, y + 144);
+    }
+
+    // Sub (wrap to 2 lines max)
+    if (card.sub?.trim()) {
+      ctx.font = "400 20px 'DM Sans',sans-serif";
+      ctx.fillStyle = "rgba(255,255,255,0.6)";
+      const subWords = card.sub.split(/\s+/);
+      const subLines = []; let bl = "";
+      for (const w of subWords) {
+        const test = bl ? bl + " " + w : w;
+        if (ctx.measureText(test).width > cw - 50 && bl) { subLines.push(bl); bl = w; }
+        else bl = test;
+      }
+      if (bl) subLines.push(bl);
+      subLines.slice(0, 2).forEach((ln, j) => ctx.fillText(ln, x + 28, y + 188 + j*26));
+    }
+  });
+
+  ctx.textAlign = "left";
+  drawDots(ctx, W, dots, totalDots, accent);
+  drawFooter(ctx, W, H);
+}
+
 // === MEDIA TOOL ===
 export default function MediaTool() {
   const events = useEventsStore(s => s.events);
@@ -400,6 +499,14 @@ export default function MediaTool() {
   const [ctaDate, setCtaDate] = useState("Sunday, June 14 · 6 PM");
   const [ctaVenue, setCtaVenue] = useState("Pickleball HQ — Aberdeen");
   const [ctaUrl, setCtaUrl] = useState("pbdates.org");
+
+  const [featuresTitle, setFeaturesTitle] = useState("Here's the night");
+  const [features, setFeatures] = useState([
+    { emoji: "🎾", headline: "Pickleball Games", sub: "No partner needed" },
+    { emoji: "💬", headline: "Speed Connections", sub: "Meet everyone in the room" },
+    { emoji: "💃", headline: "Bachata Dancing", sub: "Beginner friendly" },
+    { emoji: "🎁", headline: "Gift Baskets", sub: "And good vibes" },
+  ]);
 
   const envKey = (import.meta.env.VITE_GEMINI_API_KEY || "").trim();
   const [uiKey, setUiKey] = useState(() => {
@@ -478,7 +585,8 @@ export default function MediaTool() {
     else if(mode==="stat") renderStat(cv,{statNumber,statLabel,statSub,accent,bgKey,dots,totalDots});
     else if(mode==="text") renderText(cv,{textTitle,textTitleHighlights:textTitleHL,textBody,accent,bgKey,dots,totalDots,pageNum,totalPages,photo:textPhoto,textOpacity});
     else if(mode==="cta") renderCTA(cv,{ctaKicker,ctaDate,ctaVenue,ctaUrl,photo:textPhoto,accent,bgKey,dots,totalDots,opacity:textOpacity});
-  },[mode,photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,items,bgKey,listTitle,listSubtitle,statNumber,statLabel,statSub,textTitle,textTitleHL,textBody,pageNum,totalPages,textPhoto,textOpacity,ctaKicker,ctaDate,ctaVenue,ctaUrl]);
+    else if(mode==="features") renderFeatures(cv,{featuresTitle,features,accent,bgKey,dots,totalDots,photo:textPhoto,opacity:textOpacity});
+  },[mode,photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,items,bgKey,listTitle,listSubtitle,statNumber,statLabel,statSub,textTitle,textTitleHL,textBody,pageNum,totalPages,textPhoto,textOpacity,ctaKicker,ctaDate,ctaVenue,ctaUrl,featuresTitle,features]);
 
   useEffect(()=>{const t=setTimeout(render,60);return()=>clearTimeout(t);},[render]);
 
@@ -491,10 +599,11 @@ export default function MediaTool() {
     else if(mode==="stat") renderStat(cv,{statNumber,statLabel,statSub,accent,bgKey,dots,totalDots});
     else if(mode==="text") renderText(cv,{textTitle,textTitleHighlights:textTitleHL,textBody,accent,bgKey,dots,totalDots,pageNum,totalPages,photo:textPhoto,textOpacity});
     else if(mode==="cta") renderCTA(cv,{ctaKicker,ctaDate,ctaVenue,ctaUrl,photo:textPhoto,accent,bgKey,dots,totalDots,opacity:textOpacity});
+    else if(mode==="features") renderFeatures(cv,{featuresTitle,features,accent,bgKey,dots,totalDots,photo:textPhoto,opacity:textOpacity});
     cv.toBlob(blob=>{const url=URL.createObjectURL(blob);const a=document.createElement("a");a.download=`CGE_${mode}_slide.png`;a.href=url;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);},"image/png");
   };
 
-  const MODES=[["cover","Cover"],["list","List"],["stat","Stat"],["text","Text"],["cta","CTA"]];
+  const MODES=[["cover","Cover"],["list","List"],["stat","Stat"],["text","Text"],["cta","CTA"],["features","Features"]];
 
   // Auto-generate a 5-slide weekend carousel from the events store:
   //   1. Cover — headline with event count
@@ -614,10 +723,9 @@ export default function MediaTool() {
           cfg: { textTitle: clientCfg.problemTitle, textTitleHighlights: problemHLSet,
             textBody: clientCfg.problemBody, accent, bgKey, dots: 2, totalDots: 5,
             pageNum: 2, totalPages: 5, photo: textPhoto, textOpacity } },
-        { mode: "text", name: "03_benefits",
-          cfg: { textTitle: clientCfg.benefitsTitle, textTitleHighlights: new Set(),
-            textBody: clientCfg.benefits, accent, bgKey, dots: 3, totalDots: 5,
-            pageNum: 3, totalPages: 5, photo: null, textOpacity } },
+        { mode: "features", name: "03_benefits",
+          cfg: { featuresTitle: clientCfg.benefitsTitle, features,
+            accent, bgKey, dots: 3, totalDots: 5, photo: null, opacity: textOpacity } },
         { mode: "stat", name: "04_stat",
           cfg: { statNumber, statLabel, statSub, accent, bgKey, dots: 4, totalDots: 5 } },
         { mode: "cta", name: "05_cta",
@@ -632,6 +740,7 @@ export default function MediaTool() {
         else if (s.mode === "text") renderText(cv, s.cfg);
         else if (s.mode === "stat") renderStat(cv, s.cfg);
         else if (s.mode === "cta") renderCTA(cv, s.cfg);
+        else if (s.mode === "features") renderFeatures(cv, s.cfg);
         const blob = await new Promise(res => cv.toBlob(res, "image/png"));
         zip.file(`CGE_client_${s.name}.png`, blob);
       }
@@ -756,6 +865,7 @@ export default function MediaTool() {
               <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.55)", lineHeight: 1.5 }}>
                 <strong style={{color:"#E5BC4F"}}>Slide 1</strong> uses Cover tab (headline · subtitle · ribbon · photo · highlights).{" "}
                 <strong style={{color:"#E5BC4F"}}>Slide 2</strong> photo uses Text tab's photo.{" "}
+                <strong style={{color:"#E5BC4F"}}>Slide 3</strong> uses Features tab (4 emoji-cards).{" "}
                 <strong style={{color:"#E5BC4F"}}>Slide 4</strong> uses Stat tab (number · label · sub).
               </div>
               <div><label style={L}>Slide 2 Title (problem hook)</label>
@@ -766,8 +876,6 @@ export default function MediaTool() {
                 <textarea value={clientCfg.problemBody} onChange={e=>setClientCfg(p=>({...p,problemBody:e.target.value}))} style={{...I,height:60,resize:"vertical"}}/></div>
               <div><label style={L}>Slide 3 Title (benefits)</label>
                 <input value={clientCfg.benefitsTitle} onChange={e=>setClientCfg(p=>({...p,benefitsTitle:e.target.value}))} style={I}/></div>
-              <div><label style={L}>Slide 3 Body — one per line (*bold*)</label>
-                <textarea value={clientCfg.benefits} onChange={e=>setClientCfg(p=>({...p,benefits:e.target.value}))} style={{...I,height:90,resize:"vertical"}}/></div>
               <div><label style={L}>CTA Kicker pill</label><input value={ctaKicker} onChange={e=>setCtaKicker(e.target.value)} style={I} placeholder="SAVE YOUR SPOT"/></div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0.4rem"}}>
                 <div><label style={L}>CTA Date</label><input value={ctaDate} onChange={e=>setCtaDate(e.target.value)} style={I}/></div>
@@ -914,6 +1022,26 @@ export default function MediaTool() {
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Date (use \n for multi-line)</label><textarea value={ctaDate} onChange={e=>setCtaDate(e.target.value)} style={{...I,height:55,resize:"vertical"}} placeholder="e.g. Sunday, June 14 · 6 PM"/></div>
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Venue</label><input value={ctaVenue} onChange={e=>setCtaVenue(e.target.value)} style={I} placeholder="e.g. Pickleball HQ — Aberdeen"/></div>
               <div style={{marginBottom:"0.6rem"}}><label style={L}>URL</label><input value={ctaUrl} onChange={e=>setCtaUrl(e.target.value)} style={I} placeholder="e.g. pbdates.org"/></div>
+              {!textPhoto&&<div style={{marginBottom:"0.6rem"}}><label style={L}>Background Color</label><div style={{display:"flex",gap:"3px"}}>
+                {Object.entries(BG_COLORS).map(([k,v])=><button key={k} onClick={()=>setBgKey(k)} style={{width:28,height:28,borderRadius:"5px",cursor:"pointer",background:v.hex,border:bgKey===k?"2px solid #FFF":"2px solid transparent",boxShadow:bgKey===k?"0 0 6px rgba(255,255,255,0.3)":"none"}} title={v.name}/>)}</div></div>}
+            </>}
+
+            {mode==="features"&&<>
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Background Photo (optional · shares Text-mode photo)</label>
+                <div style={{display:"flex",gap:"0.3rem",alignItems:"center"}}>
+                  <button onClick={()=>textFileRef.current?.click()} style={{...B,flex:1}}>{textPhoto?"Change Photo":"Upload Photo"}</button>
+                  {textPhoto&&<button onClick={()=>setTextPhoto(null)} style={{...B,color:"rgba(251,113,133,0.5)"}}>×</button>}
+                </div>
+              </div>
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Title</label><input value={featuresTitle} onChange={e=>setFeaturesTitle(e.target.value)} style={I} placeholder="e.g. Here's the night"/></div>
+              <div style={{marginBottom:"0.5rem",fontSize:"0.5rem",color:"rgba(245,240,232,0.4)",letterSpacing:"1.5px",textTransform:"uppercase"}}>4 Cards · 2×2 Grid</div>
+              {features.map((card,i)=>(
+                <div key={i} style={{display:"grid",gridTemplateColumns:"50px 1fr 1fr",gap:"0.3rem",marginBottom:"0.4rem",alignItems:"center"}}>
+                  <input value={card.emoji} onChange={e=>setFeatures(p=>p.map((c,j)=>j===i?{...c,emoji:e.target.value}:c))} style={{...I,textAlign:"center",fontSize:"1rem",padding:"4px"}} placeholder="🎾" maxLength={4}/>
+                  <input value={card.headline} onChange={e=>setFeatures(p=>p.map((c,j)=>j===i?{...c,headline:e.target.value}:c))} style={{...I,fontSize:"0.6rem"}} placeholder="Headline"/>
+                  <input value={card.sub} onChange={e=>setFeatures(p=>p.map((c,j)=>j===i?{...c,sub:e.target.value}:c))} style={{...I,fontSize:"0.6rem"}} placeholder="Sub copy"/>
+                </div>
+              ))}
               {!textPhoto&&<div style={{marginBottom:"0.6rem"}}><label style={L}>Background Color</label><div style={{display:"flex",gap:"3px"}}>
                 {Object.entries(BG_COLORS).map(([k,v])=><button key={k} onClick={()=>setBgKey(k)} style={{width:28,height:28,borderRadius:"5px",cursor:"pointer",background:v.hex,border:bgKey===k?"2px solid #FFF":"2px solid transparent",boxShadow:bgKey===k?"0 0 6px rgba(255,255,255,0.3)":"none"}} title={v.name}/>)}</div></div>}
             </>}
