@@ -1396,6 +1396,7 @@ export default function MediaTool() {
                 <div style={{display:"flex",gap:"0.3rem",alignItems:"center"}}>
                   <button onClick={()=>textFileRef.current?.click()} style={{...B,flex:1}}>{textPhoto?"Change Photo":"Upload Photo"}</button>
                   {textPhoto&&<button onClick={()=>setTextPhoto(null)} style={{...B,color:"rgba(251,113,133,0.5)"}}>×</button>}
+                  <input ref={textFileRef} type="file" accept="image/*" onChange={handleTextPhoto} style={{display:"none"}}/>
                 </div>
                 {textPhoto&&<div style={{display:"flex",alignItems:"center",gap:"6px",marginTop:"4px"}}>
                   <span style={{fontSize:"0.45rem",color:"rgba(245,240,232,0.3)"}}>70%</span>
@@ -1436,6 +1437,7 @@ export default function MediaTool() {
                 <div style={{display:"flex",gap:"0.3rem",alignItems:"center"}}>
                   <button onClick={()=>textFileRef.current?.click()} style={{...B,flex:1}}>{textPhoto?"Change Photo":"Upload Photo"}</button>
                   {textPhoto&&<button onClick={()=>setTextPhoto(null)} style={{...B,color:"rgba(251,113,133,0.5)"}}>×</button>}
+                  <input ref={textFileRef} type="file" accept="image/*" onChange={handleTextPhoto} style={{display:"none"}}/>
                 </div>
               </div>
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Title</label><input value={featuresTitle} onChange={e=>setFeaturesTitle(e.target.value)} style={I} placeholder="e.g. Here's the night"/></div>
