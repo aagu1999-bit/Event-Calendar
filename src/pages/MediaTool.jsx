@@ -1394,14 +1394,19 @@ export default function MediaTool() {
             {mode==="cta"&&<>
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Background Photo (optional · shares Text-mode photo)</label>
                 <div style={{display:"flex",gap:"0.3rem",alignItems:"center"}}>
-                  <button onClick={()=>textFileRef.current?.click()} style={{...B,flex:1}}>{textPhoto?"Change Photo":"Upload Photo"}</button>
+                  <button onClick={()=>textFileRef.current?.click()} style={{...B,flex:1}}>{textPhoto?"✓ Photo loaded — change":"Upload Photo"}</button>
                   {textPhoto&&<button onClick={()=>setTextPhoto(null)} style={{...B,color:"rgba(251,113,133,0.5)"}}>×</button>}
                   <input ref={textFileRef} type="file" accept="image/*" onChange={handleTextPhoto} style={{display:"none"}}/>
                 </div>
-                {textPhoto&&<div style={{display:"flex",alignItems:"center",gap:"6px",marginTop:"4px"}}>
-                  <span style={{fontSize:"0.45rem",color:"rgba(245,240,232,0.3)"}}>70%</span>
-                  <input type="range" min="0.70" max="1.0" step="0.01" value={textOpacity} onChange={e=>setTextOpacity(parseFloat(e.target.value))} style={{flex:1,accentColor:accent}}/>
-                  <span style={{fontSize:"0.45rem",color:"rgba(245,240,232,0.3)"}}>100%</span>
+                {textPhoto&&<div style={{marginTop:"6px"}}>
+                  <div style={{fontSize:"0.5rem",color:"rgba(245,240,232,0.45)",letterSpacing:"1px",textTransform:"uppercase",marginBottom:"3px"}}>
+                    Darken overlay · {Math.round(textOpacity*100)}% {textOpacity >= 0.85 ? "(photo mostly hidden)" : textOpacity >= 0.55 ? "(photo subtle backdrop)" : "(photo more visible)"}
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:"6px"}}>
+                    <span style={{fontSize:"0.45rem",color:"rgba(245,240,232,0.3)"}}>20%</span>
+                    <input type="range" min="0.20" max="1.0" step="0.01" value={textOpacity} onChange={e=>setTextOpacity(parseFloat(e.target.value))} style={{flex:1,accentColor:accent}}/>
+                    <span style={{fontSize:"0.45rem",color:"rgba(245,240,232,0.3)"}}>100%</span>
+                  </div>
                 </div>}
               </div>
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Kicker pill (top)</label><input value={ctaKicker} onChange={e=>setCtaKicker(e.target.value)} style={I} placeholder="e.g. SAVE YOUR SPOT / JOIN US"/></div>
