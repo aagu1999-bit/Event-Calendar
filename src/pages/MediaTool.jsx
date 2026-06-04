@@ -14,6 +14,16 @@ const BG_COLORS = {
   gold:{name:"Gold",hex:"#D4943A"},yellow:{name:"Yellow",hex:"#EAB308"},
 };
 
+// Export-time aspect ratios. The renderers are all hardcoded to 1080×1080,
+// so non-1:1 exports place the rendered slide centered inside a taller
+// canvas with the current bg color filling the bars (matches Instagram's
+// own carousel display for 4:5 and lets 9:16 Reel/Story crops land cleanly).
+const EXPORT_RATIOS = {
+  "1:1":  { w: 1080, h: 1080, label: "1:1 · Square" },
+  "4:5":  { w: 1080, h: 1350, label: "4:5 · IG Post" },
+  "9:16": { w: 1080, h: 1920, label: "9:16 · Story/Reel" },
+};
+
 // Module-level state for fonts + watermark, synced from the React component.
 // Renderers read these so we don't have to thread them through every cfg.
 let _displayFont = "Syne";
@@ -610,6 +620,9 @@ export default function MediaTool() {
   // Global render flags — synced into module-level vars via useEffect.
   const [watermark, setWatermark] = useState(true);
   const [fontPairKey, setFontPairKey] = useState("default");
+  // Aspect ratio applied at export time — preview stays 1:1 since the
+  // renderers are coded for 1080×1080.
+  const [exportRatio, setExportRatio] = useState("1:1");
   useEffect(() => { setActiveWatermark(watermark); }, [watermark]);
   useEffect(() => {
     const pair = FONT_PAIRS[fontPairKey];
@@ -726,7 +739,8 @@ export default function MediaTool() {
     else if(mode==="cta") renderCTA(cv,{ctaKicker,ctaDate,ctaVenue,ctaUrl,photo:textPhoto,accent,bgKey,dots,totalDots,opacity:textOpacity});
     else if(mode==="features") renderFeatures(cv,{featuresTitle,features,accent,bgKey,dots,totalDots,photo:textPhoto,opacity:textOpacity});
     else if(mode==="photo") renderPhotoCaption(cv,{photo:captionPhoto,caption,captionSecondary,alignment:captionAlign,accent,bgKey,dots,totalDots});
-    cv.toBlob(blob=>{const url=URL.createObjectURL(blob);const a=document.createElement("a");a.download=`CGE_${mode}_slide.png`;a.href=url;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);},"image/png");
+    const exportCv = wrapForExport(cv, exportRatio);
+    exportCv.toBlob(blob=>{const url=URL.createObjectURL(blob);const a=document.createElement("a");a.download=`CGE_${mode}_slide_${exportRatio.replace(":","x")}.png`;a.href=url;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);},"image/png");
   };
 
   const MODES=[["cover","Cover"],["list","List"],["stat","Stat"],["text","Text"],["cta","CTA"],["features","Features"],["photo","Photo"]];
@@ -902,10 +916,17 @@ export default function MediaTool() {
     const cv = document.createElement("canvas");
     renderSlide(cv, mode, snapshot, 1, 1);
     const thumb = cv.toDataURL("image/png");
-    setCarousel(prev => [...prev, {
-      id: `s_${Date.now()}_${Math.random().toString(36).slice(2,6)}`,
-      type: mode, snapshot, thumb,
-    }]);
+    setCarousel(prev => {
+      const next = [...prev, {
+        id: `s_${Date.now()}_${Math.random().toString(36).slice(2,6)}`,
+        type: mode, snapshot, thumb,
+      }];
+      // Advance the live preview's slide-counter to the brand-new slide so
+      // the next snapshot lands at the right position automatically.
+      setDots(next.length);
+      setTotalDots(next.length);
+      return next;
+    });
   };
 
   // Templates call this to push their snapshot list into the carousel.
@@ -926,6 +947,38 @@ export default function MediaTool() {
   const deleteSlide = (idx) => setCarousel(p => p.filter((_, i) => i !== idx));
   const clearCarousel = () => { if (confirm("Clear all carousel slides?")) setCarousel([]); };
 
+  // Keep the slide-counter dots in sync with the carousel. Whenever the user
+  // adds, removes, or reorders slides, `totalDots` snaps to the carousel
+  // length and `dots` clamps into range — no more remembering to bump the
+  // number-of-slides field by hand before each export.
+  useEffect(() => {
+    if (carousel.length === 0) return;
+    setTotalDots(carousel.length);
+    setDots(d => Math.min(Math.max(1, d), carousel.length));
+  }, [carousel.length]);
+
+  // Wrap a 1:1 render in the chosen export aspect. Center vertically and
+  // fill the bars with the active bg color so the design extends naturally.
+  // Single canvas / no-op for "1:1".
+  const wrapForExport = (baseCanvas, ratio) => {
+    const target = EXPORT_RATIOS[ratio] || EXPORT_RATIOS["1:1"];
+    if (ratio === "1:1" || (target.w === baseCanvas.width && target.h === baseCanvas.height)) {
+      return baseCanvas;
+    }
+    const out = document.createElement("canvas");
+    out.width = target.w;
+    out.height = target.h;
+    const ctx = out.getContext("2d");
+    ctx.fillStyle = (BG_COLORS[bgKey] && BG_COLORS[bgKey].hex) || "#000000";
+    ctx.fillRect(0, 0, target.w, target.h);
+    // Fit the base into the target keeping aspect — anchored at center.
+    const scale = Math.min(target.w / baseCanvas.width, target.h / baseCanvas.height);
+    const dw = baseCanvas.width * scale;
+    const dh = baseCanvas.height * scale;
+    ctx.drawImage(baseCanvas, (target.w - dw) / 2, (target.h - dh) / 2, dw, dh);
+    return out;
+  };
+
   const exportCarouselZip = async () => {
     if (carousel.length === 0 || isAutoGen) return;
     setIsAutoGen(true);
@@ -936,8 +989,9 @@ export default function MediaTool() {
         const s = carousel[i];
         const cv = document.createElement("canvas");
         renderSlide(cv, s.type, s.snapshot, i+1, carousel.length);
-        const blob = await new Promise(r => cv.toBlob(r, "image/png"));
-        zip.file(`CGE_carousel_${String(i+1).padStart(2,"0")}_${s.type}.png`, blob);
+        const exportCv = wrapForExport(cv, exportRatio);
+        const blob = await new Promise(r => exportCv.toBlob(r, "image/png"));
+        zip.file(`CGE_carousel_${String(i+1).padStart(2,"0")}_${s.type}_${exportRatio.replace(":","x")}.png`, blob);
       }
       const zipBlob = await zip.generateAsync({ type: "blob" });
       const url = URL.createObjectURL(zipBlob);
@@ -952,9 +1006,24 @@ export default function MediaTool() {
     }
   };
 
-  const onDragStart = (idx) => setDragIdx(idx);
-  const onDragOver = (e) => e.preventDefault();
-  const onDrop = (targetIdx) => {
+  // Drag-and-drop reorder. The original code skipped dataTransfer setup —
+  // Firefox treats that as "this drag has no payload" and refuses to fire
+  // drop, so the gesture silently did nothing. Setting any data + an
+  // effectAllowed makes drag/drop actually work across browsers.
+  const onDragStart = (e, idx) => {
+    setDragIdx(idx);
+    if (e && e.dataTransfer) {
+      try { e.dataTransfer.setData("text/plain", String(idx)); } catch {}
+      e.dataTransfer.effectAllowed = "move";
+    }
+  };
+  const onDragOver = (e) => {
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+  };
+  const onDragEnd = () => setDragIdx(null);
+  const onDrop = (e, targetIdx) => {
+    if (e) e.preventDefault();
     if (dragIdx === null || dragIdx === targetIdx) { setDragIdx(null); return; }
     setCarousel(prev => {
       const next = [...prev];
@@ -970,12 +1039,22 @@ export default function MediaTool() {
       <div style={{maxWidth:1150,margin:"0 auto",padding:"1.25rem"}}>
         <div style={{display:"flex",alignItems:"center",gap:"0.75rem",marginBottom:"1rem"}}>
           <h1 style={{fontFamily:"'Syne',sans-serif",fontSize:"1.2rem",fontWeight:800,textTransform:"uppercase"}}>CGE Media Template</h1>
-          <span style={{fontSize:"0.6rem",color:accent,letterSpacing:"1.5px",textTransform:"uppercase",padding:"2px 8px",border:"1px solid rgba(255,255,255,0.08)",borderRadius:"14px"}}>{mode} Slide · 1:1</span>
+          <span style={{fontSize:"0.6rem",color:accent,letterSpacing:"1.5px",textTransform:"uppercase",padding:"2px 8px",border:"1px solid rgba(255,255,255,0.08)",borderRadius:"14px"}}>{mode} Slide · Export {exportRatio}</span>
         </div>
 
         <div style={{display:"flex",gap:"0.3rem",marginBottom:"0.6rem",flexWrap:"wrap",alignItems:"center"}}>
           {MODES.map(([k,lb])=><button key={k} onClick={()=>setMode(k)} style={{padding:"6px 16px",borderRadius:"5px",fontSize:"0.7rem",fontWeight:700,cursor:"pointer",border:mode===k?"2px solid #FACC15":"2px solid rgba(245,240,232,0.06)",background:mode===k?"rgba(250,204,21,0.12)":"transparent",color:mode===k?"#FACC15":"rgba(245,240,232,0.25)",fontFamily:"'Syne',sans-serif",letterSpacing:"1px",textTransform:"uppercase"}}>{lb}</button>)}
           <div style={{flex:1}}/>
+          <div style={{display:"flex",gap:"3px",alignItems:"center",padding:"2px",border:"2px solid rgba(245,240,232,0.1)",borderRadius:"5px"}} title="Export aspect ratio — applies to single-slide downloads and carousel ZIPs">
+            {Object.entries(EXPORT_RATIOS).map(([k, r]) => (
+              <button
+                key={k}
+                onClick={()=>setExportRatio(k)}
+                title={r.label}
+                style={{padding:"4px 9px",borderRadius:"3px",fontSize:"0.6rem",fontWeight:700,cursor:"pointer",border:"none",background:exportRatio===k?"#A855F7":"transparent",color:exportRatio===k?"#FFF":"rgba(245,240,232,0.4)",fontFamily:"'Syne',sans-serif",letterSpacing:"1px",textTransform:"uppercase"}}
+              >{k}</button>
+            ))}
+          </div>
           <button
             onClick={()=>setWatermark(v=>!v)}
             title="Toggle CGE logo + footer text on/off"
@@ -1170,7 +1249,7 @@ export default function MediaTool() {
                 style={{padding:"6px 12px",background:"transparent",color:"rgba(251,113,133,0.8)",border:"1px solid rgba(251,113,133,0.4)",borderRadius:"4px",fontSize:"0.6rem",fontWeight:700,letterSpacing:"1px",textTransform:"uppercase",cursor:"pointer",fontFamily:"'Syne',sans-serif",whiteSpace:"nowrap"}}
               >Clear</button>
               <div style={{fontSize:"0.5rem",color:"rgba(245,240,232,0.4)",marginLeft:"auto"}}>
-                Drag to reorder · Click thumb to edit
+                Drag to reorder · Click thumb to edit · Slide #s auto-update
               </div>
             </>}
           </div>
@@ -1179,9 +1258,10 @@ export default function MediaTool() {
               {carousel.map((slide, idx) => (
                 <div key={slide.id}
                   draggable
-                  onDragStart={()=>onDragStart(idx)}
+                  onDragStart={(e)=>onDragStart(e, idx)}
                   onDragOver={onDragOver}
-                  onDrop={()=>onDrop(idx)}
+                  onDragEnd={onDragEnd}
+                  onDrop={(e)=>onDrop(e, idx)}
                   style={{
                     position:"relative",
                     minWidth:"86px", width:"86px", height:"86px",
@@ -1191,14 +1271,21 @@ export default function MediaTool() {
                     background:"#000",
                     flexShrink:0,
                     opacity: dragIdx===idx ? 0.5 : 1,
+                    userSelect: "none",
                   }}
                   title={`Slide ${idx+1} · ${slide.type} · click to edit, drag to reorder`}
+                  onClick={()=>{
+                    if (dragIdx !== null) return;
+                    loadSnapshot(slide.snapshot, slide.type);
+                    setDots(idx + 1);
+                    setTotalDots(carousel.length);
+                  }}
                 >
                   <img
                     src={slide.thumb}
                     alt={slide.type}
-                    onClick={()=>loadSnapshot(slide.snapshot, slide.type)}
-                    style={{width:"100%",height:"100%",objectFit:"cover",cursor:"pointer",pointerEvents:dragIdx===idx?"none":"auto"}}
+                    draggable={false}
+                    style={{width:"100%",height:"100%",objectFit:"cover",cursor:"pointer",pointerEvents:"none"}}
                   />
                   <div style={{position:"absolute",bottom:0,left:0,right:0,background:"rgba(0,0,0,0.75)",padding:"2px 4px",fontSize:"0.45rem",color:"#FFF",letterSpacing:"1px",textTransform:"uppercase",fontWeight:700,textAlign:"center",pointerEvents:"none"}}>
                     {idx+1} · {slide.type}
@@ -1370,8 +1457,8 @@ export default function MediaTool() {
               <div><label style={L}>This slide #</label><input type="number" min="1" max="20" value={dots} onChange={e=>setDots(Math.max(1,parseInt(e.target.value)||1))} style={{...I,textAlign:"center",fontWeight:700}}/></div>
               <div><label style={L}>Total slides</label><input type="number" min="1" max="20" value={totalDots} onChange={e=>setTotalDots(Math.max(1,parseInt(e.target.value)||1))} style={{...I,textAlign:"center",fontWeight:700}}/></div>
             </div>
-            <button onClick={dl} style={{width:"100%",padding:"12px",background:accent,color:"#000",border:"none",borderRadius:"6px",fontSize:"0.85rem",fontWeight:700,cursor:"pointer"}}>Download {mode.charAt(0).toUpperCase()+mode.slice(1)} Slide (PNG)</button>
-            <p style={{fontSize:"0.55rem",color:"rgba(245,240,232,0.18)",marginTop:"6px",lineHeight:1.5}}>1080×1080px · Syne 800 + DM Sans · CGE branded</p>
+            <button onClick={dl} style={{width:"100%",padding:"12px",background:accent,color:"#000",border:"none",borderRadius:"6px",fontSize:"0.85rem",fontWeight:700,cursor:"pointer"}}>Download {mode.charAt(0).toUpperCase()+mode.slice(1)} Slide (PNG · {exportRatio})</button>
+            <p style={{fontSize:"0.55rem",color:"rgba(245,240,232,0.18)",marginTop:"6px",lineHeight:1.5}}>{EXPORT_RATIOS[exportRatio].w}×{EXPORT_RATIOS[exportRatio].h}px · Syne 800 + DM Sans · CGE branded</p>
           </div>
 
           <div><label style={{...L,marginBottom:"6px"}}>Preview</label>
