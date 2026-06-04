@@ -1,6 +1,8 @@
 import { useState, useRef } from "react";
 import { toPng } from "html-to-image";
 import { useEventsStore } from "../store";
+import { savePhotoAndNotify } from "../shared/photoLibrary.js";
+import { PhotoLibraryModal } from "../shared/PhotoLibraryModal.jsx";
 
 // ==================== CONTROL-PANE STYLES & PRIMITIVES ====================
 // Defined at module scope (NOT inside FlyerBuilder) so React doesn't
@@ -1542,6 +1544,14 @@ export default function FlyerBuilder() {
       update("photoCrop", { x: 50, y: 50, zoom: 1 });
     };
     reader.readAsDataURL(f);
+    savePhotoAndNotify(f, { sourceTool: "flyer", sourceMode: template || "" })
+      .catch(err => console.warn("Photo library save failed:", err));
+  };
+
+  const [libOpen, setLibOpen] = useState(false);
+  const onLibraryPick = (dataUrl) => {
+    setPhotoUrl(dataUrl);
+    update("photoCrop", { x: 50, y: 50, zoom: 1 });
   };
 
   // Rasterize the flyer surface DOM to a 2160×2700 PNG (2x density of the
@@ -1916,6 +1926,7 @@ export default function FlyerBuilder() {
             <input ref={fileRef} type="file" accept="image/*" onChange={handlePhoto} style={{ display: "none" }} />
             <div style={{ display: "flex", gap: "6px" }}>
               <button onClick={() => fileRef.current?.click()} style={B}>{photoUrl ? "Change photo" : "Upload photo"}</button>
+              <button onClick={() => setLibOpen(true)} title="Pick a photo from the library" style={B}>📚 Library</button>
               {photoUrl && <button onClick={() => setPhotoUrl(null)} style={{ ...B, color: "rgba(251,113,133,0.7)" }}>Remove</button>}
             </div>
           </Section>
@@ -2059,6 +2070,13 @@ export default function FlyerBuilder() {
           </div>
         </div>
       </div>
+      <PhotoLibraryModal
+        open={libOpen}
+        onClose={() => setLibOpen(false)}
+        onPick={onLibraryPick}
+        outputAs="dataUrl"
+        initialFilter="flyer"
+      />
     </div>
   );
 }

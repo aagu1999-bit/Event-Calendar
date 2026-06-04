@@ -2,6 +2,8 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import JSZip from "jszip";
 import { useEventsStore } from "../store";
 import { generateCaptions } from "../shared/gemini";
+import { savePhotoAndNotify } from "../shared/photoLibrary.js";
+import { PhotoLibraryModal } from "../shared/PhotoLibraryModal.jsx";
 
 const COLORS = {
   yellow:{name:"Yellow",hex:"#FACC15"},purple:{name:"Purple",hex:"#C084FC"},
@@ -727,9 +729,37 @@ export default function MediaTool() {
 
   useEffect(()=>{const t=setTimeout(render,60);return()=>clearTimeout(t);},[render]);
 
-  const handlePhoto=(e)=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{const img=new Image();img.onload=()=>setPhoto(img);img.src=ev.target.result;};r.readAsDataURL(f);e.target.value="";};
-  const handleTextPhoto=(e)=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{const img=new Image();img.onload=()=>setTextPhoto(img);img.src=ev.target.result;};r.readAsDataURL(f);e.target.value="";};
-  const handleCaptionPhoto=(e)=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{const img=new Image();img.onload=()=>setCaptionPhoto(img);img.src=ev.target.result;};r.readAsDataURL(f);e.target.value="";};
+  // Upload handlers auto-save into the photo library so the user can
+  // re-pick from any tool later without re-hunting through their disk.
+  const makeUploadHandler = (setImage, targetMode) => (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    const r = new FileReader();
+    r.onload = ev => {
+      const img = new Image();
+      img.onload = () => setImage(img);
+      img.src = ev.target.result;
+    };
+    r.readAsDataURL(f);
+    // Fire-and-forget — failures shouldn't block the upload from working.
+    savePhotoAndNotify(f, { sourceTool: "media", sourceMode: targetMode || mode })
+      .catch(err => console.warn("Photo library save failed:", err));
+    e.target.value = "";
+  };
+  const handlePhoto = makeUploadHandler(setPhoto, "cover");
+  const handleTextPhoto = makeUploadHandler(setTextPhoto, mode); // text/cta/features all share this
+  const handleCaptionPhoto = makeUploadHandler(setCaptionPhoto, "photo");
+
+  // Library picker state — opened by the "📚 Library" button next to each
+  // Upload Photo button. `pickTarget` decides which setter to feed.
+  const [libOpen, setLibOpen] = useState(false);
+  const [pickTarget, setPickTarget] = useState(null); // "cover" | "text" | "photo"
+  const openLibrary = (target) => { setPickTarget(target); setLibOpen(true); };
+  const onLibraryPick = (img) => {
+    if (pickTarget === "cover")      setPhoto(img);
+    else if (pickTarget === "photo") setCaptionPhoto(img);
+    else                              setTextPhoto(img); // text/cta/features share textPhoto
+  };
 
   const dl=()=>{const cv=document.createElement("canvas");
     if(mode==="cover") renderCover(cv,{photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon});
@@ -1305,7 +1335,13 @@ export default function MediaTool() {
           <div>
             {mode==="cover"&&<>
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Background Photo</label>
-                <div style={{display:"flex",gap:"0.3rem"}}><button onClick={()=>fileRef.current?.click()} style={{...B,flex:1}}>{photo?"✓ Photo loaded — change":"Upload Photo"}</button>{photo&&<button onClick={()=>setPhoto(null)} style={{...B,color:"rgba(251,113,133,0.5)"}}>×</button>}<input ref={fileRef} type="file" accept="image/*" onChange={handlePhoto} style={{display:"none"}}/></div></div>
+                <div style={{display:"flex",gap:"0.3rem"}}>
+                  <button onClick={()=>fileRef.current?.click()} style={{...B,flex:1}}>{photo?"✓ Photo loaded — change":"Upload Photo"}</button>
+                  <button onClick={()=>openLibrary("cover")} style={{...B,padding:"5px 10px"}} title="Pick a photo from the library">📚</button>
+                  {photo&&<button onClick={()=>setPhoto(null)} style={{...B,color:"rgba(251,113,133,0.5)"}}>×</button>}
+                  <input ref={fileRef} type="file" accept="image/*" onChange={handlePhoto} style={{display:"none"}}/>
+                </div>
+              </div>
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Subtitle (optional)</label><input value={subtitle} onChange={e=>setSubtitle(e.target.value)} style={I} placeholder="e.g. WEEKEND GUIDE · APRIL 2026"/></div>
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Ribbon (optional · short kicker)</label><input value={ribbon} onChange={e=>setRibbon(e.target.value)} style={I} placeholder="e.g. ANNOUNCING / EXCLUSIVE / BREAKING"/></div>
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Headline</label><textarea value={headline} onChange={e=>setHeadline(e.target.value)} style={{...I,height:55,resize:"vertical"}} placeholder="Type headline..."/></div>
@@ -1377,6 +1413,7 @@ export default function MediaTool() {
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Background Photo (optional)</label>
                 <div style={{display:"flex",gap:"0.3rem",alignItems:"center"}}>
                   <button onClick={()=>textFileRef.current?.click()} style={{...B,flex:1}}>{textPhoto?"✓ Photo loaded — change":"Upload Photo"}</button>
+                  <button onClick={()=>openLibrary("text")} style={{...B,padding:"5px 10px"}} title="Pick a photo from the library">📚</button>
                   {textPhoto&&<button onClick={()=>setTextPhoto(null)} style={{...B,color:"rgba(251,113,133,0.5)"}}>×</button>}
                   <input ref={textFileRef} type="file" accept="image/*" onChange={handleTextPhoto} style={{display:"none"}}/>
                 </div>
@@ -1409,6 +1446,7 @@ export default function MediaTool() {
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Background Photo (optional · shares Text-mode photo)</label>
                 <div style={{display:"flex",gap:"0.3rem",alignItems:"center"}}>
                   <button onClick={()=>textFileRef.current?.click()} style={{...B,flex:1}}>{textPhoto?"✓ Photo loaded — change":"Upload Photo"}</button>
+                  <button onClick={()=>openLibrary("text")} style={{...B,padding:"5px 10px"}} title="Pick a photo from the library">📚</button>
                   {textPhoto&&<button onClick={()=>setTextPhoto(null)} style={{...B,color:"rgba(251,113,133,0.5)"}}>×</button>}
                   <input ref={textFileRef} type="file" accept="image/*" onChange={handleTextPhoto} style={{display:"none"}}/>
                 </div>
@@ -1435,6 +1473,7 @@ export default function MediaTool() {
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Photo</label>
                 <div style={{display:"flex",gap:"0.3rem"}}>
                   <button onClick={()=>captionFileRef.current?.click()} style={{...B,flex:1}}>{captionPhoto?"✓ Photo loaded — change":"Upload Photo"}</button>
+                  <button onClick={()=>openLibrary("photo")} style={{...B,padding:"5px 10px"}} title="Pick a photo from the library">📚</button>
                   {captionPhoto&&<button onClick={()=>setCaptionPhoto(null)} style={{...B,color:"rgba(251,113,133,0.5)"}}>×</button>}
                   <input ref={captionFileRef} type="file" accept="image/*" onChange={handleCaptionPhoto} style={{display:"none"}}/>
                 </div>
@@ -1455,6 +1494,7 @@ export default function MediaTool() {
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Background Photo (optional · shares Text-mode photo)</label>
                 <div style={{display:"flex",gap:"0.3rem",alignItems:"center"}}>
                   <button onClick={()=>textFileRef.current?.click()} style={{...B,flex:1}}>{textPhoto?"✓ Photo loaded — change":"Upload Photo"}</button>
+                  <button onClick={()=>openLibrary("text")} style={{...B,padding:"5px 10px"}} title="Pick a photo from the library">📚</button>
                   {textPhoto&&<button onClick={()=>setTextPhoto(null)} style={{...B,color:"rgba(251,113,133,0.5)"}}>×</button>}
                   <input ref={textFileRef} type="file" accept="image/*" onChange={handleTextPhoto} style={{display:"none"}}/>
                 </div>
@@ -1497,6 +1537,13 @@ export default function MediaTool() {
           </div>
         </div>
       </div>
+      <PhotoLibraryModal
+        open={libOpen}
+        onClose={() => setLibOpen(false)}
+        onPick={onLibraryPick}
+        outputAs="image"
+        initialFilter="media"
+      />
     </div>
   );
 }

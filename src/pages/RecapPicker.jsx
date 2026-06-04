@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import JSZip from "jszip";
+import { listPhotos, deletePhotoAndNotify, onLibraryChange, usageBytes, loadPhotoBlob } from "../shared/photoLibrary.js";
 
 // face-api.js (vladmandic fork — better maintained than the original).
 // Loaded from CDN on mount so the bundle stays small and the library only
@@ -33,6 +34,19 @@ function scorePhoto(faces, imgW, imgH) {
 }
 
 export default function RecapPicker() {
+  // The Recap tab now defaults to the photo library — the same gallery the
+  // tools save into automatically. Switch to "picker" for the face-aware
+  // recap-reel ranker (the original use of this tab).
+  const [view, setView] = useState(() => {
+    try { return localStorage.getItem("recap_view") || "library"; } catch { return "library"; }
+  });
+  useEffect(() => { try { localStorage.setItem("recap_view", view); } catch {} }, [view]);
+
+  if (view === "library") return <LibraryPage onSwitch={() => setView("picker")} />;
+  return <FacePicker onSwitch={() => setView("library")} />;
+}
+
+function FacePicker({ onSwitch }) {
   const [photos, setPhotos]         = useState([]); // {id, url, file, faces, score, w, h, selected}
   const [modelStatus, setModelStatus] = useState("loading"); // loading | ready | error
   const [analyzing, setAnalyzing]   = useState(false);
@@ -167,6 +181,8 @@ export default function RecapPicker() {
           <span style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.5)", letterSpacing: "1.5px", textTransform: "uppercase" }}>
             Face-aware photo ranker · for recap reels & carousels
           </span>
+          <div style={{ flex: 1 }} />
+          <button onClick={onSwitch} style={B} title="Browse photos saved by any tool">📚 Library</button>
         </div>
 
         {/* Status bar */}
@@ -311,6 +327,213 @@ export default function RecapPicker() {
         <p style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.3)", marginTop: "2rem", lineHeight: 1.5 }}>
           Scoring weights · {Math.round(WEIGHT_SMILE * 100)}% smile, {Math.round(WEIGHT_FACES * 100)}% face count, {Math.round(WEIGHT_AREA * 100)}% face area. Detection: TinyFaceDetector + FaceExpressionNet via face-api.js (vladmandic fork). Photos never leave the browser.
         </p>
+      </div>
+    </div>
+  );
+}
+
+// ===== Library page =====
+// Lists every photo saved by any tool (auto-saved on upload). The user can
+// preview, copy, download, or delete entries here, and pop into the face
+// picker (the original Recap function) via the toggle.
+const TOOL_FILTERS = [
+  { key: "",         label: "All" },
+  { key: "media",    label: "Media" },
+  { key: "calendar", label: "Calendar" },
+  { key: "flyer",    label: "Flyer" },
+];
+
+function formatBytes(n) {
+  if (!n) return "0 B";
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+function formatWhen(ts) {
+  const d = new Date(ts);
+  const days = Math.floor((Date.now() - ts) / 86400000);
+  if (days < 1) return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  if (days < 7) return `${days}d ago`;
+  return d.toLocaleDateString();
+}
+
+function LibraryPage({ onSwitch }) {
+  const [photos, setPhotos] = useState([]);
+  const [filter, setFilter] = useState("");
+  const [total, setTotal] = useState(0);
+  const [previewId, setPreviewId] = useState(null);
+  const [previewUrl, setPreviewUrl] = useState(null);
+
+  useEffect(() => {
+    let live = true;
+    let urls = [];
+    const reload = async () => {
+      try {
+        const list = await listPhotos(filter ? { sourceTool: filter } : {});
+        if (!live) { list.forEach(p => URL.revokeObjectURL(p.thumbUrl)); return; }
+        const prev = urls;
+        urls = list.map(p => p.thumbUrl);
+        setPhotos(list);
+        prev.forEach(u => URL.revokeObjectURL(u));
+        setTotal(await usageBytes());
+      } catch (e) {
+        console.error("Library load failed:", e);
+      }
+    };
+    reload();
+    const off = onLibraryChange(reload);
+    return () => { live = false; off(); urls.forEach(u => URL.revokeObjectURL(u)); };
+  }, [filter]);
+
+  // Preview pane — fetches the full blob on click and renders it large.
+  useEffect(() => {
+    if (!previewId) { setPreviewUrl(null); return; }
+    let url = null;
+    let cancelled = false;
+    loadPhotoBlob(previewId).then(blob => {
+      if (cancelled || !blob) return;
+      url = URL.createObjectURL(blob);
+      setPreviewUrl(url);
+    });
+    return () => { cancelled = true; if (url) URL.revokeObjectURL(url); };
+  }, [previewId]);
+
+  const remove = async (id, e) => {
+    if (e) e.stopPropagation();
+    if (!confirm("Delete this photo from the library?")) return;
+    await deletePhotoAndNotify(id);
+    if (previewId === id) setPreviewId(null);
+  };
+
+  const download = async (p) => {
+    const blob = await loadPhotoBlob(p.id);
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = p.name || `photo-${p.id}.png`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div style={{ minHeight: "calc(100vh - 60px)", background: "#080808", color: "#F5F0E8", fontFamily: "'DM Sans', sans-serif" }}>
+      <div style={{ maxWidth: 1300, margin: "0 auto", padding: "1.5rem" }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: "1rem", marginBottom: "1.25rem", flexWrap: "wrap" }}>
+          <h1 style={{ fontFamily: "'Syne', sans-serif", fontSize: "1.2rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: "2px" }}>
+            Photo Library
+          </h1>
+          <span style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.5)", letterSpacing: "1.5px", textTransform: "uppercase" }}>
+            Every photo you upload to any tool is saved here automatically
+          </span>
+          <div style={{ flex: 1 }} />
+          <button onClick={onSwitch} style={B} title="Open the face-aware recap photo ranker">Face Picker →</button>
+        </div>
+
+        {/* Filter chips + storage usage */}
+        <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap" }}>
+          <span style={{ ...L, marginBottom: 0, marginRight: "4px" }}>Source</span>
+          {TOOL_FILTERS.map(t => (
+            <button
+              key={t.key || "all"}
+              onClick={() => setFilter(t.key)}
+              style={filter === t.key
+                ? { ...B, background: "rgba(229,188,79,0.15)", borderColor: "#E5BC4F", color: "#E5BC4F" }
+                : B}
+            >{t.label}</button>
+          ))}
+          <div style={{ flex: 1 }} />
+          <span style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.5)", letterSpacing: "1px", textTransform: "uppercase" }}>
+            {photos.length} photo{photos.length === 1 ? "" : "s"} · {formatBytes(total)} used
+          </span>
+        </div>
+
+        {photos.length === 0 ? (
+          <div style={{ padding: "3rem", borderRadius: "8px", border: "1px dashed rgba(245,240,232,0.12)", color: "rgba(245,240,232,0.5)", fontSize: "0.75rem", textAlign: "center", lineHeight: 1.6 }}>
+            No photos in the library yet.<br/>
+            Upload a photo in the Media, Calendar, or Flyer tool — it'll appear here automatically.
+          </div>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: previewId ? "1fr 380px" : "1fr", gap: "1rem", alignItems: "start" }}>
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))",
+              gap: "10px",
+            }}>
+              {photos.map(p => (
+                <div
+                  key={p.id}
+                  onClick={() => setPreviewId(p.id)}
+                  title={`${p.name} · ${p.width}×${p.height} · ${formatBytes(p.bytes)}`}
+                  style={{
+                    position: "relative",
+                    background: "#000",
+                    border: `1px solid ${previewId === p.id ? "#E5BC4F" : "rgba(245,240,232,0.1)"}`,
+                    borderRadius: "5px",
+                    overflow: "hidden",
+                    cursor: "pointer",
+                    aspectRatio: "1 / 1",
+                  }}
+                >
+                  <img src={p.thumbUrl} alt={p.name} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                  <button
+                    onClick={(e) => remove(p.id, e)}
+                    title="Delete from library"
+                    style={{
+                      position: "absolute", top: 4, right: 4,
+                      width: 22, height: 22, borderRadius: 4,
+                      background: "rgba(0,0,0,0.75)", color: "#FB7185",
+                      border: "1px solid rgba(251,113,133,0.4)",
+                      fontSize: "0.7rem", cursor: "pointer", padding: 0,
+                      fontFamily: "inherit", lineHeight: 1,
+                    }}
+                  >×</button>
+                  <div style={{
+                    position: "absolute", bottom: 0, left: 0, right: 0,
+                    padding: "4px 6px",
+                    background: "linear-gradient(to top, rgba(0,0,0,0.85), transparent)",
+                    fontSize: "0.5rem", color: "#F5F0E8",
+                    letterSpacing: "0.5px", textTransform: "uppercase", fontWeight: 700,
+                    display: "flex", justifyContent: "space-between",
+                  }}>
+                    <span>{p.sourceTool || "—"}{p.sourceMode ? ` · ${p.sourceMode}` : ""}</span>
+                    <span style={{ color: "rgba(245,240,232,0.5)" }}>{formatWhen(p.createdAt)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Preview pane */}
+            {previewId && (() => {
+              const p = photos.find(x => x.id === previewId);
+              if (!p) return null;
+              return (
+                <div style={{
+                  position: "sticky", top: "1rem",
+                  background: "rgba(245,240,232,0.03)",
+                  border: "1px solid rgba(245,240,232,0.08)",
+                  borderRadius: "8px",
+                  padding: "14px",
+                  display: "flex", flexDirection: "column", gap: "10px",
+                }}>
+                  <div style={{ background: "#000", borderRadius: "5px", overflow: "hidden", aspectRatio: `${p.width} / ${p.height}` }}>
+                    {previewUrl && <img src={previewUrl} alt={p.name} style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />}
+                  </div>
+                  <div style={{ fontSize: "0.7rem", color: "#F5F0E8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
+                  <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.5)", letterSpacing: "1px", textTransform: "uppercase" }}>
+                    {p.sourceTool || "unknown"}{p.sourceMode ? ` · ${p.sourceMode}` : ""} · {p.width}×{p.height} · {formatBytes(p.bytes)} · {formatWhen(p.createdAt)}
+                  </div>
+                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                    <button onClick={() => download(p)} style={Bgold}>Download</button>
+                    <button onClick={() => setPreviewId(null)} style={B}>Close</button>
+                    <div style={{ flex: 1 }} />
+                    <button onClick={() => remove(p.id)} style={{ ...B, color: "#FB7185", borderColor: "rgba(251,113,133,0.3)" }}>Delete</button>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        )}
       </div>
     </div>
   );

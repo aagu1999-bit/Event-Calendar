@@ -3,6 +3,8 @@ import * as XLSX from "xlsx";
 import { useEventsStore } from "../store";
 import { EMOJI_MAP, getEmoji as getEmojiShared, parseRegion as parseRegionShared } from "../shared/parseEvents";
 import { UInput, UTextarea, todaysFridayMD } from "../shared/inputs.jsx";
+import { savePhotoAndNotify } from "../shared/photoLibrary.js";
+import { PhotoLibraryModal } from "../shared/PhotoLibraryModal.jsx";
 
 // ==================== COLOR SYSTEM ====================
 const COLORS = {
@@ -1376,8 +1378,14 @@ export default function CalendarBuilder() {
       img.src = ev.target.result;
     };
     reader.readAsDataURL(f);
+    savePhotoAndNotify(f, { sourceTool: "calendar", sourceMode: "preview-bg" })
+      .catch(err => console.warn("Photo library save failed:", err));
     e.target.value = "";
   };
+
+  // Library picker state — the "📚" button beside Upload Photo opens it.
+  const [libOpen, setLibOpen] = useState(false);
+  const onLibraryPick = (img) => setBgImage(img);
 
   const dl = (pi) => {
     const cv = document.createElement("canvas");
@@ -1506,6 +1514,7 @@ export default function CalendarBuilder() {
                     ))}
                     <span style={{ width: 1, height: 20, background: "rgba(255,255,255,0.08)", margin: "0 4px" }}></span>
                     <button onClick={() => bgFileRef.current?.click()} style={{ ...B, fontSize: "0.55rem", padding: "4px 8px" }}>{bgImage ? "Change Photo" : "Add Photo BG"}</button>
+                    <button onClick={() => setLibOpen(true)} title="Pick a photo from the library" style={{ ...B, fontSize: "0.55rem", padding: "4px 8px" }}>📚</button>
                     {bgImage && <button onClick={() => setBgImage(null)} style={{ ...B, fontSize: "0.55rem", padding: "4px 6px", color: "rgba(251,113,133,0.5)" }}>×</button>}
                     <input ref={bgFileRef} type="file" accept="image/*" onChange={handleBgUpload} style={{ display: "none" }} />
                   </div>
@@ -1835,6 +1844,13 @@ export default function CalendarBuilder() {
           </div>
         </div>
       </div>
+      <PhotoLibraryModal
+        open={libOpen}
+        onClose={() => setLibOpen(false)}
+        onPick={onLibraryPick}
+        outputAs="image"
+        initialFilter="calendar"
+      />
     </div>
   );
 }
