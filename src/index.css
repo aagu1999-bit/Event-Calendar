@@ -133,8 +133,16 @@ body {
   .cge-cal-layout {
     grid-template-columns: 1fr !important;
   }
-  .cge-cal-canvas {
+  /* Keep the canvas panel mounted — page picker + Download buttons live
+     here and are useful on phones. Only the visual preview canvas gets
+     hidden; downloads still produce the full 1080×1350 PNG offscreen. */
+  .cge-cal-canvas-preview {
     display: none !important;
+  }
+  /* Bigger download buttons on phone — make sure they stretch wide and
+     hit the 44px tap target Apple recommends. */
+  .cge-cal-canvas > div:last-of-type button {
+    min-height: 44px !important;
   }
   /* The event list row's right-edge buttons (★ ✎ ×) are tiny — bump
      their hit area for thumbs. */

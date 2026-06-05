@@ -1546,7 +1546,7 @@ export default function CalendarBuilder() {
           lineHeight: 1.4,
         }}>
           <strong style={{ letterSpacing: "1px", textTransform: "uppercase", fontSize: "0.6rem", display: "block", marginBottom: "4px" }}>Mobile mode</strong>
-          Use this tab to add, edit, and tag events on the go. <strong>Open on desktop</strong> to render and download the calendar slides — the canvas preview is hidden here to save room.
+          Add, edit, and tag events here. Pick a day below and tap <strong>Download</strong> to save the PNG to your phone — the canvas preview is hidden to save room, but the file you get is the full 1080×1350 slide.
         </div>
 
         <div className="cge-cal-layout" style={{ display: "grid", gridTemplateColumns: "1fr 410px", gap: "1.5rem", alignItems: "start" }}>
@@ -1925,7 +1925,7 @@ export default function CalendarBuilder() {
                 })}
               </div>}
             </div>
-            <div style={{ position: "relative" }}>
+            <div className="cge-cal-canvas-preview" style={{ position: "relative" }}>
               <canvas ref={canvasRef} onClick={handleCanvasClick} style={{ width: pw, height: ph, borderRadius: "4px", display: "block", cursor: "pointer" }} />
               {emojiPickId !== null && (
                 <div style={{ position: "absolute", top: emojiPickPos.y, left: emojiPickPos.x, zIndex: 50, background: "#1a1a1a", border: "1px solid rgba(250,204,21,0.20)", borderRadius: "6px", padding: "4px", boxShadow: "0 4px 20px rgba(0,0,0,0.6)" }}>
