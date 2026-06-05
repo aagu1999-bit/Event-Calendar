@@ -25,3 +25,94 @@ body {
 #root {
   min-height: 100vh;
 }
+
+/* ============================================================
+   MOBILE RESPONSIVE RULES — additive only.
+   Everything below ONLY fires at <= 768px viewport widths. Desktop
+   layouts above 768px see none of these. !important is used to
+   override the existing inline styles in JSX (inline > class
+   normally; !important wins).
+   Components opt in by adding the cge-* className listed below.
+   ============================================================ */
+
+@media (max-width: 768px) {
+  /* ---------- TOP NAV ---------- */
+  /* Lots of buttons in a single row → horizontally scroll instead of
+     wrap. Keeps the nav one row tall and finger-swipeable. */
+  .cge-nav {
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    -webkit-overflow-scrolling: touch;
+    padding: 0.5rem 0.6rem !important;
+    gap: 0.3rem !important;
+  }
+  .cge-nav > * {
+    flex-shrink: 0;
+  }
+  .cge-nav-brand {
+    margin-right: 0.6rem !important;
+    font-size: 0.65rem !important;
+  }
+  .cge-nav-link {
+    padding: 7px 10px !important;
+    font-size: 0.7rem !important;
+    letter-spacing: 1px !important;
+  }
+  .cge-nav-count {
+    display: none !important; /* "N events loaded" — hide on mobile, room is tight */
+  }
+  .cge-nav-spacer {
+    display: none !important;
+  }
+
+  /* ---------- REVIEW QUEUE ROW ---------- */
+  /* The 8-column grid collapses to a stacked card. Approve/+Add/Edit/
+     Delete sit in their own row underneath the event info. */
+  .cge-review-row {
+    grid-template-columns: 28px 1fr auto !important;
+    grid-template-areas:
+      "check  info  flag"
+      "tags   tags  tags"
+      "actions actions actions" !important;
+    gap: 8px !important;
+    padding: 10px 12px !important;
+  }
+  .cge-review-row > .cge-row-check    { grid-area: check; }
+  .cge-review-row > .cge-row-info     { grid-area: info; }
+  .cge-review-row > .cge-row-flag     { grid-area: flag; }
+  .cge-review-row > .cge-row-tags     { grid-area: tags; max-width: 100% !important; justify-content: flex-start !important; }
+  .cge-review-row > .cge-row-actions  { grid-area: actions; justify-content: flex-start !important; flex-wrap: wrap !important; }
+  /* Day chip + region + type meta — redundant on mobile, hide */
+  .cge-review-row > .cge-row-day      { display: none !important; }
+  .cge-review-row > .cge-row-meta     { display: none !important; }
+  /* Bigger tap targets on the action buttons */
+  .cge-review-row .cge-row-actions button,
+  .cge-review-row .cge-row-actions a {
+    padding: 8px 12px !important;
+    font-size: 0.7rem !important;
+    min-height: 36px;
+  }
+
+  /* ---------- REVIEW BULK ACTIONS BAR ---------- */
+  /* Wrap into a 2-row layout when there are 4+ buttons */
+  .cge-bulk-bar {
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+  }
+  .cge-bulk-bar > button {
+    flex: 1 1 calc(50% - 3px);
+    min-height: 36px;
+  }
+
+  /* ---------- GLOBAL: bigger touch targets for inputs ---------- */
+  /* iOS auto-zooms inputs whose font-size is < 16px. Bump base inputs
+     inside main content (not the nav) to 16px to suppress that zoom. */
+  main input[type="text"],
+  main input[type="search"],
+  main input:not([type]),
+  main textarea {
+    font-size: 16px !important;
+  }
+}
+
