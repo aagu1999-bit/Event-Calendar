@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import JSZip from "jszip";
-import { listPhotos, deletePhotoAndNotify, onLibraryChange, usageBytes, loadPhotoBlob } from "../shared/photoLibrary.js";
+import { listPhotos, deletePhotoAndNotify, onLibraryChange, usageBytes, loadPhotoBlob, listExports, loadExportBlob, deleteExport, onExportsChange, exportsUsageBytes } from "../shared/photoLibrary.js";
 
 // face-api.js (vladmandic fork — better maintained than the original).
 // Loaded from CDN on mount so the bundle stays small and the library only
@@ -358,6 +358,33 @@ function formatWhen(ts) {
 }
 
 function LibraryPage({ onSwitch }) {
+  // Two sub-views: uploads ("photos") and rendered outputs ("exports").
+  const [tab, setTab] = useState(() => {
+    try { return localStorage.getItem("library_tab") || "photos"; } catch { return "photos"; }
+  });
+  useEffect(() => { try { localStorage.setItem("library_tab", tab); } catch {} }, [tab]);
+
+  if (tab === "exports") return <ExportsView onSwitch={onSwitch} onTab={setTab} />;
+  return <PhotosView onSwitch={onSwitch} onTab={setTab} />;
+}
+
+function LibraryTabs({ tab, onTab }) {
+  return (
+    <div style={{ display: "flex", gap: "0.4rem", marginBottom: "1rem" }}>
+      {[["photos", "📷 Photos"], ["exports", "🗂 Exports"]].map(([k, lbl]) => (
+        <button
+          key={k}
+          onClick={() => onTab(k)}
+          style={tab === k
+            ? { ...B, background: "rgba(229,188,79,0.18)", borderColor: "#E5BC4F", color: "#E5BC4F", fontWeight: 700 }
+            : B}
+        >{lbl}</button>
+      ))}
+    </div>
+  );
+}
+
+function PhotosView({ onSwitch, onTab }) {
   const [photos, setPhotos] = useState([]);
   const [filter, setFilter] = useState("");
   const [total, setTotal] = useState(0);
@@ -421,14 +448,16 @@ function LibraryPage({ onSwitch }) {
       <div style={{ maxWidth: 1300, margin: "0 auto", padding: "1.5rem" }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: "1rem", marginBottom: "1.25rem", flexWrap: "wrap" }}>
           <h1 style={{ fontFamily: "'Syne', sans-serif", fontSize: "1.2rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: "2px" }}>
-            Photo Library
+            Library
           </h1>
           <span style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.5)", letterSpacing: "1.5px", textTransform: "uppercase" }}>
-            Every photo you upload to any tool is saved here automatically
+            Every photo you upload + every PNG/ZIP you export, kept here automatically
           </span>
           <div style={{ flex: 1 }} />
           <button onClick={onSwitch} style={B} title="Open the face-aware recap photo ranker">Face Picker →</button>
         </div>
+
+        <LibraryTabs tab="photos" onTab={onTab} />
 
         {/* Filter chips + storage usage */}
         <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap" }}>
@@ -522,6 +551,241 @@ function LibraryPage({ onSwitch }) {
                   <div style={{ fontSize: "0.7rem", color: "#F5F0E8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
                   <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.5)", letterSpacing: "1px", textTransform: "uppercase" }}>
                     {p.sourceTool || "unknown"}{p.sourceMode ? ` · ${p.sourceMode}` : ""} · {p.width}×{p.height} · {formatBytes(p.bytes)} · {formatWhen(p.createdAt)}
+                  </div>
+                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                    <button onClick={() => download(p)} style={Bgold}>Download</button>
+                    <button onClick={() => setPreviewId(null)} style={B}>Close</button>
+                    <div style={{ flex: 1 }} />
+                    <button onClick={() => remove(p.id)} style={{ ...B, color: "#FB7185", borderColor: "rgba(251,113,133,0.3)" }}>Delete</button>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ===== Exports view =====
+function ExportsView({ onSwitch, onTab }) {
+  const [items, setItems] = useState([]);
+  const [filter, setFilter] = useState("");
+  const [total, setTotal] = useState(0);
+  const [previewId, setPreviewId] = useState(null);
+  const [previewUrl, setPreviewUrl] = useState(null);
+
+  useEffect(() => {
+    let live = true;
+    let urls = [];
+    const reload = async () => {
+      try {
+        const list = await listExports(filter ? { sourceTool: filter } : {});
+        if (!live) { list.forEach(p => p.thumbUrl && URL.revokeObjectURL(p.thumbUrl)); return; }
+        const prev = urls;
+        urls = list.map(p => p.thumbUrl).filter(Boolean);
+        setItems(list);
+        prev.forEach(u => URL.revokeObjectURL(u));
+        setTotal(await exportsUsageBytes());
+      } catch (e) {
+        console.error("Exports load failed:", e);
+      }
+    };
+    reload();
+    const off = onExportsChange(reload);
+    return () => { live = false; off(); urls.forEach(u => URL.revokeObjectURL(u)); };
+  }, [filter]);
+
+  useEffect(() => {
+    if (!previewId) { setPreviewUrl(null); return; }
+    const cur = items.find(x => x.id === previewId);
+    if (!cur || cur.kind !== "image") { setPreviewUrl(null); return; }
+    let url = null, cancelled = false;
+    loadExportBlob(previewId).then(blob => {
+      if (cancelled || !blob) return;
+      url = URL.createObjectURL(blob);
+      setPreviewUrl(url);
+    });
+    return () => { cancelled = true; if (url) URL.revokeObjectURL(url); };
+  }, [previewId, items]);
+
+  const download = async (p) => {
+    const blob = await loadExportBlob(p.id);
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = p.name || `export-${p.id}`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+  const remove = async (id, e) => {
+    if (e) e.stopPropagation();
+    if (!confirm("Delete this export from the library?")) return;
+    await deleteExport(id);
+    if (previewId === id) setPreviewId(null);
+  };
+
+  return (
+    <div style={{ minHeight: "calc(100vh - 60px)", background: "#080808", color: "#F5F0E8", fontFamily: "'DM Sans', sans-serif" }}>
+      <div style={{ maxWidth: 1300, margin: "0 auto", padding: "1.5rem" }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: "1rem", marginBottom: "1.25rem", flexWrap: "wrap" }}>
+          <h1 style={{ fontFamily: "'Syne', sans-serif", fontSize: "1.2rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: "2px" }}>
+            Library
+          </h1>
+          <span style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.5)", letterSpacing: "1.5px", textTransform: "uppercase" }}>
+            Every PNG/ZIP/WebM you've exported, ready to re-download
+          </span>
+          <div style={{ flex: 1 }} />
+          <button onClick={onSwitch} style={B} title="Open the face-aware recap photo ranker">Face Picker →</button>
+        </div>
+
+        <LibraryTabs tab="exports" onTab={onTab} />
+
+        <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap" }}>
+          <span style={{ ...L, marginBottom: 0, marginRight: "4px" }}>Source</span>
+          {[
+            { key: "",         label: "All" },
+            { key: "calendar", label: "Calendar" },
+            { key: "media",    label: "Media" },
+            { key: "flyer",    label: "Flyer" },
+            { key: "reel",     label: "Reel" },
+          ].map(t => (
+            <button
+              key={t.key || "all"}
+              onClick={() => setFilter(t.key)}
+              style={filter === t.key
+                ? { ...B, background: "rgba(229,188,79,0.15)", borderColor: "#E5BC4F", color: "#E5BC4F" }
+                : B}
+            >{t.label}</button>
+          ))}
+          <div style={{ flex: 1 }} />
+          <span style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.5)", letterSpacing: "1px", textTransform: "uppercase" }}>
+            {items.length} export{items.length === 1 ? "" : "s"} · {formatBytes(total)} used
+          </span>
+        </div>
+
+        {items.length === 0 ? (
+          <div style={{ padding: "3rem", borderRadius: "8px", border: "1px dashed rgba(245,240,232,0.12)", color: "rgba(245,240,232,0.5)", fontSize: "0.75rem", textAlign: "center", lineHeight: 1.6 }}>
+            No exports archived yet.<br/>
+            Download a slide/PNG/ZIP from any tool and a copy will land here.
+          </div>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: previewId ? "1fr 380px" : "1fr", gap: "1rem", alignItems: "start" }}>
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))",
+              gap: "10px",
+            }}>
+              {items.map(p => (
+                <div
+                  key={p.id}
+                  onClick={() => setPreviewId(p.id)}
+                  title={`${p.name} · ${formatBytes(p.bytes)}`}
+                  style={{
+                    position: "relative",
+                    background: "#000",
+                    border: `1px solid ${previewId === p.id ? "#E5BC4F" : "rgba(245,240,232,0.1)"}`,
+                    borderRadius: "5px",
+                    overflow: "hidden",
+                    cursor: "pointer",
+                    aspectRatio: "1 / 1",
+                  }}
+                >
+                  {p.thumbUrl ? (
+                    <img src={p.thumbUrl} alt={p.name} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                  ) : (
+                    <div style={{
+                      width: "100%", height: "100%",
+                      display: "flex", flexDirection: "column",
+                      alignItems: "center", justifyContent: "center",
+                      background: "linear-gradient(135deg, #1a1a1a, #0d0d0d)",
+                      color: "rgba(245,240,232,0.5)", fontFamily: "'Syne',sans-serif",
+                      padding: "10px", textAlign: "center",
+                    }}>
+                      <div style={{ fontSize: "2rem" }}>{p.mime?.includes("zip") ? "🗜" : p.mime?.includes("webm") ? "🎬" : "📄"}</div>
+                      <div style={{ fontSize: "0.5rem", letterSpacing: "1px", textTransform: "uppercase", marginTop: "6px" }}>
+                        {p.kind === "archive" ? "Archive" : "File"}
+                      </div>
+                    </div>
+                  )}
+                  <button
+                    onClick={(e) => remove(p.id, e)}
+                    title="Delete from library"
+                    style={{
+                      position: "absolute", top: 4, right: 4,
+                      width: 22, height: 22, borderRadius: 4,
+                      background: "rgba(0,0,0,0.75)", color: "#FB7185",
+                      border: "1px solid rgba(251,113,133,0.4)",
+                      fontSize: "0.7rem", cursor: "pointer", padding: 0,
+                      fontFamily: "inherit", lineHeight: 1,
+                    }}
+                  >×</button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); download(p); }}
+                    title="Re-download"
+                    style={{
+                      position: "absolute", top: 4, left: 4,
+                      width: 22, height: 22, borderRadius: 4,
+                      background: "rgba(0,0,0,0.75)", color: "#34D399",
+                      border: "1px solid rgba(52,211,153,0.4)",
+                      fontSize: "0.6rem", cursor: "pointer", padding: 0,
+                      fontFamily: "inherit", lineHeight: 1,
+                    }}
+                  >↓</button>
+                  <div style={{
+                    position: "absolute", bottom: 0, left: 0, right: 0,
+                    padding: "4px 6px",
+                    background: "linear-gradient(to top, rgba(0,0,0,0.85), transparent)",
+                    fontSize: "0.5rem", color: "#F5F0E8",
+                    letterSpacing: "0.5px", textTransform: "uppercase", fontWeight: 700,
+                    display: "flex", justifyContent: "space-between",
+                  }}>
+                    <span>{p.sourceTool}{p.sourceMode ? ` · ${p.sourceMode}` : ""}</span>
+                    <span style={{ color: "rgba(245,240,232,0.5)" }}>{formatWhen(p.createdAt)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {previewId && (() => {
+              const p = items.find(x => x.id === previewId);
+              if (!p) return null;
+              return (
+                <div style={{
+                  position: "sticky", top: "1rem",
+                  background: "rgba(245,240,232,0.03)",
+                  border: "1px solid rgba(245,240,232,0.08)",
+                  borderRadius: "8px",
+                  padding: "14px",
+                  display: "flex", flexDirection: "column", gap: "10px",
+                }}>
+                  {p.kind === "image" ? (
+                    <div style={{ background: "#000", borderRadius: "5px", overflow: "hidden", aspectRatio: p.width && p.height ? `${p.width} / ${p.height}` : "1 / 1" }}>
+                      {previewUrl && <img src={previewUrl} alt={p.name} style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />}
+                    </div>
+                  ) : (
+                    <div style={{
+                      background: "linear-gradient(135deg, #1a1a1a, #0d0d0d)",
+                      borderRadius: "5px", padding: "2rem",
+                      textAlign: "center", color: "rgba(245,240,232,0.6)",
+                      fontFamily: "'Syne',sans-serif",
+                    }}>
+                      <div style={{ fontSize: "3rem", marginBottom: "8px" }}>{p.mime?.includes("zip") ? "🗜" : p.mime?.includes("webm") ? "🎬" : "📄"}</div>
+                      <div style={{ fontSize: "0.65rem", letterSpacing: "1.5px", textTransform: "uppercase" }}>
+                        {p.kind === "archive" ? "Archive" : "Binary file"}
+                      </div>
+                      <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", marginTop: "6px" }}>
+                        Download to view
+                      </div>
+                    </div>
+                  )}
+                  <div style={{ fontSize: "0.7rem", color: "#F5F0E8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
+                  <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.5)", letterSpacing: "1px", textTransform: "uppercase" }}>
+                    {p.sourceTool}{p.sourceMode ? ` · ${p.sourceMode}` : ""}
+                    {p.width && p.height ? ` · ${p.width}×${p.height}` : ""}
+                    {" · "}{formatBytes(p.bytes)} · {formatWhen(p.createdAt)}
                   </div>
                   <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                     <button onClick={() => download(p)} style={Bgold}>Download</button>

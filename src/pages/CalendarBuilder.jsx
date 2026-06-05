@@ -3,7 +3,7 @@ import * as XLSX from "xlsx";
 import { useEventsStore } from "../store";
 import { EMOJI_MAP, getEmoji as getEmojiShared, parseRegion as parseRegionShared } from "../shared/parseEvents";
 import { UInput, UTextarea, todaysFridayMD } from "../shared/inputs.jsx";
-import { savePhotoAndNotify } from "../shared/photoLibrary.js";
+import { savePhotoAndNotify, saveExport } from "../shared/photoLibrary.js";
 import { PhotoLibraryModal } from "../shared/PhotoLibraryModal.jsx";
 
 // ==================== COLOR SYSTEM ====================
@@ -1401,12 +1401,15 @@ export default function CalendarBuilder() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       const prefix = mode === "preview" ? "CGE_Preview" : "CGE";
-      a.download = `${prefix}_${pd.day}_${friDate.replace("/", "-")}_P${pi + 1}.png`;
+      const filename = `${prefix}_${pd.day}_${friDate.replace("/", "-")}_P${pi + 1}.png`;
+      a.download = filename;
       a.href = url;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
+      saveExport(blob, { sourceTool: "calendar", sourceMode: mode === "preview" ? "preview" : "slide", name: filename })
+        .catch(err => console.warn("Export archive failed:", err));
     }, "image/png");
   };
 
@@ -1445,12 +1448,15 @@ export default function CalendarBuilder() {
     const zipBlob = new Blob(zipParts, { type: "application/zip" });
     const url = URL.createObjectURL(zipBlob);
     const a = document.createElement("a");
-    a.download = `CGE_Weekend_${friDate.replace("/", "-")}.zip`;
+    const zipName = `CGE_Weekend_${friDate.replace("/", "-")}.zip`;
+    a.download = zipName;
     a.href = url;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+    saveExport(zipBlob, { sourceTool: "calendar", sourceMode: "weekend-zip", name: zipName, kind: "archive" })
+      .catch(err => console.warn("Export archive failed:", err));
   };
 
   const si = SIZES[sz]; const pw = 390, ph = pw / (si.w / si.h);

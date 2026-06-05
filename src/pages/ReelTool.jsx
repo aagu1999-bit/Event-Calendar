@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import * as XLSX from "xlsx";
 import { useEventsStore } from "../store";
 import { EMOJI_MAP, getEmoji, parseRegion } from "../shared/parseEvents";
+import { saveExport } from "../shared/photoLibrary.js";
 
 // Aliases so the existing minified call sites (EM, gE, pR) still work.
 const EM = EMOJI_MAP;
@@ -423,7 +424,7 @@ export default function ReelTool(){
       const stream=cv.captureStream(30);const chunks=[];
       const rec=new MediaRecorder(stream,{mimeType:"video/webm;codecs=vp9"});
       rec.ondataavailable=e=>{if(e.data.size>0)chunks.push(e.data);};
-      rec.onstop=()=>{const blob=new Blob(chunks,{type:"video/webm"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.download=`CGE_Reel_${day}_${friDate.replace("/","-")}.webm`;a.href=url;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);setRecording(false);};
+      rec.onstop=()=>{const blob=new Blob(chunks,{type:"video/webm"});const url=URL.createObjectURL(blob);const a=document.createElement("a");const filename=`CGE_Reel_${day}_${friDate.replace("/","-")}.webm`;a.download=filename;a.href=url;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);setRecording(false);saveExport(blob,{sourceTool:"reel",sourceMode:day,name:filename,kind:"archive"}).catch(err=>console.warn("Export archive failed:",err));};
       recRef.current=rec;rec.start();setRecording(true);startRef.current=null;setPlaying(true);
     }catch(err){alert("Video recording not supported here. Use screen recording instead.");}
   };

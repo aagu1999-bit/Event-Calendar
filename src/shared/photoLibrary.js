@@ -9,8 +9,9 @@
 // to load full-size blobs.
 
 const DB_NAME = "cge-photo-library";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE = "photos";
+const STORE_EXPORTS = "exports";
 
 let _dbPromise = null;
 
@@ -29,6 +30,11 @@ function openDB() {
         os.createIndex("createdAt", "createdAt");
         os.createIndex("sourceTool", "sourceTool");
       }
+      if (!db.objectStoreNames.contains(STORE_EXPORTS)) {
+        const os = db.createObjectStore(STORE_EXPORTS, { keyPath: "id" });
+        os.createIndex("createdAt", "createdAt");
+        os.createIndex("sourceTool", "sourceTool");
+      }
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -38,6 +44,10 @@ function openDB() {
 
 function tx(mode) {
   return openDB().then(db => db.transaction(STORE, mode).objectStore(STORE));
+}
+
+function txExports(mode) {
+  return openDB().then(db => db.transaction(STORE_EXPORTS, mode).objectStore(STORE_EXPORTS));
 }
 
 function awaitRequest(req) {
@@ -188,3 +198,122 @@ export const deletePhotoAndNotify = async (...args) => {
   await _deleteBare(...args);
   notify();
 };
+
+// ===== Exports store =====
+// Every rendered PNG or ZIP the user downloads from any tool also lands
+// here, keyed by source tool / mode / filename. Lets them re-download
+// anything they've made before without keeping it on disk.
+//
+// Record shape:
+//   { id, blob, thumb?, mime, name, sourceTool, sourceMode, width?, height?,
+//     bytes, kind, createdAt }
+// `kind` is "image" or "archive" — drives whether the gallery shows a
+// thumbnail or a generic file tile.
+
+const _exportListeners = new Set();
+export function onExportsChange(fn) {
+  _exportListeners.add(fn);
+  return () => _exportListeners.delete(fn);
+}
+function notifyExports() { _exportListeners.forEach(fn => { try { fn(); } catch {} }); }
+
+export async function saveExport(blob, opts = {}) {
+  const {
+    sourceTool = "unknown",
+    sourceMode = "",
+    name = "export",
+    kind: kindOverride,
+    nowMs = Date.now(),
+  } = opts;
+  if (!blob || !(blob instanceof Blob)) throw new Error("saveExport requires a Blob");
+  const mime = blob.type || "application/octet-stream";
+  const kind = kindOverride || (mime.startsWith("image/") ? "image" : "archive");
+  let thumb = null, width = 0, height = 0;
+  if (kind === "image") {
+    try {
+      const t = await makeThumb(blob);
+      thumb = t.thumb; width = t.width; height = t.height;
+    } catch (e) {
+      console.warn("Export thumb failed:", e);
+    }
+  }
+  const id = (typeof crypto !== "undefined" && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : `e_${nowMs}_${Math.random().toString(36).slice(2, 10)}`;
+  const record = {
+    id,
+    blob,
+    thumb,
+    mime,
+    name: String(name).slice(0, 240),
+    sourceTool,
+    sourceMode,
+    width,
+    height,
+    bytes: blob.size || 0,
+    kind,
+    createdAt: nowMs,
+  };
+  const store = await txExports("readwrite");
+  await awaitRequest(store.put(record));
+  notifyExports();
+  return id;
+}
+
+export async function listExports(filter = {}) {
+  const store = await txExports("readonly");
+  const all = await awaitRequest(store.getAll());
+  all.sort((a, b) => b.createdAt - a.createdAt);
+  return all
+    .filter(r => !filter.sourceTool || r.sourceTool === filter.sourceTool)
+    .filter(r => !filter.kind || r.kind === filter.kind)
+    .map(r => ({
+      id: r.id,
+      thumbUrl: r.thumb ? URL.createObjectURL(r.thumb) : null,
+      name: r.name,
+      sourceTool: r.sourceTool,
+      sourceMode: r.sourceMode,
+      width: r.width,
+      height: r.height,
+      bytes: r.bytes,
+      kind: r.kind,
+      mime: r.mime,
+      createdAt: r.createdAt,
+    }));
+}
+
+export async function loadExportBlob(id) {
+  const store = await txExports("readonly");
+  const rec = await awaitRequest(store.get(id));
+  return rec ? rec.blob : null;
+}
+
+export async function deleteExport(id) {
+  const store = await txExports("readwrite");
+  await awaitRequest(store.delete(id));
+  notifyExports();
+}
+
+export async function exportsUsageBytes() {
+  const store = await txExports("readonly");
+  const all = await awaitRequest(store.getAll());
+  return all.reduce((sum, r) => sum + (r.bytes || 0) + (r.thumb?.size || 0), 0);
+}
+
+// Wrap a save + browser-download pipeline: the host's existing download
+// code calls this helper instead of new Blob/createObjectURL by hand, so
+// the file goes to the user AND gets archived in the library in one call.
+export async function downloadAndArchive(blob, filename, opts) {
+  // Fire the save in parallel with the download — failures don't block.
+  const savePromise = saveExport(blob, { ...opts, name: filename })
+    .catch(err => console.warn("Export archive failed:", err));
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  return savePromise;
+}

@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import JSZip from "jszip";
 import { useEventsStore } from "../store";
 import { generateCaptions } from "../shared/gemini";
-import { savePhotoAndNotify } from "../shared/photoLibrary.js";
+import { savePhotoAndNotify, saveExport } from "../shared/photoLibrary.js";
 import { PhotoLibraryModal } from "../shared/PhotoLibraryModal.jsx";
 
 const COLORS = {
@@ -770,7 +770,17 @@ export default function MediaTool() {
     else if(mode==="features") renderFeatures(cv,{featuresTitle,features,accent,bgKey,dots,totalDots,photo:textPhoto,opacity:textOpacity});
     else if(mode==="photo") renderPhotoCaption(cv,{photo:captionPhoto,caption,captionSecondary,alignment:captionAlign,accent,bgKey,dots,totalDots});
     const exportCv = wrapForExport(cv, exportRatio);
-    exportCv.toBlob(blob=>{const url=URL.createObjectURL(blob);const a=document.createElement("a");a.download=`CGE_${mode}_slide_${exportRatio.replace(":","x")}.png`;a.href=url;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);},"image/png");
+    exportCv.toBlob(blob=>{
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement("a");
+      const filename=`CGE_${mode}_slide_${exportRatio.replace(":","x")}.png`;
+      a.download=filename;
+      a.href=url;
+      document.body.appendChild(a);a.click();document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      saveExport(blob, { sourceTool: "media", sourceMode: `${mode}-${exportRatio}`, name: filename })
+        .catch(err => console.warn("Export archive failed:", err));
+    },"image/png");
   };
 
   const MODES=[["cover","Cover"],["list","List"],["stat","Stat"],["text","Text"],["cta","CTA"],["features","Features"],["photo","Photo"]];
@@ -1026,9 +1036,12 @@ export default function MediaTool() {
       const zipBlob = await zip.generateAsync({ type: "blob" });
       const url = URL.createObjectURL(zipBlob);
       const a = document.createElement("a");
-      a.href = url; a.download = `CGE_custom_carousel_${Date.now()}.zip`;
+      const zipName = `CGE_custom_carousel_${exportRatio.replace(":","x")}.zip`;
+      a.href = url; a.download = zipName;
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
       URL.revokeObjectURL(url);
+      saveExport(zipBlob, { sourceTool: "media", sourceMode: `carousel-${exportRatio}`, name: zipName, kind: "archive" })
+        .catch(err => console.warn("Export archive failed:", err));
     } catch (err) {
       console.error(err); alert("Export failed — see console");
     } finally {

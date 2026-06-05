@@ -1,7 +1,7 @@
 import { useState, useRef } from "react";
 import { toPng } from "html-to-image";
 import { useEventsStore } from "../store";
-import { savePhotoAndNotify } from "../shared/photoLibrary.js";
+import { savePhotoAndNotify, saveExport } from "../shared/photoLibrary.js";
 import { PhotoLibraryModal } from "../shared/PhotoLibraryModal.jsx";
 
 // ==================== CONTROL-PANE STYLES & PRIMITIVES ====================
@@ -1573,6 +1573,14 @@ export default function FlyerBuilder() {
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
+      // Archive a copy to the export library so the user can re-download it
+      // without re-rendering. dataUrl → Blob via fetch keeps it simple.
+      try {
+        const blob = await (await fetch(dataUrl)).blob();
+        await saveExport(blob, { sourceTool: "flyer", sourceMode: template || "", name: filename });
+      } catch (err) {
+        console.warn("Export archive failed:", err);
+      }
     } catch (err) {
       console.error("PNG export failed:", err);
       alert("PNG export failed — see console. Some CSS features (clip-path on Headliner) can be flaky; try a different template or photo.");
