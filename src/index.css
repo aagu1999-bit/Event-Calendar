@@ -133,16 +133,27 @@ body {
   .cge-cal-layout {
     grid-template-columns: 1fr !important;
   }
-  /* Keep the canvas panel mounted — page picker + Download buttons live
-     here and are useful on phones. Only the visual preview canvas gets
-     hidden; downloads still produce the full 1080×1350 PNG offscreen. */
-  .cge-cal-canvas-preview {
-    display: none !important;
+  /* Shrink the outer page padding so the event list claims the full
+     width — gains ~30px on either side on a phone. */
+  .cge-cal-page {
+    padding: 0.6rem !important;
+  }
+  /* The preview canvas is shown now (user requested). The bitmap stays
+     at 390px wide so it round-trips into a real PNG on Download, but the
+     displayed size scales down to viewport width. */
+  .cge-cal-canvas-preview canvas {
+    max-width: 100% !important;
+    height: auto !important;
   }
   /* Bigger download buttons on phone — make sure they stretch wide and
      hit the 44px tap target Apple recommends. */
   .cge-cal-canvas > div:last-of-type button {
     min-height: 44px !important;
+  }
+  /* Let the event list use more vertical room — the canvas no longer
+     competes for that space at the same width. */
+  .cge-cal-event-scroll {
+    max-height: 60vh !important;
   }
   /* The event list row's right-edge buttons (★ ✎ ×) are tiny — bump
      their hit area for thumbs. */
