@@ -5,6 +5,7 @@ import { EMOJI_MAP, getEmoji as getEmojiShared, parseRegion as parseRegionShared
 import { UInput, UTextarea, todaysFridayMD } from "../shared/inputs.jsx";
 import { savePhotoAndNotify, saveExport } from "../shared/photoLibrary.js";
 import { PhotoLibraryModal } from "../shared/PhotoLibraryModal.jsx";
+import { ExportLibraryModal } from "../shared/ExportLibraryModal.jsx";
 
 // ==================== COLOR SYSTEM ====================
 const COLORS = {
@@ -1414,11 +1415,10 @@ export default function CalendarBuilder() {
     events: events.map(e => ({ ...e })),
   });
 
-  // Apply a pending restore once on mount. Confirm before clobbering the
-  // current events list — the user might have unsaved work in there.
-  const consumeRestore = useRestoreStore(s => s.consumeRestore);
-  useEffect(() => {
-    const snap = consumeRestore("calendar");
+  // Apply a Calendar snapshot in-place. Used by the once-on-mount
+  // useRestoreStore path (clicked ✎ in the Library tab) and by the new
+  // in-tab 📚 Library button.
+  const applyCalendarSnapshot = (snap) => {
     if (!snap) return;
     // Styling fields apply unconditionally.
     if (snap.friDate)        setFriDate(snap.friDate);
@@ -1429,15 +1429,22 @@ export default function CalendarBuilder() {
     if (snap.previewColorKey) setPreviewColorKey(snap.previewColorKey);
     if (snap.dayColors)      setDayColors(snap.dayColors);
     if (typeof snap.bgOpacity === "number") setBgOpacity(snap.bgOpacity);
-    // Events — confirm before replacing if the current list is non-empty
-    // and different. Skip the prompt when the store is empty (no risk).
+    // Events — confirm before replacing if the current list is non-empty.
     if (Array.isArray(snap.events) && snap.events.length > 0) {
       const proceed = events.length === 0
         || window.confirm(`Restore the ${snap.events.length} events from this export? Your current ${events.length}-event list will be replaced.`);
       if (proceed) setEvents(() => snap.events.map(e => ({ ...e })));
     }
+  };
+
+  const consumeRestore = useRestoreStore(s => s.consumeRestore);
+  useEffect(() => {
+    applyCalendarSnapshot(consumeRestore("calendar"));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // In-tab exports browser — 📚 button next to the friday-date input.
+  const [exportLibOpen, setExportLibOpen] = useState(false);
 
   const dl = (pi) => {
     const cv = document.createElement("canvas");
@@ -1656,6 +1663,7 @@ export default function CalendarBuilder() {
                 <button onClick={() => setSel(sel.size === events.length && events.length > 0 ? new Set() : new Set(events.map(e => e.id)))} style={B}>{sel.size === events.length && events.length > 0 ? "Deselect" : "Sel All"}</button>
                 <button onClick={() => setShowEd(!showEd)} style={B}>Bulk Editor</button>
                 <button onClick={() => fileRef.current?.click()} style={B}>Upload File</button>
+                <button onClick={() => setExportLibOpen(true)} title="Browse saved Calendar exports and reopen one to edit" style={{ ...B, background: "rgba(192,132,252,0.12)", color: "#C084FC" }}>📚 Open saved</button>
                 <input ref={fileRef} type="file" accept=".csv,.tsv,.txt,.xlsx,.xls" onChange={handleFile} style={{ display: "none" }} />
                 <button onClick={() => { setEditId(null); setNev({ day: "Fri", time: "", name: "", venue: "", area: "", region: "North", type: "", igHandle: "", featured: false }); setShowAdd(!showAdd); }} style={{ ...B, background: "rgba(250,204,21,0.15)", color: "#FACC15" }}>+ Add</button>
               </div>
@@ -1935,6 +1943,14 @@ export default function CalendarBuilder() {
         onPick={onLibraryPick}
         outputAs="image"
         initialFilter="calendar"
+      />
+      <ExportLibraryModal
+        open={exportLibOpen}
+        onClose={() => setExportLibOpen(false)}
+        onPick={applyCalendarSnapshot}
+        sourceTool="calendar"
+        title="Saved Calendars"
+        hint="Click any to reopen it — events + styling restore here in this tab."
       />
     </div>
   );

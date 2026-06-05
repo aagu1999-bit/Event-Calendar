@@ -3,6 +3,7 @@ import { toPng } from "html-to-image";
 import { useEventsStore, useRestoreStore } from "../store";
 import { savePhotoAndNotify, saveExport } from "../shared/photoLibrary.js";
 import { PhotoLibraryModal } from "../shared/PhotoLibraryModal.jsx";
+import { ExportLibraryModal } from "../shared/ExportLibraryModal.jsx";
 
 // ==================== CONTROL-PANE STYLES & PRIMITIVES ====================
 // Defined at module scope (NOT inside FlyerBuilder) so React doesn't
@@ -1574,9 +1575,7 @@ export default function FlyerBuilder() {
     bgSize, titleSize, noPhotoStyle, goldenFlavor, watermark,
   });
 
-  const consumeRestore = useRestoreStore(s => s.consumeRestore);
-  useEffect(() => {
-    const snap = consumeRestore("flyer");
+  const applyFlyerSnapshot = (snap) => {
     if (!snap) return;
     if (snap.data)         setData(d => ({ ...d, ...snap.data }));
     if (snap.template)     setTemplate(snap.template);
@@ -1592,8 +1591,15 @@ export default function FlyerBuilder() {
     if (snap.noPhotoStyle) setNoPhotoStyle(snap.noPhotoStyle);
     if (snap.goldenFlavor) setGoldenFlavor(snap.goldenFlavor);
     if (typeof snap.watermark === "boolean") setWatermark(snap.watermark);
+  };
+
+  const consumeRestore = useRestoreStore(s => s.consumeRestore);
+  useEffect(() => {
+    applyFlyerSnapshot(consumeRestore("flyer"));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const [exportLibOpen, setExportLibOpen] = useState(false);
 
   // Rasterize the flyer surface DOM to a 2160×2700 PNG (2x density of the
   // 1080×1350 layout — sharper on retina + IG re-compression).
@@ -1667,7 +1673,11 @@ export default function FlyerBuilder() {
         overflowY: "auto",
         maxHeight: "calc(100vh - 60px)",
       }}>
-        <h2 style={{ fontSize: "0.7rem", letterSpacing: "2px", textTransform: "uppercase", color: "#E5BC4F", marginBottom: "4px" }}>Flyer Builder</h2>
+        <div style={{ display: "flex", alignItems: "baseline", gap: "10px", marginBottom: "4px" }}>
+          <h2 style={{ fontSize: "0.7rem", letterSpacing: "2px", textTransform: "uppercase", color: "#E5BC4F", margin: 0 }}>Flyer Builder</h2>
+          <div style={{ flex: 1 }} />
+          <button onClick={() => setExportLibOpen(true)} title="Browse saved flyer exports and reopen one to edit" style={{ ...B, background: "rgba(192,132,252,0.12)", color: "#C084FC", padding: "4px 10px" }}>📚 Open saved</button>
+        </div>
         <div style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.4)", letterSpacing: "1px", marginBottom: "20px" }}>Static mockup · iterate visually</div>
 
         <Section>
@@ -2148,6 +2158,14 @@ export default function FlyerBuilder() {
         onPick={onLibraryPick}
         outputAs="dataUrl"
         initialFilter="flyer"
+      />
+      <ExportLibraryModal
+        open={exportLibOpen}
+        onClose={() => setExportLibOpen(false)}
+        onPick={applyFlyerSnapshot}
+        sourceTool="flyer"
+        title="Saved Flyers"
+        hint="Click any flyer to reopen it — template, text, photo, fonts restore here."
       />
     </div>
   );
