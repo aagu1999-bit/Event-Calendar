@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from "react-router-dom";
 import CalendarBuilder from "./pages/CalendarBuilder.jsx";
 import NewsletterBuilder from "./pages/NewsletterBuilder.jsx";
@@ -10,6 +10,8 @@ import ReviewQueue from "./pages/ReviewQueue.jsx";
 import Regulars from "./pages/Regulars.jsx";
 import { useEventsStore } from "./store";
 import { exportWorkspace, previewWorkspace, importWorkspace, workspaceFilename } from "./shared/workspaceSync.js";
+import { checkCloudAvailable, cloudSave, cloudLoad } from "./shared/cloudSync.js";
+import { CloudWorkspaceModal } from "./shared/CloudWorkspaceModal.jsx";
 
 // Wrap a CSV cell — quote if it contains a comma, quote, or newline.
 const csvCell = (v) => {
@@ -43,6 +45,69 @@ function Nav() {
   const clear = useEventsStore(s => s.clearEvents);
   const wsFileRef = useRef(null);
   const [wsBusy, setWsBusy] = useState(false);
+  // Cloud sync is only available when running through `npm run dev` (Node
+  // + Vite middleware). In the static deployed build there's no Express
+  // server, so we probe /api/health on boot and only show the cloud
+  // buttons if it answers.
+  const [cloudOk, setCloudOk] = useState(false);
+  const [cloudPickOpen, setCloudPickOpen] = useState(false);
+  useEffect(() => {
+    let live = true;
+    checkCloudAvailable().then(ok => { if (live) setCloudOk(ok); });
+    return () => { live = false; };
+  }, []);
+
+  const onCloudSave = async () => {
+    if (wsBusy) return;
+    const defaultName = workspaceFilename();
+    const userName = prompt(
+      "Save this workspace to the Repl as:",
+      defaultName.replace(/\.cgework\.zip$/, "")
+    );
+    if (!userName) return;
+    const name = userName.endsWith(".cgework.zip") ? userName
+               : userName.endsWith(".zip") ? userName
+               : `${userName}.cgework.zip`;
+    setWsBusy(true);
+    try {
+      const blob = await exportWorkspace();
+      await cloudSave(name, blob);
+      alert(`Saved ${name} to the Repl (${(blob.size / 1024 / 1024).toFixed(1)} MB).`);
+    } catch (err) {
+      console.error(err);
+      alert("Save to Repl failed: " + (err.message || err));
+    } finally {
+      setWsBusy(false);
+    }
+  };
+
+  const onCloudPick = async (item) => {
+    setCloudPickOpen(false);
+    if (wsBusy) return;
+    setWsBusy(true);
+    try {
+      const blob = await cloudLoad(item.name);
+      const { manifest, zip, summary } = await previewWorkspace(blob);
+      const when = new Date(summary.exportedAt).toLocaleString();
+      const msg =
+        `Replace this browser's workspace with the contents of\n\n${item.name}\n\n` +
+        `Saved on the Repl on ${new Date(item.mtime).toLocaleString()}\n` +
+        `Original workspace exported ${when}\n\n` +
+        `• ${summary.events} event${summary.events === 1 ? "" : "s"}\n` +
+        `• ${summary.regulars} weekly regular${summary.regulars === 1 ? "" : "s"}\n` +
+        `• ${summary.photos} saved photo${summary.photos === 1 ? "" : "s"}\n` +
+        `• ${summary.exports} saved export${summary.exports === 1 ? "" : "s"}\n\n` +
+        `Your current data will be OVERWRITTEN — there's no undo.`;
+      if (!confirm(msg)) return;
+      await importWorkspace({ manifest, zip });
+      alert(`Loaded.\n${summary.events} events · ${summary.regulars} regulars · ${summary.photos} photos · ${summary.exports} exports.\n\nReload the page to be safe.`);
+    } catch (err) {
+      console.error(err);
+      alert("Load from Repl failed: " + (err.message || err));
+    } finally {
+      setWsBusy(false);
+    }
+  };
 
   const onExportWorkspace = async () => {
     if (wsBusy) return;
@@ -144,6 +209,49 @@ function Nav() {
       }}>
         {eventCount} event{eventCount === 1 ? "" : "s"} loaded
       </div>
+      {/* Cloud sync (Repl-side persistence). Hidden when the static build
+          is served without the Express server. */}
+      {cloudOk && (
+        <>
+          <button
+            onClick={onCloudSave}
+            disabled={wsBusy}
+            title="Save the current workspace to a file on the Repl — teammates can load it from any browser."
+            style={{
+              padding: "4px 10px",
+              background: "rgba(99,179,237,0.12)",
+              border: "1px solid rgba(99,179,237,0.35)",
+              borderRadius: "4px",
+              color: "#63B3ED",
+              fontSize: "0.6rem",
+              letterSpacing: "1px",
+              textTransform: "uppercase",
+              cursor: wsBusy ? "wait" : "pointer",
+              opacity: wsBusy ? 0.6 : 1,
+              fontFamily: "inherit",
+            }}
+          >☁️ {wsBusy ? "…" : "Save to Repl"}</button>
+          <button
+            onClick={() => setCloudPickOpen(true)}
+            disabled={wsBusy}
+            title="Browse workspaces saved to this Repl and load one."
+            style={{
+              padding: "4px 10px",
+              background: "rgba(99,179,237,0.06)",
+              border: "1px solid rgba(99,179,237,0.25)",
+              borderRadius: "4px",
+              color: "#63B3ED",
+              fontSize: "0.6rem",
+              letterSpacing: "1px",
+              textTransform: "uppercase",
+              cursor: wsBusy ? "wait" : "pointer",
+              opacity: wsBusy ? 0.6 : 1,
+              fontFamily: "inherit",
+            }}
+          >Load from Repl</button>
+        </>
+      )}
+
       {/* Workspace sync — always available so teammates can import even on
           a fresh browser with zero events. */}
       <button
@@ -228,6 +336,11 @@ function Nav() {
           </button>
         </>
       )}
+      <CloudWorkspaceModal
+        open={cloudPickOpen}
+        onClose={() => setCloudPickOpen(false)}
+        onPick={onCloudPick}
+      />
     </nav>
   );
 }

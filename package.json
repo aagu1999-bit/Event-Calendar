@@ -4,11 +4,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --host 0.0.0.0 --port 5000",
+    "dev": "node server.js",
+    "vite-only": "vite --host 0.0.0.0 --port 5000",
     "build": "vite build",
+    "start": "NODE_ENV=production node server.js",
     "preview": "vite preview"
   },
   "dependencies": {
+    "express": "^4.22.2",
     "html-to-image": "^1.11.13",
     "jszip": "^3.10.1",
     "react": "^18.3.1",

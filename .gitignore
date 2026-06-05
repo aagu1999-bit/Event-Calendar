@@ -7,3 +7,6 @@ dist
 # Local environment — contains API keys, never commit
 .env.local
 .env.*.local
+
+# Cloud workspace saves (server-side persistence) — never commit user data
+data/
