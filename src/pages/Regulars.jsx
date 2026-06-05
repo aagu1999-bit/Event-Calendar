@@ -332,7 +332,7 @@ export default function Regulars() {
                 is independent of "used / rejected / flagged"; user picks the
                 action (add, open links, reject, flag) here. */}
             {selectedIds.size > 0 && (
-              <div style={{
+              <div className="cge-bulk-bar" style={{
                 display: "flex", gap: "0.4rem", alignItems: "center",
                 padding: "8px 12px", marginBottom: "0.5rem",
                 background: "rgba(52,211,153,0.06)",
@@ -427,7 +427,7 @@ function RegularRow({ r, used, selected, onToggleSel, onUse, onUnuse, onEdit, is
 
   return (
     <>
-      <div style={{
+      <div className="cge-regular-row" style={{
         display: "grid",
         gridTemplateColumns: "26px 44px 1fr 70px 70px 60px 1fr auto",
         gap: "10px",
@@ -451,36 +451,37 @@ function RegularRow({ r, used, selected, onToggleSel, onUse, onUnuse, onEdit, is
       }}>
         <input
           type="checkbox"
+          className="cge-row-check"
           checked={!!selected}
           onChange={onToggleSel}
           title={selected ? "Selected — click to deselect" : "Click to select for a bulk action (add to calendar, open links, …)"}
           style={{ width: 18, height: 18, accentColor: "#E5BC4F", cursor: "pointer" }}
         />
-        <span style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, color: "#C084FC", letterSpacing: "1.5px", fontSize: "0.8rem" }}>
+        <span className="cge-row-day" style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, color: "#C084FC", letterSpacing: "1.5px", fontSize: "0.8rem" }}>
           {r.day.toUpperCase()}
         </span>
 
-        <div style={{ minWidth: 0 }}>
+        <div className="cge-row-info" style={{ minWidth: 0 }}>
           <div style={{ fontSize: "0.82rem", fontWeight: 700, marginBottom: "2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {r.name}
           </div>
           <div style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.55)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {[r.venue, r.area, r.time].filter(Boolean).join(" · ")}
+            {[r.day, r.venue, r.area, r.time].filter(Boolean).join(" · ")}
             {r.igHandle && <span style={{ marginLeft: "8px", color: "#C084FC", fontWeight: 600 }}>@{r.igHandle}</span>}
           </div>
         </div>
 
-        <div style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.5)", textAlign: "center" }}>
+        <div className="cge-row-meta" style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.5)", textAlign: "center" }}>
           <div style={{ fontSize: "0.85rem", fontWeight: 700, color: "#F5F0E8" }}>{r.occurrenceCount}×</div>
           <div style={{ letterSpacing: "1px", textTransform: "uppercase" }}>seen</div>
         </div>
 
-        <div style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.5)", textAlign: "center", letterSpacing: "1px", textTransform: "uppercase" }}>
+        <div className="cge-row-meta" style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.5)", textAlign: "center", letterSpacing: "1px", textTransform: "uppercase" }}>
           <div style={{ fontSize: "0.72rem", color: "#F5F0E8" }}>{formatLastSeen(r.lastSeen)}</div>
           <div>last</div>
         </div>
 
-        <div style={{ textAlign: "center" }}>
+        <div className="cge-row-meta" style={{ textAlign: "center" }}>
           <div style={{ fontSize: "0.9rem", fontWeight: 800, color: confColor }}>{confPct}%</div>
           <div style={{ fontSize: "0.5rem", color: "rgba(245,240,232,0.4)", letterSpacing: "1px", textTransform: "uppercase" }}>conf</div>
           {r.usedCount > 0 && (
@@ -490,7 +491,7 @@ function RegularRow({ r, used, selected, onToggleSel, onUse, onUnuse, onEdit, is
           )}
         </div>
 
-        <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", justifyContent: "flex-start" }}>
+        <div className="cge-row-tags" style={{ display: "flex", gap: "4px", flexWrap: "wrap", justifyContent: "flex-start" }}>
           {r.source === "manual" && (
             <span style={{ padding: "2px 7px", fontSize: "0.55rem", fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", borderRadius: "3px", whiteSpace: "nowrap", background: "rgba(229,188,79,0.12)", color: "#E5BC4F", border: "1px solid rgba(229,188,79,0.3)" }}>MANUAL</span>
           )}
@@ -508,7 +509,7 @@ function RegularRow({ r, used, selected, onToggleSel, onUse, onUnuse, onEdit, is
           ))}
         </div>
 
-        <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
+        <div className="cge-row-actions" style={{ display: "flex", gap: "4px", alignItems: "center" }}>
           {r.postUrl && (
             <a href={r.postUrl} target="_blank" rel="noreferrer" title="Open the original post" style={{
               padding: "5px 9px", background: "rgba(229,188,79,0.08)", color: "#E5BC4F",
