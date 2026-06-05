@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import * as XLSX from "xlsx";
 import { useEventsStore, useRestoreStore } from "../store";
-import { EMOJI_MAP, getEmoji as getEmojiShared, parseRegion as parseRegionShared } from "../shared/parseEvents";
+import { EMOJI_MAP, getEmoji as getEmojiShared, parseRegion as parseRegionShared, normalizeHandle } from "../shared/parseEvents";
 import { UInput, UTextarea, todaysFridayMD } from "../shared/inputs.jsx";
 import { savePhotoAndNotify, saveExport } from "../shared/photoLibrary.js";
 import { PhotoLibraryModal } from "../shared/PhotoLibraryModal.jsx";
@@ -166,6 +166,8 @@ const COL_PATTERNS = {
   area: /^(area|city|town|neighborhood|hood|municipality|address|where|locale)$/i,
   region: /^(region|zone|section|nj\s*region|part|area\s*region|region\s*nj|nj\s*area)$/i,
   type: /^(type|category|genre|event\s*type|event\s*category|kind)$/i,
+  // Instagram handle column for IG-tag tracking. Stays off-slide.
+  igHandle: /^(ig\s*handle|instagram|instagram\s*handle|ig\s*(account|user|name)|handle|tag|tags)$/i,
   _ignore: /^(ticket|link|url|price|cost|notes|description|promoter|capacity|id|#|number|status|flyer|image|phone|email|contact|website|rsvp|age|dress\s*code)$/i,
 };
 
@@ -181,7 +183,7 @@ function matchColumns(headers) {
     }
   });
   // Second pass: fuzzy keyword match
-  const fuzzy = { date: /\bdate\b/i, day: /\bday\b|\bweekday\b/i, time: /\btime\b|\bhour\b/i, name: /\bevent\s*name\b|\btitle\b/i, venue: /\bvenue\b|\blocation\b|\bplace\b/i, area: /\bcity\b|\btown\b|\bneighborhood\b/i, region: /\bregion\b|\bzone\b|\bsection\b/i, type: /\btype\b|\bcategory\b|\bgenre\b/i };
+  const fuzzy = { date: /\bdate\b/i, day: /\bday\b|\bweekday\b/i, time: /\btime\b|\bhour\b/i, name: /\bevent\s*name\b|\btitle\b/i, venue: /\bvenue\b|\blocation\b|\bplace\b/i, area: /\bcity\b|\btown\b|\bneighborhood\b/i, region: /\bregion\b|\bzone\b|\bsection\b/i, type: /\btype\b|\bcategory\b|\bgenre\b/i, igHandle: /\binstagram\b|\big\b|\bhandle\b|\btag\b/i };
   headers.forEach((h, i) => {
     const clean = String(h).trim();
     if (Object.values(map).includes(i)) return;
@@ -212,7 +214,7 @@ function rowToEvent(row, colMap, defaultRegion) {
   return {
     id: Date.now() + Math.random() * 100000,
     day, time: formatTime(rawTime), name: get("name"), venue: get("venue"), area: get("area"),
-    region, type, emoji: getEmoji(type), featured: false,
+    region, type, emoji: getEmoji(type), igHandle: normalizeHandle(get("igHandle")), featured: false,
   };
 }
 
@@ -981,7 +983,7 @@ export default function CalendarBuilder() {
   const [edTxt, setEdTxt] = useState("");
   const [showAdd, setShowAdd] = useState(false);
   const [editId, setEditId] = useState(null);
-  const [nev, setNev] = useState({ day: "Fri", time: "", name: "", venue: "", area: "", region: "North", type: "", featured: false });
+  const [nev, setNev] = useState({ day: "Fri", time: "", name: "", venue: "", area: "", region: "North", type: "", igHandle: "", featured: false });
   const [bulkReg, setBulkReg] = useState("");
   const [bulkDay, setBulkDay] = useState("");
   const [dismissed, setDismissed] = useState(new Set());
@@ -993,7 +995,7 @@ export default function CalendarBuilder() {
   // Column mapping
   const [rawRows, setRawRows] = useState(null);
   const [colHeaders, setColHeaders] = useState([]);
-  const [colMap, setColMap] = useState({ date: "", day: "", time: "", name: "", venue: "", area: "", region: "", type: "" });
+  const [colMap, setColMap] = useState({ date: "", day: "", time: "", name: "", venue: "", area: "", region: "", type: "", igHandle: "" });
   const [showMapping, setShowMapping] = useState(false);
   const COL_FIELDS = [
     { key: "date", label: "Date", required: false },
@@ -1004,6 +1006,7 @@ export default function CalendarBuilder() {
     { key: "area", label: "City", required: false },
     { key: "region", label: "Region", required: false },
     { key: "type", label: "Event Type", required: false },
+    { key: "igHandle", label: "IG Handle", required: false },
   ];
   // Emoji picker
   const [emojiPickId, setEmojiPickId] = useState(null);
@@ -1280,9 +1283,12 @@ export default function CalendarBuilder() {
   const addEv = () => {
     if (!nev.time || !nev.name) return;
     const emoji = getEmoji(nev.type);
-    if (editId !== null) { setEvents(p => p.map(e => e.id === editId ? { ...nev, emoji, id: editId } : e)); setEditId(null); }
-    else { setEvents(p => [...p, { ...nev, emoji, id: Date.now() }]); }
-    setNev({ day: nev.day, time: "", name: "", venue: "", area: "", region: nev.region, type: "", featured: false });
+    // Normalize the IG handle on save so the user can paste a full URL or
+    // a "@foo" string and we still store a bare canonical handle.
+    const cleaned = { ...nev, igHandle: normalizeHandle(nev.igHandle) };
+    if (editId !== null) { setEvents(p => p.map(e => e.id === editId ? { ...cleaned, emoji, id: editId } : e)); setEditId(null); }
+    else { setEvents(p => [...p, { ...cleaned, emoji, id: Date.now() }]); }
+    setNev({ day: nev.day, time: "", name: "", venue: "", area: "", region: nev.region, type: "", igHandle: "", featured: false });
     setShowAdd(false);
   };
 
@@ -1321,7 +1327,7 @@ export default function CalendarBuilder() {
       if (!day && hasDateCol) { const di = parseDateToDay(g("date")); if (di) day = di.day; }
       if (!day) day = "Fri";
       const type = g("type"), region = parseRegion(g("region")) || "North";
-      return { id: Date.now() + Math.random() * 100000, day, time: formatTime(g("time")), name: g("name"), venue: g("venue"), area: g("area"), region, type, emoji: getEmoji(type), featured: false };
+      return { id: Date.now() + Math.random() * 100000, day, time: formatTime(g("time")), name: g("name"), venue: g("venue"), area: g("area"), region, type, emoji: getEmoji(type), igHandle: normalizeHandle(g("igHandle")), featured: false };
     }).filter(e => e.name && e.day !== null);
     if (parsed.length === 0) { alert("No valid events found with this mapping."); return; }
     const { added, skipped } = addEvents(parsed);
@@ -1651,7 +1657,7 @@ export default function CalendarBuilder() {
                 <button onClick={() => setShowEd(!showEd)} style={B}>Bulk Editor</button>
                 <button onClick={() => fileRef.current?.click()} style={B}>Upload File</button>
                 <input ref={fileRef} type="file" accept=".csv,.tsv,.txt,.xlsx,.xls" onChange={handleFile} style={{ display: "none" }} />
-                <button onClick={() => { setEditId(null); setNev({ day: "Fri", time: "", name: "", venue: "", area: "", region: "North", type: "", featured: false }); setShowAdd(!showAdd); }} style={{ ...B, background: "rgba(250,204,21,0.15)", color: "#FACC15" }}>+ Add</button>
+                <button onClick={() => { setEditId(null); setNev({ day: "Fri", time: "", name: "", venue: "", area: "", region: "North", type: "", igHandle: "", featured: false }); setShowAdd(!showAdd); }} style={{ ...B, background: "rgba(250,204,21,0.15)", color: "#FACC15" }}>+ Add</button>
               </div>
             </div>
 
@@ -1740,6 +1746,15 @@ export default function CalendarBuilder() {
                   <select value={nev.region} onChange={e => setNev({ ...nev, region: e.target.value })} style={I}>{REGIONS.map(r => <option key={r}>{r}</option>)}</select>
                   <UInput value={nev.type} onChange={e => setNev({ ...nev, type: e.target.value })} placeholder="Type" style={I} />
                 </div>
+                <div style={{ display: "flex", gap: "0.3rem", alignItems: "center", marginBottom: "0.3rem" }}>
+                  <span style={{ fontSize: "0.55rem", color: "rgba(192,132,252,0.7)", fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", minWidth: 22 }}>IG</span>
+                  <input
+                    value={nev.igHandle || ""}
+                    onChange={e => setNev({ ...nev, igHandle: e.target.value })}
+                    placeholder="@handle to tag (won't show on slide)"
+                    style={{ ...I, flex: 1, color: "#C084FC" }}
+                  />
+                </div>
                 <div style={{ display: "flex", gap: "0.3rem", alignItems: "center" }}>
                   <label style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.4)", display: "flex", alignItems: "center", gap: "4px", cursor: "pointer" }}><input type="checkbox" checked={nev.featured} onChange={e => setNev({ ...nev, featured: e.target.checked })} /> CGE Pick</label>
                   <span style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.2)" }}>Emoji: {getEmoji(nev.type)}</span>
@@ -1820,7 +1835,10 @@ export default function CalendarBuilder() {
                     style={{ flex: 1, minWidth: 0, cursor: "pointer" }}
                   >
                     <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.58rem", fontWeight: 700, textTransform: "uppercase", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", margin: 0 }}>{ev.name || "(no name)"}</p>
-                    <p style={{ fontSize: "0.48rem", color: "rgba(245,240,232,0.25)", margin: 0 }}>{ev.venue || "(no venue)"}{ev.area ? ` · ${ev.area}` : ""}</p>
+                    <p style={{ fontSize: "0.48rem", color: "rgba(245,240,232,0.25)", margin: 0 }}>
+                      {ev.venue || "(no venue)"}{ev.area ? ` · ${ev.area}` : ""}
+                      {ev.igHandle && <span style={{ marginLeft: "5px", color: "#C084FC", fontWeight: 600 }}>@{ev.igHandle}</span>}
+                    </p>
                   </div>
                   <span style={{ fontSize: "0.45rem", color: "rgba(245,240,232,0.2)", minWidth: 36 }}>{ev.region}</span>
                   {/* Warning badges — clickable to scroll to partner */}

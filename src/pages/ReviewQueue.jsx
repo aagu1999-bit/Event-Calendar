@@ -4,6 +4,7 @@ import { useEventsStore, useRegularsStore } from "../store";
 import { parseRows, DAYFUL, getEmoji } from "../shared/parseEvents";
 import { computeWarnings, findFlagPartners } from "../shared/validateEvents";
 import { detectRegulars } from "../shared/regulars";
+import { normalizeHandle } from "../shared/parseEvents";
 import { UInput } from "../shared/inputs.jsx";
 
 // Flag glossary — shown in the collapsible cheat sheet. Order matters
@@ -479,18 +480,22 @@ export default function ReviewQueue() {
   const startEdit = (ev) => {
     setEditingId(ev.id);
     setEditDraft({
-      name:   ev.name   || "",
-      day:    ev.day    || "Fri",
-      time:   ev.time   || "",
-      venue:  ev.venue  || "",
-      area:   ev.area   || "",
-      region: ev.region || "North",
-      type:   ev.type   || "",
+      name:     ev.name     || "",
+      day:      ev.day      || "Fri",
+      time:     ev.time     || "",
+      venue:    ev.venue    || "",
+      area:     ev.area     || "",
+      region:   ev.region   || "North",
+      type:     ev.type     || "",
+      igHandle: ev.igHandle || "",
     });
   };
   const saveEdit = () => {
     if (!editingId) return;
-    setPending(p => p.map(e => e.id === editingId ? { ...e, ...editDraft } : e));
+    // Normalize handle on save so trailing slashes / URL paste / leading @
+    // collapse into the canonical form.
+    const cleaned = { ...editDraft, igHandle: normalizeHandle(editDraft.igHandle) };
+    setPending(p => p.map(e => e.id === editingId ? { ...e, ...cleaned } : e));
     setEditingId(null);
     setEditDraft({});
   };
@@ -943,6 +948,7 @@ export default function ReviewQueue() {
                       </div>
                       <div style={{ fontSize: "0.65rem", color: "rgba(245,240,232,0.55)" }}>
                         {[ev.venue, ev.area, ev.time].filter(Boolean).join(" · ") || <em>no details</em>}
+                        {ev.igHandle && <span style={{ marginLeft: "8px", color: "#C084FC", fontWeight: 600 }}>@{ev.igHandle}</span>}
                       </div>
                     </div>
                     <span style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.45)", letterSpacing: "1px", textTransform: "uppercase" }}>
@@ -1115,6 +1121,15 @@ export default function ReviewQueue() {
                         </select>
                         <button onClick={cancelEdit} style={B}>Cancel</button>
                         <button onClick={saveEdit} style={Bgold}>Save & re-validate</button>
+                      </div>
+                      <div style={{ display: "flex", gap: "8px", alignItems: "center", marginTop: "8px" }}>
+                        <span style={{ fontSize: "0.55rem", color: "rgba(192,132,252,0.7)", fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", minWidth: 22 }}>IG</span>
+                        <input
+                          value={editDraft.igHandle || ""}
+                          onChange={e => editField("igHandle", e.target.value)}
+                          placeholder="@handle to tag (won't show on slide)"
+                          style={{ ...editInputStyle, flex: 1, color: "#C084FC" }}
+                        />
                       </div>
                     </div>
                   )}

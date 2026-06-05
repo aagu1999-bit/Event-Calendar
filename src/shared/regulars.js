@@ -296,6 +296,7 @@ export function regularToEvent(reg, friDateStr) {
     region: reg.region || "North",
     type: reg.type,
     link: reg.postUrl || "",
+    igHandle: reg.igHandle || "",
     featured: false,
     emoji: "",
     date: eventDate.toISOString().slice(0, 10),

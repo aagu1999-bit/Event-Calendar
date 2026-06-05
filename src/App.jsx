@@ -17,7 +17,7 @@ const csvCell = (v) => {
 
 function exportEventsCsv(events) {
   if (!events.length) return;
-  const cols = ["day", "time", "name", "venue", "area", "region", "type", "link", "featured", "emoji"];
+  const cols = ["day", "time", "name", "venue", "area", "region", "type", "link", "igHandle", "featured", "emoji"];
   const lines = [cols.join(",")];
   for (const ev of events) {
     lines.push(cols.map(c => csvCell(ev[c])).join(","));

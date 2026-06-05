@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { useRegularsStore, useEventsStore } from "../store";
 import { regularToEvent } from "../shared/regulars";
+import { normalizeHandle } from "../shared/parseEvents";
 import { UInput, todaysFridayMD } from "../shared/inputs.jsx";
 
 const norm = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -465,6 +466,7 @@ function RegularRow({ r, used, selected, onToggleSel, onUse, onUnuse, onEdit, is
           </div>
           <div style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.55)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {[r.venue, r.area, r.time].filter(Boolean).join(" · ")}
+            {r.igHandle && <span style={{ marginLeft: "8px", color: "#C084FC", fontWeight: 600 }}>@{r.igHandle}</span>}
           </div>
         </div>
 
@@ -597,14 +599,15 @@ function RegularRow({ r, used, selected, onToggleSel, onUse, onUnuse, onEdit, is
 
 function RegularForm({ editing, onSave, onCancel, attachedAbove }) {
   const [draft, setDraft] = useState(() => editing ? { ...editing } : {
-    name: "", venue: "", area: "", region: "North", day: "Fri", time: "", type: "", postUrl: "",
+    name: "", venue: "", area: "", region: "North", day: "Fri", time: "", type: "", postUrl: "", igHandle: "",
   });
   const field = (k, v) => setDraft(d => ({ ...d, [k]: v }));
   const isEdit = !!editing;
   const submit = () => {
     if (!draft.name || !draft.venue) { alert("Name and venue are required."); return; }
+    const handle = normalizeHandle(draft.igHandle);
     if (isEdit) {
-      onSave({ name: draft.name, venue: draft.venue, area: draft.area, region: draft.region, day: draft.day, time: draft.time, type: draft.type, postUrl: draft.postUrl });
+      onSave({ name: draft.name, venue: draft.venue, area: draft.area, region: draft.region, day: draft.day, time: draft.time, type: draft.type, postUrl: draft.postUrl, igHandle: handle });
     } else {
       // Build a manual regular. The store will tag source: "manual".
       const id = "manual_" + Date.now();
@@ -612,7 +615,7 @@ function RegularForm({ editing, onSave, onCancel, attachedAbove }) {
       onSave({
         id, name: draft.name.trim(), venue: draft.venue.trim(), area: draft.area.trim(),
         region: draft.region, day: draft.day, time: draft.time.trim(), type: draft.type.trim(),
-        postUrl: draft.postUrl.trim(),
+        postUrl: draft.postUrl.trim(), igHandle: handle,
         occurrenceCount: 0, firstSeen: today, lastSeen: today,
         timeSpreadMin: 0, explicitPattern: false, flags: [], rejected: false, flagged: false,
         confidence: 0.5,
@@ -637,13 +640,21 @@ function RegularForm({ editing, onSave, onCancel, attachedAbove }) {
         <UInput value={draft.time} onChange={e => field("time", e.target.value)} placeholder="Time (e.g. 9 PM)" style={I} />
         <UInput value={draft.type} onChange={e => field("type", e.target.value)} placeholder="Type (PARTY, BRUNCH…)" style={I} />
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 90px 2fr auto auto", gap: "8px", alignItems: "center" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 90px 2fr", gap: "8px", marginBottom: "8px" }}>
         <UInput value={draft.venue} onChange={e => field("venue", e.target.value)} placeholder="Venue *" style={I} />
         <UInput value={draft.area} onChange={e => field("area", e.target.value)} placeholder="City" style={I} />
         <select value={draft.region} onChange={e => field("region", e.target.value)} style={I}>
           <option value="North">North</option><option value="Central">Central</option><option value="South">South</option>
         </select>
         <input value={draft.postUrl} onChange={e => field("postUrl", e.target.value)} placeholder="Source URL (optional)" style={I} />
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: "8px", alignItems: "center" }}>
+        <input
+          value={draft.igHandle || ""}
+          onChange={e => field("igHandle", e.target.value)}
+          placeholder="@handle to tag (won't show on slide)"
+          style={{ ...I, color: "#C084FC" }}
+        />
         <button onClick={onCancel} style={B}>Cancel</button>
         <button onClick={submit} style={{ ...B, background: "#E5BC4F", color: "#000", borderColor: "#E5BC4F", fontWeight: 700 }}>
           {isEdit ? "Save" : "Add regular"}

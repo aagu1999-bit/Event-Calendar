@@ -187,6 +187,21 @@ export function parseLine(line) {
   return parts;
 }
 
+// Normalize an Instagram handle: strip leading "@" and URL prefix if pasted
+// in. Empty/falsy → empty string. Doesn't validate — IG handle rules drift
+// and we don't want to drop edge-case-but-valid handles.
+export function normalizeHandle(raw) {
+  if (!raw) return "";
+  let s = String(raw).trim();
+  if (!s) return "";
+  // Strip URL prefixes like instagram.com/foo, www.instagram.com/foo/, etc.
+  s = s.replace(/^https?:\/\//i, "").replace(/^www\./i, "")
+       .replace(/^instagram\.com\//i, "").replace(/\/+$/, "");
+  // Drop leading @ (we add it back on display)
+  s = s.replace(/^@+/, "");
+  return s;
+}
+
 // Column-name patterns. Strict regex first; if a header doesn't match strictly
 // and isn't ignored, we fall back to fuzzy "contains" matching below.
 const COL_PATTERNS = {
@@ -199,6 +214,10 @@ const COL_PATTERNS = {
   region: /^(region|zone|section|nj\s*region|part|area\s*region|region\s*nj|nj\s*area)$/i,
   type: /^(type|category|genre|event\s*type|event\s*category|kind)$/i,
   link: /^(link|url|ticket|ticket\s*link|event\s*link|event\s*url|website|rsvp|registration|tickets)$/i,
+  // Instagram handle of whoever runs the event — kept off-slide, used only
+  // to remember who to tag when posting. Bare "ig" and "handle" alone are
+  // ambiguous, so the strict pass requires "ig handle" / "instagram" / etc.
+  igHandle: /^(ig\s*handle|instagram|instagram\s*handle|ig\s*(account|user|name)|handle|tag|tags)$/i,
   _ignore: /^(price|cost|notes|description|promoter|capacity|id|#|number|status|flyer|image|phone|email|contact|age|dress\s*code|featured|pick|emoji)$/i,
 };
 
@@ -212,6 +231,7 @@ const FUZZY_PATTERNS = {
   region: /\bregion\b|\bzone\b|\bsection\b/i,
   type: /\btype\b|\bcategory\b|\bgenre\b/i,
   link: /\blink\b|\burl\b|\bticket\b/i,
+  igHandle: /\binstagram\b|\big\b|\bhandle\b|\btag\b/i,
 };
 
 export function matchColumns(headers) {
@@ -286,6 +306,7 @@ export function parseRows(rows, defaultRegion = "North") {
         type,
         emoji: getEmoji(type),
         link: get("link"),
+        igHandle: normalizeHandle(get("igHandle")),
         featured: false,
       };
     })
