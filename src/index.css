@@ -94,6 +94,34 @@ body {
     min-height: 36px;
   }
 
+  /* ---------- REGULARS ROW ---------- */
+  /* 8-column grid → stacked card: check + info on top, tag pills middle,
+     actions bottom. The seen/last/confidence metrics get hidden — they
+     matter when triaging in bulk on a big screen, but the phone use case
+     is "add this regular to the week", which only needs name + actions. */
+  .cge-regular-row {
+    grid-template-columns: 28px 1fr !important;
+    grid-template-areas:
+      "check  info"
+      "tags   tags"
+      "actions actions" !important;
+    gap: 8px !important;
+    padding: 10px 12px !important;
+  }
+  .cge-regular-row > .cge-row-check   { grid-area: check; }
+  .cge-regular-row > .cge-row-info    { grid-area: info; }
+  .cge-regular-row > .cge-row-tags    { grid-area: tags; }
+  .cge-regular-row > .cge-row-actions { grid-area: actions; flex-wrap: wrap !important; justify-content: flex-start !important; }
+  .cge-regular-row > .cge-row-day     { display: none !important; }
+  .cge-regular-row > .cge-row-meta    { display: none !important; }
+  /* Bigger tap targets — match the Review row scale */
+  .cge-regular-row .cge-row-actions button,
+  .cge-regular-row .cge-row-actions a {
+    padding: 8px 12px !important;
+    font-size: 0.7rem !important;
+    min-height: 36px;
+  }
+
   /* ---------- REVIEW BULK ACTIONS BAR ---------- */
   /* Wrap into a 2-row layout when there are 4+ buttons */
   .cge-bulk-bar {
