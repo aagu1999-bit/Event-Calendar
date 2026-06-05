@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import JSZip from "jszip";
-import { useEventsStore } from "../store";
+import { useEventsStore, useRestoreStore } from "../store";
 import { generateCaptions } from "../shared/gemini";
 import { savePhotoAndNotify, saveExport } from "../shared/photoLibrary.js";
 import { PhotoLibraryModal } from "../shared/PhotoLibraryModal.jsx";
@@ -778,7 +778,7 @@ export default function MediaTool() {
       a.href=url;
       document.body.appendChild(a);a.click();document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      saveExport(blob, { sourceTool: "media", sourceMode: `${mode}-${exportRatio}`, name: filename })
+      saveExport(blob, { sourceTool: "media", sourceMode: `${mode}-${exportRatio}`, name: filename, snapshot: makeMediaExportSnapshot("single") })
         .catch(err => console.warn("Export archive failed:", err));
     },"image/png");
   };
@@ -950,6 +950,96 @@ export default function MediaTool() {
     }
   };
 
+  // ===== Edit-later snapshot serialization =====
+  // Snapshots stored in IndexedDB must be structured-cloneable. Convert
+  // HTMLImageElement → data URL on save, Set → array; reverse on load.
+  const serializeSnap = (s) => {
+    if (!s) return s;
+    const out = { ...s };
+    if (s.photo instanceof HTMLImageElement) out.photo = s.photo.src || null;
+    if (s.highlights instanceof Set)        out.highlights = [...s.highlights];
+    if (s.textTitleHL instanceof Set)       out.textTitleHL = [...s.textTitleHL];
+    if (Array.isArray(s.items))             out.items = s.items.map(x => ({...x}));
+    if (Array.isArray(s.features))          out.features = s.features.map(x => ({...x}));
+    return out;
+  };
+  const deserializeSnap = async (s) => {
+    if (!s) return s;
+    const out = { ...s };
+    if (typeof s.photo === "string" && s.photo.startsWith("data:")) {
+      try {
+        out.photo = await new Promise((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = reject;
+          img.src = s.photo;
+        });
+      } catch { out.photo = null; }
+    } else if (typeof s.photo === "string") {
+      out.photo = null; // non-dataURL strings can't survive the round trip
+    }
+    if (Array.isArray(s.highlights))  out.highlights = new Set(s.highlights);
+    if (Array.isArray(s.textTitleHL)) out.textTitleHL = new Set(s.textTitleHL);
+    return out;
+  };
+
+  // Build the full Media-tool state for an export snapshot. Either a
+  // single-slide bundle (the current `mode`) or the whole carousel.
+  const makeMediaExportSnapshot = (kind /* "single" | "carousel" */) => {
+    if (kind === "carousel") {
+      return {
+        v: 1, kind: "carousel", exportRatio, fontPairKey, watermark,
+        carousel: carousel.map(s => ({
+          id: s.id, type: s.type, thumb: s.thumb,
+          snapshot: serializeSnap(s.snapshot),
+        })),
+      };
+    }
+    return {
+      v: 1, kind: "single",
+      mode, exportRatio, fontPairKey, watermark,
+      dots, totalDots,
+      snapshot: serializeSnap(makeSnapshot()),
+    };
+  };
+
+  // Apply pending restore once on mount.
+  const consumeRestore = useRestoreStore(s => s.consumeRestore);
+  useEffect(() => {
+    const snap = consumeRestore("media");
+    if (!snap) return;
+    (async () => {
+      try {
+        if (snap.exportRatio) setExportRatio(snap.exportRatio);
+        if (snap.fontPairKey) setFontPairKey(snap.fontPairKey);
+        if (typeof snap.watermark === "boolean") setWatermark(snap.watermark);
+        if (snap.kind === "carousel" && Array.isArray(snap.carousel)) {
+          const rebuilt = await Promise.all(snap.carousel.map(async s => ({
+            id: s.id || `s_${Math.random().toString(36).slice(2,8)}`,
+            type: s.type,
+            thumb: s.thumb,
+            snapshot: await deserializeSnap(s.snapshot),
+          })));
+          setCarousel(rebuilt);
+          // Drop into the first slide for editing
+          if (rebuilt[0]) {
+            setMode(rebuilt[0].type);
+            loadSnapshot(rebuilt[0].snapshot, rebuilt[0].type);
+          }
+        } else if (snap.kind === "single" && snap.snapshot && snap.mode) {
+          setMode(snap.mode);
+          const restored = await deserializeSnap(snap.snapshot);
+          loadSnapshot(restored, snap.mode);
+          if (typeof snap.dots === "number")      setDots(snap.dots);
+          if (typeof snap.totalDots === "number") setTotalDots(snap.totalDots);
+        }
+      } catch (err) {
+        console.warn("Media restore failed:", err);
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const addToCarousel = async () => {
     await document.fonts.ready;
     const snapshot = makeSnapshot();
@@ -1040,7 +1130,7 @@ export default function MediaTool() {
       a.href = url; a.download = zipName;
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      saveExport(zipBlob, { sourceTool: "media", sourceMode: `carousel-${exportRatio}`, name: zipName, kind: "archive" })
+      saveExport(zipBlob, { sourceTool: "media", sourceMode: `carousel-${exportRatio}`, name: zipName, kind: "archive", snapshot: makeMediaExportSnapshot("carousel") })
         .catch(err => console.warn("Export archive failed:", err));
     } catch (err) {
       console.error(err); alert("Export failed — see console");

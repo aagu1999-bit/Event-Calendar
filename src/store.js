@@ -1,6 +1,21 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
+// Restore handoff — Library page stuffs a snapshot here before navigating
+// to a tool route. Tools call consumeRestore() once on mount to apply +
+// clear, so a refresh won't re-apply the same snapshot. NOT persisted
+// across reloads (deliberate — clicking Edit is a one-shot action).
+export const useRestoreStore = create((set, get) => ({
+  pending: null,        // { tool: "calendar" | "media" | "flyer", snapshot: {...} }
+  setPending: (p) => set({ pending: p }),
+  consumeRestore: (tool) => {
+    const p = get().pending;
+    if (!p || p.tool !== tool) return null;
+    set({ pending: null });
+    return p.snapshot;
+  },
+}));
+
 const dedupeKey = (e) =>
   [
     e.day || "",

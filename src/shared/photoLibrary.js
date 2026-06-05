@@ -223,6 +223,7 @@ export async function saveExport(blob, opts = {}) {
     sourceMode = "",
     name = "export",
     kind: kindOverride,
+    snapshot = null,   // tool-specific state captured at export time (phase 3)
     nowMs = Date.now(),
   } = opts;
   if (!blob || !(blob instanceof Blob)) throw new Error("saveExport requires a Blob");
@@ -252,12 +253,21 @@ export async function saveExport(blob, opts = {}) {
     height,
     bytes: blob.size || 0,
     kind,
+    snapshot,
     createdAt: nowMs,
   };
   const store = await txExports("readwrite");
   await awaitRequest(store.put(record));
   notifyExports();
   return id;
+}
+
+// Pulls the full record (incl. snapshot) for "Edit in [tool]". Blobs come
+// along too in case the caller wants a thumb fallback, but this is mainly
+// about the snapshot object.
+export async function loadExportRecord(id) {
+  const store = await txExports("readonly");
+  return awaitRequest(store.get(id));
 }
 
 export async function listExports(filter = {}) {
@@ -278,6 +288,7 @@ export async function listExports(filter = {}) {
       bytes: r.bytes,
       kind: r.kind,
       mime: r.mime,
+      hasSnapshot: !!r.snapshot,
       createdAt: r.createdAt,
     }));
 }

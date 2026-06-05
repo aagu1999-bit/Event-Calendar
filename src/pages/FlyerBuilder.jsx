@@ -1,6 +1,6 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { toPng } from "html-to-image";
-import { useEventsStore } from "../store";
+import { useEventsStore, useRestoreStore } from "../store";
 import { savePhotoAndNotify, saveExport } from "../shared/photoLibrary.js";
 import { PhotoLibraryModal } from "../shared/PhotoLibraryModal.jsx";
 
@@ -1554,6 +1554,36 @@ export default function FlyerBuilder() {
     update("photoCrop", { x: 50, y: 50, zoom: 1 });
   };
 
+  // ===== Edit-later snapshot ↔ restore =====
+  // Flyer state is all serializable JSON + a data-URL photo — no Image
+  // unwrapping needed.
+  const makeFlyerSnapshot = () => ({
+    v: 1,
+    data, template, theme, photoMode, photoUrl,
+    bgOpacity, scale, titleFont, bodyFont,
+    bgSize, titleSize, noPhotoStyle, goldenFlavor,
+  });
+
+  const consumeRestore = useRestoreStore(s => s.consumeRestore);
+  useEffect(() => {
+    const snap = consumeRestore("flyer");
+    if (!snap) return;
+    if (snap.data)         setData(d => ({ ...d, ...snap.data }));
+    if (snap.template)     setTemplate(snap.template);
+    if (snap.theme)        setTheme(snap.theme);
+    if (snap.photoMode)    setPhotoMode(snap.photoMode);
+    if (typeof snap.photoUrl !== "undefined") setPhotoUrl(snap.photoUrl);
+    if (typeof snap.bgOpacity === "number") setBgOpacity(snap.bgOpacity);
+    if (typeof snap.scale === "number")     setScale(snap.scale);
+    if (snap.titleFont)    setTitleFont(snap.titleFont);
+    if (snap.bodyFont)     setBodyFont(snap.bodyFont);
+    if (snap.bgSize)       setBgSize(snap.bgSize);
+    if (snap.titleSize)    setTitleSize(snap.titleSize);
+    if (snap.noPhotoStyle) setNoPhotoStyle(snap.noPhotoStyle);
+    if (snap.goldenFlavor) setGoldenFlavor(snap.goldenFlavor);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Rasterize the flyer surface DOM to a 2160×2700 PNG (2x density of the
   // 1080×1350 layout — sharper on retina + IG re-compression).
   const downloadPng = async () => {
@@ -1577,7 +1607,7 @@ export default function FlyerBuilder() {
       // without re-rendering. dataUrl → Blob via fetch keeps it simple.
       try {
         const blob = await (await fetch(dataUrl)).blob();
-        await saveExport(blob, { sourceTool: "flyer", sourceMode: template || "", name: filename });
+        await saveExport(blob, { sourceTool: "flyer", sourceMode: template || "", name: filename, snapshot: makeFlyerSnapshot() });
       } catch (err) {
         console.warn("Export archive failed:", err);
       }

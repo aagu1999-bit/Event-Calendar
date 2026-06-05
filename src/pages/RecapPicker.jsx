@@ -1,6 +1,10 @@
 import { useState, useEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import JSZip from "jszip";
-import { listPhotos, deletePhotoAndNotify, onLibraryChange, usageBytes, loadPhotoBlob, listExports, loadExportBlob, deleteExport, onExportsChange, exportsUsageBytes } from "../shared/photoLibrary.js";
+import { listPhotos, deletePhotoAndNotify, onLibraryChange, usageBytes, loadPhotoBlob, listExports, loadExportBlob, deleteExport, onExportsChange, exportsUsageBytes, loadExportRecord } from "../shared/photoLibrary.js";
+import { useRestoreStore } from "../store";
+
+const TOOL_ROUTE = { calendar: "/calendar", media: "/media", flyer: "/flyer", reel: "/reel" };
 
 // face-api.js (vladmandic fork — better maintained than the original).
 // Loaded from CDN on mount so the bundle stays small and the library only
@@ -575,6 +579,23 @@ function ExportsView({ onSwitch, onTab }) {
   const [total, setTotal] = useState(0);
   const [previewId, setPreviewId] = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null);
+  const navigate = useNavigate();
+  const setPending = useRestoreStore(s => s.setPending);
+
+  // Click "Edit in [tool]" → fetch the snapshot from IndexedDB, drop it
+  // into the restore store, navigate. The tool consumes the snapshot on
+  // mount via useRestoreStore.consumeRestore("calendar"/"media"/"flyer").
+  const editInTool = async (p) => {
+    const route = TOOL_ROUTE[p.sourceTool];
+    if (!route) return;
+    const rec = await loadExportRecord(p.id);
+    if (!rec || !rec.snapshot) {
+      alert("This export wasn't saved with edit data. Re-export from the tool to capture it.");
+      return;
+    }
+    setPending({ tool: p.sourceTool, snapshot: rec.snapshot });
+    navigate(route);
+  };
 
   useEffect(() => {
     let live = true;
@@ -734,6 +755,20 @@ function ExportsView({ onSwitch, onTab }) {
                       fontFamily: "inherit", lineHeight: 1,
                     }}
                   >↓</button>
+                  {p.hasSnapshot && TOOL_ROUTE[p.sourceTool] && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); editInTool(p); }}
+                      title={`Edit in ${p.sourceTool}`}
+                      style={{
+                        position: "absolute", top: 4, left: 30,
+                        width: 22, height: 22, borderRadius: 4,
+                        background: "rgba(0,0,0,0.75)", color: "#E5BC4F",
+                        border: "1px solid rgba(229,188,79,0.4)",
+                        fontSize: "0.6rem", cursor: "pointer", padding: 0,
+                        fontFamily: "inherit", lineHeight: 1,
+                      }}
+                    >✎</button>
+                  )}
                   <div style={{
                     position: "absolute", bottom: 0, left: 0, right: 0,
                     padding: "4px 6px",
@@ -789,6 +824,11 @@ function ExportsView({ onSwitch, onTab }) {
                   </div>
                   <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                     <button onClick={() => download(p)} style={Bgold}>Download</button>
+                    {p.hasSnapshot && TOOL_ROUTE[p.sourceTool] && (
+                      <button onClick={() => editInTool(p)} style={{ ...B, background: "rgba(229,188,79,0.12)", borderColor: "rgba(229,188,79,0.4)", color: "#E5BC4F", fontWeight: 700 }}>
+                        ✎ Edit in {p.sourceTool}
+                      </button>
+                    )}
                     <button onClick={() => setPreviewId(null)} style={B}>Close</button>
                     <div style={{ flex: 1 }} />
                     <button onClick={() => remove(p.id)} style={{ ...B, color: "#FB7185", borderColor: "rgba(251,113,133,0.3)" }}>Delete</button>

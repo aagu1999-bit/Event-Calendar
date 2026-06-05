@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import * as XLSX from "xlsx";
-import { useEventsStore } from "../store";
+import { useEventsStore, useRestoreStore } from "../store";
 import { EMOJI_MAP, getEmoji as getEmojiShared, parseRegion as parseRegionShared } from "../shared/parseEvents";
 import { UInput, UTextarea, todaysFridayMD } from "../shared/inputs.jsx";
 import { savePhotoAndNotify, saveExport } from "../shared/photoLibrary.js";
@@ -1387,6 +1387,41 @@ export default function CalendarBuilder() {
   const [libOpen, setLibOpen] = useState(false);
   const onLibraryPick = (img) => setBgImage(img);
 
+  // ===== Edit-later snapshot ↔ restore =====
+  // Build a snapshot of every input that affects the rendered slide. We
+  // freeze the events array too so the export can be re-opened exactly
+  // even if the shared events store changes later.
+  const makeCalendarSnapshot = () => ({
+    v: 1,
+    friDate, sz, texture, mode,
+    previewColorKey, dayColors, bgOpacity,
+    events: events.map(e => ({ ...e })),
+  });
+
+  // Apply a pending restore once on mount. Confirm before clobbering the
+  // current events list — the user might have unsaved work in there.
+  const consumeRestore = useRestoreStore(s => s.consumeRestore);
+  useEffect(() => {
+    const snap = consumeRestore("calendar");
+    if (!snap) return;
+    // Styling fields apply unconditionally.
+    if (snap.friDate)        setFriDate(snap.friDate);
+    if (snap.sz)             setSz(snap.sz);
+    if (snap.texture)        setTexture(snap.texture);
+    if (snap.mode)           setMode(snap.mode);
+    if (snap.previewColorKey) setPreviewColorKey(snap.previewColorKey);
+    if (snap.dayColors)      setDayColors(snap.dayColors);
+    if (typeof snap.bgOpacity === "number") setBgOpacity(snap.bgOpacity);
+    // Events — confirm before replacing if the current list is non-empty
+    // and different. Skip the prompt when the store is empty (no risk).
+    if (Array.isArray(snap.events) && snap.events.length > 0) {
+      const proceed = events.length === 0
+        || window.confirm(`Restore the ${snap.events.length} events from this export? Your current ${events.length}-event list will be replaced.`);
+      if (proceed) setEvents(() => snap.events.map(e => ({ ...e })));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const dl = (pi) => {
     const cv = document.createElement("canvas");
     const pd = allPages[pi];
@@ -1408,7 +1443,7 @@ export default function CalendarBuilder() {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      saveExport(blob, { sourceTool: "calendar", sourceMode: mode === "preview" ? "preview" : "slide", name: filename })
+      saveExport(blob, { sourceTool: "calendar", sourceMode: mode === "preview" ? "preview" : "slide", name: filename, snapshot: makeCalendarSnapshot() })
         .catch(err => console.warn("Export archive failed:", err));
     }, "image/png");
   };
@@ -1455,7 +1490,7 @@ export default function CalendarBuilder() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    saveExport(zipBlob, { sourceTool: "calendar", sourceMode: "weekend-zip", name: zipName, kind: "archive" })
+    saveExport(zipBlob, { sourceTool: "calendar", sourceMode: "weekend-zip", name: zipName, kind: "archive", snapshot: makeCalendarSnapshot() })
       .catch(err => console.warn("Export archive failed:", err));
   };
 
