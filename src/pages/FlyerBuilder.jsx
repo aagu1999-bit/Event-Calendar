@@ -58,7 +58,8 @@ const PATTERN_SIZES = {
   large:   { font: 46, spX: 105, spY: 86  },
   xl:      { font: 64, spX: 122, spY: 100 },
 };
-function CgeLetterPattern({ color, opacity, size = "large", surfaceW = 1080, surfaceH = 1350 }) {
+function CgeLetterPattern({ color, opacity, size = "large", surfaceW = 1080, surfaceH = 1350, enabled = true }) {
+  if (!enabled) return null;
   const cfg = PATTERN_SIZES[size] || PATTERN_SIZES.large;
   const letters = ["C", "G", "E"];
   // Pad past the surface in both directions so rotated letters don't get
@@ -242,7 +243,7 @@ const TITLE_SIZES = {
 
 // ==================== TEMPLATE 1: NIGHTCLUB ====================
 // The original Social Club / Afro-Caribbean Fridays family.
-function NightclubLayout({ data, theme, photoMode, photoUrl, bgOpacity, titleFont, bodyFont, bgSize, titleSize, noPhotoStyle }) {
+function NightclubLayout({ data, theme, photoMode, photoUrl, bgOpacity, titleFont, bodyFont, bgSize, titleSize, noPhotoStyle, watermark = true }) {
   const t = THEMES[theme];
   const W = 1080, H = 1350;
 
@@ -302,7 +303,7 @@ function NightclubLayout({ data, theme, photoMode, photoUrl, bgOpacity, titleFon
       )}
 
       {/* CGE LETTER PATTERN — Syne Black, the existing CGE motif */}
-      <CgeLetterPattern color={letterColor} opacity={letterOpacity} size={bgSize} surfaceW={W} surfaceH={H} />
+      <CgeLetterPattern enabled={watermark} color={letterColor} opacity={letterOpacity} size={bgSize} surfaceW={W} surfaceH={H} />
 
       {/* SPOTLIGHTS — three layers, theme-tinted */}
       <div style={{
@@ -439,6 +440,7 @@ function NightclubLayout({ data, theme, photoMode, photoUrl, bgOpacity, titleFon
             };
             const innerPattern = (sizeOverride, opOverride) => (
               <CgeLetterPattern
+                enabled={watermark}
                 color={t.light ? "#000000" : isBlack ? t.accent : "#000000"}
                 opacity={opOverride ?? (t.light ? 0.14 : isBlack ? 0.16 : 0.14)}
                 size={sizeOverride || (bgSize === "xl" ? "large" : "regular")}
@@ -605,7 +607,7 @@ function NightclubLayout({ data, theme, photoMode, photoUrl, bgOpacity, titleFon
 // STEM Mixer family. Always full-bg photo with dark overlay. Top stack:
 // sponsor row + tagline + city/topTitle. Date stack mid-left. Big bottom
 // title + URL footer. Professional / networking energy.
-function PhotoHeroLayout({ data, theme, photoUrl, bgOpacity, titleFont, bodyFont, bgSize, titleSize }) {
+function PhotoHeroLayout({ data, theme, photoUrl, bgOpacity, titleFont, bodyFont, bgSize, titleSize, watermark = true }) {
   const t = THEMES[theme];
   const W = 1080, H = 1350;
 
@@ -652,6 +654,7 @@ function PhotoHeroLayout({ data, theme, photoUrl, bgOpacity, titleFont, bodyFont
 
       {/* CGE letter pattern — subtle, since photo is the hero */}
       <CgeLetterPattern
+        enabled={watermark}
         color={isFullBg ? "#FFFFFF" : isBlack ? t.accent : (t.light ? "#000000" : "#FFFFFF")}
         opacity={isFullBg ? 0.05 : 0.08}
         size={bgSize}
@@ -781,7 +784,7 @@ function PhotoHeroLayout({ data, theme, photoUrl, bgOpacity, titleFont, bodyFont
 // IN TODO family. Cream/light bg, tri-column meta at top, centered photo
 // card, serif title overlapping bottom of photo, venue + multi-line address
 // below. Wellness / lifestyle / Sunday-market energy.
-function BoutiqueLayout({ data, theme, photoUrl, titleFont, bodyFont, bgSize, titleSize }) {
+function BoutiqueLayout({ data, theme, photoUrl, titleFont, bodyFont, bgSize, titleSize, watermark = true }) {
   const t = THEMES[theme];
   const W = 1080, H = 1350;
 
@@ -813,6 +816,7 @@ function BoutiqueLayout({ data, theme, photoUrl, titleFont, bodyFont, bgSize, ti
     }}>
       {/* Whisper-quiet CGE pattern */}
       <CgeLetterPattern
+        enabled={watermark}
         color={t.light ? "#000000" : "#FFFFFF"}
         opacity={0.05}
         size={bgSize}
@@ -918,7 +922,7 @@ function BoutiqueLayout({ data, theme, photoUrl, titleFont, bodyFont, bgSize, ti
 // Elevate Social NYC family. Stencil/grunge title, ripped-paper sticker
 // subtitle, photo with torn yellow border, "HOSTED BY" sticker, dotted-line
 // headliner row, DJ row, blue date pill at bottom. Hip-hop tour energy.
-function TornPaperLayout({ data, theme, photoUrl, bgOpacity, titleFont, bodyFont, bgSize, titleSize }) {
+function TornPaperLayout({ data, theme, photoUrl, bgOpacity, titleFont, bodyFont, bgSize, titleSize, watermark = true }) {
   const t = THEMES[theme];
   const W = 1080, H = 1350;
 
@@ -968,6 +972,7 @@ function TornPaperLayout({ data, theme, photoUrl, bgOpacity, titleFont, bodyFont
       )}
 
       <CgeLetterPattern
+        enabled={watermark}
         color={isFullBg ? "#FFFFFF" : (t.light ? "#000000" : "#FFFFFF")}
         opacity={isFullBg ? 0.04 : 0.06}
         size={bgSize}
@@ -1140,7 +1145,7 @@ function TornPaperLayout({ data, theme, photoUrl, bgOpacity, titleFont, bodyFont
 // Cinco de Mayo family. Two-tone (theme bg + promoAccent panel), distressed
 // stencil title, sponsor logo row top, deal-list panel, venue + free-entry
 // footer. Theme-night / holiday / college-bar promo energy.
-function HolidayPromoLayout({ data, theme, titleFont, bodyFont, bgSize, titleSize }) {
+function HolidayPromoLayout({ data, theme, titleFont, bodyFont, bgSize, titleSize, watermark = true }) {
   const t = THEMES[theme];
   const W = 1080, H = 1350;
 
@@ -1171,6 +1176,7 @@ function HolidayPromoLayout({ data, theme, titleFont, bodyFont, bgSize, titleSiz
     }}>
       {/* Subtle grain pattern */}
       <CgeLetterPattern
+        enabled={watermark}
         color={t.light ? "#000000" : "#FFFFFF"}
         opacity={0.04}
         size={bgSize}
@@ -1289,7 +1295,7 @@ function HolidayPromoLayout({ data, theme, titleFont, bodyFont, bgSize, titleSiz
 // "flavor" sub-modes lock theme + photo filter + ornament for the
 // occasion: Sunset Gold (patio at golden hour), Patio Cream (Sunday
 // daytime, no pressure), After-Five Black (dinner-and-drinks evening).
-function GoldenSeriesLayout({ data, goldenFlavor = "sunset", photoUrl, bgOpacity, titleFont, bodyFont, bgSize, titleSize }) {
+function GoldenSeriesLayout({ data, goldenFlavor = "sunset", photoUrl, bgOpacity, titleFont, bodyFont, bgSize, titleSize, watermark = true }) {
   const flavor = GOLDEN_FLAVORS[goldenFlavor] || GOLDEN_FLAVORS.sunset;
   const t = THEMES[flavor.theme];
   const W = 1080, H = 1350;
@@ -1324,6 +1330,7 @@ function GoldenSeriesLayout({ data, goldenFlavor = "sunset", photoUrl, bgOpacity
     }}>
       {/* CGE letter pattern — same brand DNA as every template */}
       <CgeLetterPattern
+        enabled={watermark}
         color={isBlack ? t.accent : (t.light ? "#000000" : "#FFFFFF")}
         opacity={isBlack ? 0.12 : (t.light ? 0.10 : 0.08)}
         size={bgSize}
@@ -1529,6 +1536,9 @@ export default function FlyerBuilder() {
   const [titleSize, setTitleSize] = useState("m");
   const [noPhotoStyle, setNoPhotoStyle] = useState("editorial");
   const [goldenFlavor, setGoldenFlavor] = useState("sunset");
+  // Watermark = the tiled CGE letter motif in the flyer background. Off
+  // for clean, unbranded exports (sponsor work, etc.).
+  const [watermark, setWatermark] = useState(true);
 
   const fileRef = useRef(null);
   const flyerRef = useRef(null);
@@ -1561,7 +1571,7 @@ export default function FlyerBuilder() {
     v: 1,
     data, template, theme, photoMode, photoUrl,
     bgOpacity, scale, titleFont, bodyFont,
-    bgSize, titleSize, noPhotoStyle, goldenFlavor,
+    bgSize, titleSize, noPhotoStyle, goldenFlavor, watermark,
   });
 
   const consumeRestore = useRestoreStore(s => s.consumeRestore);
@@ -1581,6 +1591,7 @@ export default function FlyerBuilder() {
     if (snap.titleSize)    setTitleSize(snap.titleSize);
     if (snap.noPhotoStyle) setNoPhotoStyle(snap.noPhotoStyle);
     if (snap.goldenFlavor) setGoldenFlavor(snap.goldenFlavor);
+    if (typeof snap.watermark === "boolean") setWatermark(snap.watermark);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1906,10 +1917,32 @@ export default function FlyerBuilder() {
 
         <Section>
           <label style={L}>BG pattern size</label>
-          <div style={{ display: "flex", gap: "6px" }}>
+          <div style={{ display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap" }}>
             {[["regular", "Regular"], ["large", "Large"], ["xl", "XL"]].map(([k, lbl]) => (
-              <button key={k} onClick={() => setBgSize(k)} style={bgSize === k ? Bact : B}>{lbl}</button>
+              <button
+                key={k}
+                onClick={() => setBgSize(k)}
+                disabled={!watermark}
+                title={!watermark ? "Turn the CGE watermark on to choose a pattern size" : undefined}
+                style={{
+                  ...(bgSize === k ? Bact : B),
+                  cursor: watermark ? "pointer" : "not-allowed",
+                  opacity: watermark ? 1 : 0.4,
+                }}
+              >{lbl}</button>
             ))}
+            <span style={{ width: 1, height: 22, background: "rgba(255,255,255,0.1)", margin: "0 4px" }} />
+            <button
+              onClick={() => setWatermark(v => !v)}
+              title="Toggle the tiled CGE letter pattern in the background"
+              style={{
+                ...B,
+                background: watermark ? "rgba(52,211,153,0.12)" : "rgba(245,240,232,0.04)",
+                color: watermark ? "#34D399" : "rgba(245,240,232,0.55)",
+                border: watermark ? "1px solid rgba(52,211,153,0.45)" : "1px solid rgba(245,240,232,0.1)",
+                fontWeight: 700,
+              }}
+            >{watermark ? "✓ CGE Pattern" : "○ CGE Pattern"}</button>
           </div>
         </Section>
 
@@ -2103,6 +2136,7 @@ export default function FlyerBuilder() {
               titleSize={titleSize}
               noPhotoStyle={noPhotoStyle}
               goldenFlavor={goldenFlavor}
+              watermark={watermark}
             />
             </div>
           </div>
