@@ -122,6 +122,31 @@ body {
     min-height: 36px;
   }
 
+  /* ---------- CALENDAR TAB ---------- */
+  /* Stack left list panel + right canvas panel. The canvas itself is
+     hidden — building / downloading slides is a desktop task — replaced
+     by a heads-up notice. The event list stays fully usable on phone
+     for add / edit / tag / approve operations. */
+  .cge-cal-mobile-notice {
+    display: block !important;
+  }
+  .cge-cal-layout {
+    grid-template-columns: 1fr !important;
+  }
+  .cge-cal-canvas {
+    display: none !important;
+  }
+  /* The event list row's right-edge buttons (★ ✎ ×) are tiny — bump
+     their hit area for thumbs. */
+  .cge-cal-event-row {
+    padding: 8px 6px !important;
+    font-size: 0.7rem !important;
+  }
+  .cge-cal-event-row button {
+    min-width: 28px;
+    min-height: 28px;
+  }
+
   /* ---------- LIBRARY (Recap tab) ---------- */
   /* Outer 1fr/380px layout → single column. Preview pane drops below the
      thumb grid and loses sticky positioning so it doesn't fight the

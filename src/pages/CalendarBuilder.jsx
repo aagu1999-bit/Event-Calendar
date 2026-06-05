@@ -1532,7 +1532,24 @@ export default function CalendarBuilder() {
           <span style={{ fontSize: "0.6rem", color: co.accent, letterSpacing: "1.5px", textTransform: "uppercase", padding: "2px 8px", border: `1px solid rgba(255,255,255,0.08)`, borderRadius: "14px" }}>V6 · {events.length} events · {pages} pg</span>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 410px", gap: "1.5rem", alignItems: "start" }}>
+        {/* Mobile-only notice — the canvas preview/download flow needs a
+            real screen. The event list below still works on phone. */}
+        <div className="cge-cal-mobile-notice" style={{
+          display: "none",
+          padding: "10px 14px",
+          marginBottom: "1rem",
+          background: "rgba(250,204,21,0.08)",
+          border: "1px solid rgba(250,204,21,0.25)",
+          borderRadius: "6px",
+          fontSize: "0.75rem",
+          color: "#FACC15",
+          lineHeight: 1.4,
+        }}>
+          <strong style={{ letterSpacing: "1px", textTransform: "uppercase", fontSize: "0.6rem", display: "block", marginBottom: "4px" }}>Mobile mode</strong>
+          Use this tab to add, edit, and tag events on the go. <strong>Open on desktop</strong> to render and download the calendar slides — the canvas preview is hidden here to save room.
+        </div>
+
+        <div className="cge-cal-layout" style={{ display: "grid", gridTemplateColumns: "1fr 410px", gap: "1.5rem", alignItems: "start" }}>
           {/* LEFT PANEL */}
           <div>
             {/* Mode toggle */}
@@ -1814,7 +1831,7 @@ export default function CalendarBuilder() {
                   : "rgba(245,240,232,0.15)";
 
                 return (
-                <div key={ev.id} ref={el => { if (el) eventRefs.current[ev.id] = el; }} style={{
+                <div key={ev.id} ref={el => { if (el) eventRefs.current[ev.id] = el; }} className="cge-cal-event-row" style={{
                   display: "flex", alignItems: "center", gap: "0.2rem", padding: "0.3rem 0.4rem", marginBottom: "1px",
                   background: sel.has(ev.id) ? "rgba(250,204,21,0.06)" : ev.featured ? "rgba(250,204,21,0.03)" : "#0e0e0e",
                   borderRadius: "3px", fontSize: "0.6rem", borderLeft: `2px solid ${borderColor}`,
@@ -1888,7 +1905,7 @@ export default function CalendarBuilder() {
           </div>
 
           {/* RIGHT: CANVAS PREVIEW */}
-          <div>
+          <div className="cge-cal-canvas">
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.4rem" }}>
               {mode === "preview" ? (
                 <label style={{ ...L, marginBottom: 0 }}>Week Preview — {pgDay}{pgIsCont ? " (cont.)" : ""}{bgImage ? " + Photo" : ""}</label>
