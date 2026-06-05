@@ -488,6 +488,7 @@ export default function ReviewQueue() {
       region:   ev.region   || "North",
       type:     ev.type     || "",
       igHandle: ev.igHandle || "",
+      link:     ev.link     || "",
     });
   };
   const saveEdit = () => {
@@ -992,6 +993,30 @@ export default function ReviewQueue() {
                       )}
                     </div>
                     <div style={{ display: "flex", gap: "4px" }}>
+                      {ev.link && (
+                        <a
+                          href={ev.link}
+                          target="_blank"
+                          rel="noreferrer"
+                          title={`Open source link: ${ev.link}`}
+                          onClick={(e) => e.stopPropagation()}
+                          style={{
+                            padding: "5px 9px",
+                            background: "rgba(99,179,237,0.10)",
+                            color: "#63B3ED",
+                            border: "1px solid rgba(99,179,237,0.35)",
+                            borderRadius: "4px",
+                            fontSize: "0.7rem",
+                            cursor: "pointer",
+                            fontFamily: "inherit",
+                            textDecoration: "none",
+                            display: "inline-flex",
+                            alignItems: "center",
+                          }}
+                        >
+                          ↗
+                        </a>
+                      )}
                       <button
                         onClick={() => toggleApprove(ev.id)}
                         title={approvedSet.has(ev.id) ? "Approved — click to un-approve" : "Mark as approved (vetted). Doesn't push to the calendar — use + Add for that."}
@@ -1129,6 +1154,15 @@ export default function ReviewQueue() {
                           onChange={e => editField("igHandle", e.target.value)}
                           placeholder="@handle to tag (won't show on slide)"
                           style={{ ...editInputStyle, flex: 1, color: "#C084FC" }}
+                        />
+                      </div>
+                      <div style={{ display: "flex", gap: "8px", alignItems: "center", marginTop: "8px" }}>
+                        <span style={{ fontSize: "0.55rem", color: "rgba(99,179,237,0.7)", fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", minWidth: 22 }}>Link</span>
+                        <input
+                          value={editDraft.link || ""}
+                          onChange={e => editField("link", e.target.value)}
+                          placeholder="Source URL (Instagram post, ticket page, etc.)"
+                          style={{ ...editInputStyle, flex: 1, color: "#63B3ED" }}
                         />
                       </div>
                     </div>
