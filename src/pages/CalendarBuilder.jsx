@@ -248,7 +248,7 @@ function calcDates(friDate) {
 
 // ==================== CANVAS RENDERER ====================
 function renderCal(canvas, events, cfg) {
-  const { colorKey, friDate, size, pageIdx, totalPages, dates, texture, isContinuation } = cfg;
+  const { colorKey, friDate, size, pageIdx, totalPages, dates, texture, isContinuation, watermark = true } = cfg;
   const co = COLORS[colorKey];
   const W = size.w, H = size.h;
   canvas.width = W; canvas.height = H;
@@ -264,40 +264,44 @@ function renderCal(canvas, events, cfg) {
   ctx.fillRect(0, 0, W, H);
 
   // === CGE LETTER TEXTURE ===
-  const letters = ["C", "G", "E"];
-  const isSmall = texture === "small";
-  const isXL = texture === "xlarge";
-  const letterSize = isSmall ? (14 * s) : isXL ? (42 * s) : (26 * s);
-  const letterSpacingX = isSmall ? (24 * s) : isXL ? (65 * s) : (42 * s);
-  const letterSpacingY = isSmall ? (22 * s) : isXL ? (58 * s) : (38 * s);
-  const letterColor = colorKey === "black" ? co.accent : "#000000";
-  const letterOpacity = colorKey === "black" ? 0.14 : (co.light ? 0.16 : 0.18);
+  // Skipped entirely when the watermark toggle is off — leaves a clean
+  // solid background.
+  if (watermark) {
+    const letters = ["C", "G", "E"];
+    const isSmall = texture === "small";
+    const isXL = texture === "xlarge";
+    const letterSize = isSmall ? (14 * s) : isXL ? (42 * s) : (26 * s);
+    const letterSpacingX = isSmall ? (24 * s) : isXL ? (65 * s) : (42 * s);
+    const letterSpacingY = isSmall ? (22 * s) : isXL ? (58 * s) : (38 * s);
+    const letterColor = colorKey === "black" ? co.accent : "#000000";
+    const letterOpacity = colorKey === "black" ? 0.14 : (co.light ? 0.16 : 0.18);
 
-  ctx.save();
-  ctx.translate(W / 2, H / 2);
-  ctx.rotate(-5 * Math.PI / 180);
-  ctx.translate(-W / 2, -H / 2);
-  ctx.font = `800 ${letterSize}px 'Syne',sans-serif`;
-  ctx.fillStyle = letterColor;
-  ctx.globalAlpha = letterOpacity;
-  ctx.textBaseline = "middle";
-  ctx.textAlign = "center";
+    ctx.save();
+    ctx.translate(W / 2, H / 2);
+    ctx.rotate(-5 * Math.PI / 180);
+    ctx.translate(-W / 2, -H / 2);
+    ctx.font = `800 ${letterSize}px 'Syne',sans-serif`;
+    ctx.fillStyle = letterColor;
+    ctx.globalAlpha = letterOpacity;
+    ctx.textBaseline = "middle";
+    ctx.textAlign = "center";
 
-  const startX = -80 * s;
-  const startY = -80 * s;
-  const endX = W + 80 * s;
-  const endY = H + 80 * s;
-  let letterIdx = 0;
+    const startX = -80 * s;
+    const startY = -80 * s;
+    const endX = W + 80 * s;
+    const endY = H + 80 * s;
+    let letterIdx = 0;
 
-  for (let y = startY; y < endY; y += letterSpacingY) {
-    const rowOffset = (Math.round((y - startY) / letterSpacingY) % 2 === 1) ? letterSpacingX * 0.5 : 0;
-    for (let x = startX + rowOffset; x < endX; x += letterSpacingX) {
-      ctx.fillText(letters[letterIdx % 3], x, y);
-      letterIdx++;
+    for (let y = startY; y < endY; y += letterSpacingY) {
+      const rowOffset = (Math.round((y - startY) / letterSpacingY) % 2 === 1) ? letterSpacingX * 0.5 : 0;
+      for (let x = startX + rowOffset; x < endX; x += letterSpacingX) {
+        ctx.fillText(letters[letterIdx % 3], x, y);
+        letterIdx++;
+      }
     }
-  }
 
-  ctx.restore();
+    ctx.restore();
+  }
 
   // === SPOTLIGHT SYSTEM ===
   const sR = co.spotR, sG = co.spotG, sB = co.spotB, sA = co.spotA;
@@ -674,7 +678,7 @@ function renderCal(canvas, events, cfg) {
 
 // ==================== PREVIEW RENDERER ====================
 function renderPreview(canvas, pageEvents, cfg) {
-  const { colorKey, friDate, size, dates, texture, bgImage, bgOpacity, pageDay, isContinuation, pageIdx, totalPages } = cfg;
+  const { colorKey, friDate, size, dates, texture, bgImage, bgOpacity, pageDay, isContinuation, pageIdx, totalPages, watermark = true } = cfg;
   const co = COLORS[colorKey];
   const W = size.w, H = size.h;
   canvas.width = W; canvas.height = H;
@@ -702,34 +706,37 @@ function renderPreview(canvas, pageEvents, cfg) {
   }
 
   // === CGE LETTER TEXTURE ===
-  const letters = ["C", "G", "E"];
-  const isSmall = texture === "small";
-  const isXL = texture === "xlarge";
-  const letterSize = isSmall ? (14 * s) : isXL ? (42 * s) : (26 * s);
-  const letterSpacingX = isSmall ? (24 * s) : isXL ? (65 * s) : (42 * s);
-  const letterSpacingY = isSmall ? (22 * s) : isXL ? (58 * s) : (38 * s);
-  const letterColor = bgImage ? "rgba(255,255,255,1)" : (colorKey === "black" ? co.accent : "#000000");
-  const letterOpacity = bgImage ? 0.06 : (colorKey === "black" ? 0.14 : (isLight ? 0.16 : 0.18));
+  // Skipped entirely when the watermark toggle is off.
+  if (watermark) {
+    const letters = ["C", "G", "E"];
+    const isSmall = texture === "small";
+    const isXL = texture === "xlarge";
+    const letterSize = isSmall ? (14 * s) : isXL ? (42 * s) : (26 * s);
+    const letterSpacingX = isSmall ? (24 * s) : isXL ? (65 * s) : (42 * s);
+    const letterSpacingY = isSmall ? (22 * s) : isXL ? (58 * s) : (38 * s);
+    const letterColor = bgImage ? "rgba(255,255,255,1)" : (colorKey === "black" ? co.accent : "#000000");
+    const letterOpacity = bgImage ? 0.06 : (colorKey === "black" ? 0.14 : (isLight ? 0.16 : 0.18));
 
-  ctx.save();
-  ctx.translate(W / 2, H / 2);
-  ctx.rotate(-5 * Math.PI / 180);
-  ctx.translate(-W / 2, -H / 2);
-  ctx.font = `800 ${letterSize}px 'Syne',sans-serif`;
-  ctx.fillStyle = letterColor;
-  ctx.globalAlpha = letterOpacity;
-  ctx.textBaseline = "middle";
-  ctx.textAlign = "center";
-  const startX = -80 * s, startY = -80 * s, endX = W + 80 * s, endY = H + 80 * s;
-  let letterIdx = 0;
-  for (let y = startY; y < endY; y += letterSpacingY) {
-    const rowOff = (Math.round((y - startY) / letterSpacingY) % 2 === 1) ? letterSpacingX * 0.5 : 0;
-    for (let x = startX + rowOff; x < endX; x += letterSpacingX) {
-      ctx.fillText(letters[letterIdx % 3], x, y);
-      letterIdx++;
+    ctx.save();
+    ctx.translate(W / 2, H / 2);
+    ctx.rotate(-5 * Math.PI / 180);
+    ctx.translate(-W / 2, -H / 2);
+    ctx.font = `800 ${letterSize}px 'Syne',sans-serif`;
+    ctx.fillStyle = letterColor;
+    ctx.globalAlpha = letterOpacity;
+    ctx.textBaseline = "middle";
+    ctx.textAlign = "center";
+    const startX = -80 * s, startY = -80 * s, endX = W + 80 * s, endY = H + 80 * s;
+    let letterIdx = 0;
+    for (let y = startY; y < endY; y += letterSpacingY) {
+      const rowOff = (Math.round((y - startY) / letterSpacingY) % 2 === 1) ? letterSpacingX * 0.5 : 0;
+      for (let x = startX + rowOff; x < endX; x += letterSpacingX) {
+        ctx.fillText(letters[letterIdx % 3], x, y);
+        letterIdx++;
+      }
     }
+    ctx.restore();
   }
-  ctx.restore();
 
   // === SPOTLIGHT ===
   const sR = co.spotR, sG = co.spotG, sB = co.spotB, sA = bgImage ? co.spotA * 0.5 : co.spotA;
@@ -963,6 +970,9 @@ export default function CalendarBuilder() {
   const [friDate, setFriDate] = useState(() => todaysFridayMD());
   const [sz, setSz] = useState("4:5");
   const [texture, setTexture] = useState("large");
+  // Watermark = the tiled "CGE" letter pattern in the background. Off
+  // gives a clean solid color (or photo-only in preview mode).
+  const [watermark, setWatermark] = useState(true);
   const [mode, setMode] = useState("calendar"); // "calendar" or "preview"
   const [previewColorKey, setPreviewColorKey] = useState("purple");
   const [pg, setPg] = useState(0);
@@ -1257,13 +1267,13 @@ export default function CalendarBuilder() {
     const positions = [];
     const rows = [];
     if (mode === "preview") {
-      renderPreview(cv, pgEvts, { colorKey: previewColor, friDate, size: SIZES[sz], dates, texture, bgImage, bgOpacity, pageDay: pgDay, isContinuation: pgIsCont, pageIdx: safePg, totalPages: pages, _emojiPositions: positions, _eventRows: rows });
+      renderPreview(cv, pgEvts, { colorKey: previewColor, friDate, size: SIZES[sz], dates, texture, watermark, bgImage, bgOpacity, pageDay: pgDay, isContinuation: pgIsCont, pageIdx: safePg, totalPages: pages, _emojiPositions: positions, _eventRows: rows });
     } else {
-      renderCal(cv, pgEvts, { colorKey: activeColor, friDate, size: SIZES[sz], pageIdx: safePg, totalPages: pages, dates, texture, isContinuation: pgIsCont, _emojiPositions: positions, _eventRows: rows });
+      renderCal(cv, pgEvts, { colorKey: activeColor, friDate, size: SIZES[sz], pageIdx: safePg, totalPages: pages, dates, texture, watermark, isContinuation: pgIsCont, _emojiPositions: positions, _eventRows: rows });
     }
     emojiPositionsRef.current = positions;
     eventRowsRef.current = rows;
-  }, [pgEvts, activeColor, previewColor, friDate, sz, safePg, pages, dates, texture, pgIsCont, mode, bgImage, bgOpacity, pgDay]);
+  }, [pgEvts, activeColor, previewColor, friDate, sz, safePg, pages, dates, texture, watermark, pgIsCont, mode, bgImage, bgOpacity, pgDay]);
 
   useEffect(() => { const t = setTimeout(render, 60); return () => clearTimeout(t); }, [render]);
 
@@ -1393,7 +1403,7 @@ export default function CalendarBuilder() {
   // even if the shared events store changes later.
   const makeCalendarSnapshot = () => ({
     v: 1,
-    friDate, sz, texture, mode,
+    friDate, sz, texture, watermark, mode,
     previewColorKey, dayColors, bgOpacity,
     events: events.map(e => ({ ...e })),
   });
@@ -1408,6 +1418,7 @@ export default function CalendarBuilder() {
     if (snap.friDate)        setFriDate(snap.friDate);
     if (snap.sz)             setSz(snap.sz);
     if (snap.texture)        setTexture(snap.texture);
+    if (typeof snap.watermark === "boolean") setWatermark(snap.watermark);
     if (snap.mode)           setMode(snap.mode);
     if (snap.previewColorKey) setPreviewColorKey(snap.previewColorKey);
     if (snap.dayColors)      setDayColors(snap.dayColors);
@@ -1427,10 +1438,10 @@ export default function CalendarBuilder() {
     const pd = allPages[pi];
     if (!pd) return;
     if (mode === "preview") {
-      renderPreview(cv, pd.events, { colorKey: previewColor, friDate, size: SIZES[sz], dates, texture, bgImage, bgOpacity, pageDay: pd.day, isContinuation: pd.isContinuation, pageIdx: pi, totalPages: pages });
+      renderPreview(cv, pd.events, { colorKey: previewColor, friDate, size: SIZES[sz], dates, texture, watermark, bgImage, bgOpacity, pageDay: pd.day, isContinuation: pd.isContinuation, pageIdx: pi, totalPages: pages });
     } else {
       const dayColor = dayColors[pd.day] || "purple";
-      renderCal(cv, pd.events, { colorKey: dayColor, friDate, size: SIZES[sz], pageIdx: pi, totalPages: pages, dates, texture, isContinuation: pd.isContinuation });
+      renderCal(cv, pd.events, { colorKey: dayColor, friDate, size: SIZES[sz], pageIdx: pi, totalPages: pages, dates, texture, watermark, isContinuation: pd.isContinuation });
     }
     cv.toBlob((blob) => {
       const url = URL.createObjectURL(blob);
@@ -1455,10 +1466,10 @@ export default function CalendarBuilder() {
       const pd = allPages[i];
       if (!pd) continue;
       if (mode === "preview") {
-        renderPreview(cv, pd.events, { colorKey: previewColor, friDate, size: SIZES[sz], dates, texture, bgImage, bgOpacity, pageDay: pd.day, isContinuation: pd.isContinuation, pageIdx: i, totalPages: pages });
+        renderPreview(cv, pd.events, { colorKey: previewColor, friDate, size: SIZES[sz], dates, texture, watermark, bgImage, bgOpacity, pageDay: pd.day, isContinuation: pd.isContinuation, pageIdx: i, totalPages: pages });
       } else {
         const dayColor = dayColors[pd.day] || "purple";
-        renderCal(cv, pd.events, { colorKey: dayColor, friDate, size: SIZES[sz], pageIdx: i, totalPages: pages, dates, texture, isContinuation: pd.isContinuation });
+        renderCal(cv, pd.events, { colorKey: dayColor, friDate, size: SIZES[sz], pageIdx: i, totalPages: pages, dates, texture, watermark, isContinuation: pd.isContinuation });
       }
       const blob = await new Promise(res => cv.toBlob(res, "image/png"));
       const prefix = mode === "preview" ? "CGE_Preview" : "CGE";
@@ -1607,13 +1618,28 @@ export default function CalendarBuilder() {
                 <label style={L}>Texture</label>
                 <div style={{ display: "flex", gap: "0.25rem" }}>
                   {[["small", "Small"], ["large", "Large"], ["xlarge", "XL"]].map(([val, label]) => (
-                    <button key={val} onClick={() => setTexture(val)} style={{
-                      padding: "4px 10px", borderRadius: "5px", fontSize: "0.63rem", cursor: "pointer",
+                    <button key={val} onClick={() => setTexture(val)} disabled={!watermark} title={!watermark ? "Turn the CGE watermark on to choose a texture size" : undefined} style={{
+                      padding: "4px 10px", borderRadius: "5px", fontSize: "0.63rem", cursor: watermark ? "pointer" : "not-allowed",
                       border: texture === val ? `2px solid ${co.accent}` : "2px solid rgba(245,240,232,0.06)",
                       background: texture === val ? "rgba(255,255,255,0.06)" : "transparent", color: texture === val ? co.accent : "rgba(245,240,232,0.25)",
+                      opacity: watermark ? 1 : 0.4,
                     }}>{label}</button>
                   ))}
                 </div>
+              </div>
+              <div>
+                <label style={L}>Watermark</label>
+                <button
+                  onClick={() => setWatermark(v => !v)}
+                  title="Toggle the tiled CGE letter pattern in the background"
+                  style={{
+                    padding: "4px 12px", borderRadius: "5px", fontSize: "0.63rem", cursor: "pointer",
+                    border: watermark ? `2px solid #34D399` : "2px solid rgba(245,240,232,0.1)",
+                    background: watermark ? "rgba(52,211,153,0.12)" : "transparent",
+                    color: watermark ? "#34D399" : "rgba(245,240,232,0.4)",
+                    fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase",
+                  }}
+                >{watermark ? "✓ CGE Pattern" : "○ CGE Pattern"}</button>
               </div>
             </div>
 
