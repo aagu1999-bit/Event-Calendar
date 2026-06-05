@@ -243,7 +243,7 @@ function FacePicker({ onSwitch }) {
 
         {/* Photo grid */}
         {photos.length > 0 && (
-          <div style={{
+          <div className="cge-lib-grid" style={{
             display: "grid",
             gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
             gap: "0.75rem",
@@ -487,8 +487,8 @@ function PhotosView({ onSwitch, onTab }) {
             Upload a photo in the Media, Calendar, or Flyer tool — it'll appear here automatically.
           </div>
         ) : (
-          <div style={{ display: "grid", gridTemplateColumns: previewId ? "1fr 380px" : "1fr", gap: "1rem", alignItems: "start" }}>
-            <div style={{
+          <div className="cge-lib-layout" style={{ display: "grid", gridTemplateColumns: previewId ? "1fr 380px" : "1fr", gap: "1rem", alignItems: "start" }}>
+            <div className="cge-lib-grid" style={{
               display: "grid",
               gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))",
               gap: "10px",
@@ -541,7 +541,7 @@ function PhotosView({ onSwitch, onTab }) {
               const p = photos.find(x => x.id === previewId);
               if (!p) return null;
               return (
-                <div style={{
+                <div className="cge-lib-preview" style={{
                   position: "sticky", top: "1rem",
                   background: "rgba(245,240,232,0.03)",
                   border: "1px solid rgba(245,240,232,0.08)",
@@ -693,8 +693,8 @@ function ExportsView({ onSwitch, onTab }) {
             Download a slide/PNG/ZIP from any tool and a copy will land here.
           </div>
         ) : (
-          <div style={{ display: "grid", gridTemplateColumns: previewId ? "1fr 380px" : "1fr", gap: "1rem", alignItems: "start" }}>
-            <div style={{
+          <div className="cge-lib-layout" style={{ display: "grid", gridTemplateColumns: previewId ? "1fr 380px" : "1fr", gap: "1rem", alignItems: "start" }}>
+            <div className="cge-lib-grid" style={{
               display: "grid",
               gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))",
               gap: "10px",
@@ -788,7 +788,7 @@ function ExportsView({ onSwitch, onTab }) {
               const p = items.find(x => x.id === previewId);
               if (!p) return null;
               return (
-                <div style={{
+                <div className="cge-lib-preview" style={{
                   position: "sticky", top: "1rem",
                   background: "rgba(245,240,232,0.03)",
                   border: "1px solid rgba(245,240,232,0.08)",

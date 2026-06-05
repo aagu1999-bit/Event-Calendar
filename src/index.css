@@ -122,6 +122,23 @@ body {
     min-height: 36px;
   }
 
+  /* ---------- LIBRARY (Recap tab) ---------- */
+  /* Outer 1fr/380px layout → single column. Preview pane drops below the
+     thumb grid and loses sticky positioning so it doesn't fight the
+     viewport while scrolling. Inner thumb grid switches to a denser
+     minmax so phone screens show 3 thumbs per row instead of 2 wide ones. */
+  .cge-lib-layout {
+    grid-template-columns: 1fr !important;
+  }
+  .cge-lib-grid {
+    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)) !important;
+    gap: 6px !important;
+  }
+  .cge-lib-preview {
+    position: static !important;
+    top: auto !important;
+  }
+
   /* ---------- REVIEW BULK ACTIONS BAR ---------- */
   /* Wrap into a 2-row layout when there are 4+ buttons */
   .cge-bulk-bar {
