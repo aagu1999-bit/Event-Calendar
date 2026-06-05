@@ -311,6 +311,40 @@ export async function exportsUsageBytes() {
   return all.reduce((sum, r) => sum + (r.bytes || 0) + (r.thumb?.size || 0), 0);
 }
 
+// ===== Bulk helpers for workspace export/import =====
+// Surface the raw IndexedDB records (with their Blob fields intact) so the
+// workspace sync layer can serialize them to a single shareable file.
+
+export async function getAllPhotosRaw() {
+  const store = await tx("readonly");
+  return awaitRequest(store.getAll());
+}
+export async function getAllExportsRaw() {
+  const store = await txExports("readonly");
+  return awaitRequest(store.getAll());
+}
+
+// Wipe-and-replace primitives used by importWorkspace(). The caller has
+// already confirmed clobber with the user.
+export async function clearAllPhotos() {
+  const store = await tx("readwrite");
+  await awaitRequest(store.clear());
+  notify();
+}
+export async function clearAllExports() {
+  const store = await txExports("readwrite");
+  await awaitRequest(store.clear());
+  notifyExports();
+}
+export async function putPhotoRaw(record) {
+  const store = await tx("readwrite");
+  await awaitRequest(store.put(record));
+}
+export async function putExportRaw(record) {
+  const store = await txExports("readwrite");
+  await awaitRequest(store.put(record));
+}
+
 // Wrap a save + browser-download pipeline: the host's existing download
 // code calls this helper instead of new Blob/createObjectURL by hand, so
 // the file goes to the user AND gets archived in the library in one call.
