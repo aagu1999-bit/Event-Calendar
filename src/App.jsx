@@ -171,8 +171,16 @@ function Nav() {
     background: "rgba(245,240,232,0.08)",
   };
 
+  // Common NavLink props: layer the cge-nav-link class on every tab
+  // (used by the mobile media query) while keeping the existing
+  // active/inactive inline-style swap.
+  const navLinkCommon = {
+    style: ({ isActive }) => isActive ? linkActive : linkBase,
+    className: "cge-nav-link",
+  };
+
   return (
-    <nav style={{
+    <nav className="cge-nav" style={{
       display: "flex",
       alignItems: "center",
       gap: "0.4rem",
@@ -183,7 +191,7 @@ function Nav() {
       top: 0,
       zIndex: 100,
     }}>
-      <div style={{
+      <div className="cge-nav-brand" style={{
         fontSize: "0.7rem",
         fontWeight: 700,
         letterSpacing: "2px",
@@ -192,16 +200,16 @@ function Nav() {
       }}>
         CGE TOOLS
       </div>
-      <NavLink to="/calendar" style={({ isActive }) => isActive ? linkActive : linkBase}>Calendar</NavLink>
-      <NavLink to="/newsletter" style={({ isActive }) => isActive ? linkActive : linkBase}>Newsletter</NavLink>
-      <NavLink to="/reel" style={({ isActive }) => isActive ? linkActive : linkBase}>Reel</NavLink>
-      <NavLink to="/flyer" style={({ isActive }) => isActive ? linkActive : linkBase}>Flyer</NavLink>
-      <NavLink to="/media" style={({ isActive }) => isActive ? linkActive : linkBase}>Media</NavLink>
-      <NavLink to="/recap" style={({ isActive }) => isActive ? linkActive : linkBase}>Recap</NavLink>
-      <NavLink to="/review" style={({ isActive }) => isActive ? linkActive : linkBase}>Review</NavLink>
-      <NavLink to="/regulars" style={({ isActive }) => isActive ? linkActive : linkBase}>Regulars</NavLink>
-      <div style={{ flex: 1 }} />
-      <div style={{
+      <NavLink to="/calendar"   {...navLinkCommon}>Calendar</NavLink>
+      <NavLink to="/newsletter" {...navLinkCommon}>Newsletter</NavLink>
+      <NavLink to="/reel"       {...navLinkCommon}>Reel</NavLink>
+      <NavLink to="/flyer"      {...navLinkCommon}>Flyer</NavLink>
+      <NavLink to="/media"      {...navLinkCommon}>Media</NavLink>
+      <NavLink to="/recap"      {...navLinkCommon}>Recap</NavLink>
+      <NavLink to="/review"     {...navLinkCommon}>Review</NavLink>
+      <NavLink to="/regulars"   {...navLinkCommon}>Regulars</NavLink>
+      <div className="cge-nav-spacer" style={{ flex: 1 }} />
+      <div className="cge-nav-count" style={{
         fontSize: "0.6rem",
         color: "rgba(245,240,232,0.35)",
         letterSpacing: "1px",

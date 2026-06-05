@@ -728,7 +728,7 @@ export default function ReviewQueue() {
             {/* Bulk action bar — appears when something is selected. Selection
                 is decoupled from approval/import: the checkbox just marks rows
                 for a follow-up action (add to calendar, delete, ...). */}
-            <div style={{
+            <div className="cge-bulk-bar" style={{
               display: "flex", gap: "0.4rem", alignItems: "center",
               padding: approvedCount > 0 ? "8px 12px" : 0,
               marginBottom: approvedCount > 0 ? "0.5rem" : 0,
@@ -885,6 +885,7 @@ export default function ReviewQueue() {
                 return (
                   <Fragment key={ev.id}>
                   <div
+                    className="cge-review-row"
                     style={{
                       display: "grid",
                       gridTemplateColumns: "auto auto 50px 1fr auto auto auto auto",
@@ -916,6 +917,7 @@ export default function ReviewQueue() {
                   >
                     <button
                       onClick={() => toggle(ev.id)}
+                      className="cge-row-check"
                       title={approved ? "Selected — click to deselect" : "Click to select for bulk action (delete, add to calendar, …)"}
                       style={{
                         width: 28,
@@ -937,13 +939,13 @@ export default function ReviewQueue() {
                     >
                       {approved ? "✓" : ""}
                     </button>
-                    <span style={{ fontSize: "1rem", width: "20px", textAlign: "center", lineHeight: 1 }}>
+                    <span className="cge-row-flag" style={{ fontSize: "1rem", width: "20px", textAlign: "center", lineHeight: 1 }}>
                       {isFlagged ? "🚩" : ""}
                     </span>
-                    <span style={{ fontFamily: "'Syne', sans-serif", fontSize: "0.8rem", fontWeight: 700, color: "#E5BC4F", letterSpacing: "1px" }}>
+                    <span className="cge-row-day" style={{ fontFamily: "'Syne', sans-serif", fontSize: "0.8rem", fontWeight: 700, color: "#E5BC4F", letterSpacing: "1px" }}>
                       {DAYFUL[ev.day]?.slice(0, 3) || "?"}
                     </span>
-                    <div>
+                    <div className="cge-row-info">
                       <div style={{ fontSize: "0.85rem", fontWeight: 700, marginBottom: "2px" }}>
                         {getEmoji(ev.type)} {ev.name || <em style={{ color: "#FB7185" }}>(no name)</em>}
                       </div>
@@ -952,13 +954,13 @@ export default function ReviewQueue() {
                         {ev.igHandle && <span style={{ marginLeft: "8px", color: "#C084FC", fontWeight: 600 }}>@{ev.igHandle}</span>}
                       </div>
                     </div>
-                    <span style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.45)", letterSpacing: "1px", textTransform: "uppercase" }}>
+                    <span className="cge-row-meta" style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.45)", letterSpacing: "1px", textTransform: "uppercase" }}>
                       {ev.region || "—"}
                     </span>
-                    <span style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.45)", letterSpacing: "1px", textTransform: "uppercase" }}>
+                    <span className="cge-row-meta" style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.45)", letterSpacing: "1px", textTransform: "uppercase" }}>
                       {ev.type || "—"}
                     </span>
-                    <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", maxWidth: "320px", justifyContent: "flex-end" }}>
+                    <div className="cge-row-tags" style={{ display: "flex", gap: "4px", flexWrap: "wrap", maxWidth: "320px", justifyContent: "flex-end" }}>
                       {w.map((warn, i) => {
                         const hasGroup = /#\d+/.test(warn.msg);
                         const isHighlighted = isPillInHighlightedGroup(warn.msg, ev.id);
@@ -992,7 +994,7 @@ export default function ReviewQueue() {
                         </span>
                       )}
                     </div>
-                    <div style={{ display: "flex", gap: "4px" }}>
+                    <div className="cge-row-actions" style={{ display: "flex", gap: "4px" }}>
                       {ev.link && (
                         <a
                           href={ev.link}
