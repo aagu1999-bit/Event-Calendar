@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { cloudList, cloudDelete } from "./cloudSync.js";
 
 function formatBytes(n) {
@@ -47,7 +48,12 @@ export function CloudWorkspaceModal({ open, onClose, onPick }) {
     finally { setBusy(false); }
   };
 
-  return (
+  // React Portal: render directly into <body> so the modal escapes every
+  // stacking context, transform, and overflow rule between here and the
+  // document root. Without it, an ancestor with position:sticky / transform
+  // / contain:paint can trap a position:fixed overlay and leave the page
+  // bleeding through underneath.
+  return createPortal(
     <div
       onClick={onClose}
       className="cge-modal-backdrop"
@@ -147,6 +153,7 @@ export function CloudWorkspaceModal({ open, onClose, onPick }) {
           ))}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

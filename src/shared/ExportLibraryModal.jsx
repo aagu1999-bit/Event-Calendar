@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { listExports, loadExportRecord, deleteExport, onExportsChange, exportsUsageBytes } from "./photoLibrary.js";
 
 function formatBytes(n) {
@@ -78,7 +79,10 @@ export function ExportLibraryModal({
 
   if (!open) return null;
 
-  return (
+  // React Portal: render directly into <body>, escaping any ancestor
+  // stacking context / transform / overflow rule that could trap the
+  // position:fixed overlay below the page content.
+  return createPortal(
     <div
       onClick={onClose}
       className="cge-modal-backdrop"
@@ -204,6 +208,7 @@ export function ExportLibraryModal({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
