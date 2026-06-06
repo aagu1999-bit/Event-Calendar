@@ -195,20 +195,20 @@ body {
   }
 
   /* ---------- MODALS (Cloud / Photo / Export library) ---------- */
-  /* Strip the outer padding so the modal fills the viewport edge-to-edge
-     and use the whole screen instead of a centered card. Header wraps so
-     the long subtitle text can't push the Close button off-screen — which
-     was making the modal feel "grayed out" with no visible exit. */
+  /* Floating popup on phone instead of a full-screen sheet — keeps the
+     page visible behind so it doesn't feel like the whole tab got
+     hijacked. Backdrop dims the page; modal sits in the center with
+     rounded corners. Header still wraps and subtitle still hides so a
+     long title can't push the Close button off-screen. */
   .cge-modal-backdrop {
-    padding: 0 !important;
-    align-items: stretch !important;
+    padding: 1rem !important;
   }
   .cge-modal {
     width: 100% !important;
-    max-width: 100% !important;
-    max-height: 100vh !important;
-    border-radius: 0 !important;
-    border: none !important;
+    max-width: 520px !important;
+    max-height: 80vh !important;
+    border-radius: 10px !important;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.6) !important;
   }
   .cge-modal-header {
     flex-wrap: wrap !important;
