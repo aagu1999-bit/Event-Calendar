@@ -759,6 +759,490 @@ function renderCountdown(canvas, cfg) {
   drawFooter(ctx, W, H, isLight);
 }
 
+// === SAVE THE DATE (single) ===
+// Hero announcement for ONE upcoming event. Layout: "SAVE THE DATE" pill
+// kicker, day-of-week, MASSIVE date in accent color, event name, venue
+// + time, CTA. Differs from Countdown by leading with the actual date
+// (not a "T-minus" number) — meant for the formal announcement, not the
+// urgency ramp. Photo background optional.
+function renderSaveDate(canvas, cfg) {
+  const {
+    photo, saveKicker, saveDay, saveDateBig, saveEvent, saveVenue, saveCta,
+    accent, bgKey, dots, totalDots, opacity,
+  } = cfg;
+  const W = 1080, H = 1080;
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext("2d");
+
+  const bg = BG_COLORS[bgKey] || BG_COLORS.black;
+  const isLight = !photo && !!bg.isLight;
+
+  if (photo) {
+    const s = Math.max(W / photo.width, H / photo.height);
+    const dw = photo.width * s, dh = photo.height * s;
+    ctx.drawImage(photo, (W - dw) / 2, (H - dh) / 2, dw, dh);
+    ctx.fillStyle = `rgba(0,0,0,${opacity || 0.80})`;
+    ctx.fillRect(0, 0, W, H);
+    drawTexture(ctx, W, H, "#FFF", 0.04);
+  } else {
+    ctx.fillStyle = bg.hex; ctx.fillRect(0, 0, W, H);
+    const isBlack = bgKey === "black";
+    drawTexture(ctx, W, H, isBlack ? "#FACC15" : "#000", isBlack ? 0.05 : (isLight ? 0.06 : 0.10));
+    if (!isLight) {
+      if (!isBlack) drawSpotlight(ctx, W, H, "255,255,255", 0.40);
+      else drawSpotlight(ctx, W, H, "229,188,79", 0.30);
+    }
+  }
+
+  const eventColor = isLight ? "#0a0a0a" : "#FFF";
+  const venueColor = isLight ? "rgba(0,0,0,0.72)" : "rgba(255,255,255,0.85)";
+  const dayColor   = isLight ? "rgba(0,0,0,0.55)" : "rgba(255,255,255,0.65)";
+
+  ctx.globalAlpha = 1;
+  ctx.textBaseline = "top";
+
+  // KICKER PILL — "SAVE THE DATE" in accent-bg pill at top.
+  if (saveKicker?.trim()) {
+    const kt = saveKicker.toUpperCase();
+    ctx.font = ff("800 22px 'Syne',sans-serif"); ctx.letterSpacing = "4px";
+    const tw = ctx.measureText(kt).width;
+    const padX = 22, rectW = tw + padX * 2, rectH = 46;
+    const rx = (W - rectW) / 2, ry = 140;
+    ctx.fillStyle = accent;
+    ctx.beginPath(); ctx.roundRect(rx, ry, rectW, rectH, 4); ctx.fill();
+    ctx.fillStyle = "#000"; ctx.textBaseline = "middle"; ctx.textAlign = "left";
+    ctx.fillText(kt, rx + padX, ry + rectH / 2);
+    ctx.letterSpacing = "0px"; ctx.textBaseline = "top";
+  }
+
+  // DAY OF WEEK — small caps, subtle.
+  if (saveDay?.trim()) {
+    ctx.font = ff("700 30px 'DM Sans',sans-serif"); ctx.letterSpacing = "5px";
+    ctx.fillStyle = dayColor; ctx.textAlign = "center";
+    ctx.fillText(saveDay.toUpperCase(), W / 2, 240);
+    ctx.letterSpacing = "0px";
+  }
+
+  // BIG DATE — accent-colored, massive Syne, auto-scaling.
+  if (saveDateBig?.trim()) {
+    const dt = saveDateBig.toUpperCase();
+    let fs = 220;
+    ctx.font = ff(`900 ${fs}px 'Syne',sans-serif`);
+    while (ctx.measureText(dt).width > W - 80 && fs > 80) {
+      fs -= 8; ctx.font = ff(`900 ${fs}px 'Syne',sans-serif`);
+    }
+    ctx.fillStyle = accent; ctx.textAlign = "center";
+    ctx.fillText(dt, W / 2, 310);
+  }
+
+  // Divider
+  const divY = 560;
+  ctx.fillStyle = `${accent}88`;
+  ctx.fillRect(W / 2 - 50, divY, 100, 3);
+
+  // EVENT NAME — bold uppercase, wraps + scales.
+  if (saveEvent?.trim()) {
+    const words = saveEvent.toUpperCase().split(/\s+/).filter(w => w);
+    let fs = 64;
+    const px = 60, maxW = W - px * 2;
+    const wrap = (f) => {
+      ctx.font = ff(`800 ${f}px 'Syne',sans-serif`);
+      const r = []; let bl = "";
+      for (const w of words) {
+        const t = bl ? bl + " " + w : w;
+        if (ctx.measureText(t).width > maxW && bl) { r.push(bl); bl = w; }
+        else bl = t;
+      }
+      if (bl) r.push(bl);
+      return r;
+    };
+    let lines = wrap(fs);
+    while (lines.length > 2 && fs > 36) { fs -= 4; lines = wrap(fs); }
+    ctx.font = ff(`800 ${fs}px 'Syne',sans-serif`);
+    ctx.fillStyle = eventColor;
+    ctx.textAlign = "center";
+    const lh = fs * 1.05;
+    const startY = divY + 30;
+    lines.forEach((ln, i) => ctx.fillText(ln, W / 2, startY + i * lh));
+  }
+
+  // VENUE + TIME
+  if (saveVenue?.trim()) {
+    ctx.font = ff("600 28px 'DM Sans',sans-serif");
+    ctx.fillStyle = venueColor; ctx.textAlign = "center";
+    ctx.fillText(saveVenue, W / 2, 800);
+  }
+
+  // CTA
+  if (saveCta?.trim()) {
+    ctx.font = ff("700 28px 'DM Sans',sans-serif");
+    ctx.fillStyle = accent; ctx.textAlign = "center";
+    ctx.fillText(saveCta, W / 2, 860);
+  }
+
+  ctx.textAlign = "left"; ctx.textBaseline = "top";
+  drawLogo(ctx, accent, W, isLight);
+  drawDots(ctx, W, dots, totalDots, accent, isLight);
+  drawFooter(ctx, W, H, isLight);
+}
+
+// === SAVE THE DATES (multi) ===
+// Grid of 2-4 upcoming events on one slide. For announcing a series
+// (summer lineup, weekend takeover, 3-day festival, etc.) without
+// dedicating a full carousel. Each card carries date / day / event /
+// venue. Auto-arranges 2 in column, 3 in column, 4 in 2x2 grid.
+function renderSaveDates(canvas, cfg) {
+  const {
+    photo, savesHeader, savesItems, savesCta,
+    accent, bgKey, dots, totalDots, opacity,
+  } = cfg;
+  const W = 1080, H = 1080;
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext("2d");
+
+  const bg = BG_COLORS[bgKey] || BG_COLORS.black;
+  const isLight = !photo && !!bg.isLight;
+
+  if (photo) {
+    const s = Math.max(W / photo.width, H / photo.height);
+    const dw = photo.width * s, dh = photo.height * s;
+    ctx.drawImage(photo, (W - dw) / 2, (H - dh) / 2, dw, dh);
+    ctx.fillStyle = `rgba(0,0,0,${opacity || 0.85})`;
+    ctx.fillRect(0, 0, W, H);
+    drawTexture(ctx, W, H, "#FFF", 0.03);
+  } else {
+    ctx.fillStyle = bg.hex; ctx.fillRect(0, 0, W, H);
+    const isBlack = bgKey === "black";
+    drawTexture(ctx, W, H, isBlack ? "#FACC15" : "#000", isBlack ? 0.05 : (isLight ? 0.06 : 0.10));
+    if (!isLight && !isBlack) drawSpotlight(ctx, W, H, "255,255,255", 0.35);
+    else if (!isLight) drawSpotlight(ctx, W, H, "229,188,79", 0.30);
+  }
+
+  ctx.globalAlpha = 1; ctx.textBaseline = "top";
+
+  const headerColor = isLight ? "#0a0a0a" : "#FFF";
+  const cardFill = isLight ? "rgba(0,0,0,0.05)" : "rgba(255,255,255,0.06)";
+  const cardEventColor = isLight ? "#0a0a0a" : "#FFF";
+  const cardVenueColor = isLight ? "rgba(0,0,0,0.65)" : "rgba(255,255,255,0.65)";
+  const cardDayColor = isLight ? "rgba(0,0,0,0.55)" : "rgba(255,255,255,0.55)";
+
+  // HEADER — top of slide.
+  let headerBottom = 120;
+  if (savesHeader?.trim()) {
+    let fs = 60;
+    const t = savesHeader.toUpperCase();
+    ctx.font = ff(`800 ${fs}px 'Syne',sans-serif`); ctx.letterSpacing = "3px";
+    while (ctx.measureText(t).width > W - 120 && fs > 32) {
+      fs -= 4; ctx.font = ff(`800 ${fs}px 'Syne',sans-serif`);
+    }
+    ctx.fillStyle = headerColor; ctx.textAlign = "center";
+    ctx.fillText(t, W / 2, 100);
+    ctx.letterSpacing = "0px";
+    const barY = 100 + fs + 16;
+    ctx.fillStyle = accent; ctx.fillRect(W / 2 - 30, barY, 60, 4);
+    headerBottom = barY + 20;
+  }
+
+  // CARDS — auto-layout: 2 items = stacked rows, 3 = 3 rows, 4 = 2x2.
+  const items = (savesItems || []).slice(0, 4);
+  const count = items.length;
+  if (count === 0) {
+    drawLogo(ctx, accent, W, isLight);
+    drawDots(ctx, W, dots, totalDots, accent, isLight);
+    drawFooter(ctx, W, H, isLight);
+    return;
+  }
+
+  const px = 60;
+  const ctaSpace = savesCta?.trim() ? 110 : 60;
+  const gridTop = headerBottom + 40;
+  const gridBottom = H - ctaSpace;
+  const gridH = gridBottom - gridTop;
+
+  // Layout selection
+  let cols, rows;
+  if (count === 4) { cols = 2; rows = 2; }
+  else { cols = 1; rows = count; }
+
+  const gap = 24;
+  const cw = (W - px * 2 - (cols - 1) * gap) / cols;
+  const ch = (gridH - (rows - 1) * gap) / rows;
+
+  items.forEach((item, i) => {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const x = px + col * (cw + gap);
+    const y = gridTop + row * (ch + gap);
+
+    // Card bg
+    ctx.fillStyle = cardFill;
+    ctx.beginPath(); ctx.roundRect(x, y, cw, ch, 14); ctx.fill();
+
+    // Left accent stripe
+    ctx.fillStyle = accent;
+    ctx.beginPath(); ctx.roundRect(x, y, 6, ch, [14, 0, 0, 14]); ctx.fill();
+
+    const innerPx = 28;
+    const innerX = x + innerPx + 6;
+    const innerW = cw - innerPx * 2 - 6;
+
+    // Layout inside card: date (left or top) + event/venue (right or bottom).
+    if (cols === 2) {
+      // 2x2: vertical card layout
+      // DATE block
+      if (item.date?.trim()) {
+        ctx.font = ff("900 56px 'Syne',sans-serif"); ctx.fillStyle = accent;
+        ctx.textAlign = "left"; ctx.textBaseline = "top";
+        ctx.fillText(item.date.toUpperCase(), innerX, y + 28);
+      }
+      // DAY
+      if (item.day?.trim()) {
+        ctx.font = ff("700 18px 'DM Sans',sans-serif"); ctx.fillStyle = cardDayColor;
+        ctx.letterSpacing = "2px"; ctx.textAlign = "left"; ctx.textBaseline = "top";
+        ctx.fillText(item.day.toUpperCase(), innerX, y + 100);
+        ctx.letterSpacing = "0px";
+      }
+      // EVENT — wraps
+      if (item.name?.trim()) {
+        let fs = 28;
+        const words = item.name.toUpperCase().split(/\s+/).filter(w => w);
+        const wrap = (f) => {
+          ctx.font = ff(`800 ${f}px 'Syne',sans-serif`);
+          const r = []; let bl = "";
+          for (const w of words) {
+            const t = bl ? bl + " " + w : w;
+            if (ctx.measureText(t).width > innerW && bl) { r.push(bl); bl = w; }
+            else bl = t;
+          }
+          if (bl) r.push(bl);
+          return r;
+        };
+        let lines = wrap(fs);
+        while (lines.length > 3 && fs > 18) { fs -= 2; lines = wrap(fs); }
+        ctx.font = ff(`800 ${fs}px 'Syne',sans-serif`); ctx.fillStyle = cardEventColor;
+        ctx.textAlign = "left"; ctx.textBaseline = "top";
+        const lh = fs * 1.1;
+        lines.forEach((ln, j) => ctx.fillText(ln, innerX, y + 140 + j * lh));
+      }
+      // VENUE — small
+      if (item.venue?.trim()) {
+        ctx.font = ff("400 20px 'DM Sans',sans-serif"); ctx.fillStyle = cardVenueColor;
+        ctx.textAlign = "left"; ctx.textBaseline = "top";
+        ctx.fillText(item.venue, innerX, y + ch - 50);
+      }
+    } else {
+      // Stacked single column: horizontal card layout (date left, info right)
+      // DATE
+      if (item.date?.trim()) {
+        let fs = 72;
+        ctx.font = ff(`900 ${fs}px 'Syne',sans-serif`);
+        while (ctx.measureText(item.date.toUpperCase()).width > cw * 0.35 && fs > 36) {
+          fs -= 4; ctx.font = ff(`900 ${fs}px 'Syne',sans-serif`);
+        }
+        ctx.fillStyle = accent;
+        ctx.textAlign = "left"; ctx.textBaseline = "middle";
+        ctx.fillText(item.date.toUpperCase(), innerX, y + ch / 2 - 22);
+
+        if (item.day?.trim()) {
+          ctx.font = ff("700 18px 'DM Sans',sans-serif");
+          ctx.fillStyle = cardDayColor; ctx.letterSpacing = "3px";
+          ctx.fillText(item.day.toUpperCase(), innerX, y + ch / 2 + 22);
+          ctx.letterSpacing = "0px";
+        }
+      }
+      // Divider between date + info
+      const dividerX = x + cw * 0.40;
+      ctx.fillStyle = isLight ? "rgba(0,0,0,0.15)" : "rgba(255,255,255,0.15)";
+      ctx.fillRect(dividerX, y + 24, 1, ch - 48);
+
+      // EVENT NAME + VENUE
+      const infoX = dividerX + 30;
+      const infoW = cw - (dividerX - x) - 50;
+      if (item.name?.trim()) {
+        let fs = 34;
+        const words = item.name.toUpperCase().split(/\s+/).filter(w => w);
+        const wrap = (f) => {
+          ctx.font = ff(`800 ${f}px 'Syne',sans-serif`);
+          const r = []; let bl = "";
+          for (const w of words) {
+            const t = bl ? bl + " " + w : w;
+            if (ctx.measureText(t).width > infoW && bl) { r.push(bl); bl = w; }
+            else bl = t;
+          }
+          if (bl) r.push(bl);
+          return r;
+        };
+        let lines = wrap(fs);
+        while (lines.length > 2 && fs > 22) { fs -= 2; lines = wrap(fs); }
+        ctx.font = ff(`800 ${fs}px 'Syne',sans-serif`); ctx.fillStyle = cardEventColor;
+        ctx.textAlign = "left"; ctx.textBaseline = "top";
+        const lh = fs * 1.1;
+        const totalH = lines.length * lh;
+        const startY = y + ch / 2 - totalH / 2 - 18;
+        lines.forEach((ln, j) => ctx.fillText(ln, infoX, startY + j * lh));
+      }
+      if (item.venue?.trim()) {
+        ctx.font = ff("400 22px 'DM Sans',sans-serif"); ctx.fillStyle = cardVenueColor;
+        ctx.textAlign = "left"; ctx.textBaseline = "bottom";
+        ctx.fillText(item.venue, infoX, y + ch - 24);
+      }
+    }
+  });
+
+  // CTA at bottom
+  if (savesCta?.trim()) {
+    ctx.font = ff("700 30px 'DM Sans',sans-serif");
+    ctx.fillStyle = accent; ctx.textAlign = "center"; ctx.textBaseline = "bottom";
+    ctx.fillText(savesCta, W / 2, H - 70);
+  }
+
+  ctx.textAlign = "left"; ctx.textBaseline = "top";
+  drawLogo(ctx, accent, W, isLight);
+  drawDots(ctx, W, dots, totalDots, accent, isLight);
+  drawFooter(ctx, W, H, isLight);
+}
+
+// === VIBE BOARD ===
+// Moodboard collage. Headline at top (quoted, conversational), 5-cell
+// grid of photo cards below (4 in a 2x2 plus 1 hero, OR 2x3 layout).
+// Inspired by The Local Girl Network's "Vitamin F / C" carousels — a
+// reusable template that generates endless content (one per letter,
+// season, vibe, etc) and works as the non-event content engine you
+// don't have yet.
+function renderVibeBoard(canvas, cfg) {
+  const { vibePhotos, vibeHeadline, vibeLabels, accent, bgKey, dots, totalDots } = cfg;
+  const W = 1080, H = 1080;
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext("2d");
+
+  const bg = BG_COLORS[bgKey] || BG_COLORS.black;
+  const isLight = !!bg.isLight;
+
+  ctx.fillStyle = bg.hex; ctx.fillRect(0, 0, W, H);
+  const isBlack = bgKey === "black";
+  drawTexture(ctx, W, H, isBlack ? "#FACC15" : "#000", isBlack ? 0.04 : (isLight ? 0.05 : 0.08));
+  if (!isLight && !isBlack) drawSpotlight(ctx, W, H, "255,255,255", 0.30);
+
+  const headlineColor = isLight ? "#0a0a0a" : accent;
+  const labelColor = isLight ? "rgba(0,0,0,0.78)" : "rgba(255,255,255,0.78)";
+  const cellBg = isLight ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.06)";
+
+  // HEADLINE — top of slide.
+  let headlineBottom = 100;
+  if (vibeHeadline?.trim()) {
+    let fs = 64;
+    const t = vibeHeadline;
+    ctx.font = ff(`800 ${fs}px 'Syne',sans-serif`);
+    while (ctx.measureText(t).width > W - 80 && fs > 32) {
+      fs -= 4; ctx.font = ff(`800 ${fs}px 'Syne',sans-serif`);
+    }
+    ctx.fillStyle = headlineColor;
+    ctx.textAlign = "center"; ctx.textBaseline = "top";
+    ctx.fillText(t, W / 2, 100);
+    headlineBottom = 100 + fs + 16;
+  }
+
+  // PHOTO GRID — 2x3 layout (top row of 2, bottom row of 3).
+  // With 5 photos: top 2 are bigger hero cells, bottom 3 are smaller.
+  const items = (vibePhotos || []).map((p, i) => ({
+    photo: p,
+    label: (vibeLabels && vibeLabels[i]) || "",
+  })).filter(x => x.photo || x.label);
+
+  const px = 60;
+  const labelHeight = 50;
+  const gridTop = headlineBottom + 40;
+  const gridBottom = H - 110;
+  const gridH = gridBottom - gridTop;
+
+  // Decide layout based on count
+  const count = Math.min(items.length, 6);
+  let cells = [];
+  if (count <= 0) {
+    drawLogo(ctx, accent, W, isLight);
+    drawDots(ctx, W, dots, totalDots, accent, isLight);
+    drawFooter(ctx, W, H, isLight);
+    return;
+  }
+  if (count <= 2) {
+    // 1 or 2 cells: full-width row
+    const cw = (W - px * 2 - (count - 1) * 20) / count;
+    const ch = gridH;
+    for (let i = 0; i < count; i++) cells.push({ x: px + i * (cw + 20), y: gridTop, w: cw, h: ch });
+  } else if (count <= 4) {
+    // 2x2
+    const cw = (W - px * 2 - 20) / 2;
+    const ch = (gridH - 20) / 2;
+    for (let i = 0; i < count; i++) {
+      const col = i % 2, row = Math.floor(i / 2);
+      cells.push({ x: px + col * (cw + 20), y: gridTop + row * (ch + 20), w: cw, h: ch });
+    }
+  } else {
+    // 5 or 6: 2 wider on top, 3 smaller on bottom
+    const topCols = 2, bottomCols = count - 2;
+    const topRowH = gridH * 0.55;
+    const bottomRowH = gridH * 0.45 - 20;
+    const topCw = (W - px * 2 - 20) / topCols;
+    const bottomCw = (W - px * 2 - (bottomCols - 1) * 16) / bottomCols;
+    for (let i = 0; i < 2; i++) {
+      cells.push({ x: px + i * (topCw + 20), y: gridTop, w: topCw, h: topRowH });
+    }
+    for (let i = 0; i < bottomCols; i++) {
+      cells.push({ x: px + i * (bottomCw + 16), y: gridTop + topRowH + 20, w: bottomCw, h: bottomRowH });
+    }
+  }
+
+  // Draw each cell
+  cells.forEach((c, i) => {
+    const item = items[i];
+    if (!item) return;
+
+    const photoH = c.h - labelHeight - 4;
+
+    // Photo container (rounded with subtle shadow on light bg)
+    ctx.save();
+    ctx.beginPath(); ctx.roundRect(c.x, c.y, c.w, photoH, 16);
+    if (isLight) {
+      ctx.shadowColor = "rgba(0,0,0,0.10)";
+      ctx.shadowBlur = 18;
+      ctx.shadowOffsetY = 6;
+    }
+    ctx.fillStyle = cellBg;
+    ctx.fill();
+    ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+
+    // Clip to rounded rect and draw photo
+    if (item.photo) {
+      ctx.clip();
+      const p = item.photo;
+      const s = Math.max(c.w / p.width, photoH / p.height);
+      const dw = p.width * s, dh = p.height * s;
+      ctx.drawImage(p, c.x + (c.w - dw) / 2, c.y + (photoH - dh) / 2, dw, dh);
+    } else {
+      // Placeholder text inside empty cell
+      ctx.clip();
+      ctx.fillStyle = isLight ? "rgba(0,0,0,0.25)" : "rgba(255,255,255,0.25)";
+      ctx.font = ff("700 22px 'DM Sans',sans-serif");
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText("PHOTO " + (i + 1), c.x + c.w / 2, c.y + photoH / 2);
+    }
+    ctx.restore();
+
+    // LABEL — beneath the photo cell
+    if (item.label?.trim()) {
+      ctx.font = ff("600 22px 'DM Sans',sans-serif");
+      ctx.fillStyle = labelColor;
+      ctx.textAlign = "center"; ctx.textBaseline = "top";
+      ctx.fillText(item.label, c.x + c.w / 2, c.y + photoH + 14);
+    }
+  });
+
+  ctx.textAlign = "left"; ctx.textBaseline = "top";
+  drawLogo(ctx, accent, W, isLight);
+  drawDots(ctx, W, dots, totalDots, accent, isLight);
+  drawFooter(ctx, W, H, isLight);
+}
+
 // === FEATURES RENDERER (2x2 emoji-card grid) ===
 function renderFeatures(canvas, cfg) {
   const { featuresTitle, features, accent, bgKey, dots, totalDots, photo, opacity } = cfg;
@@ -945,6 +1429,34 @@ export default function MediaTool() {
   const [countCta, setCountCta] = useState("tix in bio");
   const [countOpacity, setCountOpacity] = useState(0.78);
 
+  // Save the Date — single hero announcement.
+  const [savePhoto, setSavePhoto] = useState(null);
+  const [saveKicker, setSaveKicker] = useState("SAVE THE DATE");
+  const [saveDay, setSaveDay] = useState("FRIDAY");
+  const [saveDateBig, setSaveDateBig] = useState("JUNE 12");
+  const [saveEvent, setSaveEvent] = useState("WORLD CUP OPENING NIGHT");
+  const [saveVenue, setSaveVenue] = useState("The Standard · Newark · 8 PM");
+  const [saveCta, setSaveCta] = useState("RSVP in bio");
+  const [saveOpacity, setSaveOpacity] = useState(0.80);
+
+  // Save These Dates — multi-event announcement (2-4 items).
+  const [savesPhoto, setSavesPhoto] = useState(null);
+  const [savesHeader, setSavesHeader] = useState("SAVE THESE DATES");
+  const [savesItems, setSavesItems] = useState([
+    { date: "6/12", day: "FRIDAY",   name: "World Cup Opening Night", venue: "The Standard · Newark" },
+    { date: "6/19", day: "FRIDAY",   name: "Summer Rooftop Series",   venue: "9th & 9th · Hoboken" },
+    { date: "6/26", day: "FRIDAY",   name: "Latin Heat",              venue: "Bar Loft · Jersey City" },
+  ]);
+  const [savesCta, setSavesCta] = useState("tix in bio");
+  const [savesOpacity, setSavesOpacity] = useState(0.85);
+
+  // Vibe Board — moodboard collage with headline + 5 photo cells.
+  const [vibePhotos, setVibePhotos] = useState([null, null, null, null, null]);
+  const [vibeHeadline, setVibeHeadline] = useState('"I NEED SOME VITAMIN F"');
+  const [vibeLabels, setVibeLabels] = useState([
+    "farmers market", "french fries", "firmchella", "festivals", "family trivia",
+  ]);
+
   // Custom carousel composer — snapshots of slides, reorderable, exportable
   const [carousel, setCarousel] = useState([]);
   const [dragIdx, setDragIdx] = useState(null);
@@ -1024,7 +1536,9 @@ export default function MediaTool() {
     }
   };
 
-  const cvRef = useRef(null), fileRef = useRef(null), textFileRef = useRef(null), captionFileRef = useRef(null), spotFileRef = useRef(null), countFileRef = useRef(null);
+  const cvRef = useRef(null), fileRef = useRef(null), textFileRef = useRef(null), captionFileRef = useRef(null), spotFileRef = useRef(null), countFileRef = useRef(null), saveFileRef = useRef(null), savesFileRef = useRef(null);
+  // One file input ref per Vibe Board slot (5 max).
+  const vibeFileRefs = [useRef(null), useRef(null), useRef(null), useRef(null), useRef(null)];
   const accent = COLORS[accentKey]?.hex || "#FACC15";
   const words = headline.split(/\s+/).filter(w=>w);
   const textWords = textTitle.split(/\s+/).filter(w=>w);
@@ -1057,7 +1571,10 @@ export default function MediaTool() {
     else if(mode==="photo") renderPhotoCaption(cv,{photo:captionPhoto,caption,captionSecondary,alignment:captionAlign,accent,bgKey,dots,totalDots});
     else if(mode==="spotlight") renderSpotlight(cv,{photo:spotPhoto,spotName,spotMeta,spotTime,spotPrice,spotCta,accent,bgKey,dots,totalDots});
     else if(mode==="countdown") renderCountdown(cv,{photo:countPhoto,countText,countEvent,countWhen,countCta,accent,bgKey,dots,totalDots,opacity:countOpacity});
-  },[mode,photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,items,bgKey,listTitle,listSubtitle,statNumber,statLabel,statSub,textTitle,textTitleHL,textBody,pageNum,totalPages,textPhoto,textOpacity,ctaKicker,ctaDate,ctaVenue,ctaUrl,featuresTitle,features,captionPhoto,caption,captionSecondary,captionAlign,spotPhoto,spotName,spotMeta,spotTime,spotPrice,spotCta,countPhoto,countText,countEvent,countWhen,countCta,countOpacity,watermark,fontTick]);
+    else if(mode==="savedate") renderSaveDate(cv,{photo:savePhoto,saveKicker,saveDay,saveDateBig,saveEvent,saveVenue,saveCta,accent,bgKey,dots,totalDots,opacity:saveOpacity});
+    else if(mode==="savedates") renderSaveDates(cv,{photo:savesPhoto,savesHeader,savesItems,savesCta,accent,bgKey,dots,totalDots,opacity:savesOpacity});
+    else if(mode==="vibe") renderVibeBoard(cv,{vibePhotos,vibeHeadline,vibeLabels,accent,bgKey,dots,totalDots});
+  },[mode,photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,items,bgKey,listTitle,listSubtitle,statNumber,statLabel,statSub,textTitle,textTitleHL,textBody,pageNum,totalPages,textPhoto,textOpacity,ctaKicker,ctaDate,ctaVenue,ctaUrl,featuresTitle,features,captionPhoto,caption,captionSecondary,captionAlign,spotPhoto,spotName,spotMeta,spotTime,spotPrice,spotCta,countPhoto,countText,countEvent,countWhen,countCta,countOpacity,savePhoto,saveKicker,saveDay,saveDateBig,saveEvent,saveVenue,saveCta,saveOpacity,savesPhoto,savesHeader,savesItems,savesCta,savesOpacity,vibePhotos,vibeHeadline,vibeLabels,watermark,fontTick]);
 
   useEffect(()=>{const t=setTimeout(render,60);return()=>clearTimeout(t);},[render]);
 
@@ -1083,6 +1600,18 @@ export default function MediaTool() {
   const handleCaptionPhoto = makeUploadHandler(setCaptionPhoto, "photo");
   const handleSpotPhoto = makeUploadHandler(setSpotPhoto, "spotlight");
   const handleCountPhoto = makeUploadHandler(setCountPhoto, "countdown");
+  const handleSavePhoto = makeUploadHandler(setSavePhoto, "savedate");
+  const handleSavesPhoto = makeUploadHandler(setSavesPhoto, "savedates");
+  // Vibe Board has 5 photo slots — one upload handler per slot.
+  const handleVibePhoto = (idx) => (e) => {
+    const f = e.target.files?.[0]; if (!f) return;
+    const r = new FileReader();
+    r.onload = ev => { const img = new Image(); img.onload = () => setVibePhotos(prev => prev.map((p,i)=>i===idx?img:p)); img.src = ev.target.result; };
+    r.readAsDataURL(f);
+    savePhotoAndNotify(f, { sourceTool: "media", sourceMode: "vibe" })
+      .catch(err => console.warn("Photo library save failed:", err));
+    e.target.value = "";
+  };
 
   // Library picker state — opened by the "📚 Library" button next to each
   // Upload Photo button. `pickTarget` decides which setter to feed.
@@ -1094,6 +1623,12 @@ export default function MediaTool() {
     else if (pickTarget === "photo")     setCaptionPhoto(img);
     else if (pickTarget === "spotlight") setSpotPhoto(img);
     else if (pickTarget === "countdown") setCountPhoto(img);
+    else if (pickTarget === "savedate")  setSavePhoto(img);
+    else if (pickTarget === "savedates") setSavesPhoto(img);
+    else if (pickTarget && pickTarget.startsWith("vibe-")) {
+      const idx = parseInt(pickTarget.split("-")[1], 10);
+      setVibePhotos(prev => prev.map((p,i)=>i===idx?img:p));
+    }
     else                                  setTextPhoto(img); // text/cta/features share textPhoto
   };
 
@@ -1107,6 +1642,9 @@ export default function MediaTool() {
     else if(mode==="photo") renderPhotoCaption(cv,{photo:captionPhoto,caption,captionSecondary,alignment:captionAlign,accent,bgKey,dots,totalDots});
     else if(mode==="spotlight") renderSpotlight(cv,{photo:spotPhoto,spotName,spotMeta,spotTime,spotPrice,spotCta,accent,bgKey,dots,totalDots});
     else if(mode==="countdown") renderCountdown(cv,{photo:countPhoto,countText,countEvent,countWhen,countCta,accent,bgKey,dots,totalDots,opacity:countOpacity});
+    else if(mode==="savedate") renderSaveDate(cv,{photo:savePhoto,saveKicker,saveDay,saveDateBig,saveEvent,saveVenue,saveCta,accent,bgKey,dots,totalDots,opacity:saveOpacity});
+    else if(mode==="savedates") renderSaveDates(cv,{photo:savesPhoto,savesHeader,savesItems,savesCta,accent,bgKey,dots,totalDots,opacity:savesOpacity});
+    else if(mode==="vibe") renderVibeBoard(cv,{vibePhotos,vibeHeadline,vibeLabels,accent,bgKey,dots,totalDots});
     const exportCv = wrapForExport(cv, exportRatio);
     exportCv.toBlob(blob=>{
       const url=URL.createObjectURL(blob);
@@ -1121,7 +1659,7 @@ export default function MediaTool() {
     },"image/png");
   };
 
-  const MODES=[["cover","Cover"],["list","List"],["stat","Stat"],["text","Text"],["cta","CTA"],["features","Features"],["photo","Photo"],["spotlight","Spotlight"],["countdown","Countdown"]];
+  const MODES=[["cover","Cover"],["list","List"],["stat","Stat"],["text","Text"],["cta","CTA"],["features","Features"],["photo","Photo"],["spotlight","Spotlight"],["countdown","Countdown"],["savedate","Save Date"],["savedates","Save Dates"],["vibe","Vibe Board"]];
 
   // Templates push snapshots into the carousel composer.
   // Weekend (5 slides): Cover + Fri/Sat/Sun lists + Stat.
@@ -1238,6 +1776,15 @@ export default function MediaTool() {
     else if (type === "countdown") renderCountdown(cv, { ...common, photo: s.photo,
       countText: s.countText, countEvent: s.countEvent, countWhen: s.countWhen,
       countCta: s.countCta, bgKey: s.bgKey, opacity: s.countOpacity });
+    else if (type === "savedate") renderSaveDate(cv, { ...common, photo: s.photo,
+      saveKicker: s.saveKicker, saveDay: s.saveDay, saveDateBig: s.saveDateBig,
+      saveEvent: s.saveEvent, saveVenue: s.saveVenue, saveCta: s.saveCta,
+      bgKey: s.bgKey, opacity: s.saveOpacity });
+    else if (type === "savedates") renderSaveDates(cv, { ...common, photo: s.photo,
+      savesHeader: s.savesHeader, savesItems: s.savesItems, savesCta: s.savesCta,
+      bgKey: s.bgKey, opacity: s.savesOpacity });
+    else if (type === "vibe") renderVibeBoard(cv, { ...common, vibePhotos: s.vibePhotos,
+      vibeHeadline: s.vibeHeadline, vibeLabels: s.vibeLabels, bgKey: s.bgKey });
   };
 
   const makeSnapshot = () => {
@@ -1252,6 +1799,9 @@ export default function MediaTool() {
       case "photo": return { ...common, photo: captionPhoto, caption, captionSecondary, captionAlign };
       case "spotlight": return { ...common, photo: spotPhoto, spotName, spotMeta, spotTime, spotPrice, spotCta };
       case "countdown": return { ...common, photo: countPhoto, countText, countEvent, countWhen, countCta, countOpacity };
+      case "savedate":  return { ...common, photo: savePhoto, saveKicker, saveDay, saveDateBig, saveEvent, saveVenue, saveCta, saveOpacity };
+      case "savedates": return { ...common, photo: savesPhoto, savesHeader, savesItems: savesItems.map(x=>({...x})), savesCta, savesOpacity };
+      case "vibe":      return { ...common, vibePhotos: [...vibePhotos], vibeHeadline, vibeLabels: [...vibeLabels] };
       default: return common;
     }
   };
@@ -1304,6 +1854,25 @@ export default function MediaTool() {
         setCountText(snapshot.countText || ""); setCountEvent(snapshot.countEvent || "");
         setCountWhen(snapshot.countWhen || ""); setCountCta(snapshot.countCta || "");
         if (typeof snapshot.countOpacity === "number") setCountOpacity(snapshot.countOpacity);
+        break;
+      case "savedate":
+        setSavePhoto(snapshot.photo);
+        setSaveKicker(snapshot.saveKicker || ""); setSaveDay(snapshot.saveDay || "");
+        setSaveDateBig(snapshot.saveDateBig || ""); setSaveEvent(snapshot.saveEvent || "");
+        setSaveVenue(snapshot.saveVenue || ""); setSaveCta(snapshot.saveCta || "");
+        if (typeof snapshot.saveOpacity === "number") setSaveOpacity(snapshot.saveOpacity);
+        break;
+      case "savedates":
+        setSavesPhoto(snapshot.photo);
+        setSavesHeader(snapshot.savesHeader || "");
+        if (Array.isArray(snapshot.savesItems)) setSavesItems(snapshot.savesItems.map(x=>({...x})));
+        setSavesCta(snapshot.savesCta || "");
+        if (typeof snapshot.savesOpacity === "number") setSavesOpacity(snapshot.savesOpacity);
+        break;
+      case "vibe":
+        if (Array.isArray(snapshot.vibePhotos)) setVibePhotos([...snapshot.vibePhotos]);
+        setVibeHeadline(snapshot.vibeHeadline || "");
+        if (Array.isArray(snapshot.vibeLabels)) setVibeLabels([...snapshot.vibeLabels]);
         break;
     }
   };
@@ -2027,6 +2596,108 @@ export default function MediaTool() {
                 {Object.entries(BG_COLORS).map(([k,v])=><button key={k} onClick={()=>setBgKey(k)} style={{width:28,height:28,borderRadius:"5px",cursor:"pointer",background:v.hex,border:bgKey===k?"2px solid #FFF":"2px solid transparent",boxShadow:bgKey===k?"0 0 6px rgba(255,255,255,0.3)":"none"}} title={v.name}/>)}</div></div>}
               <p style={{fontSize:"0.55rem",color:"rgba(245,240,232,0.4)",lineHeight:1.5,marginTop:"4px"}}>
                 Tip: run as a series — T-3 WEEKS, T-1 WEEK, T-3 DAYS, TOMORROW, TONIGHT. Snapshot each into the carousel composer if you want a single drop that shows the full ramp; otherwise post one a week leading up.
+              </p>
+            </>}
+
+            {/* SAVE THE DATE — hero announcement for ONE upcoming event.
+                Lead with the date, formal energy, build anticipation
+                without the urgency-ramp of Countdown. */}
+            {mode==="savedate"&&<>
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Background Photo (optional)</label>
+                <div style={{display:"flex",gap:"0.3rem",alignItems:"center"}}>
+                  <button onClick={()=>saveFileRef.current?.click()} style={{...B,flex:1}}>{savePhoto?"✓ Photo loaded — change":"Upload Photo"}</button>
+                  <button onClick={()=>openLibrary("savedate")} style={{...B,padding:"5px 10px"}} title="Pick a photo from the library">📚</button>
+                  {savePhoto&&<button onClick={()=>setSavePhoto(null)} style={{...B,color:"rgba(251,113,133,0.5)"}}>×</button>}
+                  <input ref={saveFileRef} type="file" accept="image/*" onChange={handleSavePhoto} style={{display:"none"}}/>
+                </div>
+                {savePhoto&&<div style={{marginTop:"6px"}}>
+                  <div style={{fontSize:"0.5rem",color:"rgba(245,240,232,0.45)",letterSpacing:"1px",textTransform:"uppercase",marginBottom:"3px"}}>
+                    Darken · {Math.round(saveOpacity*100)}%
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:"6px"}}>
+                    <input type="range" min="0.20" max="1.0" step="0.01" value={saveOpacity} onChange={e=>setSaveOpacity(parseFloat(e.target.value))} style={{flex:1,accentColor:accent}}/>
+                  </div>
+                </div>}
+              </div>
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Top pill (kicker)</label>
+                <input value={saveKicker} onChange={e=>setSaveKicker(e.target.value)} style={I} placeholder="SAVE THE DATE"/>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 2fr",gap:"0.4rem",marginBottom:"0.6rem"}}>
+                <div><label style={L}>Day</label>
+                  <input value={saveDay} onChange={e=>setSaveDay(e.target.value)} style={I} placeholder="FRIDAY"/></div>
+                <div><label style={L}>Big date</label>
+                  <input value={saveDateBig} onChange={e=>setSaveDateBig(e.target.value)} style={I} placeholder="JUNE 12"/></div>
+              </div>
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Event name</label>
+                <input value={saveEvent} onChange={e=>setSaveEvent(e.target.value)} style={I} placeholder="WORLD CUP OPENING NIGHT"/>
+              </div>
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Venue · time</label>
+                <input value={saveVenue} onChange={e=>setSaveVenue(e.target.value)} style={I} placeholder="The Standard · Newark · 8 PM"/>
+              </div>
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>CTA</label>
+                <input value={saveCta} onChange={e=>setSaveCta(e.target.value)} style={I} placeholder="RSVP in bio / tix in bio"/>
+              </div>
+              {!savePhoto&&<div style={{marginBottom:"0.6rem"}}><label style={L}>Background Color (no photo)</label><div style={{display:"flex",gap:"3px",flexWrap:"wrap"}}>
+                {Object.entries(BG_COLORS).map(([k,v])=><button key={k} onClick={()=>setBgKey(k)} style={{width:28,height:28,borderRadius:"5px",cursor:"pointer",background:v.hex,border:bgKey===k?"2px solid #FFF":"2px solid transparent",boxShadow:bgKey===k?"0 0 6px rgba(255,255,255,0.3)":"none"}} title={v.name}/>)}</div></div>}
+            </>}
+
+            {/* SAVE THESE DATES — multi-event grid. 2 items stack as rows,
+                3 stack as rows, 4 lay out as a 2×2 grid. */}
+            {mode==="savedates"&&<>
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Background Photo (optional)</label>
+                <div style={{display:"flex",gap:"0.3rem",alignItems:"center"}}>
+                  <button onClick={()=>savesFileRef.current?.click()} style={{...B,flex:1}}>{savesPhoto?"✓ Photo loaded — change":"Upload Photo"}</button>
+                  <button onClick={()=>openLibrary("savedates")} style={{...B,padding:"5px 10px"}} title="Pick a photo from the library">📚</button>
+                  {savesPhoto&&<button onClick={()=>setSavesPhoto(null)} style={{...B,color:"rgba(251,113,133,0.5)"}}>×</button>}
+                  <input ref={savesFileRef} type="file" accept="image/*" onChange={handleSavesPhoto} style={{display:"none"}}/>
+                </div>
+              </div>
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Header</label>
+                <input value={savesHeader} onChange={e=>setSavesHeader(e.target.value)} style={I} placeholder="SAVE THESE DATES / SUMMER LINEUP"/>
+              </div>
+              <div style={{marginBottom:"0.4rem",fontSize:"0.5rem",color:"rgba(245,240,232,0.4)",letterSpacing:"1.5px",textTransform:"uppercase"}}>Events · 2 or 3 stack, 4 lay out as 2×2</div>
+              {savesItems.map((it,i)=>(
+                <div key={i} style={{display:"grid",gridTemplateColumns:"60px 60px 1fr 1fr auto",gap:"0.3rem",marginBottom:"0.3rem",alignItems:"center"}}>
+                  <input value={it.date} onChange={e=>setSavesItems(p=>p.map((x,j)=>j===i?{...x,date:e.target.value}:x))} style={{...I,textAlign:"center",fontWeight:700}} placeholder="6/12"/>
+                  <input value={it.day} onChange={e=>setSavesItems(p=>p.map((x,j)=>j===i?{...x,day:e.target.value}:x))} style={{...I,textAlign:"center",fontSize:"0.55rem"}} placeholder="FRI"/>
+                  <input value={it.name} onChange={e=>setSavesItems(p=>p.map((x,j)=>j===i?{...x,name:e.target.value}:x))} style={I} placeholder="Event name"/>
+                  <input value={it.venue} onChange={e=>setSavesItems(p=>p.map((x,j)=>j===i?{...x,venue:e.target.value}:x))} style={I} placeholder="Venue"/>
+                  <button onClick={()=>setSavesItems(p=>p.filter((_,j)=>j!==i))} style={{...B,padding:"4px 6px",color:"rgba(251,113,133,0.6)"}} title="Remove">×</button>
+                </div>
+              ))}
+              {savesItems.length<4&&<button onClick={()=>setSavesItems(p=>[...p,{date:"",day:"",name:"",venue:""}])} style={{...B,marginBottom:"0.6rem",fontSize:"0.55rem"}}>+ Add event ({savesItems.length}/4)</button>}
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>CTA</label>
+                <input value={savesCta} onChange={e=>setSavesCta(e.target.value)} style={I} placeholder="tix in bio"/>
+              </div>
+              {!savesPhoto&&<div style={{marginBottom:"0.6rem"}}><label style={L}>Background Color (no photo)</label><div style={{display:"flex",gap:"3px",flexWrap:"wrap"}}>
+                {Object.entries(BG_COLORS).map(([k,v])=><button key={k} onClick={()=>setBgKey(k)} style={{width:28,height:28,borderRadius:"5px",cursor:"pointer",background:v.hex,border:bgKey===k?"2px solid #FFF":"2px solid transparent",boxShadow:bgKey===k?"0 0 6px rgba(255,255,255,0.3)":"none"}} title={v.name}/>)}</div></div>}
+            </>}
+
+            {/* VIBE BOARD — 5-cell collage with headline + labels.
+                Reusable series template: "I need some vitamin F", "Vitamin C",
+                "It's a rooftop Friday", etc. Generate endless content from
+                one design. */}
+            {mode==="vibe"&&<>
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Headline (try the quoted "I need ___" format)</label>
+                <input value={vibeHeadline} onChange={e=>setVibeHeadline(e.target.value)} style={I} placeholder='"I NEED SOME VITAMIN F"'/>
+              </div>
+              <div style={{marginBottom:"0.5rem",fontSize:"0.5rem",color:"rgba(245,240,232,0.4)",letterSpacing:"1.5px",textTransform:"uppercase"}}>Cells · 5 max (top row 2 hero, bottom row 3 smaller)</div>
+              {vibePhotos.map((p,i)=>(
+                <div key={i} style={{display:"grid",gridTemplateColumns:"32px 1fr 1.2fr auto",gap:"0.3rem",marginBottom:"0.3rem",alignItems:"center"}}>
+                  <span style={{fontSize:"0.55rem",color:"rgba(245,240,232,0.5)",letterSpacing:"1px",fontWeight:700}}>{i+1}</span>
+                  <input value={vibeLabels[i]||""} onChange={e=>setVibeLabels(prev=>prev.map((x,j)=>j===i?e.target.value:x))} style={I} placeholder={"label, e.g. " + ["farmers market","french fries","firmchella","festivals","family trivia"][i]}/>
+                  <div style={{display:"flex",gap:"3px"}}>
+                    <button onClick={()=>vibeFileRefs[i].current?.click()} style={{...B,flex:1,fontSize:"0.55rem"}}>{p?"✓ Photo":"Upload"}</button>
+                    <button onClick={()=>openLibrary(`vibe-${i}`)} style={{...B,padding:"4px 8px"}} title="Library">📚</button>
+                    <input ref={vibeFileRefs[i]} type="file" accept="image/*" onChange={handleVibePhoto(i)} style={{display:"none"}}/>
+                  </div>
+                  {p&&<button onClick={()=>setVibePhotos(prev=>prev.map((x,j)=>j===i?null:x))} style={{...B,padding:"4px 6px",color:"rgba(251,113,133,0.6)"}}>×</button>}
+                </div>
+              ))}
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Background Color</label><div style={{display:"flex",gap:"3px",flexWrap:"wrap"}}>
+                {Object.entries(BG_COLORS).map(([k,v])=><button key={k} onClick={()=>setBgKey(k)} style={{width:28,height:28,borderRadius:"5px",cursor:"pointer",background:v.hex,border:bgKey===k?"2px solid #FFF":"2px solid transparent",boxShadow:bgKey===k?"0 0 6px rgba(255,255,255,0.3)":"none"}} title={v.name}/>)}</div></div>
+              <p style={{fontSize:"0.55rem",color:"rgba(245,240,232,0.4)",lineHeight:1.5,marginTop:"4px"}}>
+                Pro tip: use a light bg (cream / linen / sage) and cut-out photos (Photoroom / remove.bg) for the Local Girl Network look. This same template generates one post per letter of the alphabet — endless content from one design.
               </p>
             </>}
 
