@@ -10,10 +10,27 @@ const COLORS = {
   wine:{name:"Wine",hex:"#FB7185"},emerald:{name:"Emerald",hex:"#34D399"},
   gold:{name:"Gold",hex:"#FBBF24"},white:{name:"White",hex:"#FFFFFF"},
 };
+// BG_COLORS — backgrounds for non-photo modes. The night palette is the
+// original CGE look (dark + saturated + spotlight). The day palette is
+// new — adds a warmer / lighter register for daytime content (brunches,
+// markets, Sunday recaps, casual announcements). Each light bg carries
+// isLight: true, which every renderer reads to flip text from white →
+// near-black, skip the spotlight gradient (it'd look bizarre on cream),
+// and use a dark CGE letter texture instead of a white one.
 const BG_COLORS = {
-  black:{name:"Black",hex:"#000000"},purple:{name:"Purple",hex:"#7C3AED"},
-  wine:{name:"Wine",hex:"#BE3A34"},emerald:{name:"Emerald",hex:"#059669"},
-  gold:{name:"Gold",hex:"#D4943A"},yellow:{name:"Yellow",hex:"#EAB308"},
+  // Night palette (originals)
+  black:     { name: "Black",       hex: "#000000" },
+  purple:    { name: "Purple",      hex: "#7C3AED" },
+  wine:      { name: "Wine",        hex: "#BE3A34" },
+  emerald:   { name: "Emerald",     hex: "#059669" },
+  gold:      { name: "Gold",        hex: "#D4943A" },
+  yellow:    { name: "Yellow",      hex: "#EAB308" },
+  // Day palette (light backgrounds — auto-flip text + watermark to dark)
+  cream:     { name: "Cream",       hex: "#F0E5D0", isLight: true },
+  linen:     { name: "Linen",       hex: "#EAE0CB", isLight: true },
+  sage:      { name: "Sage",        hex: "#C9CCB5", isLight: true },
+  dustyrose: { name: "Dusty Rose",  hex: "#E5C8C0", isLight: true },
+  palegold:  { name: "Pale Gold",   hex: "#F2DDA8", isLight: true },
 };
 
 // Export-time aspect ratios. The renderers are all hardcoded to 1080×1080,
@@ -65,39 +82,45 @@ function drawSpotlight(ctx, W, H, sCol, sA) {
   g = ctx.createRadialGradient(W*0.8,H*0.9,0,W*0.8,H*0.9,400); g.addColorStop(0,`rgba(${sCol},${sA*0.35})`); g.addColorStop(0.3,`rgba(${sCol},${sA*0.12})`); g.addColorStop(1,"transparent"); ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
 }
 
-function drawLogo(ctx, accent, W) {
+function drawLogo(ctx, accent, W, isLight = false) {
   if (!_watermark) return;
   ctx.globalAlpha = 1;
   ctx.fillStyle = `${accent}25`; ctx.strokeStyle = `${accent}50`; ctx.lineWidth = 2.5;
   ctx.beginPath(); ctx.arc(58,52,28,0,Math.PI*2); ctx.fill(); ctx.stroke();
   ctx.font=ff("800 17px 'Syne',sans-serif"); ctx.fillStyle = accent; ctx.textBaseline = "middle"; ctx.textAlign = "center";
   ctx.fillText("CGE",58,53); ctx.textAlign = "left";
-  ctx.font=ff("700 22px 'DM Sans',sans-serif"); ctx.fillStyle = "#FFF"; ctx.textBaseline = "top"; ctx.fillText("Central Group Events",96,35);
-  ctx.font=ff("500 17px 'DM Sans',sans-serif"); ctx.fillStyle = "rgba(255,255,255,0.50)"; ctx.fillText("@centralgroupevents",96,60);
+  const primaryText = isLight ? "#0a0a0a" : "#FFF";
+  const secondaryText = isLight ? "rgba(0,0,0,0.55)" : "rgba(255,255,255,0.50)";
+  ctx.font=ff("700 22px 'DM Sans',sans-serif"); ctx.fillStyle = primaryText; ctx.textBaseline = "top"; ctx.fillText("Central Group Events",96,35);
+  ctx.font=ff("500 17px 'DM Sans',sans-serif"); ctx.fillStyle = secondaryText; ctx.fillText("@centralgroupevents",96,60);
 }
 
-function drawDots(ctx, W, current, total, accent) {
+function drawDots(ctx, W, current, total, accent, isLight = false) {
   if (total <= 1) return;
+  const inactive = isLight ? "rgba(0,0,0,0.30)" : "rgba(255,255,255,0.30)";
   const sx = W - 40 - (total-1)*18;
   for (let i = 0; i < total; i++) {
     ctx.beginPath(); ctx.arc(sx+i*18, 52, i===(current-1)?6:4, 0, Math.PI*2);
-    ctx.fillStyle = i===(current-1) ? accent : "rgba(255,255,255,0.30)"; ctx.fill();
+    ctx.fillStyle = i===(current-1) ? accent : inactive; ctx.fill();
   }
 }
 
-function drawFooter(ctx, W, H) {
+function drawFooter(ctx, W, H, isLight = false) {
   if (!_watermark) return;
   ctx.globalAlpha = 1;
-  ctx.fillStyle = "rgba(255,255,255,0.08)"; ctx.fillRect(60, H-38, W-120, 1);
-  ctx.font=ff("800 16px 'Syne',sans-serif"); ctx.fillStyle = "rgba(255,255,255,0.20)"; ctx.textBaseline = "bottom"; ctx.textAlign = "left";
+  const rule       = isLight ? "rgba(0,0,0,0.10)" : "rgba(255,255,255,0.08)";
+  const brand      = isLight ? "rgba(0,0,0,0.30)" : "rgba(255,255,255,0.20)";
+  const url        = isLight ? "rgba(0,0,0,0.22)" : "rgba(255,255,255,0.15)";
+  ctx.fillStyle = rule; ctx.fillRect(60, H-38, W-120, 1);
+  ctx.font=ff("800 16px 'Syne',sans-serif"); ctx.fillStyle = brand; ctx.textBaseline = "bottom"; ctx.textAlign = "left";
   ctx.fillText("CENTRAL GROUP EVENTS", 60, H-14);
-  ctx.font=ff("500 14px 'DM Sans',sans-serif"); ctx.fillStyle = "rgba(255,255,255,0.15)"; ctx.textAlign = "right";
+  ctx.font=ff("500 14px 'DM Sans',sans-serif"); ctx.fillStyle = url; ctx.textAlign = "right";
   ctx.fillText("centralgroupevents.com", W-60, H-14); ctx.textAlign = "left";
 }
 
-function drawPageNum(ctx, W, H, current, total, accent) {
+function drawPageNum(ctx, W, H, current, total, accent, isLight = false) {
   if (total <= 1) return;
-  ctx.font=ff("600 16px 'DM Sans',sans-serif"); ctx.fillStyle = "rgba(255,255,255,0.20)";
+  ctx.font=ff("600 16px 'DM Sans',sans-serif"); ctx.fillStyle = isLight ? "rgba(0,0,0,0.30)" : "rgba(255,255,255,0.20)";
   ctx.textBaseline = "bottom"; ctx.textAlign = "right";
   ctx.fillText(`${current}/${total}`, W-60, H-14); ctx.textAlign = "left";
 }
@@ -142,33 +165,44 @@ function renderList(canvas, cfg) {
   const W=1080,H=1080; canvas.width=W; canvas.height=H;
   const ctx=canvas.getContext("2d");
   const bg=BG_COLORS[bgKey]||BG_COLORS.black;
+  const isLight = !!bg.isLight;
   ctx.fillStyle=bg.hex; ctx.fillRect(0,0,W,H);
   const isBlack=bgKey==="black";
-  drawTexture(ctx,W,H,isBlack?"#FACC15":"#000",isBlack?0.04:0.14);
-  if(!isBlack) drawSpotlight(ctx,W,H,"255,255,255",0.40);
-  else drawSpotlight(ctx,W,H,"229,188,79",0.30);
+  drawTexture(ctx,W,H,isBlack?"#FACC15":"#000",isBlack?0.04:(isLight?0.08:0.14));
+  // Spotlight is a nightclub-light effect — skip on light backgrounds.
+  if(!isLight){
+    if(!isBlack) drawSpotlight(ctx,W,H,"255,255,255",0.40);
+    else drawSpotlight(ctx,W,H,"229,188,79",0.30);
+  }
+
+  // Day mode flips every text + card surface from white-on-dark to dark-on-light.
+  const textPrimary  = isLight ? "#0a0a0a" : "#FFF";
+  const textSubtle   = isLight ? "rgba(0,0,0,0.55)" : "rgba(255,255,255,0.35)";
+  const textMuted    = isLight ? "rgba(0,0,0,0.50)" : "rgba(255,255,255,0.45)";
+  const cardFill     = isLight ? "rgba(0,0,0,0.06)" : "rgba(255,255,255,0.06)";
+  const accentStripe = isLight ? "rgba(0,0,0,0.10)" : "rgba(255,255,255,0.10)";
 
   ctx.globalAlpha=1; ctx.textBaseline="top"; ctx.textAlign="left";
-  drawDots(ctx,W,dots,totalDots,accent);
+  drawDots(ctx,W,dots,totalDots,accent,isLight);
   ctx.font=ff("800 52px 'Syne',sans-serif"); ctx.fillStyle=accent; ctx.fillText((listTitle||"FRIDAY").toUpperCase(),60,50);
-  ctx.font=ff("700 22px 'DM Sans',sans-serif"); ctx.fillStyle="rgba(255,255,255,0.35)"; ctx.letterSpacing="2px";
+  ctx.font=ff("700 22px 'DM Sans',sans-serif"); ctx.fillStyle=textSubtle; ctx.letterSpacing="2px";
   ctx.fillText((listSubtitle||"TOP PICKS").toUpperCase(),60,108); ctx.letterSpacing="0px";
   ctx.fillStyle = `${accent}30`; ctx.fillRect(60,140,W-120,2);
 
   const startY=155, rowH=100, maxItems=Math.min(items.length,8);
   items.slice(0,maxItems).forEach((item,i)=>{
     const y=startY+i*rowH;
-    ctx.fillStyle="rgba(255,255,255,0.06)"; ctx.beginPath(); ctx.roundRect(60,y,W-120,rowH-12,10); ctx.fill();
-    ctx.fillStyle=item.featured?accent:"rgba(255,255,255,0.10)";
+    ctx.fillStyle=cardFill; ctx.beginPath(); ctx.roundRect(60,y,W-120,rowH-12,10); ctx.fill();
+    ctx.fillStyle=item.featured?accent:accentStripe;
     ctx.beginPath(); ctx.roundRect(60,y,4,rowH-12,[10,0,0,10]); ctx.fill();
-    ctx.font=ff("700 34px 'DM Sans',sans-serif"); ctx.fillStyle=item.featured?accent:"#FFF"; ctx.textBaseline="top";
+    ctx.font=ff("700 34px 'DM Sans',sans-serif"); ctx.fillStyle=item.featured?accent:textPrimary; ctx.textBaseline="top";
     let nm=item.name.toUpperCase(); if(ctx.measureText(nm).width>W-240){while(ctx.measureText(nm+"..").width>W-240&&nm.length>0)nm=nm.slice(0,-1);nm+="..";}
     ctx.fillText(nm,82,y+14);
-    ctx.font=ff("400 26px 'DM Sans',sans-serif"); ctx.fillStyle="rgba(255,255,255,0.45)";
+    ctx.font=ff("400 26px 'DM Sans',sans-serif"); ctx.fillStyle=textMuted;
     ctx.fillText(item.detail||"",82,y+54);
   });
 
-  drawFooter(ctx,W,H);
+  drawFooter(ctx,W,H,isLight);
 }
 
 // === STAT RENDERER ===
@@ -177,31 +211,38 @@ function renderStat(canvas, cfg) {
   const W=1080,H=1080; canvas.width=W; canvas.height=H;
   const ctx=canvas.getContext("2d");
   const bg=BG_COLORS[bgKey]||BG_COLORS.purple;
+  const isLight = !!bg.isLight;
   ctx.fillStyle=bg.hex; ctx.fillRect(0,0,W,H);
   const isBlack=bgKey==="black";
-  drawTexture(ctx,W,H,isBlack?"#FACC15":"#000",isBlack?0.06:0.14);
-  if(!isBlack) drawSpotlight(ctx,W,H,"255,255,255",0.45);
-  else drawSpotlight(ctx,W,H,"229,188,79",0.35);
+  drawTexture(ctx,W,H,isBlack?"#FACC15":"#000",isBlack?0.06:(isLight?0.08:0.14));
+  if(!isLight){
+    if(!isBlack) drawSpotlight(ctx,W,H,"255,255,255",0.45);
+    else drawSpotlight(ctx,W,H,"229,188,79",0.35);
+  }
+
+  const textPrimary = isLight ? "#0a0a0a" : "#FFF";
+  const dividerColor = isLight ? "rgba(0,0,0,0.30)" : "rgba(255,255,255,0.25)";
+  const subColor = isLight ? "rgba(0,0,0,0.65)" : "rgba(255,255,255,0.55)";
 
   ctx.globalAlpha=1;
-  ctx.font=ff("800 280px 'Syne',sans-serif"); ctx.fillStyle="#FFF"; ctx.textBaseline="middle"; ctx.textAlign="center";
+  ctx.font=ff("800 280px 'Syne',sans-serif"); ctx.fillStyle=textPrimary; ctx.textBaseline="middle"; ctx.textAlign="center";
   let numFS=280; ctx.font=ff(`800 ${numFS}px 'Syne',sans-serif`);
   while(ctx.measureText(statNumber||"47").width>W-160&&numFS>80){numFS-=10;ctx.font=ff(`800 ${numFS}px 'Syne',sans-serif`);}
   ctx.fillText(statNumber||"47",W/2,H*0.42);
 
-  ctx.font=ff("800 52px 'Syne',sans-serif"); ctx.fillStyle="#FFF"; ctx.letterSpacing="6px";
+  ctx.font=ff("800 52px 'Syne',sans-serif"); ctx.fillStyle=textPrimary; ctx.letterSpacing="6px";
   ctx.fillText((statLabel||"EVENTS").toUpperCase(),W/2,H*0.58); ctx.letterSpacing="0px";
 
-  ctx.fillStyle="rgba(255,255,255,0.25)"; ctx.fillRect(W/2-40,H*0.64,80,3);
+  ctx.fillStyle=dividerColor; ctx.fillRect(W/2-40,H*0.64,80,3);
 
   if(statSub?.trim()){
-    ctx.font=ff("400 28px 'DM Sans',sans-serif"); ctx.fillStyle="rgba(255,255,255,0.55)"; ctx.textBaseline="top";
+    ctx.font=ff("400 28px 'DM Sans',sans-serif"); ctx.fillStyle=subColor; ctx.textBaseline="top";
     const subLines=statSub.split("\n");
     subLines.forEach((ln,i)=>ctx.fillText(ln.trim(),W/2,H*0.67+i*36));
   }
 
   ctx.textAlign="left"; ctx.textBaseline="top";
-  drawDots(ctx,W,dots,totalDots,accent); drawFooter(ctx,W,H);
+  drawDots(ctx,W,dots,totalDots,accent,isLight); drawFooter(ctx,W,H,isLight);
 }
 
 // === TEXT RENDERER ===
@@ -210,18 +251,24 @@ function renderText(canvas, cfg) {
   const W=1080,H=1080; canvas.width=W; canvas.height=H;
   const ctx=canvas.getContext("2d");
 
+  const bg=BG_COLORS[bgKey]||BG_COLORS.black;
+  const isLight = !photo && !!bg.isLight;
+
   if (photo) {
     const s=Math.max(W/photo.width,H/photo.height); const dw=photo.width*s,dh=photo.height*s;
     ctx.drawImage(photo,(W-dw)/2,(H-dh)/2,dw,dh);
     ctx.fillStyle=`rgba(0,0,0,${textOpacity||0.85})`; ctx.fillRect(0,0,W,H);
     drawTexture(ctx,W,H,"#FFF",0.03);
   } else {
-    const bg=BG_COLORS[bgKey]||BG_COLORS.black;
     ctx.fillStyle=bg.hex; ctx.fillRect(0,0,W,H);
     const isBlack=bgKey==="black";
-    drawTexture(ctx,W,H,isBlack?"#FACC15":"#000",isBlack?0.04:0.10);
-    if(!isBlack) drawSpotlight(ctx,W,H,"255,255,255",0.35);
+    drawTexture(ctx,W,H,isBlack?"#FACC15":"#000",isBlack?0.04:(isLight?0.06:0.10));
+    if(!isBlack && !isLight) drawSpotlight(ctx,W,H,"255,255,255",0.35);
   }
+
+  const titleColor = isLight ? "#0a0a0a" : "#FFF";
+  const bodyColor = isLight ? "rgba(0,0,0,0.72)" : "rgba(255,255,255,0.65)";
+  const bodyBold = isLight ? "#0a0a0a" : "#FFF";
 
   ctx.globalAlpha=1; ctx.textBaseline="top"; ctx.textAlign="left";
 
@@ -236,14 +283,14 @@ function renderText(canvas, cfg) {
   lines.forEach((lw,li)=>{
     const lineW=lw.reduce((a,w)=>a+w.width,0)+(lw.length-1)*sw;
     let x=(W-lineW)/2; const y=titleY+li*lh;
-    lw.forEach(w=>{ctx.fillStyle=textTitleHighlights.has(w.idx)?accent:"#FFF";ctx.fillText(w.text,x,y);x+=w.width+sw;});
+    lw.forEach(w=>{ctx.fillStyle=textTitleHighlights.has(w.idx)?accent:titleColor;ctx.fillText(w.text,x,y);x+=w.width+sw;});
   });
 
   const barY=titleY+lines.length*lh+18;
   ctx.fillStyle=accent; ctx.fillRect(W/2-25,barY,50,4);
 
   if(textBody?.trim()){
-    ctx.font=ff("400 30px 'DM Sans',sans-serif"); ctx.fillStyle="rgba(255,255,255,0.65)";
+    ctx.font=ff("400 30px 'DM Sans',sans-serif"); ctx.fillStyle=bodyColor;
     const paragraphs=textBody.split("\n");
     const bodyLines=[];
     for(const para of paragraphs){
@@ -281,9 +328,9 @@ function renderText(canvas, cfg) {
       parts.forEach(part=>{
         if(part.startsWith("*")&&part.endsWith("*")){
           const inner=part.slice(1,-1);
-          ctx.font=ff("700 30px 'DM Sans',sans-serif"); ctx.fillStyle="#FFF";
+          ctx.font=ff("700 30px 'DM Sans',sans-serif"); ctx.fillStyle=bodyBold;
           ctx.fillText(inner,x,y); x+=ctx.measureText(inner).width;
-          ctx.font=ff("400 30px 'DM Sans',sans-serif"); ctx.fillStyle="rgba(255,255,255,0.65)";
+          ctx.font=ff("400 30px 'DM Sans',sans-serif"); ctx.fillStyle=bodyColor;
         } else {
           ctx.fillText(part,x,y); x+=ctx.measureText(part).width;
         }
@@ -292,12 +339,15 @@ function renderText(canvas, cfg) {
   }
 
   if (_watermark) {
-    ctx.fillStyle="rgba(255,255,255,0.08)"; ctx.fillRect(60,H-38,W-120,1);
-    ctx.font=ff("800 16px 'Syne',sans-serif"); ctx.fillStyle="rgba(255,255,255,0.20)"; ctx.textBaseline="bottom";
+    ctx.fillStyle = isLight ? "rgba(0,0,0,0.10)" : "rgba(255,255,255,0.08)";
+    ctx.fillRect(60,H-38,W-120,1);
+    ctx.font=ff("800 16px 'Syne',sans-serif");
+    ctx.fillStyle = isLight ? "rgba(0,0,0,0.30)" : "rgba(255,255,255,0.20)";
+    ctx.textBaseline="bottom";
     ctx.fillText("CENTRAL GROUP EVENTS",60,H-14);
   }
-  drawPageNum(ctx,W,H,pageNum,totalPages,accent);
-  drawDots(ctx,W,dots,totalDots,accent);
+  drawPageNum(ctx,W,H,pageNum,totalPages,accent,isLight);
+  drawDots(ctx,W,dots,totalDots,accent,isLight);
 }
 
 // === CTA RENDERER ===
@@ -306,6 +356,9 @@ function renderCTA(canvas, cfg) {
   const W=1080, H=1080; canvas.width=W; canvas.height=H;
   const ctx = canvas.getContext("2d");
 
+  const bg = BG_COLORS[bgKey]||BG_COLORS.black;
+  const isLight = !photo && !!bg.isLight;
+
   if (photo) {
     const s=Math.max(W/photo.width,H/photo.height);
     const dw=photo.width*s, dh=photo.height*s;
@@ -313,13 +366,17 @@ function renderCTA(canvas, cfg) {
     ctx.fillStyle=`rgba(0,0,0,${opacity||0.88})`; ctx.fillRect(0,0,W,H);
     drawTexture(ctx,W,H,"#FFF",0.03);
   } else {
-    const bg = BG_COLORS[bgKey]||BG_COLORS.black;
     ctx.fillStyle=bg.hex; ctx.fillRect(0,0,W,H);
     const isBlack = bgKey==="black";
-    drawTexture(ctx,W,H,isBlack?"#FACC15":"#000",isBlack?0.04:0.10);
-    if(!isBlack) drawSpotlight(ctx,W,H,"255,255,255",0.40);
-    else drawSpotlight(ctx,W,H,"229,188,79",0.30);
+    drawTexture(ctx,W,H,isBlack?"#FACC15":"#000",isBlack?0.04:(isLight?0.06:0.10));
+    if(!isLight){
+      if(!isBlack) drawSpotlight(ctx,W,H,"255,255,255",0.40);
+      else drawSpotlight(ctx,W,H,"229,188,79",0.30);
+    }
   }
+
+  const dateColor = isLight ? "#0a0a0a" : "#FFF";
+  const venueColor = isLight ? "rgba(0,0,0,0.78)" : "rgba(255,255,255,0.88)";
 
   ctx.globalAlpha=1; ctx.textBaseline="top";
 
@@ -346,7 +403,7 @@ function renderCTA(canvas, cfg) {
   };
   while (dateLines.length && measureDate(dfs) > W-120 && dfs > 44) { dfs -= 4; }
   ctx.font=ff(`800 ${dfs}px 'Syne',sans-serif`);
-  ctx.fillStyle="#FFF"; ctx.textAlign="center";
+  ctx.fillStyle=dateColor; ctx.textAlign="center";
   const dlh = dfs*1.1;
   const dateY = 340;
   dateLines.forEach((ln,i) => ctx.fillText(ln.toUpperCase(), W/2, dateY+i*dlh));
@@ -359,7 +416,7 @@ function renderCTA(canvas, cfg) {
 
   // Venue
   const venueY = divY + 38;
-  ctx.font=ff("700 38px 'DM Sans',sans-serif"); ctx.fillStyle="rgba(255,255,255,0.88)";
+  ctx.font=ff("700 38px 'DM Sans',sans-serif"); ctx.fillStyle=venueColor;
   // wrap venue if too long
   const venueText = ctaVenue || "";
   if (ctx.measureText(venueText).width > W-120) {
@@ -381,8 +438,8 @@ function renderCTA(canvas, cfg) {
   ctx.fillText(ctaUrl||"", W/2, urlY);
 
   ctx.textAlign="left";
-  drawDots(ctx,W,dots,totalDots,accent);
-  drawFooter(ctx,W,H);
+  drawDots(ctx,W,dots,totalDots,accent,isLight);
+  drawFooter(ctx,W,H,isLight);
 }
 
 // === PHOTO + CAPTION RENDERER ===
@@ -391,24 +448,29 @@ function renderPhotoCaption(canvas, cfg) {
   const W=1080, H=1080; canvas.width=W; canvas.height=H;
   const ctx = canvas.getContext("2d");
 
+  const bg=BG_COLORS[bgKey]||BG_COLORS.black;
+  const isLight = !photo && !!bg.isLight;
+
   if (photo) {
     const s=Math.max(W/photo.width,H/photo.height);
     const dw=photo.width*s, dh=photo.height*s;
     ctx.drawImage(photo,(W-dw)/2,(H-dh)/2,dw,dh);
   } else {
-    const bg=BG_COLORS[bgKey]||BG_COLORS.black;
     ctx.fillStyle=bg.hex; ctx.fillRect(0,0,W,H);
-    drawTexture(ctx,W,H,"#FFF",0.05);
+    drawTexture(ctx,W,H,isLight?"#000":"#FFF",isLight?0.06:0.05);
   }
 
-  // Bottom gradient for legibility
-  if (caption?.trim() || captionSecondary?.trim()) {
+  // Bottom gradient for legibility — only when there's a photo (gives white
+  // text contrast). On solid bg in day mode, gradient would actively hurt.
+  if (photo && (caption?.trim() || captionSecondary?.trim())) {
     const grd=ctx.createLinearGradient(0,H*0.50,0,H);
     grd.addColorStop(0,"transparent");
     grd.addColorStop(0.4,"rgba(0,0,0,0.55)");
     grd.addColorStop(1,"rgba(0,0,0,0.88)");
     ctx.fillStyle=grd; ctx.fillRect(0,0,W,H);
   }
+
+  const captionColor = isLight ? "#0a0a0a" : "#FFF";
 
   ctx.globalAlpha=1; ctx.textBaseline="top";
   const align = alignment === "center" ? "center" : "left";
@@ -435,7 +497,7 @@ function renderPhotoCaption(canvas, cfg) {
     const totalH = lines.length*lh;
     const bottomMargin = captionSecondary?.trim() ? 130 : 90;
     const startY = H - bottomMargin - totalH;
-    ctx.fillStyle="#FFF"; ctx.textAlign=align;
+    ctx.fillStyle=captionColor; ctx.textAlign=align;
     ctx.font=ff(`800 ${fs}px 'Syne',sans-serif`);
     lines.forEach((ln,i)=>ctx.fillText(ln, ax, startY+i*lh));
   }
@@ -449,9 +511,9 @@ function renderPhotoCaption(canvas, cfg) {
   }
 
   ctx.textAlign="left";
-  drawLogo(ctx, accent, W);
-  drawDots(ctx, W, dots, totalDots, accent);
-  drawFooter(ctx, W, H);
+  drawLogo(ctx, accent, W, isLight);
+  drawDots(ctx, W, dots, totalDots, accent, isLight);
+  drawFooter(ctx, W, H, isLight);
 }
 
 // === SPOTLIGHT RENDERER (body slide for roundup carousels) ===
@@ -466,28 +528,41 @@ function renderSpotlight(canvas, cfg) {
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext("2d");
 
+  // Day mode applies only when there's no photo. With a photo, the dark
+  // gradient at the bottom always carries the text — irrespective of bg
+  // color choice — so text stays white-on-photo.
+  const bg = BG_COLORS[bgKey] || BG_COLORS.black;
+  const isLight = !photo && !!bg.isLight;
+
   // Background — photo full-bleed or solid bg.
   if (photo) {
     const s = Math.max(W / photo.width, H / photo.height);
     const dw = photo.width * s, dh = photo.height * s;
     ctx.drawImage(photo, (W - dw) / 2, (H - dh) / 2, dw, dh);
   } else {
-    const bg = BG_COLORS[bgKey] || BG_COLORS.black;
     ctx.fillStyle = bg.hex; ctx.fillRect(0, 0, W, H);
-    drawTexture(ctx, W, H, "#FFF", 0.05);
+    drawTexture(ctx, W, H, isLight ? "#000" : "#FFF", isLight ? 0.06 : 0.05);
   }
 
-  // Heavy bottom gradient — covers more area than PhotoCaption since
-  // headline-style venue name needs strong contrast and we have two extra
-  // text rows below it (detail line + footer).
-  const grd = ctx.createLinearGradient(0, H * 0.35, 0, H);
-  grd.addColorStop(0, "transparent");
-  grd.addColorStop(0.3, "rgba(0,0,0,0.55)");
-  grd.addColorStop(1, "rgba(0,0,0,0.95)");
-  ctx.fillStyle = grd; ctx.fillRect(0, 0, W, H);
+  // Bottom gradient — only when we have a photo (the gradient is what makes
+  // white text legible on photos). On solid bg no gradient is needed; on a
+  // light bg one would actively hurt the day-mode aesthetic.
+  if (photo) {
+    const grd = ctx.createLinearGradient(0, H * 0.35, 0, H);
+    grd.addColorStop(0, "transparent");
+    grd.addColorStop(0.3, "rgba(0,0,0,0.55)");
+    grd.addColorStop(1, "rgba(0,0,0,0.95)");
+    ctx.fillStyle = grd; ctx.fillRect(0, 0, W, H);
+  }
 
   ctx.globalAlpha = 1;
   const px = 60;
+
+  // Text colors flip in day mode (no photo + light bg).
+  const headlineColor = isLight ? "#0a0a0a" : "#FFF";
+  const detailColor   = isLight ? "rgba(0,0,0,0.65)" : "rgba(255,255,255,0.78)";
+  const footerLeftColor = isLight ? "rgba(0,0,0,0.85)" : "rgba(255,255,255,0.95)";
+  const counterColor  = isLight ? "rgba(0,0,0,0.7)" : "rgba(255,255,255,0.9)";
 
   // Layout from bottom up: footer (time/price/cta), detail line, venue name.
   const FOOTER_BOTTOM = 60;
@@ -500,7 +575,7 @@ function renderSpotlight(canvas, cfg) {
     ctx.textBaseline = "bottom";
 
     if (spotTime && spotTime.trim()) {
-      ctx.fillStyle = "rgba(255,255,255,0.95)";
+      ctx.fillStyle = footerLeftColor;
       ctx.textAlign = "left";
       ctx.fillText(spotTime.toUpperCase(), px, yBottom);
     }
@@ -516,7 +591,7 @@ function renderSpotlight(canvas, cfg) {
   // DETAIL line — address-style, monospace-ish feel via letterSpacing.
   if (spotMeta && spotMeta.trim()) {
     ctx.font = ff("600 26px 'DM Sans',sans-serif");
-    ctx.fillStyle = "rgba(255,255,255,0.78)";
+    ctx.fillStyle = detailColor;
     ctx.textBaseline = "bottom";
     ctx.textAlign = "left";
     ctx.fillText(spotMeta, px, yBottom);
@@ -546,7 +621,7 @@ function renderSpotlight(canvas, cfg) {
     const totalH = lines.length * lh;
     const startY = yBottom - totalH - 6;
     ctx.font = ff(`900 ${fs}px 'Syne',sans-serif`);
-    ctx.fillStyle = "#FFF";
+    ctx.fillStyle = headlineColor;
     ctx.textBaseline = "top";
     ctx.textAlign = "left";
     lines.forEach((ln, i) => ctx.fillText(ln, px, startY + i * lh));
@@ -556,15 +631,15 @@ function renderSpotlight(canvas, cfg) {
   // multi-slide carousel; otherwise it'd just read "1/1" and clutter.
   if (totalDots > 1) {
     ctx.font = ff("700 26px 'DM Sans',sans-serif");
-    ctx.fillStyle = "rgba(255,255,255,0.9)";
+    ctx.fillStyle = counterColor;
     ctx.textBaseline = "top";
     ctx.textAlign = "right";
     ctx.fillText(`${dots} / ${totalDots}`, W - px, 60);
   }
 
   ctx.textAlign = "left"; ctx.textBaseline = "top";
-  drawLogo(ctx, accent, W);
-  drawFooter(ctx, W, H);
+  drawLogo(ctx, accent, W, isLight);
+  drawFooter(ctx, W, H, isLight);
 }
 
 // === COUNTDOWN RENDERER ===
@@ -583,6 +658,11 @@ function renderCountdown(canvas, cfg) {
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext("2d");
 
+  // Day mode only kicks in when there's no photo (photo always carries
+  // a dark overlay → keeps white-text register).
+  const bg = BG_COLORS[bgKey] || BG_COLORS.black;
+  const isLight = !photo && !!bg.isLight;
+
   // Background — photo + dark overlay OR solid bg + spotlight.
   if (photo) {
     const s = Math.max(W / photo.width, H / photo.height);
@@ -592,16 +672,20 @@ function renderCountdown(canvas, cfg) {
     ctx.fillRect(0, 0, W, H);
     drawTexture(ctx, W, H, "#FFF", 0.04);
   } else {
-    const bg = BG_COLORS[bgKey] || BG_COLORS.black;
     ctx.fillStyle = bg.hex; ctx.fillRect(0, 0, W, H);
     const isBlack = bgKey === "black";
-    drawTexture(ctx, W, H, isBlack ? "#FACC15" : "#000", isBlack ? 0.05 : 0.10);
-    if (!isBlack) drawSpotlight(ctx, W, H, "255,255,255", 0.40);
-    else drawSpotlight(ctx, W, H, "229,188,79", 0.30);
+    drawTexture(ctx, W, H, isBlack ? "#FACC15" : "#000", isBlack ? 0.05 : (isLight ? 0.06 : 0.10));
+    if (!isLight) {
+      if (!isBlack) drawSpotlight(ctx, W, H, "255,255,255", 0.40);
+      else drawSpotlight(ctx, W, H, "229,188,79", 0.30);
+    }
   }
 
   ctx.globalAlpha = 1;
   ctx.textBaseline = "middle";
+
+  const eventColor = isLight ? "#0a0a0a" : "#FFF";
+  const whenColor  = isLight ? "rgba(0,0,0,0.75)" : "rgba(255,255,255,0.88)";
 
   // COUNTDOWN — the headline. Massive, accent-colored, auto-scaling so
   // "TOMORROW" and "3 WEEKS OUT" both look intentional rather than fighting
@@ -619,7 +703,7 @@ function renderCountdown(canvas, cfg) {
     ctx.fillText(ct, W / 2, H * 0.36);
   }
 
-  // EVENT NAME — big bold white, wraps + scales.
+  // EVENT NAME — big bold, wraps + scales.
   const ev = (countEvent || "").trim();
   if (ev) {
     const words = ev.toUpperCase().split(/\s+/).filter(w => w);
@@ -639,7 +723,7 @@ function renderCountdown(canvas, cfg) {
     let lines = wrap(fs);
     while (lines.length > 2 && fs > 36) { fs -= 4; lines = wrap(fs); }
     ctx.font = ff(`800 ${fs}px 'Syne',sans-serif`);
-    ctx.fillStyle = "#FFF";
+    ctx.fillStyle = eventColor;
     ctx.textAlign = "center";
     const lh = fs * 1.05;
     const startY = H * 0.62 - (lines.length - 1) * lh / 2;
@@ -655,7 +739,7 @@ function renderCountdown(canvas, cfg) {
   const wn = (countWhen || "").trim();
   if (wn) {
     ctx.font = ff("700 32px 'DM Sans',sans-serif");
-    ctx.fillStyle = "rgba(255,255,255,0.88)";
+    ctx.fillStyle = whenColor;
     ctx.textAlign = "center";
     ctx.fillText(wn, W / 2, divY + 40);
   }
@@ -670,9 +754,9 @@ function renderCountdown(canvas, cfg) {
   }
 
   ctx.textAlign = "left"; ctx.textBaseline = "top";
-  drawLogo(ctx, accent, W);
-  drawDots(ctx, W, dots, totalDots, accent);
-  drawFooter(ctx, W, H);
+  drawLogo(ctx, accent, W, isLight);
+  drawDots(ctx, W, dots, totalDots, accent, isLight);
+  drawFooter(ctx, W, H, isLight);
 }
 
 // === FEATURES RENDERER (2x2 emoji-card grid) ===
@@ -681,6 +765,9 @@ function renderFeatures(canvas, cfg) {
   const W=1080, H=1080; canvas.width=W; canvas.height=H;
   const ctx = canvas.getContext("2d");
 
+  const bg=BG_COLORS[bgKey]||BG_COLORS.black;
+  const isLight = !photo && !!bg.isLight;
+
   if (photo) {
     const s=Math.max(W/photo.width,H/photo.height);
     const dw=photo.width*s, dh=photo.height*s;
@@ -688,12 +775,17 @@ function renderFeatures(canvas, cfg) {
     ctx.fillStyle=`rgba(0,0,0,${opacity||0.88})`; ctx.fillRect(0,0,W,H);
     drawTexture(ctx,W,H,"#FFF",0.03);
   } else {
-    const bg=BG_COLORS[bgKey]||BG_COLORS.black;
     ctx.fillStyle=bg.hex; ctx.fillRect(0,0,W,H);
     const isBlack=bgKey==="black";
-    drawTexture(ctx,W,H,isBlack?"#FACC15":"#000",isBlack?0.04:0.10);
-    if(!isBlack) drawSpotlight(ctx,W,H,"255,255,255",0.35);
+    drawTexture(ctx,W,H,isBlack?"#FACC15":"#000",isBlack?0.04:(isLight?0.06:0.10));
+    if(!isBlack && !isLight) drawSpotlight(ctx,W,H,"255,255,255",0.35);
   }
+
+  const titleColor = isLight ? "#0a0a0a" : "#FFF";
+  const cardFill = isLight ? "rgba(0,0,0,0.06)" : "rgba(255,255,255,0.06)";
+  const cardHeadlineColor = isLight ? "#0a0a0a" : "#FFF";
+  const cardSubColor = isLight ? "rgba(0,0,0,0.65)" : "rgba(255,255,255,0.6)";
+  const emojiBg = isLight ? "#0a0a0a" : "#FFF";
 
   ctx.globalAlpha=1; ctx.textBaseline="top";
 
@@ -704,7 +796,7 @@ function renderFeatures(canvas, cfg) {
     ctx.font=ff(`800 ${fs}px 'Syne',sans-serif`);
     const t = featuresTitle.toUpperCase();
     while (ctx.measureText(t).width > W-120 && fs > 32) { fs -= 2; ctx.font=ff(`800 ${fs}px 'Syne',sans-serif`); }
-    ctx.fillStyle="#FFF"; ctx.textAlign="center";
+    ctx.fillStyle=titleColor; ctx.textAlign="center";
     ctx.fillText(t, W/2, 80);
     const barY = 80 + fs + 18;
     ctx.fillStyle=accent; ctx.fillRect(W/2-25, barY, 50, 4);
@@ -726,7 +818,7 @@ function renderFeatures(canvas, cfg) {
     const y = gridTop + row * (ch + gap);
 
     // Card bg
-    ctx.fillStyle = "rgba(255,255,255,0.06)";
+    ctx.fillStyle = cardFill;
     ctx.beginPath(); ctx.roundRect(x, y, cw, ch, 12); ctx.fill();
 
     // Left accent stripe
@@ -737,7 +829,7 @@ function renderFeatures(canvas, cfg) {
     if (card.emoji?.trim()) {
       ctx.font=ff("78px 'Apple Color Emoji','Segoe UI Emoji','Noto Color Emoji',sans-serif");
       ctx.textAlign = "left"; ctx.textBaseline = "top";
-      ctx.fillStyle = "#FFF";
+      ctx.fillStyle = emojiBg;
       ctx.fillText(card.emoji, x + 28, y + 30);
     }
 
@@ -749,14 +841,14 @@ function renderFeatures(canvas, cfg) {
       while (ctx.measureText(headlineText).width > cw - 50 && hfs > 18) {
         hfs -= 2; ctx.font=ff(`800 ${hfs}px 'Syne',sans-serif`);
       }
-      ctx.fillStyle = "#FFF"; ctx.textAlign = "left"; ctx.textBaseline = "top";
+      ctx.fillStyle = cardHeadlineColor; ctx.textAlign = "left"; ctx.textBaseline = "top";
       ctx.fillText(headlineText, x + 28, y + 144);
     }
 
     // Sub (wrap to 2 lines max)
     if (card.sub?.trim()) {
       ctx.font=ff("400 20px 'DM Sans',sans-serif");
-      ctx.fillStyle = "rgba(255,255,255,0.6)";
+      ctx.fillStyle = cardSubColor;
       const subWords = card.sub.split(/\s+/);
       const subLines = []; let bl = "";
       for (const w of subWords) {
@@ -770,8 +862,8 @@ function renderFeatures(canvas, cfg) {
   });
 
   ctx.textAlign = "left";
-  drawDots(ctx, W, dots, totalDots, accent);
-  drawFooter(ctx, W, H);
+  drawDots(ctx, W, dots, totalDots, accent, isLight);
+  drawFooter(ctx, W, H, isLight);
 }
 
 // === MEDIA TOOL ===
