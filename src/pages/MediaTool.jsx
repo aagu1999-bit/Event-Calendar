@@ -454,6 +454,227 @@ function renderPhotoCaption(canvas, cfg) {
   drawFooter(ctx, W, H);
 }
 
+// === SPOTLIGHT RENDERER (body slide for roundup carousels) ===
+// One-venue-per-slide format inspired by Hoboken Girl roundup posts but with
+// the transactional layer (day/time/price/CTA) editorial lifestyle accounts
+// never include. Big headline-style venue name uppercase, address-style detail
+// line, footer with day/time on the left and price + CTA in accent on the
+// right. Slide counter top-right when the carousel has >1 slide.
+function renderSpotlight(canvas, cfg) {
+  const { photo, spotName, spotMeta, spotTime, spotPrice, spotCta, accent, bgKey, dots, totalDots } = cfg;
+  const W = 1080, H = 1080;
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext("2d");
+
+  // Background — photo full-bleed or solid bg.
+  if (photo) {
+    const s = Math.max(W / photo.width, H / photo.height);
+    const dw = photo.width * s, dh = photo.height * s;
+    ctx.drawImage(photo, (W - dw) / 2, (H - dh) / 2, dw, dh);
+  } else {
+    const bg = BG_COLORS[bgKey] || BG_COLORS.black;
+    ctx.fillStyle = bg.hex; ctx.fillRect(0, 0, W, H);
+    drawTexture(ctx, W, H, "#FFF", 0.05);
+  }
+
+  // Heavy bottom gradient — covers more area than PhotoCaption since
+  // headline-style venue name needs strong contrast and we have two extra
+  // text rows below it (detail line + footer).
+  const grd = ctx.createLinearGradient(0, H * 0.35, 0, H);
+  grd.addColorStop(0, "transparent");
+  grd.addColorStop(0.3, "rgba(0,0,0,0.55)");
+  grd.addColorStop(1, "rgba(0,0,0,0.95)");
+  ctx.fillStyle = grd; ctx.fillRect(0, 0, W, H);
+
+  ctx.globalAlpha = 1;
+  const px = 60;
+
+  // Layout from bottom up: footer (time/price/cta), detail line, venue name.
+  const FOOTER_BOTTOM = 60;
+  let yBottom = H - FOOTER_BOTTOM;
+
+  // FOOTER row — day/time on left, price · cta on right.
+  const hasFooter = (spotTime && spotTime.trim()) || (spotPrice && spotPrice.trim()) || (spotCta && spotCta.trim());
+  if (hasFooter) {
+    ctx.font = ff("700 30px 'DM Sans',sans-serif");
+    ctx.textBaseline = "bottom";
+
+    if (spotTime && spotTime.trim()) {
+      ctx.fillStyle = "rgba(255,255,255,0.95)";
+      ctx.textAlign = "left";
+      ctx.fillText(spotTime.toUpperCase(), px, yBottom);
+    }
+    const rightParts = [spotPrice, spotCta].map(s => (s || "").trim()).filter(Boolean);
+    if (rightParts.length) {
+      ctx.fillStyle = accent;
+      ctx.textAlign = "right";
+      ctx.fillText(rightParts.join("  ·  "), W - px, yBottom);
+    }
+    yBottom -= 50;
+  }
+
+  // DETAIL line — address-style, monospace-ish feel via letterSpacing.
+  if (spotMeta && spotMeta.trim()) {
+    ctx.font = ff("600 26px 'DM Sans',sans-serif");
+    ctx.fillStyle = "rgba(255,255,255,0.78)";
+    ctx.textBaseline = "bottom";
+    ctx.textAlign = "left";
+    ctx.fillText(spotMeta, px, yBottom);
+    yBottom -= 44;
+  }
+
+  // VENUE NAME — big bold uppercase, wraps if long, scales down to fit.
+  if (spotName && spotName.trim()) {
+    const words = spotName.toUpperCase().split(/\s+/).filter(w => w);
+    let fs = 92;
+    const wrap = (f) => {
+      ctx.font = ff(`900 ${f}px 'Syne',sans-serif`);
+      const r = []; let bl = "";
+      for (const w of words) {
+        const test = bl ? bl + " " + w : w;
+        if (ctx.measureText(test).width > W - px * 2 && bl) { r.push(bl); bl = w; }
+        else bl = test;
+      }
+      if (bl) r.push(bl);
+      return r;
+    };
+    let lines = wrap(fs);
+    while ((lines.length > 4 || lines.length * fs * 1.02 > H * 0.45) && fs > 46) {
+      fs -= 4; lines = wrap(fs);
+    }
+    const lh = fs * 1.02;
+    const totalH = lines.length * lh;
+    const startY = yBottom - totalH - 6;
+    ctx.font = ff(`900 ${fs}px 'Syne',sans-serif`);
+    ctx.fillStyle = "#FFF";
+    ctx.textBaseline = "top";
+    ctx.textAlign = "left";
+    lines.forEach((ln, i) => ctx.fillText(ln, px, startY + i * lh));
+  }
+
+  // Slide counter — top-right corner. Only visible when this is part of a
+  // multi-slide carousel; otherwise it'd just read "1/1" and clutter.
+  if (totalDots > 1) {
+    ctx.font = ff("700 26px 'DM Sans',sans-serif");
+    ctx.fillStyle = "rgba(255,255,255,0.9)";
+    ctx.textBaseline = "top";
+    ctx.textAlign = "right";
+    ctx.fillText(`${dots} / ${totalDots}`, W - px, 60);
+  }
+
+  ctx.textAlign = "left"; ctx.textBaseline = "top";
+  drawLogo(ctx, accent, W);
+  drawFooter(ctx, W, H);
+}
+
+// === COUNTDOWN RENDERER ===
+// Big-number anticipation card. "3 WEEKS", "TOMORROW", "TONIGHT" dominates
+// the top half; event name + when/where below; CTA in footer. Designed to
+// run as a series (T-21, T-7, T-3, T-1, T-0) leading up to a single event.
+// Built for high-anticipation moments: World Cup, NBA Finals, app launches,
+// venue openings — the kind of thing where the AUDIENCE wants the
+// countdown to be a recurring reminder, not a one-shot announcement.
+function renderCountdown(canvas, cfg) {
+  const {
+    photo, countText, countEvent, countWhen, countCta,
+    accent, bgKey, dots, totalDots, opacity,
+  } = cfg;
+  const W = 1080, H = 1080;
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext("2d");
+
+  // Background — photo + dark overlay OR solid bg + spotlight.
+  if (photo) {
+    const s = Math.max(W / photo.width, H / photo.height);
+    const dw = photo.width * s, dh = photo.height * s;
+    ctx.drawImage(photo, (W - dw) / 2, (H - dh) / 2, dw, dh);
+    ctx.fillStyle = `rgba(0,0,0,${opacity || 0.78})`;
+    ctx.fillRect(0, 0, W, H);
+    drawTexture(ctx, W, H, "#FFF", 0.04);
+  } else {
+    const bg = BG_COLORS[bgKey] || BG_COLORS.black;
+    ctx.fillStyle = bg.hex; ctx.fillRect(0, 0, W, H);
+    const isBlack = bgKey === "black";
+    drawTexture(ctx, W, H, isBlack ? "#FACC15" : "#000", isBlack ? 0.05 : 0.10);
+    if (!isBlack) drawSpotlight(ctx, W, H, "255,255,255", 0.40);
+    else drawSpotlight(ctx, W, H, "229,188,79", 0.30);
+  }
+
+  ctx.globalAlpha = 1;
+  ctx.textBaseline = "middle";
+
+  // COUNTDOWN — the headline. Massive, accent-colored, auto-scaling so
+  // "TOMORROW" and "3 WEEKS OUT" both look intentional rather than fighting
+  // the canvas dimensions.
+  const ct = (countText || "").trim().toUpperCase();
+  if (ct) {
+    let fs = 260;
+    const fitWidth = W - 80;
+    ctx.font = ff(`900 ${fs}px 'Syne',sans-serif`);
+    while (ctx.measureText(ct).width > fitWidth && fs > 90) {
+      fs -= 8; ctx.font = ff(`900 ${fs}px 'Syne',sans-serif`);
+    }
+    ctx.fillStyle = accent;
+    ctx.textAlign = "center";
+    ctx.fillText(ct, W / 2, H * 0.36);
+  }
+
+  // EVENT NAME — big bold white, wraps + scales.
+  const ev = (countEvent || "").trim();
+  if (ev) {
+    const words = ev.toUpperCase().split(/\s+/).filter(w => w);
+    let fs = 64;
+    const px = 60, maxW = W - px * 2;
+    const wrap = (f) => {
+      ctx.font = ff(`800 ${f}px 'Syne',sans-serif`);
+      const r = []; let bl = "";
+      for (const w of words) {
+        const t = bl ? bl + " " + w : w;
+        if (ctx.measureText(t).width > maxW && bl) { r.push(bl); bl = w; }
+        else bl = t;
+      }
+      if (bl) r.push(bl);
+      return r;
+    };
+    let lines = wrap(fs);
+    while (lines.length > 2 && fs > 36) { fs -= 4; lines = wrap(fs); }
+    ctx.font = ff(`800 ${fs}px 'Syne',sans-serif`);
+    ctx.fillStyle = "#FFF";
+    ctx.textAlign = "center";
+    const lh = fs * 1.05;
+    const startY = H * 0.62 - (lines.length - 1) * lh / 2;
+    lines.forEach((ln, i) => ctx.fillText(ln, W / 2, startY + i * lh));
+  }
+
+  // Accent divider
+  const divY = H * 0.74;
+  ctx.fillStyle = `${accent}88`;
+  ctx.fillRect(W / 2 - 50, divY, 100, 3);
+
+  // WHEN / WHERE line
+  const wn = (countWhen || "").trim();
+  if (wn) {
+    ctx.font = ff("700 32px 'DM Sans',sans-serif");
+    ctx.fillStyle = "rgba(255,255,255,0.88)";
+    ctx.textAlign = "center";
+    ctx.fillText(wn, W / 2, divY + 40);
+  }
+
+  // CTA — accent color, smaller
+  const cta = (countCta || "").trim();
+  if (cta) {
+    ctx.font = ff("700 28px 'DM Sans',sans-serif");
+    ctx.fillStyle = accent;
+    ctx.textAlign = "center";
+    ctx.fillText(cta, W / 2, divY + 90);
+  }
+
+  ctx.textAlign = "left"; ctx.textBaseline = "top";
+  drawLogo(ctx, accent, W);
+  drawDots(ctx, W, dots, totalDots, accent);
+  drawFooter(ctx, W, H);
+}
+
 // === FEATURES RENDERER (2x2 emoji-card grid) ===
 function renderFeatures(canvas, cfg) {
   const { featuresTitle, features, accent, bgKey, dots, totalDots, photo, opacity } = cfg;
@@ -615,6 +836,23 @@ export default function MediaTool() {
   const [captionSecondary, setCaptionSecondary] = useState("JERSEY CITY · APRIL 2026");
   const [captionAlign, setCaptionAlign] = useState("left");
 
+  // Spotlight — one-venue-per-slide body for roundup carousels.
+  const [spotPhoto, setSpotPhoto] = useState(null);
+  const [spotName, setSpotName] = useState("ROOFTOP NIGHT AT THE STANDARD");
+  const [spotMeta, setSpotMeta] = useState("9 Clinton St | Newark");
+  const [spotTime, setSpotTime] = useState("Friday · 8 PM");
+  const [spotPrice, setSpotPrice] = useState("$30");
+  const [spotCta, setSpotCta] = useState("tix in bio");
+
+  // Countdown — T-minus anticipation card. Use as a series leading up
+  // to a single big event (World Cup, NBA Finals, opening night, etc).
+  const [countPhoto, setCountPhoto] = useState(null);
+  const [countText, setCountText] = useState("3 WEEKS");
+  const [countEvent, setCountEvent] = useState("WORLD CUP OPENING NIGHT");
+  const [countWhen, setCountWhen] = useState("Friday, June 12 · The Standard");
+  const [countCta, setCountCta] = useState("tix in bio");
+  const [countOpacity, setCountOpacity] = useState(0.78);
+
   // Custom carousel composer — snapshots of slides, reorderable, exportable
   const [carousel, setCarousel] = useState([]);
   const [dragIdx, setDragIdx] = useState(null);
@@ -694,7 +932,7 @@ export default function MediaTool() {
     }
   };
 
-  const cvRef = useRef(null), fileRef = useRef(null), textFileRef = useRef(null), captionFileRef = useRef(null);
+  const cvRef = useRef(null), fileRef = useRef(null), textFileRef = useRef(null), captionFileRef = useRef(null), spotFileRef = useRef(null), countFileRef = useRef(null);
   const accent = COLORS[accentKey]?.hex || "#FACC15";
   const words = headline.split(/\s+/).filter(w=>w);
   const textWords = textTitle.split(/\s+/).filter(w=>w);
@@ -725,7 +963,9 @@ export default function MediaTool() {
     else if(mode==="cta") renderCTA(cv,{ctaKicker,ctaDate,ctaVenue,ctaUrl,photo:textPhoto,accent,bgKey,dots,totalDots,opacity:textOpacity});
     else if(mode==="features") renderFeatures(cv,{featuresTitle,features,accent,bgKey,dots,totalDots,photo:textPhoto,opacity:textOpacity});
     else if(mode==="photo") renderPhotoCaption(cv,{photo:captionPhoto,caption,captionSecondary,alignment:captionAlign,accent,bgKey,dots,totalDots});
-  },[mode,photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,items,bgKey,listTitle,listSubtitle,statNumber,statLabel,statSub,textTitle,textTitleHL,textBody,pageNum,totalPages,textPhoto,textOpacity,ctaKicker,ctaDate,ctaVenue,ctaUrl,featuresTitle,features,captionPhoto,caption,captionSecondary,captionAlign,watermark,fontTick]);
+    else if(mode==="spotlight") renderSpotlight(cv,{photo:spotPhoto,spotName,spotMeta,spotTime,spotPrice,spotCta,accent,bgKey,dots,totalDots});
+    else if(mode==="countdown") renderCountdown(cv,{photo:countPhoto,countText,countEvent,countWhen,countCta,accent,bgKey,dots,totalDots,opacity:countOpacity});
+  },[mode,photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,items,bgKey,listTitle,listSubtitle,statNumber,statLabel,statSub,textTitle,textTitleHL,textBody,pageNum,totalPages,textPhoto,textOpacity,ctaKicker,ctaDate,ctaVenue,ctaUrl,featuresTitle,features,captionPhoto,caption,captionSecondary,captionAlign,spotPhoto,spotName,spotMeta,spotTime,spotPrice,spotCta,countPhoto,countText,countEvent,countWhen,countCta,countOpacity,watermark,fontTick]);
 
   useEffect(()=>{const t=setTimeout(render,60);return()=>clearTimeout(t);},[render]);
 
@@ -749,16 +989,20 @@ export default function MediaTool() {
   const handlePhoto = makeUploadHandler(setPhoto, "cover");
   const handleTextPhoto = makeUploadHandler(setTextPhoto, mode); // text/cta/features all share this
   const handleCaptionPhoto = makeUploadHandler(setCaptionPhoto, "photo");
+  const handleSpotPhoto = makeUploadHandler(setSpotPhoto, "spotlight");
+  const handleCountPhoto = makeUploadHandler(setCountPhoto, "countdown");
 
   // Library picker state — opened by the "📚 Library" button next to each
   // Upload Photo button. `pickTarget` decides which setter to feed.
   const [libOpen, setLibOpen] = useState(false);
-  const [pickTarget, setPickTarget] = useState(null); // "cover" | "text" | "photo"
+  const [pickTarget, setPickTarget] = useState(null); // "cover" | "text" | "photo" | "spotlight"
   const openLibrary = (target) => { setPickTarget(target); setLibOpen(true); };
   const onLibraryPick = (img) => {
-    if (pickTarget === "cover")      setPhoto(img);
-    else if (pickTarget === "photo") setCaptionPhoto(img);
-    else                              setTextPhoto(img); // text/cta/features share textPhoto
+    if (pickTarget === "cover")          setPhoto(img);
+    else if (pickTarget === "photo")     setCaptionPhoto(img);
+    else if (pickTarget === "spotlight") setSpotPhoto(img);
+    else if (pickTarget === "countdown") setCountPhoto(img);
+    else                                  setTextPhoto(img); // text/cta/features share textPhoto
   };
 
   const dl=()=>{const cv=document.createElement("canvas");
@@ -769,6 +1013,8 @@ export default function MediaTool() {
     else if(mode==="cta") renderCTA(cv,{ctaKicker,ctaDate,ctaVenue,ctaUrl,photo:textPhoto,accent,bgKey,dots,totalDots,opacity:textOpacity});
     else if(mode==="features") renderFeatures(cv,{featuresTitle,features,accent,bgKey,dots,totalDots,photo:textPhoto,opacity:textOpacity});
     else if(mode==="photo") renderPhotoCaption(cv,{photo:captionPhoto,caption,captionSecondary,alignment:captionAlign,accent,bgKey,dots,totalDots});
+    else if(mode==="spotlight") renderSpotlight(cv,{photo:spotPhoto,spotName,spotMeta,spotTime,spotPrice,spotCta,accent,bgKey,dots,totalDots});
+    else if(mode==="countdown") renderCountdown(cv,{photo:countPhoto,countText,countEvent,countWhen,countCta,accent,bgKey,dots,totalDots,opacity:countOpacity});
     const exportCv = wrapForExport(cv, exportRatio);
     exportCv.toBlob(blob=>{
       const url=URL.createObjectURL(blob);
@@ -783,7 +1029,7 @@ export default function MediaTool() {
     },"image/png");
   };
 
-  const MODES=[["cover","Cover"],["list","List"],["stat","Stat"],["text","Text"],["cta","CTA"],["features","Features"],["photo","Photo"]];
+  const MODES=[["cover","Cover"],["list","List"],["stat","Stat"],["text","Text"],["cta","CTA"],["features","Features"],["photo","Photo"],["spotlight","Spotlight"],["countdown","Countdown"]];
 
   // Templates push snapshots into the carousel composer.
   // Weekend (5 slides): Cover + Fri/Sat/Sun lists + Stat.
@@ -894,6 +1140,12 @@ export default function MediaTool() {
     else if (type === "photo") renderPhotoCaption(cv, { ...common, photo: s.photo,
       caption: s.caption, captionSecondary: s.captionSecondary, alignment: s.captionAlign,
       bgKey: s.bgKey });
+    else if (type === "spotlight") renderSpotlight(cv, { ...common, photo: s.photo,
+      spotName: s.spotName, spotMeta: s.spotMeta, spotTime: s.spotTime,
+      spotPrice: s.spotPrice, spotCta: s.spotCta, bgKey: s.bgKey });
+    else if (type === "countdown") renderCountdown(cv, { ...common, photo: s.photo,
+      countText: s.countText, countEvent: s.countEvent, countWhen: s.countWhen,
+      countCta: s.countCta, bgKey: s.bgKey, opacity: s.countOpacity });
   };
 
   const makeSnapshot = () => {
@@ -906,6 +1158,8 @@ export default function MediaTool() {
       case "cta": return { ...common, ctaKicker, ctaDate, ctaVenue, ctaUrl, photo: textPhoto, textOpacity };
       case "features": return { ...common, featuresTitle, features: features.map(f=>({...f})), photo: textPhoto, textOpacity };
       case "photo": return { ...common, photo: captionPhoto, caption, captionSecondary, captionAlign };
+      case "spotlight": return { ...common, photo: spotPhoto, spotName, spotMeta, spotTime, spotPrice, spotCta };
+      case "countdown": return { ...common, photo: countPhoto, countText, countEvent, countWhen, countCta, countOpacity };
       default: return common;
     }
   };
@@ -946,6 +1200,18 @@ export default function MediaTool() {
       case "photo":
         setCaptionPhoto(snapshot.photo); setCaption(snapshot.caption);
         setCaptionSecondary(snapshot.captionSecondary); setCaptionAlign(snapshot.captionAlign);
+        break;
+      case "spotlight":
+        setSpotPhoto(snapshot.photo);
+        setSpotName(snapshot.spotName || ""); setSpotMeta(snapshot.spotMeta || "");
+        setSpotTime(snapshot.spotTime || ""); setSpotPrice(snapshot.spotPrice || "");
+        setSpotCta(snapshot.spotCta || "");
+        break;
+      case "countdown":
+        setCountPhoto(snapshot.photo);
+        setCountText(snapshot.countText || ""); setCountEvent(snapshot.countEvent || "");
+        setCountWhen(snapshot.countWhen || ""); setCountCta(snapshot.countCta || "");
+        if (typeof snapshot.countOpacity === "number") setCountOpacity(snapshot.countOpacity);
         break;
     }
   };
@@ -1591,6 +1857,85 @@ export default function MediaTool() {
                 </div></div>
               {!captionPhoto&&<div style={{marginBottom:"0.6rem"}}><label style={L}>Background Color (no photo)</label><div style={{display:"flex",gap:"3px"}}>
                 {Object.entries(BG_COLORS).map(([k,v])=><button key={k} onClick={()=>setBgKey(k)} style={{width:28,height:28,borderRadius:"5px",cursor:"pointer",background:v.hex,border:bgKey===k?"2px solid #FFF":"2px solid transparent",boxShadow:bgKey===k?"0 0 6px rgba(255,255,255,0.3)":"none"}} title={v.name}/>)}</div></div>}
+            </>}
+
+            {/* SPOTLIGHT — body slide for roundup carousels. One venue per
+                slide with bolded headline-style name + address-style detail
+                line + transactional footer (time, price, CTA). Use a series
+                of these between a Cover and a CTA slide for a "5 spots this
+                weekend" / "12 happy hours" / "8 brunches" carousel. */}
+            {mode==="spotlight"&&<>
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Venue Photo</label>
+                <div style={{display:"flex",gap:"0.3rem"}}>
+                  <button onClick={()=>spotFileRef.current?.click()} style={{...B,flex:1}}>{spotPhoto?"✓ Photo loaded — change":"Upload Photo"}</button>
+                  <button onClick={()=>openLibrary("spotlight")} style={{...B,padding:"5px 10px"}} title="Pick a photo from the library">📚</button>
+                  {spotPhoto&&<button onClick={()=>setSpotPhoto(null)} style={{...B,color:"rgba(251,113,133,0.5)"}}>×</button>}
+                  <input ref={spotFileRef} type="file" accept="image/*" onChange={handleSpotPhoto} style={{display:"none"}}/>
+                </div>
+              </div>
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Venue / event name (headline)</label>
+                <textarea value={spotName} onChange={e=>setSpotName(e.target.value)} style={{...I,height:55,resize:"vertical",fontFamily:"'Syne'"}} placeholder="e.g. ROOFTOP NIGHT AT THE STANDARD"/>
+              </div>
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Detail line (address · city)</label>
+                <input value={spotMeta} onChange={e=>setSpotMeta(e.target.value)} style={I} placeholder="e.g. 9 Clinton St | Newark"/>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0.4rem",marginBottom:"0.6rem"}}>
+                <div><label style={L}>Day · Time</label>
+                  <input value={spotTime} onChange={e=>setSpotTime(e.target.value)} style={I} placeholder="Friday · 8 PM"/></div>
+                <div><label style={L}>Price</label>
+                  <input value={spotPrice} onChange={e=>setSpotPrice(e.target.value)} style={I} placeholder="$30 / Free"/></div>
+              </div>
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>CTA (right-side footer, accent color)</label>
+                <input value={spotCta} onChange={e=>setSpotCta(e.target.value)} style={I} placeholder="tix in bio / RSVP in bio / comment SAVE"/>
+              </div>
+              {!spotPhoto&&<div style={{marginBottom:"0.6rem"}}><label style={L}>Background Color (no photo)</label><div style={{display:"flex",gap:"3px"}}>
+                {Object.entries(BG_COLORS).map(([k,v])=><button key={k} onClick={()=>setBgKey(k)} style={{width:28,height:28,borderRadius:"5px",cursor:"pointer",background:v.hex,border:bgKey===k?"2px solid #FFF":"2px solid transparent",boxShadow:bgKey===k?"0 0 6px rgba(255,255,255,0.3)":"none"}} title={v.name}/>)}</div></div>}
+              <p style={{fontSize:"0.55rem",color:"rgba(245,240,232,0.4)",lineHeight:1.5,marginTop:"4px"}}>
+                Tip: build a roundup carousel by using <strong>Cover</strong> ("12 SPOTS THIS WEEKEND") as slide 1, then a Spotlight slide per venue, then a <strong>CTA</strong> slide ("comment SAVE for the full list").
+              </p>
+            </>}
+
+            {/* COUNTDOWN — big "3 WEEKS / TOMORROW / TONIGHT" anticipation
+                card. Run as a series leading up to a single event (World
+                Cup, NBA Finals, opening night, app launch). Each new post
+                you just change countText and re-export. */}
+            {mode==="countdown"&&<>
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Background Photo (optional)</label>
+                <div style={{display:"flex",gap:"0.3rem",alignItems:"center"}}>
+                  <button onClick={()=>countFileRef.current?.click()} style={{...B,flex:1}}>{countPhoto?"✓ Photo loaded — change":"Upload Photo"}</button>
+                  <button onClick={()=>openLibrary("countdown")} style={{...B,padding:"5px 10px"}} title="Pick a photo from the library">📚</button>
+                  {countPhoto&&<button onClick={()=>setCountPhoto(null)} style={{...B,color:"rgba(251,113,133,0.5)"}}>×</button>}
+                  <input ref={countFileRef} type="file" accept="image/*" onChange={handleCountPhoto} style={{display:"none"}}/>
+                </div>
+                {countPhoto&&<div style={{marginTop:"6px"}}>
+                  <div style={{fontSize:"0.5rem",color:"rgba(245,240,232,0.45)",letterSpacing:"1px",textTransform:"uppercase",marginBottom:"3px"}}>
+                    Darken overlay · {Math.round(countOpacity*100)}%
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:"6px"}}>
+                    <span style={{fontSize:"0.45rem",color:"rgba(245,240,232,0.3)"}}>20%</span>
+                    <input type="range" min="0.20" max="1.0" step="0.01" value={countOpacity} onChange={e=>setCountOpacity(parseFloat(e.target.value))} style={{flex:1,accentColor:accent}}/>
+                    <span style={{fontSize:"0.45rem",color:"rgba(245,240,232,0.3)"}}>100%</span>
+                  </div>
+                </div>}
+              </div>
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Countdown text (the big number)</label>
+                <input value={countText} onChange={e=>setCountText(e.target.value)} style={I} placeholder="3 WEEKS / 1 WEEK / TOMORROW / TONIGHT"/>
+                <p style={{fontSize:"0.5rem",color:"rgba(245,240,232,0.4)",marginTop:"3px"}}>Auto-scales; "TOMORROW" and "3 WEEKS OUT" both fit.</p>
+              </div>
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Event name</label>
+                <input value={countEvent} onChange={e=>setCountEvent(e.target.value)} style={I} placeholder="e.g. WORLD CUP OPENING NIGHT"/>
+              </div>
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>When · Where (one line)</label>
+                <input value={countWhen} onChange={e=>setCountWhen(e.target.value)} style={I} placeholder="Friday, June 12 · The Standard"/>
+              </div>
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>CTA</label>
+                <input value={countCta} onChange={e=>setCountCta(e.target.value)} style={I} placeholder="tix in bio / RSVP in bio / comment SAVE"/>
+              </div>
+              {!countPhoto&&<div style={{marginBottom:"0.6rem"}}><label style={L}>Background Color (no photo)</label><div style={{display:"flex",gap:"3px"}}>
+                {Object.entries(BG_COLORS).map(([k,v])=><button key={k} onClick={()=>setBgKey(k)} style={{width:28,height:28,borderRadius:"5px",cursor:"pointer",background:v.hex,border:bgKey===k?"2px solid #FFF":"2px solid transparent",boxShadow:bgKey===k?"0 0 6px rgba(255,255,255,0.3)":"none"}} title={v.name}/>)}</div></div>}
+              <p style={{fontSize:"0.55rem",color:"rgba(245,240,232,0.4)",lineHeight:1.5,marginTop:"4px"}}>
+                Tip: run as a series — T-3 WEEKS, T-1 WEEK, T-3 DAYS, TOMORROW, TONIGHT. Snapshot each into the carousel composer if you want a single drop that shows the full ramp; otherwise post one a week leading up.
+              </p>
             </>}
 
             {mode==="features"&&<>
