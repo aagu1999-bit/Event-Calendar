@@ -180,6 +180,11 @@ function Nav() {
   };
 
   return (
+    // Fragment so the CloudWorkspaceModal can render as a sibling of <nav>.
+    // <nav> is position:sticky + zIndex:100, which creates a stacking
+    // context that trapped the modal's zIndex:9999 — on mobile the modal
+    // ended up appearing behind the main builder content.
+    <>
     <nav className="cge-nav" style={{
       display: "flex",
       alignItems: "center",
@@ -344,12 +349,13 @@ function Nav() {
           </button>
         </>
       )}
-      <CloudWorkspaceModal
-        open={cloudPickOpen}
-        onClose={() => setCloudPickOpen(false)}
-        onPick={onCloudPick}
-      />
     </nav>
+    <CloudWorkspaceModal
+      open={cloudPickOpen}
+      onClose={() => setCloudPickOpen(false)}
+      onPick={onCloudPick}
+    />
+    </>
   );
 }
 

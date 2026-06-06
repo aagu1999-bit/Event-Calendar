@@ -133,8 +133,27 @@ body {
   .cge-cal-layout {
     grid-template-columns: 1fr !important;
   }
-  .cge-cal-canvas {
-    display: none !important;
+  /* Shrink the outer page padding so the event list claims the full
+     width — gains ~30px on either side on a phone. */
+  .cge-cal-page {
+    padding: 0.6rem !important;
+  }
+  /* The preview canvas is shown now (user requested). The bitmap stays
+     at 390px wide so it round-trips into a real PNG on Download, but the
+     displayed size scales down to viewport width. */
+  .cge-cal-canvas-preview canvas {
+    max-width: 100% !important;
+    height: auto !important;
+  }
+  /* Bigger download buttons on phone — make sure they stretch wide and
+     hit the 44px tap target Apple recommends. */
+  .cge-cal-canvas > div:last-of-type button {
+    min-height: 44px !important;
+  }
+  /* Let the event list use more vertical room — the canvas no longer
+     competes for that space at the same width. */
+  .cge-cal-event-scroll {
+    max-height: 60vh !important;
   }
   /* The event list row's right-edge buttons (★ ✎ ×) are tiny — bump
      their hit area for thumbs. */
@@ -173,6 +192,39 @@ body {
   .cge-bulk-bar > button {
     flex: 1 1 calc(50% - 3px);
     min-height: 36px;
+  }
+
+  /* ---------- MODALS (Cloud / Photo / Export library) ---------- */
+  /* Floating popup on phone instead of a full-screen sheet — keeps the
+     page visible behind so it doesn't feel like the whole tab got
+     hijacked. Backdrop dims the page; modal sits in the center with
+     rounded corners. Header still wraps and subtitle still hides so a
+     long title can't push the Close button off-screen. */
+  .cge-modal-backdrop {
+    padding: 1rem !important;
+  }
+  .cge-modal {
+    width: 100% !important;
+    max-width: 520px !important;
+    max-height: 80vh !important;
+    border-radius: 10px !important;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.6) !important;
+  }
+  .cge-modal-header {
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+    padding: 12px 14px !important;
+  }
+  /* The header subtitle is decorative; nuke it on phone to save horizontal
+     room and guarantee the title + close button stay on one line. */
+  .cge-modal-subtitle {
+    display: none !important;
+  }
+  .cge-modal-close {
+    padding: 8px 14px !important;
+    font-size: 0.75rem !important;
+    min-height: 36px;
+    margin-left: auto;
   }
 
   /* ---------- GLOBAL: bigger touch targets for inputs ---------- */

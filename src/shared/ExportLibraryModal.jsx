@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { listExports, loadExportRecord, deleteExport, onExportsChange, exportsUsageBytes } from "./photoLibrary.js";
 
 function formatBytes(n) {
@@ -78,9 +79,13 @@ export function ExportLibraryModal({
 
   if (!open) return null;
 
-  return (
+  // React Portal: render directly into <body>, escaping any ancestor
+  // stacking context / transform / overflow rule that could trap the
+  // position:fixed overlay below the page content.
+  return createPortal(
     <div
       onClick={onClose}
+      className="cge-modal-backdrop"
       style={{
         position: "fixed", inset: 0, zIndex: 9999,
         background: "rgba(0,0,0,0.75)",
@@ -90,6 +95,7 @@ export function ExportLibraryModal({
     >
       <div
         onClick={e => e.stopPropagation()}
+        className="cge-modal"
         style={{
           background: "#0d0d0d",
           border: "1px solid rgba(245,240,232,0.12)",
@@ -101,7 +107,7 @@ export function ExportLibraryModal({
           fontFamily: "'DM Sans', sans-serif",
         }}
       >
-        <div style={{
+        <div className="cge-modal-header" style={{
           padding: "14px 18px",
           borderBottom: "1px solid rgba(245,240,232,0.08)",
           display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap",
@@ -109,7 +115,7 @@ export function ExportLibraryModal({
           <div style={{ fontSize: "0.75rem", fontWeight: 800, letterSpacing: "2px", textTransform: "uppercase", color: "#E5BC4F" }}>
             {title}
           </div>
-          <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.45)", letterSpacing: "1px", textTransform: "uppercase" }}>
+          <div className="cge-modal-subtitle" style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.45)", letterSpacing: "1px", textTransform: "uppercase" }}>
             {hint}
           </div>
           <div style={{ flex: 1 }} />
@@ -118,6 +124,7 @@ export function ExportLibraryModal({
           </div>
           <button
             onClick={onClose}
+            className="cge-modal-close"
             style={{
               padding: "4px 10px", borderRadius: "4px",
               background: "rgba(245,240,232,0.04)", color: "#F5F0E8",
@@ -201,6 +208,7 @@ export function ExportLibraryModal({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

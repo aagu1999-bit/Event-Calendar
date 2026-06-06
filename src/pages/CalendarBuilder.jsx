@@ -1525,7 +1525,7 @@ export default function CalendarBuilder() {
     <div style={{ minHeight: "100vh", background: "#080808", color: "#F5F0E8", fontFamily: "'DM Sans',sans-serif" }}>
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700;900&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet" />
 
-      <div style={{ maxWidth: 1200, margin: "0 auto", padding: "1.25rem" }}>
+      <div className="cge-cal-page" style={{ maxWidth: 1200, margin: "0 auto", padding: "1.25rem" }}>
         {/* Header */}
         <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1rem" }}>
           <h1 style={{ fontFamily: "'Syne',sans-serif", fontSize: "1.2rem", fontWeight: 800, textTransform: "uppercase" }}>CGE Calendar Builder</h1>
@@ -1546,7 +1546,7 @@ export default function CalendarBuilder() {
           lineHeight: 1.4,
         }}>
           <strong style={{ letterSpacing: "1px", textTransform: "uppercase", fontSize: "0.6rem", display: "block", marginBottom: "4px" }}>Mobile mode</strong>
-          Use this tab to add, edit, and tag events on the go. <strong>Open on desktop</strong> to render and download the calendar slides — the canvas preview is hidden here to save room.
+          Add, edit, and tag events here, scroll down for the preview, and tap <strong>Download</strong> to save the full 1080×1350 PNG to your phone. Complex editing (per-day colors, photo BG, themes) is still easier on desktop.
         </div>
 
         <div className="cge-cal-layout" style={{ display: "grid", gridTemplateColumns: "1fr 410px", gap: "1.5rem", alignItems: "start" }}>
@@ -1813,7 +1813,7 @@ export default function CalendarBuilder() {
             )}
 
             {/* Event list */}
-            <div style={{ maxHeight: 360, overflowY: "auto" }}>
+            <div className="cge-cal-event-scroll" style={{ maxHeight: 360, overflowY: "auto" }}>
               {(() => {
                 let displayEvents = sorted;
                 if (listFilter === "flagged") {
@@ -1925,7 +1925,7 @@ export default function CalendarBuilder() {
                 })}
               </div>}
             </div>
-            <div style={{ position: "relative" }}>
+            <div className="cge-cal-canvas-preview" style={{ position: "relative" }}>
               <canvas ref={canvasRef} onClick={handleCanvasClick} style={{ width: pw, height: ph, borderRadius: "4px", display: "block", cursor: "pointer" }} />
               {emojiPickId !== null && (
                 <div style={{ position: "absolute", top: emojiPickPos.y, left: emojiPickPos.x, zIndex: 50, background: "#1a1a1a", border: "1px solid rgba(250,204,21,0.20)", borderRadius: "6px", padding: "4px", boxShadow: "0 4px 20px rgba(0,0,0,0.6)" }}>

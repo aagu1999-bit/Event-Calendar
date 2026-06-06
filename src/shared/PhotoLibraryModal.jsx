@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { listPhotos, loadPhotoBlob, loadPhotoAsImage, loadPhotoAsDataUrl, deletePhotoAndNotify, onLibraryChange, usageBytes } from "./photoLibrary.js";
 
 const TOOLS = [
@@ -89,9 +90,13 @@ export function PhotoLibraryModal({ open, onClose, onPick, outputAs = "image", i
 
   if (!open) return null;
 
-  return (
+  // React Portal: render directly into <body>, escaping any ancestor
+  // stacking context / transform / overflow rule that could trap the
+  // position:fixed overlay below the page content.
+  return createPortal(
     <div
       onClick={onClose}
+      className="cge-modal-backdrop"
       style={{
         position: "fixed", inset: 0, zIndex: 9999,
         background: "rgba(0,0,0,0.75)",
@@ -101,6 +106,7 @@ export function PhotoLibraryModal({ open, onClose, onPick, outputAs = "image", i
     >
       <div
         onClick={e => e.stopPropagation()}
+        className="cge-modal"
         style={{
           background: "#0d0d0d",
           border: "1px solid rgba(245,240,232,0.12)",
@@ -113,7 +119,7 @@ export function PhotoLibraryModal({ open, onClose, onPick, outputAs = "image", i
         }}
       >
         {/* Header */}
-        <div style={{
+        <div className="cge-modal-header" style={{
           padding: "14px 18px",
           borderBottom: "1px solid rgba(245,240,232,0.08)",
           display: "flex", alignItems: "center", gap: "12px",
@@ -143,6 +149,7 @@ export function PhotoLibraryModal({ open, onClose, onPick, outputAs = "image", i
           </div>
           <button
             onClick={onClose}
+            className="cge-modal-close"
             style={{
               padding: "4px 10px", borderRadius: "4px",
               background: "rgba(245,240,232,0.04)", color: "#F5F0E8",
@@ -214,6 +221,7 @@ export function PhotoLibraryModal({ open, onClose, onPick, outputAs = "image", i
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
