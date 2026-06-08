@@ -1107,6 +1107,183 @@ function renderSaveDates(canvas, cfg) {
   drawFooter(ctx, W, H, isLight);
 }
 
+// === SCENE COMPOSER ===
+// The "automated flyer" template — slot-based composition modeled on the
+// hand-designed party flyer style (background + hero cutout + side
+// cutouts + big-text-behind layer + corner meta blocks + bottom info bar).
+// Content-agnostic: cutouts can be players, drink bottles, dishes, books,
+// flags, mascots — anything. Layout stays fixed, content varies. The
+// distinctive "big text behind people" look is achieved by drawing the
+// bigText BEFORE the cutouts so the cutouts visually occlude part of it
+// (the viewer's brain fills in the gap).
+//
+// Required for that "designed by hand" look:
+//   - All cutouts should be transparent-bg PNGs (use Photoroom / remove.bg)
+//   - Halftone toggle adds a grain overlay that ties disparate sources
+//     together into a unified visual treatment
+function applyGrain(ctx, W, H, strength = 0.18) {
+  // Generate a 256×256 noise tile and pattern-fill the whole canvas with
+  // it in "overlay" composite. Cheap, repeatable, gives a halftone/grain
+  // feel without expensive per-pixel processing.
+  const tileSize = 256;
+  const tile = document.createElement("canvas");
+  tile.width = tileSize; tile.height = tileSize;
+  const tctx = tile.getContext("2d");
+  const id = tctx.createImageData(tileSize, tileSize);
+  for (let i = 0; i < id.data.length; i += 4) {
+    const v = Math.floor(Math.random() * 255);
+    id.data[i] = v; id.data[i+1] = v; id.data[i+2] = v; id.data[i+3] = 60;
+  }
+  tctx.putImageData(id, 0, 0);
+  ctx.save();
+  ctx.globalCompositeOperation = "overlay";
+  ctx.globalAlpha = strength;
+  const pattern = ctx.createPattern(tile, "repeat");
+  ctx.fillStyle = pattern;
+  ctx.fillRect(0, 0, W, H);
+  ctx.restore();
+}
+
+function renderScene(canvas, cfg) {
+  const {
+    bgPhoto, sceneHero, sceneLeft, sceneRight,
+    sceneTopLabel, sceneTitle, sceneBigText, sceneLeftMeta, sceneRightMeta,
+    sceneInfo, sceneAddress,
+    sceneHalftone, sceneHeroScale, sceneSideScale,
+    accent, bgKey, dots, totalDots,
+  } = cfg;
+  const W = 1080, H = 1080;
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext("2d");
+
+  // 1. BACKGROUND (photo OR solid color)
+  if (bgPhoto) {
+    const s = Math.max(W / bgPhoto.width, H / bgPhoto.height);
+    const dw = bgPhoto.width * s, dh = bgPhoto.height * s;
+    ctx.drawImage(bgPhoto, (W - dw) / 2, (H - dh) / 2, dw, dh);
+  } else {
+    const bg = BG_COLORS[bgKey] || BG_COLORS.black;
+    ctx.fillStyle = bg.hex;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  // Dark wash for text legibility — heavier than other templates because
+  // the design lives or dies on the big text reading clearly through the
+  // halftone + cutouts.
+  ctx.fillStyle = "rgba(0,0,0,0.35)";
+  ctx.fillRect(0, 0, W, H);
+
+  // 2. HALFTONE / GRAIN OVERLAY (the "ties everything together" filter)
+  if (sceneHalftone) applyGrain(ctx, W, H, 0.22);
+
+  ctx.globalAlpha = 1;
+
+  // 3. TOP LABEL — small, letterspaced, top-center
+  if (sceneTopLabel?.trim()) {
+    ctx.font = ff("700 22px 'DM Sans',sans-serif");
+    ctx.fillStyle = "#FFF";
+    ctx.textAlign = "center"; ctx.textBaseline = "top";
+    ctx.letterSpacing = "10px";
+    ctx.fillText(sceneTopLabel.toUpperCase(), W / 2, 24);
+    ctx.letterSpacing = "0px";
+  }
+
+  // 4. TITLE — front layer, top half, huge.
+  if (sceneTitle?.trim()) {
+    const t = sceneTitle.toUpperCase();
+    let fs = 130;
+    ctx.font = ff(`900 ${fs}px 'Syne',sans-serif`);
+    while (ctx.measureText(t).width > W - 40 && fs > 50) {
+      fs -= 6; ctx.font = ff(`900 ${fs}px 'Syne',sans-serif`);
+    }
+    ctx.fillStyle = "#FFF";
+    ctx.textAlign = "center"; ctx.textBaseline = "top";
+    ctx.fillText(t, W / 2, 60);
+  }
+
+  // 5. BIG TEXT — back layer (drawn BEFORE cutouts so they occlude it).
+  // This is the distinctive "designed by hand" move: text peeks out
+  // around the cutouts. Multi-line via \n.
+  if (sceneBigText?.trim()) {
+    const lines = sceneBigText.split("\n").map(l => l.trim().toUpperCase()).filter(Boolean);
+    let fs = 150;
+    ctx.font = ff(`900 ${fs}px 'Syne',sans-serif`);
+    const widest = () => Math.max(...lines.map(l => ctx.measureText(l).width));
+    while (widest() > W - 20 && fs > 60) {
+      fs -= 6; ctx.font = ff(`900 ${fs}px 'Syne',sans-serif`);
+    }
+    ctx.fillStyle = "#FFF";
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    const lh = fs * 0.92;
+    // Anchor lower-mid so cutouts placed centrally cross the text.
+    const startY = H * 0.78 - (lines.length - 1) * lh / 2;
+    lines.forEach((ln, i) => ctx.fillText(ln, W / 2, startY + i * lh));
+  }
+
+  // 6. SIDE CUTOUTS — left + right, mid-height, bleeding past the edges
+  // so they feel layered into the scene rather than centered inside a card.
+  const sideS = sceneSideScale || 0.55;
+  const drawSide = (img, isRight) => {
+    if (!img) return;
+    const targetH = H * sideS;
+    const s = targetH / img.height;
+    const dw = img.width * s, dh = img.height * s;
+    const y = H * 0.32;
+    const x = isRight ? (W - dw * 0.92) : (-dw * 0.08);
+    ctx.drawImage(img, x, y, dw, dh);
+  };
+  drawSide(sceneLeft, false);
+  drawSide(sceneRight, true);
+
+  // 7. HERO CENTER CUTOUT — drawn LAST, on top of everything.
+  if (sceneHero) {
+    const heroS = sceneHeroScale || 0.72;
+    const targetH = H * heroS;
+    const s = targetH / sceneHero.height;
+    const dw = sceneHero.width * s, dh = sceneHero.height * s;
+    ctx.drawImage(sceneHero, (W - dw) / 2, H * 0.22, dw, dh);
+  }
+
+  // 8. META BLOCKS — left + right under the title
+  ctx.textBaseline = "top";
+  if (sceneLeftMeta?.trim()) {
+    ctx.font = ff("800 20px 'DM Sans',sans-serif");
+    ctx.fillStyle = "#FFF"; ctx.textAlign = "left";
+    sceneLeftMeta.split("\n").forEach((ln, i) => ctx.fillText(ln.toUpperCase(), 32, 220 + i * 26));
+  }
+  if (sceneRightMeta?.trim()) {
+    ctx.font = ff("800 20px 'DM Sans',sans-serif");
+    ctx.fillStyle = "#FFF"; ctx.textAlign = "right";
+    sceneRightMeta.split("\n").forEach((ln, i) => ctx.fillText(ln.toUpperCase(), W - 32, 220 + i * 26));
+  }
+
+  // 9. BOTTOM INFO BAR — info line + address
+  if (sceneInfo?.trim()) {
+    let fs = 30;
+    ctx.font = ff(`800 ${fs}px 'Syne',sans-serif`);
+    while (ctx.measureText(sceneInfo.toUpperCase()).width > W - 60 && fs > 16) {
+      fs -= 2; ctx.font = ff(`800 ${fs}px 'Syne',sans-serif`);
+    }
+    ctx.fillStyle = "#FFF";
+    ctx.textAlign = "center"; ctx.textBaseline = "bottom";
+    ctx.fillText(sceneInfo.toUpperCase(), W / 2, H - 56);
+  }
+  if (sceneAddress?.trim()) {
+    ctx.font = ff("700 20px 'DM Sans',sans-serif");
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    ctx.textAlign = "center"; ctx.textBaseline = "bottom";
+    ctx.fillText(sceneAddress.toUpperCase(), W / 2, H - 24);
+  }
+
+  // 10. ACCENT EDGE BAR
+  ctx.fillStyle = accent;
+  ctx.fillRect(0, H - 6, W, 6);
+
+  ctx.textAlign = "left"; ctx.textBaseline = "top";
+  drawDots(ctx, W, dots, totalDots, accent);
+  // No drawLogo / drawFooter — the composition includes its own brand cues.
+}
+
 // === VIBE BOARD ===
 // Moodboard collage. Headline at top (quoted, conversational), 5-cell
 // grid of photo cards below (4 in a 2x2 plus 1 hero, OR 2x3 layout).
@@ -1455,6 +1632,23 @@ export default function MediaTool() {
   const [savesCta, setSavesCta] = useState("tix in bio");
   const [savesOpacity, setSavesOpacity] = useState(0.85);
 
+  // Scene Composer — slot-based party flyer. 4 photo slots + 7 text fields
+  // + halftone toggle. Defaults seeded for a generic CGE party scene.
+  const [sceneBgPhoto, setSceneBgPhoto] = useState(null);
+  const [sceneHero, setSceneHero] = useState(null);
+  const [sceneLeft, setSceneLeft] = useState(null);
+  const [sceneRight, setSceneRight] = useState(null);
+  const [sceneTopLabel, setSceneTopLabel] = useState("CENTRALGROUPEVENTS");
+  const [sceneTitle, setSceneTitle] = useState("JERSEY PARTY");
+  const [sceneBigText, setSceneBigText] = useState("SUMMER\nKICKOFF");
+  const [sceneLeftMeta, setSceneLeftMeta] = useState("HOSTED BY\nCGE");
+  const [sceneRightMeta, setSceneRightMeta] = useState("SOUNDS BY\nTBA");
+  const [sceneInfo, setSceneInfo] = useState("JUNE 13 · 8PM–12AM");
+  const [sceneAddress, setSceneAddress] = useState("248 MULBERRY ST NEWARK, NJ");
+  const [sceneHalftone, setSceneHalftone] = useState(true);
+  const [sceneHeroScale, setSceneHeroScale] = useState(0.72);
+  const [sceneSideScale, setSceneSideScale] = useState(0.55);
+
   // Vibe Board — moodboard collage with headline + 5 photo cells.
   const [vibePhotos, setVibePhotos] = useState([null, null, null, null, null]);
   const [vibeHeadline, setVibeHeadline] = useState('"I NEED SOME VITAMIN F"');
@@ -1546,6 +1740,8 @@ export default function MediaTool() {
   };
 
   const cvRef = useRef(null), fileRef = useRef(null), textFileRef = useRef(null), captionFileRef = useRef(null), spotFileRef = useRef(null), countFileRef = useRef(null), saveFileRef = useRef(null), savesFileRef = useRef(null);
+  // Scene Composer — 4 slots, each needs its own file input ref.
+  const sceneBgRef = useRef(null), sceneHeroRef = useRef(null), sceneLeftRef = useRef(null), sceneRightRef = useRef(null);
   // One file input ref per Vibe Board slot (5 max).
   const vibeFileRefs = [useRef(null), useRef(null), useRef(null), useRef(null), useRef(null)];
   const accent = COLORS[accentKey]?.hex || "#FACC15";
@@ -1583,7 +1779,8 @@ export default function MediaTool() {
     else if(mode==="savedate") renderSaveDate(cv,{photo:savePhoto,saveKicker,saveDay,saveDateBig,saveEvent,saveVenue,saveCta,accent,bgKey,dots,totalDots,opacity:saveOpacity});
     else if(mode==="savedates") renderSaveDates(cv,{photo:savesPhoto,savesHeader,savesItems,savesCta,accent,bgKey,dots,totalDots,opacity:savesOpacity});
     else if(mode==="vibe") renderVibeBoard(cv,{vibePhotos,vibeHeadline,vibeLabels,accent,bgKey,dots,totalDots});
-  },[mode,photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,items,bgKey,listTitle,listSubtitle,statNumber,statLabel,statSub,textTitle,textTitleHL,textBody,pageNum,totalPages,textPhoto,textOpacity,ctaKicker,ctaDate,ctaVenue,ctaUrl,featuresTitle,features,captionPhoto,caption,captionSecondary,captionAlign,spotPhoto,spotName,spotMeta,spotTime,spotPrice,spotCta,countPhoto,countText,countEvent,countWhen,countCta,countOpacity,savePhoto,saveKicker,saveDay,saveDateBig,saveEvent,saveVenue,saveCta,saveOpacity,savesPhoto,savesHeader,savesItems,savesCta,savesOpacity,vibePhotos,vibeHeadline,vibeLabels,watermark,fontTick]);
+    else if(mode==="scene") renderScene(cv,{bgPhoto:sceneBgPhoto,sceneHero,sceneLeft,sceneRight,sceneTopLabel,sceneTitle,sceneBigText,sceneLeftMeta,sceneRightMeta,sceneInfo,sceneAddress,sceneHalftone,sceneHeroScale,sceneSideScale,accent,bgKey,dots,totalDots});
+  },[mode,photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,items,bgKey,listTitle,listSubtitle,statNumber,statLabel,statSub,textTitle,textTitleHL,textBody,pageNum,totalPages,textPhoto,textOpacity,ctaKicker,ctaDate,ctaVenue,ctaUrl,featuresTitle,features,captionPhoto,caption,captionSecondary,captionAlign,spotPhoto,spotName,spotMeta,spotTime,spotPrice,spotCta,countPhoto,countText,countEvent,countWhen,countCta,countOpacity,savePhoto,saveKicker,saveDay,saveDateBig,saveEvent,saveVenue,saveCta,saveOpacity,savesPhoto,savesHeader,savesItems,savesCta,savesOpacity,vibePhotos,vibeHeadline,vibeLabels,sceneBgPhoto,sceneHero,sceneLeft,sceneRight,sceneTopLabel,sceneTitle,sceneBigText,sceneLeftMeta,sceneRightMeta,sceneInfo,sceneAddress,sceneHalftone,sceneHeroScale,sceneSideScale,watermark,fontTick]);
 
   useEffect(()=>{const t=setTimeout(render,60);return()=>clearTimeout(t);},[render]);
 
@@ -1611,6 +1808,11 @@ export default function MediaTool() {
   const handleCountPhoto = makeUploadHandler(setCountPhoto, "countdown");
   const handleSavePhoto = makeUploadHandler(setSavePhoto, "savedate");
   const handleSavesPhoto = makeUploadHandler(setSavesPhoto, "savedates");
+  // Scene Composer — 4 image slots: bg + hero + left + right
+  const handleSceneBg    = makeUploadHandler(setSceneBgPhoto, "scene-bg");
+  const handleSceneHero  = makeUploadHandler(setSceneHero,    "scene-hero");
+  const handleSceneLeft  = makeUploadHandler(setSceneLeft,    "scene-left");
+  const handleSceneRight = makeUploadHandler(setSceneRight,   "scene-right");
   // Vibe Board has 5 photo slots — one upload handler per slot.
   const handleVibePhoto = (idx) => (e) => {
     const f = e.target.files?.[0]; if (!f) return;
@@ -1638,6 +1840,10 @@ export default function MediaTool() {
       const idx = parseInt(pickTarget.split("-")[1], 10);
       setVibePhotos(prev => prev.map((p,i)=>i===idx?img:p));
     }
+    else if (pickTarget === "scene-bg")    setSceneBgPhoto(img);
+    else if (pickTarget === "scene-hero")  setSceneHero(img);
+    else if (pickTarget === "scene-left")  setSceneLeft(img);
+    else if (pickTarget === "scene-right") setSceneRight(img);
     else                                  setTextPhoto(img); // text/cta/features share textPhoto
   };
 
@@ -1654,6 +1860,7 @@ export default function MediaTool() {
     else if(mode==="savedate") renderSaveDate(cv,{photo:savePhoto,saveKicker,saveDay,saveDateBig,saveEvent,saveVenue,saveCta,accent,bgKey,dots,totalDots,opacity:saveOpacity});
     else if(mode==="savedates") renderSaveDates(cv,{photo:savesPhoto,savesHeader,savesItems,savesCta,accent,bgKey,dots,totalDots,opacity:savesOpacity});
     else if(mode==="vibe") renderVibeBoard(cv,{vibePhotos,vibeHeadline,vibeLabels,accent,bgKey,dots,totalDots});
+    else if(mode==="scene") renderScene(cv,{bgPhoto:sceneBgPhoto,sceneHero,sceneLeft,sceneRight,sceneTopLabel,sceneTitle,sceneBigText,sceneLeftMeta,sceneRightMeta,sceneInfo,sceneAddress,sceneHalftone,sceneHeroScale,sceneSideScale,accent,bgKey,dots,totalDots});
     const exportCv = wrapForExport(cv, exportRatio);
     exportCv.toBlob(blob=>{
       const url=URL.createObjectURL(blob);
@@ -1668,7 +1875,7 @@ export default function MediaTool() {
     },"image/png");
   };
 
-  const MODES=[["cover","Cover"],["list","List"],["stat","Stat"],["text","Text"],["cta","CTA"],["features","Features"],["photo","Photo"],["spotlight","Spotlight"],["countdown","Countdown"],["savedate","Save Date"],["savedates","Save Dates"],["vibe","Vibe Board"]];
+  const MODES=[["cover","Cover"],["list","List"],["stat","Stat"],["text","Text"],["cta","CTA"],["features","Features"],["photo","Photo"],["spotlight","Spotlight"],["countdown","Countdown"],["savedate","Save Date"],["savedates","Save Dates"],["vibe","Vibe Board"],["scene","Scene"]];
 
   // Templates push snapshots into the carousel composer.
   // Weekend (5 slides): Cover + Fri/Sat/Sun lists + Stat.
@@ -1794,6 +2001,13 @@ export default function MediaTool() {
       bgKey: s.bgKey, opacity: s.savesOpacity });
     else if (type === "vibe") renderVibeBoard(cv, { ...common, vibePhotos: s.vibePhotos,
       vibeHeadline: s.vibeHeadline, vibeLabels: s.vibeLabels, bgKey: s.bgKey });
+    else if (type === "scene") renderScene(cv, { ...common, bgPhoto: s.bgPhoto,
+      sceneHero: s.sceneHero, sceneLeft: s.sceneLeft, sceneRight: s.sceneRight,
+      sceneTopLabel: s.sceneTopLabel, sceneTitle: s.sceneTitle, sceneBigText: s.sceneBigText,
+      sceneLeftMeta: s.sceneLeftMeta, sceneRightMeta: s.sceneRightMeta,
+      sceneInfo: s.sceneInfo, sceneAddress: s.sceneAddress,
+      sceneHalftone: s.sceneHalftone, sceneHeroScale: s.sceneHeroScale, sceneSideScale: s.sceneSideScale,
+      bgKey: s.bgKey });
   };
 
   const makeSnapshot = () => {
@@ -1811,6 +2025,7 @@ export default function MediaTool() {
       case "savedate":  return { ...common, photo: savePhoto, saveKicker, saveDay, saveDateBig, saveEvent, saveVenue, saveCta, saveOpacity };
       case "savedates": return { ...common, photo: savesPhoto, savesHeader, savesItems: savesItems.map(x=>({...x})), savesCta, savesOpacity };
       case "vibe":      return { ...common, vibePhotos: [...vibePhotos], vibeHeadline, vibeLabels: [...vibeLabels] };
+      case "scene":     return { ...common, bgPhoto: sceneBgPhoto, sceneHero, sceneLeft, sceneRight, sceneTopLabel, sceneTitle, sceneBigText, sceneLeftMeta, sceneRightMeta, sceneInfo, sceneAddress, sceneHalftone, sceneHeroScale, sceneSideScale };
       default: return common;
     }
   };
@@ -1882,6 +2097,22 @@ export default function MediaTool() {
         if (Array.isArray(snapshot.vibePhotos)) setVibePhotos([...snapshot.vibePhotos]);
         setVibeHeadline(snapshot.vibeHeadline || "");
         if (Array.isArray(snapshot.vibeLabels)) setVibeLabels([...snapshot.vibeLabels]);
+        break;
+      case "scene":
+        setSceneBgPhoto(snapshot.bgPhoto);
+        setSceneHero(snapshot.sceneHero);
+        setSceneLeft(snapshot.sceneLeft);
+        setSceneRight(snapshot.sceneRight);
+        setSceneTopLabel(snapshot.sceneTopLabel || "");
+        setSceneTitle(snapshot.sceneTitle || "");
+        setSceneBigText(snapshot.sceneBigText || "");
+        setSceneLeftMeta(snapshot.sceneLeftMeta || "");
+        setSceneRightMeta(snapshot.sceneRightMeta || "");
+        setSceneInfo(snapshot.sceneInfo || "");
+        setSceneAddress(snapshot.sceneAddress || "");
+        if (typeof snapshot.sceneHalftone === "boolean") setSceneHalftone(snapshot.sceneHalftone);
+        if (typeof snapshot.sceneHeroScale === "number") setSceneHeroScale(snapshot.sceneHeroScale);
+        if (typeof snapshot.sceneSideScale === "number") setSceneSideScale(snapshot.sceneSideScale);
         break;
     }
   };
@@ -2707,6 +2938,100 @@ export default function MediaTool() {
                 {Object.entries(BG_COLORS).map(([k,v])=><button key={k} onClick={()=>setBgKey(k)} style={{width:28,height:28,borderRadius:"5px",cursor:"pointer",background:v.hex,border:bgKey===k?"2px solid #FFF":"2px solid transparent",boxShadow:bgKey===k?"0 0 6px rgba(255,255,255,0.3)":"none"}} title={v.name}/>)}</div></div>
               <p style={{fontSize:"0.55rem",color:"rgba(245,240,232,0.4)",lineHeight:1.5,marginTop:"4px"}}>
                 Pro tip: use a light bg (cream / linen / sage) and cut-out photos (Photoroom / remove.bg) for the Local Girl Network look. This same template generates one post per letter of the alphabet — endless content from one design.
+              </p>
+            </>}
+
+            {/* SCENE COMPOSER — slot-based flyer for parties, mixers,
+                festivals, watch parties. 4 photo slots (bg + hero + left
+                + right) get composed into a layered scene; big text
+                renders BEHIND the cutouts so they occlude part of it
+                (the "designed by hand" trick). Halftone toggle ties
+                disparate sources together visually. */}
+            {mode==="scene"&&<>
+              <div style={{fontSize:"0.55rem",color:"rgba(245,240,232,0.45)",letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:"6px",fontWeight:700}}>1 · Cutouts (transparent PNGs work best)</div>
+
+              <div style={{display:"grid",gridTemplateColumns:"60px 1fr auto auto auto",gap:"0.3rem",marginBottom:"0.3rem",alignItems:"center"}}>
+                <span style={{fontSize:"0.55rem",color:"rgba(245,240,232,0.55)",letterSpacing:"1px"}}>BG</span>
+                <span style={{fontSize:"0.6rem",color:"rgba(245,240,232,0.5)"}}>{sceneBgPhoto?"✓ background loaded":"upload backdrop / texture"}</span>
+                <button onClick={()=>sceneBgRef.current?.click()} style={{...B,fontSize:"0.55rem"}}>Upload</button>
+                <button onClick={()=>openLibrary("scene-bg")} style={{...B,padding:"4px 8px"}}>📚</button>
+                {sceneBgPhoto&&<button onClick={()=>setSceneBgPhoto(null)} style={{...B,padding:"4px 6px",color:"rgba(251,113,133,0.6)"}}>×</button>}
+                <input ref={sceneBgRef} type="file" accept="image/*" onChange={handleSceneBg} style={{display:"none"}}/>
+              </div>
+
+              <div style={{display:"grid",gridTemplateColumns:"60px 1fr auto auto auto",gap:"0.3rem",marginBottom:"0.3rem",alignItems:"center"}}>
+                <span style={{fontSize:"0.55rem",color:"rgba(245,240,232,0.55)",letterSpacing:"1px"}}>HERO</span>
+                <span style={{fontSize:"0.6rem",color:"rgba(245,240,232,0.5)"}}>{sceneHero?"✓ hero loaded":"center cutout (trophy, drink, item, mascot…)"}</span>
+                <button onClick={()=>sceneHeroRef.current?.click()} style={{...B,fontSize:"0.55rem"}}>Upload</button>
+                <button onClick={()=>openLibrary("scene-hero")} style={{...B,padding:"4px 8px"}}>📚</button>
+                {sceneHero&&<button onClick={()=>setSceneHero(null)} style={{...B,padding:"4px 6px",color:"rgba(251,113,133,0.6)"}}>×</button>}
+                <input ref={sceneHeroRef} type="file" accept="image/*" onChange={handleSceneHero} style={{display:"none"}}/>
+              </div>
+
+              <div style={{display:"grid",gridTemplateColumns:"60px 1fr auto auto auto",gap:"0.3rem",marginBottom:"0.3rem",alignItems:"center"}}>
+                <span style={{fontSize:"0.55rem",color:"rgba(245,240,232,0.55)",letterSpacing:"1px"}}>LEFT</span>
+                <span style={{fontSize:"0.6rem",color:"rgba(245,240,232,0.5)"}}>{sceneLeft?"✓ left loaded":"left cutout (flag, person, decor…)"}</span>
+                <button onClick={()=>sceneLeftRef.current?.click()} style={{...B,fontSize:"0.55rem"}}>Upload</button>
+                <button onClick={()=>openLibrary("scene-left")} style={{...B,padding:"4px 8px"}}>📚</button>
+                {sceneLeft&&<button onClick={()=>setSceneLeft(null)} style={{...B,padding:"4px 6px",color:"rgba(251,113,133,0.6)"}}>×</button>}
+                <input ref={sceneLeftRef} type="file" accept="image/*" onChange={handleSceneLeft} style={{display:"none"}}/>
+              </div>
+
+              <div style={{display:"grid",gridTemplateColumns:"60px 1fr auto auto auto",gap:"0.3rem",marginBottom:"0.5rem",alignItems:"center"}}>
+                <span style={{fontSize:"0.55rem",color:"rgba(245,240,232,0.55)",letterSpacing:"1px"}}>RIGHT</span>
+                <span style={{fontSize:"0.6rem",color:"rgba(245,240,232,0.5)"}}>{sceneRight?"✓ right loaded":"right cutout"}</span>
+                <button onClick={()=>sceneRightRef.current?.click()} style={{...B,fontSize:"0.55rem"}}>Upload</button>
+                <button onClick={()=>openLibrary("scene-right")} style={{...B,padding:"4px 8px"}}>📚</button>
+                {sceneRight&&<button onClick={()=>setSceneRight(null)} style={{...B,padding:"4px 6px",color:"rgba(251,113,133,0.6)"}}>×</button>}
+                <input ref={sceneRightRef} type="file" accept="image/*" onChange={handleSceneRight} style={{display:"none"}}/>
+              </div>
+
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0.4rem",marginBottom:"0.6rem"}}>
+                <div>
+                  <label style={L}>Hero scale · {Math.round(sceneHeroScale*100)}%</label>
+                  <input type="range" min="0.40" max="1.20" step="0.02" value={sceneHeroScale} onChange={e=>setSceneHeroScale(parseFloat(e.target.value))} style={{width:"100%",accentColor:accent}}/>
+                </div>
+                <div>
+                  <label style={L}>Side scale · {Math.round(sceneSideScale*100)}%</label>
+                  <input type="range" min="0.30" max="0.90" step="0.02" value={sceneSideScale} onChange={e=>setSceneSideScale(parseFloat(e.target.value))} style={{width:"100%",accentColor:accent}}/>
+                </div>
+              </div>
+
+              <div style={{fontSize:"0.55rem",color:"rgba(245,240,232,0.45)",letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:"6px",fontWeight:700,marginTop:"8px"}}>2 · Text</div>
+
+              <div style={{marginBottom:"0.5rem"}}><label style={L}>Top label (letterspaced ribbon)</label>
+                <input value={sceneTopLabel} onChange={e=>setSceneTopLabel(e.target.value)} style={I} placeholder="CENTRALGROUPEVENTS"/>
+              </div>
+              <div style={{marginBottom:"0.5rem"}}><label style={L}>Title (front, top)</label>
+                <input value={sceneTitle} onChange={e=>setSceneTitle(e.target.value)} style={I} placeholder="JERSEY PARTY"/>
+              </div>
+              <div style={{marginBottom:"0.5rem"}}><label style={L}>Big text (behind cutouts · multi-line)</label>
+                <textarea value={sceneBigText} onChange={e=>setSceneBigText(e.target.value)} style={{...I,height:50,resize:"vertical"}} placeholder={"SUMMER\nKICKOFF"}/>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0.4rem",marginBottom:"0.5rem"}}>
+                <div><label style={L}>Left meta (multi-line)</label>
+                  <textarea value={sceneLeftMeta} onChange={e=>setSceneLeftMeta(e.target.value)} style={{...I,height:60,resize:"vertical"}} placeholder={"HOSTED BY\nCGE"}/></div>
+                <div><label style={L}>Right meta (multi-line)</label>
+                  <textarea value={sceneRightMeta} onChange={e=>setSceneRightMeta(e.target.value)} style={{...I,height:60,resize:"vertical"}} placeholder={"SOUNDS BY\nTBA"}/></div>
+              </div>
+              <div style={{marginBottom:"0.5rem"}}><label style={L}>Info line (date · time)</label>
+                <input value={sceneInfo} onChange={e=>setSceneInfo(e.target.value)} style={I} placeholder="JUNE 13 · 8PM–12AM"/>
+              </div>
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Address</label>
+                <input value={sceneAddress} onChange={e=>setSceneAddress(e.target.value)} style={I} placeholder="248 MULBERRY ST NEWARK, NJ"/>
+              </div>
+
+              <div style={{fontSize:"0.55rem",color:"rgba(245,240,232,0.45)",letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:"6px",fontWeight:700,marginTop:"4px"}}>3 · Style</div>
+
+              <div style={{display:"flex",gap:"0.4rem",alignItems:"center",marginBottom:"0.6rem"}}>
+                <button onClick={()=>setSceneHalftone(v=>!v)} style={{padding:"6px 12px",borderRadius:"5px",fontSize:"0.6rem",fontWeight:700,cursor:"pointer",border:sceneHalftone?"2px solid #FACC15":"2px solid rgba(245,240,232,0.1)",background:sceneHalftone?"rgba(250,204,21,0.12)":"transparent",color:sceneHalftone?"#FACC15":"rgba(245,240,232,0.4)",fontFamily:"'Syne'",letterSpacing:"1.5px",textTransform:"uppercase"}}>{sceneHalftone?"✓ Halftone":"○ Halftone"}</button>
+              </div>
+
+              {!sceneBgPhoto&&<div style={{marginBottom:"0.6rem"}}><label style={L}>Background Color (no bg photo)</label><div style={{display:"flex",gap:"3px",flexWrap:"wrap"}}>
+                {Object.entries(BG_COLORS).map(([k,v])=><button key={k} onClick={()=>setBgKey(k)} style={{width:28,height:28,borderRadius:"5px",cursor:"pointer",background:v.hex,border:bgKey===k?"2px solid #FFF":"2px solid transparent",boxShadow:bgKey===k?"0 0 6px rgba(255,255,255,0.3)":"none"}} title={v.name}/>)}</div></div>}
+
+              <p style={{fontSize:"0.55rem",color:"rgba(245,240,232,0.4)",lineHeight:1.5,marginTop:"6px"}}>
+                The "designed by hand" trick: big text renders <strong>behind</strong> the cutouts so they overlap part of it. The viewer's brain fills in the gap — the partial obscuration adds depth instead of breaking it. Works for parties, mixers, festivals, watch parties, brunches (food cutouts), markets (product cutouts) — content-agnostic.
               </p>
             </>}
 
