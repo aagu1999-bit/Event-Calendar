@@ -87,7 +87,12 @@ function drawLogo(ctx, accent, W, isLight = false) {
   ctx.globalAlpha = 1;
   ctx.fillStyle = `${accent}25`; ctx.strokeStyle = `${accent}50`; ctx.lineWidth = 2.5;
   ctx.beginPath(); ctx.arc(58,52,28,0,Math.PI*2); ctx.fill(); ctx.stroke();
-  ctx.font=ff("800 17px 'Syne',sans-serif"); ctx.fillStyle = accent; ctx.textBaseline = "middle"; ctx.textAlign = "center";
+  // CGE in the circle — use weight 700 (every font pair has it). Weight
+  // 800 silently failed for Bebas Neue (only 400) and Space Grotesk (max
+  // 700), making the swap look "locked to Syne" when the browser was
+  // actually falling back to system sans-serif (which happens to look
+  // geometric, so the bug masked itself).
+  ctx.font=ff("700 17px 'Syne',sans-serif"); ctx.fillStyle = accent; ctx.textBaseline = "middle"; ctx.textAlign = "center";
   ctx.fillText("CGE",58,53); ctx.textAlign = "left";
   const primaryText = isLight ? "#0a0a0a" : "#FFF";
   const secondaryText = isLight ? "rgba(0,0,0,0.55)" : "rgba(255,255,255,0.50)";
@@ -1471,8 +1476,12 @@ export default function MediaTool() {
   useEffect(() => {
     const pair = FONT_PAIRS[fontPairKey];
     setActiveFonts(pair.display, pair.body);
-    const displayQ = pair.display.replace(/ /g, "+") + ":wght@800";
-    const bodyQ = pair.body.replace(/ /g, "+") + ":wght@400;500;700";
+    // Request multiple weights — Google Fonts returns whatever's available
+    // for the font. Bebas Neue ships only 400; Space Grotesk maxes at 700.
+    // Asking for a single weight that doesn't exist meant the canvas fell
+    // back silently to system sans for any text at that weight.
+    const displayQ = pair.display.replace(/ /g, "+") + ":wght@400;700;800";
+    const bodyQ = pair.body.replace(/ /g, "+") + ":wght@400;500;700;800";
     const link = document.createElement("link");
     link.rel = "stylesheet";
     link.href = `https://fonts.googleapis.com/css2?family=${displayQ}&family=${bodyQ}&display=swap`;
