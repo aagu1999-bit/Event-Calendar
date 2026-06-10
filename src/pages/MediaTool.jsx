@@ -1707,17 +1707,122 @@ export default function MediaTool() {
       else localStorage.removeItem("cge_gemini_key");
     } catch { /* private mode etc */ }
   };
+  // Build a structured caption context by walking every slide in the
+  // carousel and pulling out the text fields that template uses. Lets the
+  // Caption button work for ANY template combination — Cover + Scene +
+  // Spotlight + Save Date all contribute, not just the four hardcoded
+  // form fields the old version read.
+  const aggregateCarouselContext = (carousel) => {
+    if (!carousel?.length) return null;
+    const slides = [];
+    carousel.forEach((slide, idx) => {
+      const s = slide.snapshot || {};
+      const lines = [];
+      const push = (label, val) => {
+        if (val == null) return;
+        if (typeof val === "string" && !val.trim()) return;
+        lines.push(`${label}: ${val}`);
+      };
+      // Common
+      push("Headline", s.headline);
+      push("Subtitle", s.subtitle);
+      push("Ribbon", s.ribbon);
+      // List
+      push("List title", s.listTitle);
+      if (Array.isArray(s.items) && s.items.length) {
+        push("List items", s.items.map(it => [it.name, it.detail].filter(Boolean).join(" — ")).join("; "));
+      }
+      // Stat
+      push("Stat number", s.statNumber);
+      push("Stat label", s.statLabel);
+      push("Stat sub", s.statSub);
+      // Text
+      push("Text title", s.textTitle);
+      push("Text body", s.textBody);
+      // CTA
+      push("CTA kicker", s.ctaKicker);
+      push("CTA date", s.ctaDate);
+      push("CTA venue", s.ctaVenue);
+      push("CTA URL", s.ctaUrl);
+      // Features
+      push("Features title", s.featuresTitle);
+      if (Array.isArray(s.features) && s.features.length) {
+        push("Features", s.features.map(f => `${f.emoji || ""} ${f.headline || ""}${f.sub ? " — " + f.sub : ""}`).join("; "));
+      }
+      // Photo + caption
+      push("Caption", s.caption);
+      push("Sub-caption", s.captionSecondary);
+      // Spotlight
+      push("Spotlight venue", s.spotName);
+      push("Spotlight meta", s.spotMeta);
+      push("Spotlight time", s.spotTime);
+      push("Spotlight price", s.spotPrice);
+      push("Spotlight CTA", s.spotCta);
+      // Countdown
+      push("Countdown", s.countText);
+      push("Countdown event", s.countEvent);
+      push("Countdown when", s.countWhen);
+      push("Countdown CTA", s.countCta);
+      // Save Date (single)
+      push("Save Date kicker", s.saveKicker);
+      push("Save Date day", s.saveDay);
+      push("Save Date big", s.saveDateBig);
+      push("Save Date event", s.saveEvent);
+      push("Save Date venue", s.saveVenue);
+      push("Save Date CTA", s.saveCta);
+      // Save Dates (multi)
+      push("Multi-date header", s.savesHeader);
+      if (Array.isArray(s.savesItems) && s.savesItems.length) {
+        push("Dates", s.savesItems.map(it => [it.date, it.day, it.name, it.venue].filter(Boolean).join(" · ")).join("; "));
+      }
+      push("Multi-date CTA", s.savesCta);
+      // Vibe
+      push("Vibe headline", s.vibeHeadline);
+      if (Array.isArray(s.vibeLabels) && s.vibeLabels.length) {
+        push("Vibe items", s.vibeLabels.filter(Boolean).join(", "));
+      }
+      // Scene
+      push("Scene top label", s.sceneTopLabel);
+      push("Scene title", s.sceneTitle);
+      push("Scene big text", s.sceneBigText);
+      push("Scene left meta", s.sceneLeftMeta);
+      push("Scene right meta", s.sceneRightMeta);
+      push("Scene info", s.sceneInfo);
+      push("Scene address", s.sceneAddress);
+      slides.push(`### Slide ${idx + 1} (${slide.type})\n${lines.join("\n")}`);
+    });
+    return { carouselSummary: slides.join("\n\n") };
+  };
+
   const runCaptions = async () => {
     if (!geminiKey || isGenCaptions) return;
+    // Guard: Vision needs slide images; bail with a clear error if the
+    // carousel is empty so the user knows what to do.
+    if (useVision && carousel.length === 0) {
+      setCaptionsError(
+        "Vision mode reads your actual rendered slide images. Add slides to the carousel first " +
+        "(hit \"+ Add Current Slide\" after each one), then try again. Or turn Vision OFF to write " +
+        "captions from the current form fields."
+      );
+      return;
+    }
     setIsGenCaptions(true); setCaptionsError(""); setCaptions([]);
     try {
-      const ctx = {
-        headline, subtitle, ribbon,
-        problemTitle: clientCfg.problemTitle, problemBody: clientCfg.problemBody,
-        benefits: clientCfg.benefits,
-        statNumber, statLabel, statSub,
-        ctaDate, ctaVenue, ctaUrl,
-      };
+      // PREFER carousel content when it exists — gives Gemini the full
+      // story across all your slides, not just the current form. Falls
+      // back to current form fields when the carousel is empty.
+      let ctx;
+      if (carousel.length > 0) {
+        ctx = aggregateCarouselContext(carousel);
+      } else {
+        ctx = {
+          headline, subtitle, ribbon,
+          problemTitle: clientCfg.problemTitle, problemBody: clientCfg.problemBody,
+          benefits: clientCfg.benefits,
+          statNumber, statLabel, statSub,
+          ctaDate, ctaVenue, ctaUrl,
+        };
+      }
       const images = (useVision && carousel.length > 0) ? carousel.map(s => s.thumb) : [];
       const results = await generateCaptions(geminiKey, ctx, images);
       if (!results.length) throw new Error("Got 0 captions back");
@@ -2526,7 +2631,13 @@ export default function MediaTool() {
             <button
               onClick={runCaptions}
               disabled={isGenCaptions || !geminiKey}
-              title={!geminiKey ? "Paste your Gemini API key above first" : useVision && carousel.length>0 ? `Generate 8 captions using vision (${carousel.length} slide images)` : "Generate 8 caption variants"}
+              title={
+                !geminiKey
+                  ? "Paste your Gemini API key above first"
+                  : carousel.length > 0
+                    ? `Generate 8 captions from your ${carousel.length}-slide carousel${useVision ? " (text + rendered images)" : " (text only)"}`
+                    : "Carousel is empty — captions will be generated from the current form fields only. Add slides to the carousel for better results."
+              }
               style={{
                 padding: "8px 14px",
                 background: isGenCaptions ? "rgba(99,179,237,0.4)" : (geminiKey ? "#63B3ED" : "rgba(99,179,237,0.25)"),
@@ -2536,24 +2647,28 @@ export default function MediaTool() {
                 cursor: !geminiKey ? "not-allowed" : (isGenCaptions ? "wait" : "pointer"),
                 fontFamily: "'Syne', sans-serif", whiteSpace: "nowrap",
               }}
-            >{isGenCaptions ? "Writing…" : (useVision && carousel.length>0 ? `👁 Captions` : "Captions")}</button>
+            >{isGenCaptions ? "Writing…" : (useVision && carousel.length>0 ? `👁 Captions` : `Captions${carousel.length > 0 ? ` (${carousel.length})` : ""}`)}</button>
             <button
               onClick={()=>setUseVision(v=>!v)}
-              disabled={carousel.length===0}
-              title={carousel.length===0 ? "Add slides to the carousel first to enable vision" : "Toggle vision: send rendered slide images to Gemini for richer captions"}
+              title={
+                carousel.length === 0
+                  ? "Vision sends slide images to Gemini. Carousel is empty — you'll get an error if you click Captions with this on. Add slides first."
+                  : useVision
+                    ? `Vision ON — Captions will use the ${carousel.length} rendered slide images as visual context. Click to turn off.`
+                    : `Vision OFF — Captions will use only the text in the carousel. Click to turn on (uses ${carousel.length} rendered images).`
+              }
               style={{
                 padding: "6px 10px",
-                background: useVision && carousel.length>0 ? "rgba(99,179,237,0.18)" : "transparent",
-                color: useVision && carousel.length>0 ? "#63B3ED" : "rgba(245,240,232,0.4)",
-                border: useVision && carousel.length>0 ? "2px solid #63B3ED" : "2px solid rgba(245,240,232,0.1)",
+                background: useVision ? (carousel.length > 0 ? "rgba(99,179,237,0.18)" : "rgba(251,113,133,0.12)") : "transparent",
+                color: useVision ? (carousel.length > 0 ? "#63B3ED" : "#FB7185") : "rgba(245,240,232,0.4)",
+                border: useVision ? (carousel.length > 0 ? "2px solid #63B3ED" : "2px solid rgba(251,113,133,0.4)") : "2px solid rgba(245,240,232,0.1)",
                 borderRadius: "4px",
                 fontSize: "0.55rem", fontWeight: 700, letterSpacing: "1.5px",
                 textTransform: "uppercase",
-                cursor: carousel.length===0 ? "not-allowed" : "pointer",
+                cursor: "pointer",
                 fontFamily: "'Syne', sans-serif", whiteSpace: "nowrap",
-                opacity: carousel.length===0 ? 0.4 : 1,
               }}
-            >👁 Vision {useVision && carousel.length>0 ? "ON" : ""}</button>
+            >👁 Vision {useVision ? (carousel.length > 0 ? "ON" : "ON ⚠") : ""}</button>
           </div>
 
           {template === "weekend" && (
