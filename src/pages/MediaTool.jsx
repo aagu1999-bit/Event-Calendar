@@ -2460,12 +2460,44 @@ export default function MediaTool() {
     out.width = target.w;
     out.height = target.h;
     const ctx = out.getContext("2d");
+    // Solid fallback for browsers that don't support canvas blur (Safari
+    // < 17, older Android WebView). The blurred extension paints over it.
     ctx.fillStyle = (BG_COLORS[bgKey] && BG_COLORS[bgKey].hex) || "#000000";
     ctx.fillRect(0, 0, target.w, target.h);
-    // Fit the base into the target keeping aspect — anchored at center.
-    const scale = Math.min(target.w / baseCanvas.width, target.h / baseCanvas.height);
-    const dw = baseCanvas.width * scale;
-    const dh = baseCanvas.height * scale;
+
+    // PHOTO BLEED — cover-scale the source onto the target with a heavy
+    // blur, then composite the sharp 1080×1080 centered on top. This
+    // replaces the flat colored bars (the old "contain fit") with what
+    // looks like a stretched, defocused extension of the slide — the
+    // same visual trick Instagram uses to display square photos in
+    // vertical feed.
+    //
+    // - Cover scale: max(target.w/base.w, target.h/base.h). For 1:1 → 4:5
+    //   this is 1.25× (vertical stretch), for 1:1 → 9:16 it's 1.78×.
+    // - The blur softens the stretch so it reads as atmosphere rather
+    //   than a distorted duplicate of the slide content.
+    // - brightness(0.85) tones it down a touch so the sharp center
+    //   doesn't have to fight for attention.
+    const coverScale = Math.max(target.w / baseCanvas.width, target.h / baseCanvas.height);
+    const coverW = baseCanvas.width * coverScale;
+    const coverH = baseCanvas.height * coverScale;
+    ctx.save();
+    ctx.filter = "blur(36px) brightness(0.85)";
+    ctx.drawImage(
+      baseCanvas,
+      (target.w - coverW) / 2,
+      (target.h - coverH) / 2,
+      coverW,
+      coverH
+    );
+    ctx.restore();
+
+    // Sharp centered slide on top — preserves the exact composition of
+    // the 1080×1080 the user designed, just no longer trapped between
+    // flat colored bars.
+    const fitScale = Math.min(target.w / baseCanvas.width, target.h / baseCanvas.height);
+    const dw = baseCanvas.width * fitScale;
+    const dh = baseCanvas.height * fitScale;
     ctx.drawImage(baseCanvas, (target.w - dw) / 2, (target.h - dh) / 2, dw, dh);
     return out;
   };
