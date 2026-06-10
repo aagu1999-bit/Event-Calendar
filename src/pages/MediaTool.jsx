@@ -1966,7 +1966,7 @@ export default function MediaTool() {
     else if(mode==="savedates") renderSaveDates(cv,{photo:savesPhoto,savesHeader,savesItems,savesCta,accent,bgKey,dots,totalDots,opacity:savesOpacity});
     else if(mode==="vibe") renderVibeBoard(cv,{vibePhotos,vibeHeadline,vibeLabels,accent,bgKey,dots,totalDots});
     else if(mode==="scene") renderScene(cv,{bgPhoto:sceneBgPhoto,sceneHero,sceneLeft,sceneRight,sceneTopLabel,sceneTitle,sceneBigText,sceneLeftMeta,sceneRightMeta,sceneInfo,sceneAddress,sceneHalftone,sceneHeroScale,sceneSideScale,accent,bgKey,dots,totalDots});
-    const exportCv = wrapForExport(cv, exportRatio);
+    const exportCv = wrapForExport(cv, exportRatio, getModePrimaryPhoto());
     exportCv.toBlob(blob=>{
       const url=URL.createObjectURL(blob);
       const a=document.createElement("a");
@@ -2451,7 +2451,37 @@ export default function MediaTool() {
   // Wrap a 1:1 render in the chosen export aspect. Center vertically and
   // fill the bars with the active bg color so the design extends naturally.
   // Single canvas / no-op for "1:1".
-  const wrapForExport = (baseCanvas, ratio) => {
+  // Get the current mode's primary background photo (the one the renderer
+  // paints full-bleed). wrapForExport uses this to extend the photo into
+  // the bar zones at 4:5 / 9:16 — instead of blurring a cropped square.
+  const getModePrimaryPhoto = () => {
+    switch (mode) {
+      case "cover":     return photo;
+      case "text":
+      case "cta":
+      case "features":  return textPhoto;
+      case "photo":     return captionPhoto;
+      case "spotlight": return spotPhoto;
+      case "countdown": return countPhoto;
+      case "savedate":  return savePhoto;
+      case "savedates": return savesPhoto;
+      case "scene":     return sceneBgPhoto;
+      default:          return null;  // list / stat / vibe — no shared bg photo
+    }
+  };
+
+  // Same idea for the carousel zip export — look up the primary photo
+  // from a slide's snapshot rather than current React state.
+  const getSnapshotPrimaryPhoto = (type, snap) => {
+    if (!snap) return null;
+    if (type === "scene") return snap.bgPhoto || null;
+    // Every other photo-bearing template stores its photo at snap.photo
+    // (the snapshot maker uses `photo:` as the canonical key for the
+    // primary background image).
+    return snap.photo || null;
+  };
+
+  const wrapForExport = (baseCanvas, ratio, sourcePhoto = null) => {
     const target = EXPORT_RATIOS[ratio] || EXPORT_RATIOS["1:1"];
     if (ratio === "1:1" || (target.w === baseCanvas.width && target.h === baseCanvas.height)) {
       return baseCanvas;
@@ -2460,24 +2490,56 @@ export default function MediaTool() {
     out.width = target.w;
     out.height = target.h;
     const ctx = out.getContext("2d");
-    // Solid fallback for browsers that don't support canvas blur (Safari
-    // < 17, older Android WebView). The blurred extension paints over it.
+    // Solid fallback bg in case neither path below paints every pixel
+    // (defensive — both paths do paint full target, but belt + suspenders).
     ctx.fillStyle = (BG_COLORS[bgKey] && BG_COLORS[bgKey].hex) || "#000000";
     ctx.fillRect(0, 0, target.w, target.h);
 
-    // PHOTO BLEED — cover-scale the source onto the target with a heavy
-    // blur, then composite the sharp 1080×1080 centered on top. This
-    // replaces the flat colored bars (the old "contain fit") with what
-    // looks like a stretched, defocused extension of the slide — the
-    // same visual trick Instagram uses to display square photos in
-    // vertical feed.
+    // PATH A — Real photo bleed.
+    // Cover-fit the ORIGINAL photo (not the rendered square) across the
+    // full target. Tall photos (4:5 / 9:16 originals) now show their
+    // full vertical content in the bar zones — content the square
+    // 1080×1080 render had cropped off. The rendered slide composites
+    // on top, so text/graphics land exactly where the user designed
+    // them, but the bleed is REAL photo, not a blurred duplicate.
     //
-    // - Cover scale: max(target.w/base.w, target.h/base.h). For 1:1 → 4:5
-    //   this is 1.25× (vertical stretch), for 1:1 → 9:16 it's 1.78×.
-    // - The blur softens the stretch so it reads as atmosphere rather
-    //   than a distorted duplicate of the slide content.
-    // - brightness(0.85) tones it down a touch so the sharp center
-    //   doesn't have to fight for attention.
+    // Cover math: scale = max(target.w/photo.w, target.h/photo.h).
+    //   - 1080×1920 photo → 9:16 target (1080×1920): scale 1.0,
+    //     uses ALL of the photo with zero crop. Best case.
+    //   - 1080×1920 photo → 4:5 target (1080×1350): scale 1.0,
+    //     vertically crops 285px top + 285px bottom (uses middle).
+    //   - 1080×1080 square → 4:5 target: scale 1.25, stretches up to
+    //     1350 tall and horizontally crops 135px each side. Bleed
+    //     shows a slight zoom-in on the photo center.
+    //   - Landscape 1920×1080 → 4:5 or 9:16: cover crops aggressively
+    //     to fill vertical. Acceptable best-effort.
+    if (sourcePhoto && sourcePhoto.width > 0 && sourcePhoto.height > 0) {
+      const photoScale = Math.max(target.w / sourcePhoto.width, target.h / sourcePhoto.height);
+      const pw = sourcePhoto.width * photoScale;
+      const ph = sourcePhoto.height * photoScale;
+      ctx.drawImage(sourcePhoto, (target.w - pw) / 2, (target.h - ph) / 2, pw, ph);
+
+      // Dark wash to keep the bleed zones in the same brightness register
+      // as the rendered slide's photo+overlay center. Without it the bars
+      // look noticeably brighter than the center and you can see the seam.
+      ctx.fillStyle = "rgba(0,0,0,0.32)";
+      ctx.fillRect(0, 0, target.w, target.h);
+
+      // Composite the rendered slide centered. Its photo+overlay+text
+      // covers the center; the photo data underneath matches (same source,
+      // different crop), so there's no visible double-image.
+      const fitScale = Math.min(target.w / baseCanvas.width, target.h / baseCanvas.height);
+      const dw = baseCanvas.width * fitScale;
+      const dh = baseCanvas.height * fitScale;
+      ctx.drawImage(baseCanvas, (target.w - dw) / 2, (target.h - dh) / 2, dw, dh);
+      return out;
+    }
+
+    // PATH B — Blur bleed fallback (text-only / list / stat / vibe).
+    // No source photo, so synthesize the bleed by cover-stretching the
+    // rendered canvas itself with a heavy blur. For colored-background
+    // templates this just shows the same color smeared, reading as a
+    // soft vignette.
     const coverScale = Math.max(target.w / baseCanvas.width, target.h / baseCanvas.height);
     const coverW = baseCanvas.width * coverScale;
     const coverH = baseCanvas.height * coverScale;
@@ -2492,9 +2554,6 @@ export default function MediaTool() {
     );
     ctx.restore();
 
-    // Sharp centered slide on top — preserves the exact composition of
-    // the 1080×1080 the user designed, just no longer trapped between
-    // flat colored bars.
     const fitScale = Math.min(target.w / baseCanvas.width, target.h / baseCanvas.height);
     const dw = baseCanvas.width * fitScale;
     const dh = baseCanvas.height * fitScale;
@@ -2512,7 +2571,11 @@ export default function MediaTool() {
         const s = carousel[i];
         const cv = document.createElement("canvas");
         renderSlide(cv, s.type, s.snapshot, i+1, carousel.length);
-        const exportCv = wrapForExport(cv, exportRatio);
+        // Per-slide photo bleed at 4:5 / 9:16 — looks up that slide's
+        // primary background from its snapshot rather than current React
+        // state, so each slide bleeds its OWN photo even though they may
+        // be different templates with different photo fields.
+        const exportCv = wrapForExport(cv, exportRatio, getSnapshotPrimaryPhoto(s.type, s.snapshot));
         const blob = await new Promise(r => exportCv.toBlob(r, "image/png"));
         zip.file(`CGE_carousel_${String(i+1).padStart(2,"0")}_${s.type}_${exportRatio.replace(":","x")}.png`, blob);
       }
