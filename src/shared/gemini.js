@@ -44,6 +44,10 @@ export async function generateCaptions(apiKey, eventCtx, images = []) {
 }
 
 function buildCaptionPrompt(ctx, hasVision = false) {
+  // The caller may pass either a flat form-field ctx (old behavior, used
+  // when the carousel is empty) OR a `carouselSummary` block (preferred
+  // when the carousel has slides). The latter gives the model a much
+  // richer picture across all templates.
   const facts = [];
   if (ctx.headline) facts.push(`Cover headline: "${ctx.headline}"`);
   if (ctx.subtitle) facts.push(`Subtitle: "${ctx.subtitle}"`);
@@ -57,11 +61,16 @@ function buildCaptionPrompt(ctx, hasVision = false) {
   if (ctx.ctaVenue) facts.push(`Venue: ${ctx.ctaVenue}`);
   if (ctx.ctaUrl) facts.push(`URL: ${ctx.ctaUrl}`);
 
+  const hasCarouselContext = Boolean(ctx.carouselSummary);
+
   return [
     "You are writing Instagram captions for an event promo carousel.",
     "",
-    "Event context:",
-    ...facts.map(f => `- ${f}`),
+    hasCarouselContext
+      ? "Here is every slide in the carousel, in order, with all of its text content. Treat this as the full content of the post:"
+      : "Event context:",
+    "",
+    hasCarouselContext ? ctx.carouselSummary : facts.map(f => `- ${f}`).join("\n"),
     "",
     ...(hasVision ? [
       "I'm also attaching the actual rendered carousel slide images in order.",
