@@ -1875,6 +1875,58 @@ export default function MediaTool() {
     },"image/png");
   };
 
+  // === SAVE DRAFT ===
+  // Snapshots the current template state WITHOUT downloading a file.
+  // Lives alongside finished exports in the library (kind: "draft").
+  // Tapping it in the library reopens this exact state in this tool —
+  // perfect for "I'm 80% done, need to come back to this on my laptop."
+  const [isDrafting, setIsDrafting] = useState(false);
+  const saveDraft = async () => {
+    if (isDrafting) return;
+    const userName = prompt(
+      "Name this draft (you'll see it in Recap → Library → Exports with a DRAFT badge):",
+      `${mode.toUpperCase()} draft`
+    );
+    if (!userName) return;
+    setIsDrafting(true);
+    try {
+      // Render the current state into a small thumbnail blob — gives the
+      // library a visual without bloating storage with the full 1080×1080.
+      const thumbCv = document.createElement("canvas");
+      thumbCv.width = 1080; thumbCv.height = 1080;
+      const cfg = { accent, bgKey, dots, totalDots };
+      if (mode === "cover") renderCover(thumbCv, {...cfg, photo, headline, highlights, subtitle, opacity, ribbon});
+      else if (mode === "list") renderList(thumbCv, {...cfg, items, listTitle, listSubtitle});
+      else if (mode === "stat") renderStat(thumbCv, {...cfg, statNumber, statLabel, statSub});
+      else if (mode === "text") renderText(thumbCv, {...cfg, textTitle, textTitleHighlights: textTitleHL, textBody, pageNum, totalPages, photo: textPhoto, textOpacity});
+      else if (mode === "cta") renderCTA(thumbCv, {...cfg, ctaKicker, ctaDate, ctaVenue, ctaUrl, photo: textPhoto, opacity: textOpacity});
+      else if (mode === "features") renderFeatures(thumbCv, {...cfg, featuresTitle, features, photo: textPhoto, opacity: textOpacity});
+      else if (mode === "photo") renderPhotoCaption(thumbCv, {...cfg, photo: captionPhoto, caption, captionSecondary, alignment: captionAlign});
+      else if (mode === "spotlight") renderSpotlight(thumbCv, {...cfg, photo: spotPhoto, spotName, spotMeta, spotTime, spotPrice, spotCta});
+      else if (mode === "countdown") renderCountdown(thumbCv, {...cfg, photo: countPhoto, countText, countEvent, countWhen, countCta, opacity: countOpacity});
+      else if (mode === "savedate") renderSaveDate(thumbCv, {...cfg, photo: savePhoto, saveKicker, saveDay, saveDateBig, saveEvent, saveVenue, saveCta, opacity: saveOpacity});
+      else if (mode === "savedates") renderSaveDates(thumbCv, {...cfg, photo: savesPhoto, savesHeader, savesItems, savesCta, opacity: savesOpacity});
+      else if (mode === "vibe") renderVibeBoard(thumbCv, {...cfg, vibePhotos, vibeHeadline, vibeLabels});
+      else if (mode === "scene") renderScene(thumbCv, {...cfg, bgPhoto: sceneBgPhoto, sceneHero, sceneLeft, sceneRight, sceneTopLabel, sceneTitle, sceneBigText, sceneLeftMeta, sceneRightMeta, sceneInfo, sceneAddress, sceneHalftone, sceneHeroScale, sceneSideScale});
+
+      const thumbBlob = await new Promise(r => thumbCv.toBlob(r, "image/png"));
+      const fname = `DRAFT_${mode}_${userName.replace(/[^a-z0-9]/gi, "_")}.png`;
+      await saveExport(thumbBlob, {
+        sourceTool: "media",
+        sourceMode: `${mode}-draft`,
+        name: fname,
+        kind: "draft",
+        snapshot: makeMediaExportSnapshot("single"),
+      });
+      alert(`Draft "${userName}" saved.\n\nFind it in Recap → Library → Exports, look for the DRAFT badge.`);
+    } catch (err) {
+      console.error(err);
+      alert("Save draft failed: " + (err.message || err));
+    } finally {
+      setIsDrafting(false);
+    }
+  };
+
   const MODES=[["cover","Cover"],["list","List"],["stat","Stat"],["text","Text"],["cta","CTA"],["features","Features"],["photo","Photo"],["spotlight","Spotlight"],["countdown","Countdown"],["savedate","Save Date"],["savedates","Save Dates"],["vibe","Vibe Board"],["scene","Scene"]];
 
   // Templates push snapshots into the carousel composer.
@@ -2120,33 +2172,70 @@ export default function MediaTool() {
   // ===== Edit-later snapshot serialization =====
   // Snapshots stored in IndexedDB must be structured-cloneable. Convert
   // HTMLImageElement → data URL on save, Set → array; reverse on load.
+  //
+  // Every photo-bearing field that any template uses lives in PHOTO_KEYS.
+  // When adding a new template with a new photo field, append the field
+  // name here and the round-trip works automatically.
+  const PHOTO_KEYS = [
+    "photo",        // cover / text / cta / features / photoCaption / spotlight / countdown / savedate / savedates
+    "bgPhoto",      // scene background
+    "sceneHero",    // scene center cutout
+    "sceneLeft",    // scene left cutout
+    "sceneRight",   // scene right cutout
+  ];
+  const PHOTO_ARRAY_KEYS = [
+    "vibePhotos",   // vibe board — 5 photo slots
+  ];
+
+  const imgToSrc = (v) => (v && v instanceof HTMLImageElement) ? (v.src || null) : v;
+
   const serializeSnap = (s) => {
     if (!s) return s;
     const out = { ...s };
-    if (s.photo instanceof HTMLImageElement) out.photo = s.photo.src || null;
-    if (s.highlights instanceof Set)        out.highlights = [...s.highlights];
-    if (s.textTitleHL instanceof Set)       out.textTitleHL = [...s.textTitleHL];
-    if (Array.isArray(s.items))             out.items = s.items.map(x => ({...x}));
-    if (Array.isArray(s.features))          out.features = s.features.map(x => ({...x}));
+    PHOTO_KEYS.forEach(k => {
+      if (out[k] instanceof HTMLImageElement) out[k] = out[k].src || null;
+    });
+    PHOTO_ARRAY_KEYS.forEach(k => {
+      if (Array.isArray(out[k])) out[k] = out[k].map(imgToSrc);
+    });
+    if (out.highlights instanceof Set)  out.highlights  = [...out.highlights];
+    if (out.textTitleHL instanceof Set) out.textTitleHL = [...out.textTitleHL];
+    if (Array.isArray(out.items))       out.items       = out.items.map(x => ({...x}));
+    if (Array.isArray(out.features))    out.features    = out.features.map(x => ({...x}));
+    if (Array.isArray(out.savesItems))  out.savesItems  = out.savesItems.map(x => ({...x}));
+    if (Array.isArray(out.vibeLabels))  out.vibeLabels  = [...out.vibeLabels];
     return out;
   };
+
+  // Load a data: URL into an HTMLImageElement. Returns null if the input
+  // isn't a usable data URL (handles legacy blob: URLs from older snapshots).
+  const loadImgFromSrc = async (src) => {
+    if (typeof src !== "string" || !src.startsWith("data:")) return null;
+    try {
+      return await new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = src;
+      });
+    } catch { return null; }
+  };
+
   const deserializeSnap = async (s) => {
     if (!s) return s;
     const out = { ...s };
-    if (typeof s.photo === "string" && s.photo.startsWith("data:")) {
-      try {
-        out.photo = await new Promise((resolve, reject) => {
-          const img = new Image();
-          img.onload = () => resolve(img);
-          img.onerror = reject;
-          img.src = s.photo;
-        });
-      } catch { out.photo = null; }
-    } else if (typeof s.photo === "string") {
-      out.photo = null; // non-dataURL strings can't survive the round trip
-    }
-    if (Array.isArray(s.highlights))  out.highlights = new Set(s.highlights);
-    if (Array.isArray(s.textTitleHL)) out.textTitleHL = new Set(s.textTitleHL);
+    // Restore all simple photo fields in parallel.
+    await Promise.all(PHOTO_KEYS.map(async k => {
+      if (typeof out[k] === "string") out[k] = await loadImgFromSrc(out[k]);
+    }));
+    // Restore photo arrays in parallel.
+    await Promise.all(PHOTO_ARRAY_KEYS.map(async k => {
+      if (Array.isArray(out[k])) {
+        out[k] = await Promise.all(out[k].map(loadImgFromSrc));
+      }
+    }));
+    if (Array.isArray(out.highlights))  out.highlights  = new Set(out.highlights);
+    if (Array.isArray(out.textTitleHL)) out.textTitleHL = new Set(out.textTitleHL);
     return out;
   };
 
@@ -2355,6 +2444,12 @@ export default function MediaTool() {
               >{k}</button>
             ))}
           </div>
+          <button
+            onClick={saveDraft}
+            disabled={isDrafting}
+            title="Save the current state as a draft you can come back to. Lives in Library → Exports with a DRAFT badge."
+            style={{padding:"6px 12px",borderRadius:"5px",fontSize:"0.6rem",fontWeight:700,cursor:isDrafting?"wait":"pointer",border:"2px solid rgba(192,132,252,0.4)",background:"rgba(192,132,252,0.12)",color:"#C084FC",fontFamily:"'Syne',sans-serif",letterSpacing:"1.5px",textTransform:"uppercase",opacity:isDrafting?0.6:1}}
+          >💾 {isDrafting ? "…" : "Save Draft"}</button>
           <button
             onClick={()=>setWatermark(v=>!v)}
             title="Toggle CGE logo + footer text on/off"

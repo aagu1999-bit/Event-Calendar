@@ -576,6 +576,8 @@ function PhotosView({ onSwitch, onTab }) {
 function ExportsView({ onSwitch, onTab }) {
   const [items, setItems] = useState([]);
   const [filter, setFilter] = useState("");
+  // kindFilter = "draft" shows only drafts; "" shows everything (drafts + finished exports).
+  const [kindFilter, setKindFilter] = useState("");
   const [total, setTotal] = useState(0);
   const [previewId, setPreviewId] = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null);
@@ -602,7 +604,10 @@ function ExportsView({ onSwitch, onTab }) {
     let urls = [];
     const reload = async () => {
       try {
-        const list = await listExports(filter ? { sourceTool: filter } : {});
+        const listFilter = {};
+        if (filter) listFilter.sourceTool = filter;
+        if (kindFilter) listFilter.kind = kindFilter;
+        const list = await listExports(listFilter);
         if (!live) { list.forEach(p => p.thumbUrl && URL.revokeObjectURL(p.thumbUrl)); return; }
         const prev = urls;
         urls = list.map(p => p.thumbUrl).filter(Boolean);
@@ -616,7 +621,7 @@ function ExportsView({ onSwitch, onTab }) {
     reload();
     const off = onExportsChange(reload);
     return () => { live = false; off(); urls.forEach(u => URL.revokeObjectURL(u)); };
-  }, [filter]);
+  }, [filter, kindFilter]);
 
   useEffect(() => {
     if (!previewId) { setPreviewUrl(null); return; }
@@ -681,16 +686,22 @@ function ExportsView({ onSwitch, onTab }) {
                 : B}
             >{t.label}</button>
           ))}
+          <button
+            onClick={() => setKindFilter(k => k === "draft" ? "" : "draft")}
+            style={kindFilter === "draft"
+              ? { ...B, background: "rgba(192,132,252,0.18)", borderColor: "#C084FC", color: "#C084FC" }
+              : { ...B, background: "rgba(192,132,252,0.06)", borderColor: "rgba(192,132,252,0.2)", color: "rgba(192,132,252,0.7)" }}
+            title="Only show drafts (work-in-progress, no rendered file)"
+          >💾 {kindFilter === "draft" ? "Drafts only" : "Drafts"}</button>
           <div style={{ flex: 1 }} />
           <span style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.5)", letterSpacing: "1px", textTransform: "uppercase" }}>
-            {items.length} export{items.length === 1 ? "" : "s"} · {formatBytes(total)} used
+            {items.length} item{items.length === 1 ? "" : "s"} · {formatBytes(total)} used
           </span>
         </div>
 
         {items.length === 0 ? (
           <div style={{ padding: "3rem", borderRadius: "8px", border: "1px dashed rgba(245,240,232,0.12)", color: "rgba(245,240,232,0.5)", fontSize: "0.75rem", textAlign: "center", lineHeight: 1.6 }}>
-            No exports archived yet.<br/>
-            Download a slide/PNG/ZIP from any tool and a copy will land here.
+            {kindFilter === "draft" ? <>No drafts yet.<br/>Hit <strong>💾 Save Draft</strong> in the Media tool to park your work-in-progress here.</> : <>No exports archived yet.<br/>Download a slide/PNG/ZIP from any tool and a copy will land here.</>}
           </div>
         ) : (
           <div className="cge-lib-layout" style={{ display: "grid", gridTemplateColumns: previewId ? "1fr 380px" : "1fr", gap: "1rem", alignItems: "start" }}>
@@ -699,7 +710,9 @@ function ExportsView({ onSwitch, onTab }) {
               gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))",
               gap: "10px",
             }}>
-              {items.map(p => (
+              {items.map(p => {
+                const isDraft = p.kind === "draft";
+                return (
                 <div
                   key={p.id}
                   onClick={() => setPreviewId(p.id)}
@@ -707,7 +720,7 @@ function ExportsView({ onSwitch, onTab }) {
                   style={{
                     position: "relative",
                     background: "#000",
-                    border: `1px solid ${previewId === p.id ? "#E5BC4F" : "rgba(245,240,232,0.1)"}`,
+                    border: `1px solid ${previewId === p.id ? "#E5BC4F" : (isDraft ? "rgba(192,132,252,0.4)" : "rgba(245,240,232,0.1)")}`,
                     borderRadius: "5px",
                     overflow: "hidden",
                     cursor: "pointer",
@@ -727,9 +740,19 @@ function ExportsView({ onSwitch, onTab }) {
                     }}>
                       <div style={{ fontSize: "2rem" }}>{p.mime?.includes("zip") ? "🗜" : p.mime?.includes("webm") ? "🎬" : "📄"}</div>
                       <div style={{ fontSize: "0.5rem", letterSpacing: "1px", textTransform: "uppercase", marginTop: "6px" }}>
-                        {p.kind === "archive" ? "Archive" : "File"}
+                        {isDraft ? "Draft" : p.kind === "archive" ? "Archive" : "File"}
                       </div>
                     </div>
+                  )}
+                  {isDraft && (
+                    <div style={{
+                      position: "absolute", top: 4, right: 30,
+                      padding: "2px 8px",
+                      background: "rgba(192,132,252,0.95)", color: "#0a0a0a",
+                      borderRadius: 4, fontSize: "0.5rem",
+                      letterSpacing: "1.5px", textTransform: "uppercase", fontWeight: 800,
+                      fontFamily: "'Syne',sans-serif",
+                    }}>DRAFT</div>
                   )}
                   <button
                     onClick={(e) => remove(p.id, e)}
@@ -781,7 +804,8 @@ function ExportsView({ onSwitch, onTab }) {
                     <span style={{ color: "rgba(245,240,232,0.5)" }}>{formatWhen(p.createdAt)}</span>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
 
             {previewId && (() => {
