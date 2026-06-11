@@ -12,6 +12,7 @@ import { useEventsStore } from "./store";
 import { exportWorkspace, previewWorkspace, importWorkspace, workspaceFilename } from "./shared/workspaceSync.js";
 import { checkCloudAvailable, cloudSave, cloudLoad } from "./shared/cloudSync.js";
 import { CloudWorkspaceModal } from "./shared/CloudWorkspaceModal.jsx";
+import { saveExport } from "./shared/photoLibrary.js";
 
 // Wrap a CSV cell — quote if it contains a comma, quote, or newline.
 const csvCell = (v) => {
@@ -54,11 +55,20 @@ function exportEventsCsv(events) {
   a.href = url;
   const d = new Date();
   const stamp = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
-  a.download = `CGE_events_${stamp}.csv`;
+  const filename = `CGE_events_${stamp}.csv`;
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+  // Archive to the cloud library — same pattern as media/flyer/reel exports.
+  // Fire-and-forget: a network blip doesn't block the immediate download.
+  saveExport(blob, {
+    sourceTool: "events",
+    sourceMode: "csv-export",
+    name: filename,
+    kind: "archive",
+  }).catch(err => console.warn("CSV archive failed:", err));
 }
 
 function Nav() {
