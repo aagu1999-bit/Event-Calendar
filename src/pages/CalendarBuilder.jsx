@@ -996,7 +996,12 @@ export default function CalendarBuilder() {
   // Column mapping
   const [rawRows, setRawRows] = useState(null);
   const [colHeaders, setColHeaders] = useState([]);
-  const [colMap, setColMap] = useState({ date: "", day: "", time: "", name: "", venue: "", area: "", region: "", type: "", igHandle: "" });
+  // Symmetric with NewsletterBuilder: every CSV-importable field is here.
+  // link is the explicit event URL, igHandle is the IG handle, displayUrl
+  // is a unified fallback column that gets parsed (instagram.com →
+  // igHandle, anything else → link). Lets a single CSV column round-trip
+  // with the App.jsx exportEventsCsv "displayUrl" column.
+  const [colMap, setColMap] = useState({ date: "", day: "", time: "", name: "", venue: "", area: "", region: "", type: "", link: "", igHandle: "", displayUrl: "" });
   const [showMapping, setShowMapping] = useState(false);
   const COL_FIELDS = [
     { key: "date", label: "Date", required: false },
@@ -1007,7 +1012,9 @@ export default function CalendarBuilder() {
     { key: "area", label: "City", required: false },
     { key: "region", label: "Region", required: false },
     { key: "type", label: "Event Type", required: false },
+    { key: "link", label: "Link / URL", required: false },
     { key: "igHandle", label: "IG Handle", required: false },
+    { key: "displayUrl", label: "Display URL", required: false },
   ];
   // Emoji picker
   const [emojiPickId, setEmojiPickId] = useState(null);
@@ -1328,7 +1335,18 @@ export default function CalendarBuilder() {
       if (!day && hasDateCol) { const di = parseDateToDay(g("date")); if (di) day = di.day; }
       if (!day) day = "Fri";
       const type = g("type"), region = parseRegion(g("region")) || "North";
-      return { id: Date.now() + Math.random() * 100000, day, time: formatTime(g("time")), name: g("name"), venue: g("venue"), area: g("area"), region, type, emoji: getEmoji(type), igHandle: normalizeHandle(g("igHandle")), featured: false };
+      // Resolve link + igHandle, with displayUrl as a unified fallback.
+      // Direct mappings win; displayUrl is parsed (instagram.com → handle,
+      // anything else → link). Round-trips with the CSV exporter.
+      let link = g("link");
+      let igHandle = normalizeHandle(g("igHandle"));
+      const display = g("displayUrl");
+      if (display) {
+        const igMatch = display.match(/(?:^|\/\/(?:www\.)?)instagram\.com\/([a-z0-9._]+)/i);
+        if (igMatch && !igHandle) igHandle = igMatch[1];
+        else if (!link) link = display;
+      }
+      return { id: Date.now() + Math.random() * 100000, day, time: formatTime(g("time")), name: g("name"), venue: g("venue"), area: g("area"), region, type, emoji: getEmoji(type), link, igHandle, featured: false };
     }).filter(e => e.name && e.day !== null);
     if (parsed.length === 0) { alert("No valid events found with this mapping."); return; }
     const { added, skipped } = addEvents(parsed);

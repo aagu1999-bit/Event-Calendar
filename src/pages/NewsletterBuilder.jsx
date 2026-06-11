@@ -403,7 +403,12 @@ export default function NewsletterBuilder() {
   // Column mapping state
   const [rawRows, setRawRows] = useState(null);
   const [headers, setHeaders] = useState([]);
-  const [colMap, setColMap] = useState({ date: "", day: "", time: "", name: "", venue: "", area: "", region: "", type: "", link: "" });
+  // colMap covers every importable field. igHandle and displayUrl are
+  // both supported so a CSV with either an IG handle column OR a unified
+  // "Display URL" column round-trips cleanly. On parse, if displayUrl is
+  // an instagram.com URL we extract the handle into igHandle; otherwise
+  // we set link.
+  const [colMap, setColMap] = useState({ date: "", day: "", time: "", name: "", venue: "", area: "", region: "", type: "", link: "", igHandle: "", displayUrl: "" });
   const [showMapping, setShowMapping] = useState(false);
   const [listFilter, setListFilter] = useState("all"); // "all" | "picks" | "flagged"
   const [dismissed, setDismissed] = useState(new Set());
@@ -422,6 +427,8 @@ export default function NewsletterBuilder() {
     { key: "region", label: "Region", desc: "North / Central / South", required: false },
     { key: "type", label: "Event Type", desc: "For emoji mapping", required: false },
     { key: "link", label: "Link / URL", desc: "Hyperlink for event", required: false },
+    { key: "igHandle", label: "IG Handle", desc: "@centralgroupevents", required: false },
+    { key: "displayUrl", label: "Display URL", desc: "Unified click-through URL (auto-parsed)", required: false },
   ];
 
   const sorted = sortEv(events);
@@ -459,8 +466,20 @@ export default function NewsletterBuilder() {
       if (isDateLike(area)) area = "";
       const region = parseRegion(g("region")) || "North";
       const time = formatTimeClean(g("time"));
-      const link = g("link");
-      return { id: Date.now() + Math.random() * 1e5, day, time, name, venue, area, region, type: g("type"), link, featured: false };
+      // Resolve link + igHandle, with displayUrl as a unified fallback:
+      //   - direct mappings win (`link` column / `igHandle` column)
+      //   - displayUrl column gets parsed: instagram.com URLs → igHandle,
+      //     anything else → link. Lets users import a single "URL" column
+      //     and have the right field auto-populate.
+      let link = g("link");
+      let igHandle = g("igHandle").replace(/^@+/, "");
+      const display = g("displayUrl").trim();
+      if (display) {
+        const igMatch = display.match(/(?:^|\/\/(?:www\.)?)instagram\.com\/([a-z0-9._]+)/i);
+        if (igMatch && !igHandle) igHandle = igMatch[1];
+        else if (!link) link = display;
+      }
+      return { id: Date.now() + Math.random() * 1e5, day, time, name, venue, area, region, type: g("type"), link, igHandle, featured: false };
     }).filter(e => e.name && e.day !== null);
 
     if (parsed.length === 0) { alert("No valid events found with this mapping."); return; }
