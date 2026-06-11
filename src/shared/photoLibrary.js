@@ -1,61 +1,38 @@
-// IndexedDB-backed photo library — keeps every uploaded photo around so the
-// user can pick from a built-in gallery instead of re-hunting through their
-// computer. Used by Media, Flyer, and Calendar upload paths.
+// Server-backed photo + export library.
 //
-// Each record stores:
-//   { id, blob, thumb, mime, name, sourceTool, sourceMode, width, height,
-//     bytes, createdAt }
-// `thumb` is a max-240px JPEG used in the grid so listPhotos() doesn't have
-// to load full-size blobs.
+// The library lives on the Repl filesystem via /api/library/* — same
+// pattern as Cloud Workspaces. One source of truth: every browser /
+// account that hits the Repl URL sees the same library, instead of each
+// tracking its own per-browser IndexedDB.
+//
+// The external API is identical to the legacy IndexedDB module (so every
+// consumer — PhotoLibraryModal, ExportLibraryModal, RecapPicker, MediaTool,
+// FlyerBuilder, workspaceSync — keeps working with zero callsite changes).
+// Internally everything goes through fetch().
+//
+// On the disk side (server.js writes these):
+//   data/library/<kind>/<id>.bin    — full blob
+//   data/library/<kind>/<id>.thumb  — 240px JPEG preview (optional)
+//   data/library/<kind>/<id>.json   — metadata
+//
+// Cross-device notifications: a single setInterval poll on the metadata
+// list refreshes every 10s. Photo libraries don't change that fast and
+// 10s of staleness is acceptable; the alternative (Server-Sent Events) is
+// more code for marginal benefit. Manual saves and deletes still fire the
+// in-memory event immediately for instant local feedback.
 
-const DB_NAME = "cge-photo-library";
-const DB_VERSION = 2;
-const STORE = "photos";
-const STORE_EXPORTS = "exports";
+// Legacy IndexedDB module — imported here so the one-time migration tool
+// (countLegacyLibrary + migrateLegacyToCloud at the bottom of this file)
+// can read existing per-browser data and upload it to the cloud.
+import {
+  getAllPhotosRawLocal,
+  getAllExportsRawLocal,
+  clearAllPhotosLocal,
+  clearAllExportsLocal,
+} from "./legacyLocalLibrary.js";
 
-let _dbPromise = null;
-
-function openDB() {
-  if (_dbPromise) return _dbPromise;
-  _dbPromise = new Promise((resolve, reject) => {
-    if (typeof indexedDB === "undefined") {
-      reject(new Error("IndexedDB unavailable (private browsing?)"));
-      return;
-    }
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(STORE)) {
-        const os = db.createObjectStore(STORE, { keyPath: "id" });
-        os.createIndex("createdAt", "createdAt");
-        os.createIndex("sourceTool", "sourceTool");
-      }
-      if (!db.objectStoreNames.contains(STORE_EXPORTS)) {
-        const os = db.createObjectStore(STORE_EXPORTS, { keyPath: "id" });
-        os.createIndex("createdAt", "createdAt");
-        os.createIndex("sourceTool", "sourceTool");
-      }
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-  return _dbPromise;
-}
-
-function tx(mode) {
-  return openDB().then(db => db.transaction(STORE, mode).objectStore(STORE));
-}
-
-function txExports(mode) {
-  return openDB().then(db => db.transaction(STORE_EXPORTS, mode).objectStore(STORE_EXPORTS));
-}
-
-function awaitRequest(req) {
-  return new Promise((resolve, reject) => {
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
+const LIBRARY_API = "/api/library";
+const POLL_MS = 10_000;
 
 // Resize an image blob to a max edge of `maxEdge` px and return a JPEG blob.
 // Used as the thumbnail so the gallery loads fast.
@@ -81,19 +58,89 @@ async function makeThumb(blob, maxEdge = 240) {
   }
 }
 
+// Read a Blob as a base64 data URL (used to ship it inside JSON).
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(blob);
+  });
+}
+
+// Generate a UUID for new records — same scheme the legacy DB used so we
+// can migrate ids cleanly without collisions.
+function makeId(prefix) {
+  const ts = Date.now();
+  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+  return `${prefix}_${ts}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+// Fetch wrapper that surfaces server errors as Error objects with a usable
+// message (instead of res.ok = false returning silently).
+async function api(path, init = {}) {
+  const res = await fetch(LIBRARY_API + path, init);
+  if (!res.ok) {
+    let msg = `${res.status} ${res.statusText}`;
+    try {
+      const j = await res.json();
+      if (j?.error) msg += ` — ${j.error}`;
+    } catch { /* not json */ }
+    throw new Error(msg);
+  }
+  return res;
+}
+
+// Internal: POST a record (blob + thumb + meta) to the server.
+async function uploadRecord(kind, id, blob, thumb, meta) {
+  const blobB64 = await blobToDataUrl(blob);
+  const thumbB64 = thumb ? await blobToDataUrl(thumb) : null;
+  await api(`/${kind}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, meta, blob: blobB64, thumb: thumbB64 }),
+  });
+}
+
+// Cache the listings briefly so PhotoLibraryModal + ExportLibraryModal
+// opening in quick succession don't hammer the server. Invalidated on any
+// save or delete.
+let _photosCache = null, _photosCacheAt = 0;
+let _exportsCache = null, _exportsCacheAt = 0;
+const CACHE_MS = 2000;
+
+async function getPhotosList() {
+  const now = Date.now();
+  if (_photosCache && now - _photosCacheAt < CACHE_MS) return _photosCache;
+  const res = await api("/photos");
+  _photosCache = await res.json();
+  _photosCacheAt = now;
+  return _photosCache;
+}
+
+async function getExportsList() {
+  const now = Date.now();
+  if (_exportsCache && now - _exportsCacheAt < CACHE_MS) return _exportsCache;
+  const res = await api("/exports");
+  _exportsCache = await res.json();
+  _exportsCacheAt = now;
+  return _exportsCache;
+}
+
+function invalidatePhotos() { _photosCache = null; }
+function invalidateExports() { _exportsCache = null; }
+
+// === PHOTOS ===
+
 // Save a File/Blob into the library. nowMs comes from the caller so this
-// stays deterministic for tests and avoids new Date() inside the module.
+// stays deterministic for tests.
 export async function savePhoto(file, opts = {}) {
   const { sourceTool = "unknown", sourceMode = "", nowMs = Date.now() } = opts;
   if (!file || !(file instanceof Blob)) throw new Error("savePhoto requires a Blob/File");
   const { thumb, width, height } = await makeThumb(file);
-  const id = (typeof crypto !== "undefined" && crypto.randomUUID)
-    ? crypto.randomUUID()
-    : `p_${nowMs}_${Math.random().toString(36).slice(2, 10)}`;
-  const record = {
+  const id = makeId("p");
+  const meta = {
     id,
-    blob: file,
-    thumb,
     mime: file.type || "image/jpeg",
     name: (file.name || `photo-${nowMs}`).slice(0, 200),
     sourceTool,
@@ -103,23 +150,20 @@ export async function savePhoto(file, opts = {}) {
     bytes: file.size || 0,
     createdAt: nowMs,
   };
-  const store = await tx("readwrite");
-  await awaitRequest(store.put(record));
+  await uploadRecord("photos", id, file, thumb, meta);
+  invalidatePhotos();
   return id;
 }
 
-// List all photos, newest first. Returns lightweight metadata + a thumb
-// object URL. The caller is responsible for revoking the URLs when the UI
-// unmounts (or just lets them live for the page lifetime).
+// List all photos, newest first. thumbUrl is a real URL pointing at the
+// server's thumb endpoint — caller drops it straight into <img src>.
 export async function listPhotos(filter = {}) {
-  const store = await tx("readonly");
-  const all = await awaitRequest(store.getAll());
-  all.sort((a, b) => b.createdAt - a.createdAt);
+  const all = await getPhotosList();
   return all
     .filter(r => !filter.sourceTool || r.sourceTool === filter.sourceTool)
     .map(r => ({
       id: r.id,
-      thumbUrl: URL.createObjectURL(r.thumb),
+      thumbUrl: `${LIBRARY_API}/photos/${r.id}/thumb`,
       name: r.name,
       sourceTool: r.sourceTool,
       sourceMode: r.sourceMode,
@@ -133,12 +177,10 @@ export async function listPhotos(filter = {}) {
 // Pull the full-size Blob back out by id — used when the user picks a
 // library photo to drop into a tool.
 export async function loadPhotoBlob(id) {
-  const store = await tx("readonly");
-  const rec = await awaitRequest(store.get(id));
-  return rec ? rec.blob : null;
+  const res = await api(`/photos/${id}/blob`);
+  return res.blob();
 }
 
-// Convenience for tools that consume HTMLImageElement instead of Blob.
 export async function loadPhotoAsImage(id) {
   const blob = await loadPhotoBlob(id);
   if (!blob) return null;
@@ -149,36 +191,28 @@ export async function loadPhotoAsImage(id) {
     img.onerror = reject;
     img.src = url;
     // Don't revoke — the consumer holds the img and may re-draw it later.
-    // Browsers GC the blob when the img is dropped.
   });
 }
 
-// Same as above but yields a data URL — used by tools that store the photo
-// as a data: src (FlyerBuilder).
 export async function loadPhotoAsDataUrl(id) {
   const blob = await loadPhotoBlob(id);
   if (!blob) return null;
-  return new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = e => resolve(e.target.result);
-    r.onerror = reject;
-    r.readAsDataURL(blob);
-  });
+  return blobToDataUrl(blob);
 }
 
 export async function deletePhoto(id) {
-  const store = await tx("readwrite");
-  await awaitRequest(store.delete(id));
+  await api(`/photos/${id}`, { method: "DELETE" });
+  invalidatePhotos();
 }
 
 export async function usageBytes() {
-  const store = await tx("readonly");
-  const all = await awaitRequest(store.getAll());
-  return all.reduce((sum, r) => sum + (r.bytes || 0) + (r.thumb?.size || 0), 0);
+  const all = await getPhotosList();
+  return all.reduce((sum, r) => sum + (r.bytes || 0), 0);
 }
 
 // Lets pages refresh after a save without re-querying on every tool action.
-// Pages subscribe; savePhoto/deletePhoto fire after the write commits.
+// Pages subscribe; savePhoto/deletePhoto fire after the write commits, and
+// the polling timer also fires so cross-device changes propagate.
 const _listeners = new Set();
 export function onLibraryChange(fn) {
   _listeners.add(fn);
@@ -186,7 +220,6 @@ export function onLibraryChange(fn) {
 }
 function notify() { _listeners.forEach(fn => { try { fn(); } catch {} }); }
 
-// Public re-exports of save/delete that also fire the change event.
 const _saveBare = savePhoto;
 const _deleteBare = deletePhoto;
 export const savePhotoAndNotify = async (...args) => {
@@ -199,16 +232,7 @@ export const deletePhotoAndNotify = async (...args) => {
   notify();
 };
 
-// ===== Exports store =====
-// Every rendered PNG or ZIP the user downloads from any tool also lands
-// here, keyed by source tool / mode / filename. Lets them re-download
-// anything they've made before without keeping it on disk.
-//
-// Record shape:
-//   { id, blob, thumb?, mime, name, sourceTool, sourceMode, width?, height?,
-//     bytes, kind, createdAt }
-// `kind` is "image" or "archive" — drives whether the gallery shows a
-// thumbnail or a generic file tile.
+// === EXPORTS ===
 
 const _exportListeners = new Set();
 export function onExportsChange(fn) {
@@ -223,14 +247,14 @@ export async function saveExport(blob, opts = {}) {
     sourceMode = "",
     name = "export",
     kind: kindOverride,
-    snapshot = null,   // tool-specific state captured at export time (phase 3)
+    snapshot = null,
     nowMs = Date.now(),
   } = opts;
   if (!blob || !(blob instanceof Blob)) throw new Error("saveExport requires a Blob");
   const mime = blob.type || "application/octet-stream";
   const kind = kindOverride || (mime.startsWith("image/") ? "image" : "archive");
   let thumb = null, width = 0, height = 0;
-  if (kind === "image") {
+  if (kind === "image" || kind === "draft") {
     try {
       const t = await makeThumb(blob);
       thumb = t.thumb; width = t.width; height = t.height;
@@ -238,13 +262,9 @@ export async function saveExport(blob, opts = {}) {
       console.warn("Export thumb failed:", e);
     }
   }
-  const id = (typeof crypto !== "undefined" && crypto.randomUUID)
-    ? crypto.randomUUID()
-    : `e_${nowMs}_${Math.random().toString(36).slice(2, 10)}`;
-  const record = {
+  const id = makeId("e");
+  const meta = {
     id,
-    blob,
-    thumb,
     mime,
     name: String(name).slice(0, 240),
     sourceTool,
@@ -254,32 +274,31 @@ export async function saveExport(blob, opts = {}) {
     bytes: blob.size || 0,
     kind,
     snapshot,
+    hasSnapshot: !!snapshot,
     createdAt: nowMs,
   };
-  const store = await txExports("readwrite");
-  await awaitRequest(store.put(record));
+  await uploadRecord("exports", id, blob, thumb, meta);
+  invalidateExports();
   notifyExports();
   return id;
 }
 
-// Pulls the full record (incl. snapshot) for "Edit in [tool]". Blobs come
-// along too in case the caller wants a thumb fallback, but this is mainly
-// about the snapshot object.
+// Server stores metadata fully (snapshot included), so loadExportRecord
+// just fetches the list entry. The caller usually wants the snapshot;
+// blob is fetched separately when needed.
 export async function loadExportRecord(id) {
-  const store = await txExports("readonly");
-  return awaitRequest(store.get(id));
+  const all = await getExportsList();
+  return all.find(r => r.id === id) || null;
 }
 
 export async function listExports(filter = {}) {
-  const store = await txExports("readonly");
-  const all = await awaitRequest(store.getAll());
-  all.sort((a, b) => b.createdAt - a.createdAt);
+  const all = await getExportsList();
   return all
     .filter(r => !filter.sourceTool || r.sourceTool === filter.sourceTool)
     .filter(r => !filter.kind || r.kind === filter.kind)
     .map(r => ({
       id: r.id,
-      thumbUrl: r.thumb ? URL.createObjectURL(r.thumb) : null,
+      thumbUrl: r.kind === "image" || r.kind === "draft" ? `${LIBRARY_API}/exports/${r.id}/thumb` : null,
       name: r.name,
       sourceTool: r.sourceTool,
       sourceMode: r.sourceMode,
@@ -294,62 +313,107 @@ export async function listExports(filter = {}) {
 }
 
 export async function loadExportBlob(id) {
-  const store = await txExports("readonly");
-  const rec = await awaitRequest(store.get(id));
-  return rec ? rec.blob : null;
+  const res = await api(`/exports/${id}/blob`);
+  return res.blob();
 }
 
 export async function deleteExport(id) {
-  const store = await txExports("readwrite");
-  await awaitRequest(store.delete(id));
+  await api(`/exports/${id}`, { method: "DELETE" });
+  invalidateExports();
   notifyExports();
 }
 
 export async function exportsUsageBytes() {
-  const store = await txExports("readonly");
-  const all = await awaitRequest(store.getAll());
-  return all.reduce((sum, r) => sum + (r.bytes || 0) + (r.thumb?.size || 0), 0);
+  const all = await getExportsList();
+  return all.reduce((sum, r) => sum + (r.bytes || 0), 0);
 }
 
-// ===== Bulk helpers for workspace export/import =====
-// Surface the raw IndexedDB records (with their Blob fields intact) so the
-// workspace sync layer can serialize them to a single shareable file.
+// === BULK helpers for workspace export/import ===
+// Surface raw records (with their Blob fields populated) so workspaceSync
+// can serialize the whole library into a single shareable file. These do
+// N+1 fetches (list, then blob per item) — slower than the old direct
+// IndexedDB getAll, but workspace export is a manual button click anyway.
+
+async function attachBlob(kind, meta) {
+  try {
+    const res = await api(`/${kind}/${meta.id}/blob`);
+    const blob = await res.blob();
+    return { ...meta, blob };
+  } catch {
+    return null;
+  }
+}
 
 export async function getAllPhotosRaw() {
-  const store = await tx("readonly");
-  return awaitRequest(store.getAll());
-}
-export async function getAllExportsRaw() {
-  const store = await txExports("readonly");
-  return awaitRequest(store.getAll());
+  const all = await getPhotosList();
+  const withBlobs = await Promise.all(all.map(m => attachBlob("photos", m)));
+  return withBlobs.filter(Boolean);
 }
 
-// Wipe-and-replace primitives used by importWorkspace(). The caller has
-// already confirmed clobber with the user.
+export async function getAllExportsRaw() {
+  const all = await getExportsList();
+  const withBlobs = await Promise.all(all.map(m => attachBlob("exports", m)));
+  return withBlobs.filter(Boolean);
+}
+
 export async function clearAllPhotos() {
-  const store = await tx("readwrite");
-  await awaitRequest(store.clear());
+  const all = await getPhotosList();
+  await Promise.all(all.map(r => api(`/photos/${r.id}`, { method: "DELETE" }).catch(() => {})));
+  invalidatePhotos();
   notify();
 }
+
 export async function clearAllExports() {
-  const store = await txExports("readwrite");
-  await awaitRequest(store.clear());
+  const all = await getExportsList();
+  await Promise.all(all.map(r => api(`/exports/${r.id}`, { method: "DELETE" }).catch(() => {})));
+  invalidateExports();
   notifyExports();
 }
+
+// Re-import a workspace's library records. Used by workspaceSync.importWorkspace().
 export async function putPhotoRaw(record) {
-  const store = await tx("readwrite");
-  await awaitRequest(store.put(record));
-}
-export async function putExportRaw(record) {
-  const store = await txExports("readwrite");
-  await awaitRequest(store.put(record));
+  if (!record || !record.id || !record.blob) return;
+  const thumb = record.thumb || null;
+  const meta = {
+    id: record.id,
+    mime: record.mime,
+    name: record.name,
+    sourceTool: record.sourceTool,
+    sourceMode: record.sourceMode,
+    width: record.width,
+    height: record.height,
+    bytes: record.bytes,
+    createdAt: record.createdAt,
+  };
+  await uploadRecord("photos", record.id, record.blob, thumb, meta);
+  invalidatePhotos();
 }
 
-// Wrap a save + browser-download pipeline: the host's existing download
-// code calls this helper instead of new Blob/createObjectURL by hand, so
-// the file goes to the user AND gets archived in the library in one call.
+export async function putExportRaw(record) {
+  if (!record || !record.id || !record.blob) return;
+  const thumb = record.thumb || null;
+  const meta = {
+    id: record.id,
+    mime: record.mime,
+    name: record.name,
+    sourceTool: record.sourceTool,
+    sourceMode: record.sourceMode,
+    width: record.width,
+    height: record.height,
+    bytes: record.bytes,
+    kind: record.kind,
+    snapshot: record.snapshot || null,
+    hasSnapshot: !!record.snapshot,
+    createdAt: record.createdAt,
+  };
+  await uploadRecord("exports", record.id, record.blob, thumb, meta);
+  invalidateExports();
+}
+
+// === DOWNLOAD HELPER ===
+// Same shape as the legacy module — save the blob to the cloud library
+// AND trigger a browser download in one call.
 export async function downloadAndArchive(blob, filename, opts) {
-  // Fire the save in parallel with the download — failures don't block.
   const savePromise = saveExport(blob, { ...opts, name: filename })
     .catch(err => console.warn("Export archive failed:", err));
   const url = URL.createObjectURL(blob);
@@ -361,4 +425,128 @@ export async function downloadAndArchive(blob, filename, opts) {
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
   return savePromise;
+}
+
+// === CROSS-DEVICE POLLING ===
+// Boot a single poll loop that detects changes from OTHER devices and
+// fires the in-memory notify callbacks. Subscribers to onLibraryChange /
+// onExportsChange react the same way they would to a local save.
+//
+// Detection is hash-cheap: stringify the list of (id, createdAt) tuples
+// and compare to the previous run. Changes (additions, deletions, new
+// uploads) all change the hash; metadata-only edits to existing records
+// don't trigger, which is fine for now.
+let _pollTimer = null;
+let _photosHash = "", _exportsHash = "";
+
+function hashList(arr) {
+  if (!Array.isArray(arr)) return "";
+  return arr.map(r => `${r.id}:${r.createdAt}:${r.bytes || 0}`).join("|");
+}
+
+async function pollOnce() {
+  try {
+    const [p, e] = await Promise.all([
+      fetch(LIBRARY_API + "/photos").then(r => r.ok ? r.json() : []).catch(() => []),
+      fetch(LIBRARY_API + "/exports").then(r => r.ok ? r.json() : []).catch(() => []),
+    ]);
+    const ph = hashList(p);
+    const eh = hashList(e);
+    if (ph !== _photosHash) {
+      _photosHash = ph;
+      _photosCache = p; _photosCacheAt = Date.now();
+      notify();
+    }
+    if (eh !== _exportsHash) {
+      _exportsHash = eh;
+      _exportsCache = e; _exportsCacheAt = Date.now();
+      notifyExports();
+    }
+  } catch { /* offline — keep last known state */ }
+}
+
+if (typeof window !== "undefined") {
+  // Prime the hashes on boot without firing notifications (nothing to react
+  // to yet — UIs do their own initial load).
+  (async () => {
+    try {
+      const [p, e] = await Promise.all([
+        fetch(LIBRARY_API + "/photos").then(r => r.ok ? r.json() : []).catch(() => []),
+        fetch(LIBRARY_API + "/exports").then(r => r.ok ? r.json() : []).catch(() => []),
+      ]);
+      _photosHash = hashList(p);
+      _exportsHash = hashList(e);
+    } catch { /* ignore */ }
+  })();
+  _pollTimer = setInterval(pollOnce, POLL_MS);
+}
+
+// === ONE-TIME MIGRATION FROM LEGACY INDEXEDDB ===
+// For users coming from the previous (per-browser) IndexedDB library.
+// Counts local-only records and offers to upload them to the cloud.
+// After successful upload, optionally wipes the local DB so the migrate
+// button doesn't keep surfacing. (Imports for these helpers live at the
+// top of this file — ESM requires top-level import declarations.)
+
+// How many records sit in the legacy per-browser IndexedDB right now.
+// Used to decide whether to show the migrate banner. Returns {photos, exports}.
+// Either field will be 0 if IndexedDB is unavailable (e.g. private browsing).
+export async function countLegacyLibrary() {
+  try {
+    const [photos, exports] = await Promise.all([
+      getAllPhotosRawLocal().catch(() => []),
+      getAllExportsRawLocal().catch(() => []),
+    ]);
+    return { photos: photos.length, exports: exports.length };
+  } catch {
+    return { photos: 0, exports: 0 };
+  }
+}
+
+// Upload every legacy record to the cloud. onProgress fires after each
+// item so the UI can render a percentage. Survives per-item failures
+// (counts them in `errors`) so one bad blob doesn't abort the whole run.
+//
+// If clearAfter is true, wipes the local IndexedDB after upload so the
+// migrate banner stops appearing on this browser. Safe because the cloud
+// is now authoritative; legacy local data was only being read for this
+// migration anyway.
+export async function migrateLegacyToCloud({ onProgress, clearAfter = false } = {}) {
+  const [photos, exportsArr] = await Promise.all([
+    getAllPhotosRawLocal().catch(() => []),
+    getAllExportsRawLocal().catch(() => []),
+  ]);
+  const total = photos.length + exportsArr.length;
+  let done = 0, errors = 0;
+  const reportErr = (kind, id, err) => {
+    errors++;
+    console.warn(`Migrate ${kind} ${id} failed:`, err);
+  };
+
+  for (const p of photos) {
+    try { await putPhotoRaw(p); }
+    catch (e) { reportErr("photo", p.id, e); }
+    done++;
+    onProgress?.({ done, total, kind: "photos" });
+  }
+  for (const ex of exportsArr) {
+    try { await putExportRaw(ex); }
+    catch (e) { reportErr("export", ex.id, e); }
+    done++;
+    onProgress?.({ done, total, kind: "exports" });
+  }
+
+  if (clearAfter && errors === 0) {
+    await Promise.all([
+      clearAllPhotosLocal().catch(() => {}),
+      clearAllExportsLocal().catch(() => {}),
+    ]);
+  }
+
+  invalidatePhotos();
+  invalidateExports();
+  notify();
+  notifyExports();
+
+  return { migrated: total - errors, errors, total };
 }
