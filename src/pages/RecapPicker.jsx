@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import JSZip from "jszip";
-import { listPhotos, deletePhotoAndNotify, onLibraryChange, usageBytes, loadPhotoBlob, listExports, loadExportBlob, deleteExport, onExportsChange, exportsUsageBytes, loadExportRecord } from "../shared/photoLibrary.js";
+import { listPhotos, deletePhotoAndNotify, onLibraryChange, usageBytes, loadPhotoBlob, listExports, loadExportBlob, deleteExport, onExportsChange, exportsUsageBytes, loadExportRecord, saveExport, savePhotoAndNotify } from "../shared/photoLibrary.js";
 import { useRestoreStore } from "../store";
 
 const TOOL_ROUTE = { calendar: "/calendar", media: "/media", flyer: "/flyer", reel: "/reel" };
@@ -162,14 +162,33 @@ function FacePicker({ onSwitch }) {
       zip.file(`recap_${idx}_${p.file.name}`, p.file);
     }
     const blob = await zip.generateAsync({ type: "blob" });
+    const filename = `CGE_recap_picks_${Date.now()}.zip`;
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `CGE_recap_picks_${Date.now()}.zip`;
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+    // Archive to the cloud library so other accounts on the Repl URL can
+    // re-download this exact selection bundle. Fire-and-forget — failures
+    // don't block the immediate download.
+    saveExport(blob, {
+      sourceTool: "recap",
+      sourceMode: `picks-${sel.length}`,
+      name: filename,
+      kind: "archive",
+    }).catch(err => console.warn("Recap zip archive failed:", err));
+    // Save each picked photo individually to the photo library so they're
+    // reusable in Media / Flyer / Calendar via the 📚 library picker. Bulk
+    // save in parallel; per-photo failures don't block siblings.
+    Promise.all(sel.map(p =>
+      savePhotoAndNotify(p.file, {
+        sourceTool: "recap",
+        sourceMode: "pick",
+      }).catch(err => console.warn("Recap photo archive failed:", err))
+    )).catch(() => {});
   };
 
   const selectedCount = photos.filter(p => p.selected).length;
