@@ -1284,6 +1284,210 @@ function renderScene(canvas, cfg) {
   // No drawLogo / drawFooter — the composition includes its own brand cues.
 }
 
+// === POSTER ===
+// Magazine-style flyer: photo background, mono-caps top line for venue
+// context, italic + caps host stack, small italic kicker, MASSIVE
+// multi-line stacked title in a punchy color (default hot pink), italic
+// subtitle, two-column offerings list at the bottom, italic dress code
+// line, mono date line, accent edge bar.
+//
+// Distinct from Cover (gradient-overlay photo + single headline) and
+// Scene (cutout slot composer). This one is about a single big title
+// over a real photo background — same energy as the Pilates on the
+// Pier flyer / typical wellness or party poster.
+//
+// Title controls are first-class: size (0.5–2.0×), X/Y position offset
+// from natural anchor (±300px), L/C/R alignment, color override. Lets
+// the user push the title around the canvas to dodge a tall building
+// in the background photo, or align flush-left for a magazine cover
+// feel without redesigning the whole template.
+function renderPoster(canvas, cfg) {
+  const {
+    photo, opacity,
+    topLine, hosts, kicker, title, subtitle,
+    leftList, rightList, dressCode, dateLine,
+    titleSize, titleX, titleY, titleAlign, titleColor,
+    accent, bgKey, dots, totalDots,
+  } = cfg;
+  const W = 1080, H = 1080;
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext("2d");
+
+  // 1. BACKGROUND — photo cover-fit + light wash, or solid bg color fallback
+  if (photo) {
+    const s = Math.max(W / photo.width, H / photo.height);
+    const dw = photo.width * s, dh = photo.height * s;
+    ctx.drawImage(photo, (W - dw) / 2, (H - dh) / 2, dw, dh);
+    // Light overall wash — keep the photo readable but not crushed. The
+    // user can crank this up via the opacity slider for a darker mood.
+    ctx.fillStyle = `rgba(0,0,0,${opacity != null ? opacity : 0.15})`;
+    ctx.fillRect(0, 0, W, H);
+  } else {
+    const bg = BG_COLORS[bgKey] || BG_COLORS.black;
+    ctx.fillStyle = bg.hex;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  const monoStack = "ui-monospace, Menlo, 'Courier New', monospace";
+
+  // 2. TOP LINE — mono caps, letterspaced, centered at very top
+  if (topLine?.trim()) {
+    ctx.font = `700 22px ${monoStack}`;
+    ctx.fillStyle = "#FFF";
+    ctx.textAlign = "center"; ctx.textBaseline = "top";
+    ctx.letterSpacing = "4px";
+    ctx.fillText(topLine.toUpperCase(), W / 2, 44);
+    ctx.letterSpacing = "0px";
+  }
+
+  // 3. HOSTS — accent-colored stack. First line italic (e.g. "jela &"),
+  // remaining lines treated as caps headers (e.g. "LIVE HIGHER").
+  let hostsBottomY = 100;
+  if (hosts?.trim()) {
+    const lines = hosts.split("\n").map(l => l.trim()).filter(Boolean);
+    ctx.fillStyle = accent;
+    ctx.textAlign = "center"; ctx.textBaseline = "top";
+    let y = 100;
+    lines.forEach((ln, i) => {
+      if (i === 0) {
+        // Italic first line — sponsor / "&" style
+        ctx.font = ff("italic 700 30px 'DM Sans',sans-serif");
+        ctx.fillText(ln, W / 2, y);
+        y += 38;
+      } else {
+        ctx.font = ff("800 30px 'DM Sans',sans-serif");
+        ctx.fillText(ln.toUpperCase(), W / 2, y);
+        y += 38;
+      }
+    });
+    hostsBottomY = y;
+  }
+
+  // 4. KICKER — small italic, sub-heading positioned above the title.
+  // Sits offset to the left and slightly above the title block (like
+  // "wellness morning edition" on the Pilates flyer).
+  if (kicker?.trim()) {
+    ctx.font = ff("italic 700 22px 'DM Sans',sans-serif");
+    ctx.fillStyle = "#FFF";
+    ctx.textAlign = "left"; ctx.textBaseline = "top";
+    ctx.fillText(kicker.toLowerCase(), 80, Math.max(hostsBottomY + 14, 200));
+  }
+
+  // 5. TITLE — massive stacked headline. THE focal point. All the user's
+  // controls apply here: size multiplier, X/Y offset, alignment, color.
+  if (title?.trim()) {
+    const lines = title.split("\n").map(l => l.trim()).filter(Boolean);
+    const sizeMult = (typeof titleSize === "number" && titleSize > 0) ? titleSize : 1.0;
+    let fs = 170 * sizeMult;
+    const margin = 40;
+
+    // Auto-scale DOWN if any line overflows width — the size slider is
+    // a multiplier, not a force. Keeps the user from accidentally
+    // cropping their own title.
+    ctx.font = ff(`900 ${fs}px 'Syne',sans-serif`);
+    const widest = () => Math.max(...lines.map(l => ctx.measureText(l.toUpperCase()).width));
+    while (widest() > W - margin * 2 && fs > 40) {
+      fs -= 4;
+      ctx.font = ff(`900 ${fs}px 'Syne',sans-serif`);
+    }
+
+    const lh = fs * 0.92;
+    const totalH = lines.length * lh;
+
+    const align = titleAlign || "center";
+    ctx.textAlign = align;
+    ctx.textBaseline = "top";
+
+    // X anchor based on alignment + user offset
+    const dx = typeof titleX === "number" ? titleX : 0;
+    let xAnchor;
+    if (align === "left")       xAnchor = margin + dx;
+    else if (align === "right") xAnchor = W - margin + dx;
+    else                        xAnchor = W / 2 + dx;
+
+    // Y anchor — centered vertically by default, user offset on top
+    const dy = typeof titleY === "number" ? titleY : 0;
+    const yAnchor = (H - totalH) / 2 + dy;
+
+    // Soft drop shadow gives the title a slight lifted feel against the
+    // photo bg — same depth move as the Pilates flyer's pink letters.
+    ctx.save();
+    ctx.shadowColor = "rgba(0,0,0,0.35)";
+    ctx.shadowBlur = 14;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 6;
+    ctx.fillStyle = titleColor || "#FF7AE5";
+    ctx.font = ff(`900 ${fs}px 'Syne',sans-serif`);
+    lines.forEach((ln, i) => {
+      ctx.fillText(ln.toUpperCase(), xAnchor, yAnchor + i * lh);
+    });
+    ctx.restore();
+  }
+
+  // 6. SUBTITLE — italic, small, centered below title
+  if (subtitle?.trim()) {
+    ctx.font = ff("italic 600 28px 'DM Sans',sans-serif");
+    ctx.fillStyle = "#FFF";
+    ctx.textAlign = "center"; ctx.textBaseline = "top";
+    // Position relative to the title's center-ish — slightly below the
+    // notional title block (uses titleY so the subtitle moves with it).
+    const sy = H * 0.66 + (typeof titleY === "number" ? titleY : 0);
+    ctx.fillText(subtitle, W / 2, sy);
+  }
+
+  // 7. LEFT LIST — bottom-left, accent color, big bold sans
+  if (leftList?.trim()) {
+    const lines = leftList.split("\n").map(l => l.trim()).filter(Boolean);
+    ctx.font = ff("900 28px 'Syne',sans-serif");
+    ctx.fillStyle = accent;
+    ctx.textAlign = "left"; ctx.textBaseline = "top";
+    const startY = H - 220 - lines.length * 6; // bottom-anchored
+    lines.forEach((ln, i) => {
+      ctx.fillText(ln.toUpperCase(), 56, startY + i * 36);
+    });
+  }
+
+  // 8. RIGHT LIST — bottom-right, accent color, big bold sans
+  if (rightList?.trim()) {
+    const lines = rightList.split("\n").map(l => l.trim()).filter(Boolean);
+    ctx.font = ff("900 28px 'Syne',sans-serif");
+    ctx.fillStyle = accent;
+    ctx.textAlign = "right"; ctx.textBaseline = "top";
+    const startY = H - 220 - lines.length * 6;
+    lines.forEach((ln, i) => {
+      ctx.fillText(ln.toUpperCase(), W - 56, startY + i * 36);
+    });
+  }
+
+  // 9. DRESS CODE / TAGLINE — italic, small, centered just above date
+  if (dressCode?.trim()) {
+    ctx.font = ff("italic 600 22px 'DM Sans',sans-serif");
+    ctx.fillStyle = "#FFF";
+    ctx.textAlign = "center"; ctx.textBaseline = "bottom";
+    ctx.fillText(dressCode, W / 2, H - 70);
+  }
+
+  // 10. DATE LINE — mono caps, letterspaced, very bottom
+  if (dateLine?.trim()) {
+    ctx.font = `700 24px ${monoStack}`;
+    ctx.fillStyle = "#FFF";
+    ctx.textAlign = "center"; ctx.textBaseline = "bottom";
+    ctx.letterSpacing = "3px";
+    ctx.fillText(dateLine.toUpperCase(), W / 2, H - 32);
+    ctx.letterSpacing = "0px";
+  }
+
+  // 11. ACCENT EDGE — brand cue at the very bottom
+  ctx.fillStyle = accent;
+  ctx.fillRect(0, H - 6, W, 6);
+
+  ctx.textAlign = "left"; ctx.textBaseline = "top";
+  drawDots(ctx, W, dots, totalDots, accent);
+  // No drawLogo / drawFooter — the design includes its own brand cues
+  // (top mono line, accent edge) and adding the standard logo would
+  // overcrowd it.
+}
+
 // === VIBE BOARD ===
 // Moodboard collage. Headline at top (quoted, conversational), 5-cell
 // grid of photo cards below (4 in a 2x2 plus 1 hero, OR 2x3 layout).
@@ -1649,6 +1853,31 @@ export default function MediaTool() {
   const [sceneHeroScale, setSceneHeroScale] = useState(0.72);
   const [sceneSideScale, setSceneSideScale] = useState(0.55);
 
+  // Poster — magazine-style flyer template. Big stacked title over a
+  // photo background. Title controls (size / X / Y / align / color) live
+  // alongside the text fields so the user can push the title around the
+  // canvas to dodge background photo content.
+  const [posterPhoto, setPosterPhoto] = useState(null);
+  const [posterOpacity, setPosterOpacity] = useState(0.15);
+  const [posterTopLine, setPosterTopLine] = useState("PIER A PARK — HOBOKEN, NJ");
+  const [posterHosts, setPosterHosts] = useState("jela &\nLIVE HIGHER");
+  const [posterKicker, setPosterKicker] = useState("wellness morning edition");
+  const [posterTitle, setPosterTitle] = useState("PILATES\nON THE\nPIER");
+  const [posterSubtitle, setPosterSubtitle] = useState("girls only.");
+  const [posterLeftList, setPosterLeftList] = useState("LIVE DJ\nREFRESHMENTS\n45 MIN MAT PILATES\nSWEETGREEN SALADS\nMINI ICED COFFEE\nFACIAL VOUCHER");
+  const [posterRightList, setPosterRightList] = useState("RECOVERY ACTIVATIONS:\nCOMPRESSION ZONE\nRED LIGHT THERAPY\nMASSAGES\nICE BATHS");
+  const [posterDressCode, setPosterDressCode] = useState("wear pink / orange / red!");
+  const [posterDateLine, setPosterDateLine] = useState("JUNE 20: 9:00 AM – 12:00 PM");
+  const [posterTitleSize, setPosterTitleSize] = useState(1.0);
+  const [posterTitleX, setPosterTitleX] = useState(0);
+  const [posterTitleY, setPosterTitleY] = useState(0);
+  const [posterTitleAlign, setPosterTitleAlign] = useState("center");
+  // Title color defaults to the CGE wine accent (#FB7185) so out-of-the-box
+  // the poster lands on-brand. The form UI exposes preset chips (the full
+  // accent palette) plus a custom hex input so the user can punch in any
+  // exact brand color when needed.
+  const [posterTitleColor, setPosterTitleColor] = useState("#FB7185");
+
   // Vibe Board — moodboard collage with headline + 5 photo cells.
   const [vibePhotos, setVibePhotos] = useState([null, null, null, null, null]);
   const [vibeHeadline, setVibeHeadline] = useState('"I NEED SOME VITAMIN F"');
@@ -1847,6 +2076,7 @@ export default function MediaTool() {
   const cvRef = useRef(null), fileRef = useRef(null), textFileRef = useRef(null), captionFileRef = useRef(null), spotFileRef = useRef(null), countFileRef = useRef(null), saveFileRef = useRef(null), savesFileRef = useRef(null);
   // Scene Composer — 4 slots, each needs its own file input ref.
   const sceneBgRef = useRef(null), sceneHeroRef = useRef(null), sceneLeftRef = useRef(null), sceneRightRef = useRef(null);
+  const posterFileRef = useRef(null);
   // One file input ref per Vibe Board slot (5 max).
   const vibeFileRefs = [useRef(null), useRef(null), useRef(null), useRef(null), useRef(null)];
   const accent = COLORS[accentKey]?.hex || "#FACC15";
@@ -1885,7 +2115,8 @@ export default function MediaTool() {
     else if(mode==="savedates") renderSaveDates(cv,{photo:savesPhoto,savesHeader,savesItems,savesCta,accent,bgKey,dots,totalDots,opacity:savesOpacity});
     else if(mode==="vibe") renderVibeBoard(cv,{vibePhotos,vibeHeadline,vibeLabels,accent,bgKey,dots,totalDots});
     else if(mode==="scene") renderScene(cv,{bgPhoto:sceneBgPhoto,sceneHero,sceneLeft,sceneRight,sceneTopLabel,sceneTitle,sceneBigText,sceneLeftMeta,sceneRightMeta,sceneInfo,sceneAddress,sceneHalftone,sceneHeroScale,sceneSideScale,accent,bgKey,dots,totalDots});
-  },[mode,photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,items,bgKey,listTitle,listSubtitle,statNumber,statLabel,statSub,textTitle,textTitleHL,textBody,pageNum,totalPages,textPhoto,textOpacity,ctaKicker,ctaDate,ctaVenue,ctaUrl,featuresTitle,features,captionPhoto,caption,captionSecondary,captionAlign,spotPhoto,spotName,spotMeta,spotTime,spotPrice,spotCta,countPhoto,countText,countEvent,countWhen,countCta,countOpacity,savePhoto,saveKicker,saveDay,saveDateBig,saveEvent,saveVenue,saveCta,saveOpacity,savesPhoto,savesHeader,savesItems,savesCta,savesOpacity,vibePhotos,vibeHeadline,vibeLabels,sceneBgPhoto,sceneHero,sceneLeft,sceneRight,sceneTopLabel,sceneTitle,sceneBigText,sceneLeftMeta,sceneRightMeta,sceneInfo,sceneAddress,sceneHalftone,sceneHeroScale,sceneSideScale,watermark,fontTick]);
+    else if(mode==="poster") renderPoster(cv,{photo:posterPhoto,opacity:posterOpacity,topLine:posterTopLine,hosts:posterHosts,kicker:posterKicker,title:posterTitle,subtitle:posterSubtitle,leftList:posterLeftList,rightList:posterRightList,dressCode:posterDressCode,dateLine:posterDateLine,titleSize:posterTitleSize,titleX:posterTitleX,titleY:posterTitleY,titleAlign:posterTitleAlign,titleColor:posterTitleColor,accent,bgKey,dots,totalDots});
+  },[mode,photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,items,bgKey,listTitle,listSubtitle,statNumber,statLabel,statSub,textTitle,textTitleHL,textBody,pageNum,totalPages,textPhoto,textOpacity,ctaKicker,ctaDate,ctaVenue,ctaUrl,featuresTitle,features,captionPhoto,caption,captionSecondary,captionAlign,spotPhoto,spotName,spotMeta,spotTime,spotPrice,spotCta,countPhoto,countText,countEvent,countWhen,countCta,countOpacity,savePhoto,saveKicker,saveDay,saveDateBig,saveEvent,saveVenue,saveCta,saveOpacity,savesPhoto,savesHeader,savesItems,savesCta,savesOpacity,vibePhotos,vibeHeadline,vibeLabels,sceneBgPhoto,sceneHero,sceneLeft,sceneRight,sceneTopLabel,sceneTitle,sceneBigText,sceneLeftMeta,sceneRightMeta,sceneInfo,sceneAddress,sceneHalftone,sceneHeroScale,sceneSideScale,posterPhoto,posterOpacity,posterTopLine,posterHosts,posterKicker,posterTitle,posterSubtitle,posterLeftList,posterRightList,posterDressCode,posterDateLine,posterTitleSize,posterTitleX,posterTitleY,posterTitleAlign,posterTitleColor,watermark,fontTick]);
 
   useEffect(()=>{const t=setTimeout(render,60);return()=>clearTimeout(t);},[render]);
 
@@ -1918,6 +2149,7 @@ export default function MediaTool() {
   const handleSceneHero  = makeUploadHandler(setSceneHero,    "scene-hero");
   const handleSceneLeft  = makeUploadHandler(setSceneLeft,    "scene-left");
   const handleSceneRight = makeUploadHandler(setSceneRight,   "scene-right");
+  const handlePosterPhoto = makeUploadHandler(setPosterPhoto, "poster");
   // Vibe Board has 5 photo slots — one upload handler per slot.
   const handleVibePhoto = (idx) => (e) => {
     const f = e.target.files?.[0]; if (!f) return;
@@ -1949,6 +2181,7 @@ export default function MediaTool() {
     else if (pickTarget === "scene-hero")  setSceneHero(img);
     else if (pickTarget === "scene-left")  setSceneLeft(img);
     else if (pickTarget === "scene-right") setSceneRight(img);
+    else if (pickTarget === "poster")      setPosterPhoto(img);
     else                                  setTextPhoto(img); // text/cta/features share textPhoto
   };
 
@@ -1966,6 +2199,7 @@ export default function MediaTool() {
     else if(mode==="savedates") renderSaveDates(cv,{photo:savesPhoto,savesHeader,savesItems,savesCta,accent,bgKey,dots,totalDots,opacity:savesOpacity});
     else if(mode==="vibe") renderVibeBoard(cv,{vibePhotos,vibeHeadline,vibeLabels,accent,bgKey,dots,totalDots});
     else if(mode==="scene") renderScene(cv,{bgPhoto:sceneBgPhoto,sceneHero,sceneLeft,sceneRight,sceneTopLabel,sceneTitle,sceneBigText,sceneLeftMeta,sceneRightMeta,sceneInfo,sceneAddress,sceneHalftone,sceneHeroScale,sceneSideScale,accent,bgKey,dots,totalDots});
+    else if(mode==="poster") renderPoster(cv,{photo:posterPhoto,opacity:posterOpacity,topLine:posterTopLine,hosts:posterHosts,kicker:posterKicker,title:posterTitle,subtitle:posterSubtitle,leftList:posterLeftList,rightList:posterRightList,dressCode:posterDressCode,dateLine:posterDateLine,titleSize:posterTitleSize,titleX:posterTitleX,titleY:posterTitleY,titleAlign:posterTitleAlign,titleColor:posterTitleColor,accent,bgKey,dots,totalDots});
     const exportCv = wrapForExport(cv, exportRatio, getModePrimaryPhoto());
     exportCv.toBlob(blob=>{
       const url=URL.createObjectURL(blob);
@@ -2013,6 +2247,7 @@ export default function MediaTool() {
       else if (mode === "savedates") renderSaveDates(thumbCv, {...cfg, photo: savesPhoto, savesHeader, savesItems, savesCta, opacity: savesOpacity});
       else if (mode === "vibe") renderVibeBoard(thumbCv, {...cfg, vibePhotos, vibeHeadline, vibeLabels});
       else if (mode === "scene") renderScene(thumbCv, {...cfg, bgPhoto: sceneBgPhoto, sceneHero, sceneLeft, sceneRight, sceneTopLabel, sceneTitle, sceneBigText, sceneLeftMeta, sceneRightMeta, sceneInfo, sceneAddress, sceneHalftone, sceneHeroScale, sceneSideScale});
+      else if (mode === "poster") renderPoster(thumbCv, {...cfg, photo: posterPhoto, opacity: posterOpacity, topLine: posterTopLine, hosts: posterHosts, kicker: posterKicker, title: posterTitle, subtitle: posterSubtitle, leftList: posterLeftList, rightList: posterRightList, dressCode: posterDressCode, dateLine: posterDateLine, titleSize: posterTitleSize, titleX: posterTitleX, titleY: posterTitleY, titleAlign: posterTitleAlign, titleColor: posterTitleColor});
 
       const thumbBlob = await new Promise(r => thumbCv.toBlob(r, "image/png"));
       const fname = `DRAFT_${mode}_${userName.replace(/[^a-z0-9]/gi, "_")}.png`;
@@ -2032,7 +2267,7 @@ export default function MediaTool() {
     }
   };
 
-  const MODES=[["cover","Cover"],["list","List"],["stat","Stat"],["text","Text"],["cta","CTA"],["features","Features"],["photo","Photo"],["spotlight","Spotlight"],["countdown","Countdown"],["savedate","Save Date"],["savedates","Save Dates"],["vibe","Vibe Board"],["scene","Scene"]];
+  const MODES=[["cover","Cover"],["list","List"],["stat","Stat"],["text","Text"],["cta","CTA"],["features","Features"],["photo","Photo"],["spotlight","Spotlight"],["countdown","Countdown"],["savedate","Save Date"],["savedates","Save Dates"],["vibe","Vibe Board"],["scene","Scene"],["poster","Poster"]];
 
   // Templates push snapshots into the carousel composer.
   // Weekend (5 slides): Cover + Fri/Sat/Sun lists + Stat.
@@ -2165,6 +2400,15 @@ export default function MediaTool() {
       sceneInfo: s.sceneInfo, sceneAddress: s.sceneAddress,
       sceneHalftone: s.sceneHalftone, sceneHeroScale: s.sceneHeroScale, sceneSideScale: s.sceneSideScale,
       bgKey: s.bgKey });
+    else if (type === "poster") renderPoster(cv, { ...common, photo: s.photo,
+      opacity: s.posterOpacity,
+      topLine: s.posterTopLine, hosts: s.posterHosts, kicker: s.posterKicker,
+      title: s.posterTitle, subtitle: s.posterSubtitle,
+      leftList: s.posterLeftList, rightList: s.posterRightList,
+      dressCode: s.posterDressCode, dateLine: s.posterDateLine,
+      titleSize: s.posterTitleSize, titleX: s.posterTitleX, titleY: s.posterTitleY,
+      titleAlign: s.posterTitleAlign, titleColor: s.posterTitleColor,
+      bgKey: s.bgKey });
   };
 
   const makeSnapshot = () => {
@@ -2183,6 +2427,7 @@ export default function MediaTool() {
       case "savedates": return { ...common, photo: savesPhoto, savesHeader, savesItems: savesItems.map(x=>({...x})), savesCta, savesOpacity };
       case "vibe":      return { ...common, vibePhotos: [...vibePhotos], vibeHeadline, vibeLabels: [...vibeLabels] };
       case "scene":     return { ...common, bgPhoto: sceneBgPhoto, sceneHero, sceneLeft, sceneRight, sceneTopLabel, sceneTitle, sceneBigText, sceneLeftMeta, sceneRightMeta, sceneInfo, sceneAddress, sceneHalftone, sceneHeroScale, sceneSideScale };
+      case "poster":    return { ...common, photo: posterPhoto, posterOpacity, posterTopLine, posterHosts, posterKicker, posterTitle, posterSubtitle, posterLeftList, posterRightList, posterDressCode, posterDateLine, posterTitleSize, posterTitleX, posterTitleY, posterTitleAlign, posterTitleColor };
       default: return common;
     }
   };
@@ -2255,6 +2500,24 @@ export default function MediaTool() {
         setVibeHeadline(snapshot.vibeHeadline || "");
         if (Array.isArray(snapshot.vibeLabels)) setVibeLabels([...snapshot.vibeLabels]);
         break;
+      case "poster":
+        setPosterPhoto(snapshot.photo);
+        if (typeof snapshot.posterOpacity === "number") setPosterOpacity(snapshot.posterOpacity);
+        setPosterTopLine(snapshot.posterTopLine || "");
+        setPosterHosts(snapshot.posterHosts || "");
+        setPosterKicker(snapshot.posterKicker || "");
+        setPosterTitle(snapshot.posterTitle || "");
+        setPosterSubtitle(snapshot.posterSubtitle || "");
+        setPosterLeftList(snapshot.posterLeftList || "");
+        setPosterRightList(snapshot.posterRightList || "");
+        setPosterDressCode(snapshot.posterDressCode || "");
+        setPosterDateLine(snapshot.posterDateLine || "");
+        if (typeof snapshot.posterTitleSize === "number") setPosterTitleSize(snapshot.posterTitleSize);
+        if (typeof snapshot.posterTitleX === "number")    setPosterTitleX(snapshot.posterTitleX);
+        if (typeof snapshot.posterTitleY === "number")    setPosterTitleY(snapshot.posterTitleY);
+        if (typeof snapshot.posterTitleAlign === "string") setPosterTitleAlign(snapshot.posterTitleAlign);
+        if (typeof snapshot.posterTitleColor === "string") setPosterTitleColor(snapshot.posterTitleColor);
+        break;
       case "scene":
         setSceneBgPhoto(snapshot.bgPhoto);
         setSceneHero(snapshot.sceneHero);
@@ -2282,7 +2545,7 @@ export default function MediaTool() {
   // When adding a new template with a new photo field, append the field
   // name here and the round-trip works automatically.
   const PHOTO_KEYS = [
-    "photo",        // cover / text / cta / features / photoCaption / spotlight / countdown / savedate / savedates
+    "photo",        // cover / text / cta / features / photoCaption / spotlight / countdown / savedate / savedates / poster
     "bgPhoto",      // scene background
     "sceneHero",    // scene center cutout
     "sceneLeft",    // scene left cutout
@@ -2466,6 +2729,7 @@ export default function MediaTool() {
       case "savedate":  return savePhoto;
       case "savedates": return savesPhoto;
       case "scene":     return sceneBgPhoto;
+      case "poster":    return posterPhoto;
       default:          return null;  // list / stat / vibe — no shared bg photo
     }
   };
@@ -3337,6 +3601,129 @@ export default function MediaTool() {
 
               <p style={{fontSize:"0.55rem",color:"rgba(245,240,232,0.4)",lineHeight:1.5,marginTop:"6px"}}>
                 The "designed by hand" trick: big text renders <strong>behind</strong> the cutouts so they overlap part of it. The viewer's brain fills in the gap — the partial obscuration adds depth instead of breaking it. Works for parties, mixers, festivals, watch parties, brunches (food cutouts), markets (product cutouts) — content-agnostic.
+              </p>
+            </>}
+
+            {/* POSTER — magazine-style flyer template. Photo background,
+                massive stacked title, two-column offerings list. Title
+                controls (size/X/Y/align/color) live up front so the user
+                can dodge background features or push the title flush-left
+                for editorial vibes. Works for fitness/wellness events,
+                parties, mixers, vendor pop-ups — anything that benefits
+                from a photo+huge-title layout. */}
+            {mode==="poster"&&<>
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Background Photo</label>
+                <div style={{display:"flex",gap:"0.3rem",alignItems:"center"}}>
+                  <button onClick={()=>posterFileRef.current?.click()} style={{...B,flex:1}}>{posterPhoto?"✓ Photo loaded — change":"Upload Photo"}</button>
+                  <button onClick={()=>openLibrary("poster")} style={{...B,padding:"5px 10px"}} title="Pick a photo from the library">📚</button>
+                  {posterPhoto&&<button onClick={()=>setPosterPhoto(null)} style={{...B,color:"rgba(251,113,133,0.5)"}}>×</button>}
+                  <input ref={posterFileRef} type="file" accept="image/*" onChange={handlePosterPhoto} style={{display:"none"}}/>
+                </div>
+                {posterPhoto&&<div style={{marginTop:"6px"}}>
+                  <div style={{fontSize:"0.5rem",color:"rgba(245,240,232,0.45)",letterSpacing:"1px",textTransform:"uppercase",marginBottom:"3px"}}>
+                    Darken · {Math.round(posterOpacity*100)}%
+                  </div>
+                  <input type="range" min="0" max="0.7" step="0.01" value={posterOpacity} onChange={e=>setPosterOpacity(parseFloat(e.target.value))} style={{width:"100%",accentColor:accent}}/>
+                </div>}
+              </div>
+
+              <div style={{fontSize:"0.55rem",color:"rgba(245,240,232,0.45)",letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:"6px",fontWeight:700,marginTop:"4px"}}>1 · Title controls (the big stacked text)</div>
+
+              <div style={{marginBottom:"0.5rem"}}><label style={L}>Title (one word per line for the stacked look)</label>
+                <textarea value={posterTitle} onChange={e=>setPosterTitle(e.target.value)} style={{...I,height:80,resize:"vertical",fontFamily:"'Syne'"}} placeholder={"PILATES\nON THE\nPIER"}/>
+              </div>
+
+              {/* Title color — preset chips from the brand palette + custom hex */}
+              <div style={{marginBottom:"0.5rem"}}>
+                <div style={{display:"flex",alignItems:"center",gap:"6px",marginBottom:"4px"}}>
+                  <label style={{...L,marginBottom:0}}>Title color</label>
+                  <span style={{fontSize:"0.55rem",color:"rgba(245,240,232,0.4)",letterSpacing:"1px"}}>· brand presets or custom hex</span>
+                </div>
+                <div style={{display:"flex",gap:"4px",flexWrap:"wrap",alignItems:"center"}}>
+                  {[
+                    {hex:"#FB7185",name:"Wine"},
+                    {hex:"#FACC15",name:"Yellow"},
+                    {hex:"#C084FC",name:"Purple"},
+                    {hex:"#34D399",name:"Emerald"},
+                    {hex:"#FBBF24",name:"Gold"},
+                    {hex:"#FFFFFF",name:"White"},
+                    {hex:"#0a0a0a",name:"Black"},
+                  ].map(c=>(
+                    <button key={c.hex} onClick={()=>setPosterTitleColor(c.hex)} title={c.name}
+                      style={{width:30,height:30,borderRadius:"5px",cursor:"pointer",background:c.hex,border:posterTitleColor===c.hex?"2px solid #FFF":"2px solid transparent",boxShadow:posterTitleColor===c.hex?"0 0 6px rgba(255,255,255,0.3)":"none"}}/>
+                  ))}
+                  <input
+                    type="text"
+                    value={posterTitleColor}
+                    onChange={e=>setPosterTitleColor(e.target.value)}
+                    style={{...I,width:90,padding:"4px 6px",fontSize:"0.6rem",fontFamily:"ui-monospace, Menlo, monospace"}}
+                    placeholder="#RRGGBB"
+                    title="Custom hex color"
+                  />
+                </div>
+              </div>
+
+              {/* Align buttons (L/C/R) */}
+              <div style={{marginBottom:"0.5rem"}}>
+                <label style={L}>Title alignment</label>
+                <div style={{display:"flex",gap:"4px"}}>
+                  {[["left","← Left"],["center","Center"],["right","Right →"]].map(([k,lbl])=>(
+                    <button key={k} onClick={()=>setPosterTitleAlign(k)}
+                      style={{flex:1,padding:"6px 8px",borderRadius:"4px",border:posterTitleAlign===k?"2px solid "+accent:"2px solid rgba(245,240,232,0.1)",background:posterTitleAlign===k?accent+"22":"transparent",color:posterTitleAlign===k?accent:"rgba(245,240,232,0.5)",fontSize:"0.6rem",fontWeight:700,letterSpacing:"1px",textTransform:"uppercase",cursor:"pointer",fontFamily:"'Syne'"}}
+                    >{lbl}</button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Sliders: size + X + Y */}
+              <div style={{marginBottom:"0.6rem"}}>
+                <label style={L}>Title size · {Math.round(posterTitleSize*100)}%</label>
+                <input type="range" min="0.4" max="2.0" step="0.02" value={posterTitleSize} onChange={e=>setPosterTitleSize(parseFloat(e.target.value))} style={{width:"100%",accentColor:accent}}/>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0.5rem",marginBottom:"0.6rem"}}>
+                <div>
+                  <label style={L}>Title X · {posterTitleX > 0 ? "+" : ""}{posterTitleX}px</label>
+                  <input type="range" min="-300" max="300" step="2" value={posterTitleX} onChange={e=>setPosterTitleX(parseInt(e.target.value,10))} style={{width:"100%",accentColor:accent}}/>
+                </div>
+                <div>
+                  <label style={L}>Title Y · {posterTitleY > 0 ? "+" : ""}{posterTitleY}px</label>
+                  <input type="range" min="-300" max="300" step="2" value={posterTitleY} onChange={e=>setPosterTitleY(parseInt(e.target.value,10))} style={{width:"100%",accentColor:accent}}/>
+                </div>
+              </div>
+              <button onClick={()=>{setPosterTitleSize(1.0);setPosterTitleX(0);setPosterTitleY(0);setPosterTitleAlign("center");}} style={{...B,padding:"4px 10px",fontSize:"0.55rem",marginBottom:"10px"}}>↺ Reset title position + size</button>
+
+              <div style={{fontSize:"0.55rem",color:"rgba(245,240,232,0.45)",letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:"6px",fontWeight:700,marginTop:"4px"}}>2 · Surrounding text</div>
+
+              <div style={{marginBottom:"0.5rem"}}><label style={L}>Top line (location · mono caps)</label>
+                <input value={posterTopLine} onChange={e=>setPosterTopLine(e.target.value)} style={I} placeholder="PIER A PARK — HOBOKEN, NJ"/>
+              </div>
+              <div style={{marginBottom:"0.5rem"}}><label style={L}>Hosts (first line italic, rest caps · accent colored)</label>
+                <textarea value={posterHosts} onChange={e=>setPosterHosts(e.target.value)} style={{...I,height:50,resize:"vertical"}} placeholder={"jela &\nLIVE HIGHER"}/>
+              </div>
+              <div style={{marginBottom:"0.5rem"}}><label style={L}>Kicker (italic subhead above title)</label>
+                <input value={posterKicker} onChange={e=>setPosterKicker(e.target.value)} style={I} placeholder="wellness morning edition"/>
+              </div>
+              <div style={{marginBottom:"0.5rem"}}><label style={L}>Subtitle (italic, below title)</label>
+                <input value={posterSubtitle} onChange={e=>setPosterSubtitle(e.target.value)} style={I} placeholder="girls only."/>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0.5rem",marginBottom:"0.5rem"}}>
+                <div><label style={L}>Left list (accent · one item per line)</label>
+                  <textarea value={posterLeftList} onChange={e=>setPosterLeftList(e.target.value)} style={{...I,height:120,resize:"vertical"}} placeholder={"LIVE DJ\nREFRESHMENTS"}/></div>
+                <div><label style={L}>Right list (accent · one item per line)</label>
+                  <textarea value={posterRightList} onChange={e=>setPosterRightList(e.target.value)} style={{...I,height:120,resize:"vertical"}} placeholder={"MASSAGES\nICE BATHS"}/></div>
+              </div>
+              <div style={{marginBottom:"0.5rem"}}><label style={L}>Dress code / tagline (italic, above date)</label>
+                <input value={posterDressCode} onChange={e=>setPosterDressCode(e.target.value)} style={I} placeholder="wear pink / orange / red!"/>
+              </div>
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Date line (mono caps, very bottom)</label>
+                <input value={posterDateLine} onChange={e=>setPosterDateLine(e.target.value)} style={I} placeholder="JUNE 20: 9:00 AM – 12:00 PM"/>
+              </div>
+
+              {!posterPhoto&&<div style={{marginBottom:"0.6rem"}}><label style={L}>Background Color (no photo)</label><div style={{display:"flex",gap:"3px",flexWrap:"wrap"}}>
+                {Object.entries(BG_COLORS).map(([k,v])=><button key={k} onClick={()=>setBgKey(k)} style={{width:28,height:28,borderRadius:"5px",cursor:"pointer",background:v.hex,border:bgKey===k?"2px solid #FFF":"2px solid transparent",boxShadow:bgKey===k?"0 0 6px rgba(255,255,255,0.3)":"none"}} title={v.name}/>)}</div></div>}
+
+              <p style={{fontSize:"0.55rem",color:"rgba(245,240,232,0.4)",lineHeight:1.5,marginTop:"6px"}}>
+                Title color, accent (hosts + lists), and bg color are all changeable — defaults land on the CGE wine accent so the first render is on-brand. Push the title around with the X/Y sliders if it lands on a building, a face, or a sign in your photo. The mono top-line and bottom date use the system mono font (Menlo / Courier) for an editorial feel.
               </p>
             </>}
 
