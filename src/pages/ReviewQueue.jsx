@@ -945,11 +945,19 @@ export default function ReviewQueue() {
                     <span className="cge-row-day" style={{ fontFamily: "'Syne', sans-serif", fontSize: "0.8rem", fontWeight: 700, color: "#E5BC4F", letterSpacing: "1px" }}>
                       {DAYFUL[ev.day]?.slice(0, 3) || "?"}
                     </span>
-                    <div className="cge-row-info">
-                      <div style={{ fontSize: "0.85rem", fontWeight: 700, marginBottom: "2px" }}>
+                    {/* minWidth: 0 lets this 1fr grid cell actually shrink
+                        below its content's intrinsic width — without it,
+                        a long event name (e.g. a tagged "WORLD CUP OPENING
+                        NIGHT GIANTS VS BRAZIL …" pulled to the top by the
+                        sort) blows the row past the viewport and the whole
+                        page scrolls sideways. overflowWrap on the children
+                        lets long names + IG handles wrap onto a second
+                        line instead of forcing horizontal overflow. */}
+                    <div className="cge-row-info" style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: "0.85rem", fontWeight: 700, marginBottom: "2px", overflowWrap: "anywhere", wordBreak: "break-word" }}>
                         {getEmoji(ev.type)} {ev.name || <em style={{ color: "#FB7185" }}>(no name)</em>}
                       </div>
-                      <div style={{ fontSize: "0.65rem", color: "rgba(245,240,232,0.55)" }}>
+                      <div style={{ fontSize: "0.65rem", color: "rgba(245,240,232,0.55)", overflowWrap: "anywhere", wordBreak: "break-word" }}>
                         {[ev.venue, ev.area, ev.time].filter(Boolean).join(" · ") || <em>no details</em>}
                         {ev.igHandle && <span style={{ marginLeft: "8px", color: "#C084FC", fontWeight: 600 }}>@{ev.igHandle}</span>}
                       </div>

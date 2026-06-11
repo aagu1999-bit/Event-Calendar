@@ -20,6 +20,11 @@ body {
   background: #0a0a0a;
   color: #F5F0E8;
   min-height: 100vh;
+  /* Safety net: a single rogue child with overflow (long event name, long
+     URL, long IG handle) shouldn't be able to make the whole page scroll
+     sideways. The specific fix lives on each row's info cell (minWidth:0
+     + overflowWrap), this is the belt to those suspenders. */
+  overflow-x: hidden;
 }
 
 #root {
