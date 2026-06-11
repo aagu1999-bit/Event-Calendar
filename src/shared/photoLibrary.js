@@ -249,6 +249,10 @@ export async function saveExport(blob, opts = {}) {
     kind: kindOverride,
     snapshot = null,
     nowMs = Date.now(),
+    // Optional pre-generated id. Used by Media/Flyer/Calendar so the PNG
+    // tEXt tag and the cloud record share the same id and the file can
+    // be looked up later via the embedded tag.
+    id: providedId,
   } = opts;
   if (!blob || !(blob instanceof Blob)) throw new Error("saveExport requires a Blob");
   const mime = blob.type || "application/octet-stream";
@@ -262,7 +266,7 @@ export async function saveExport(blob, opts = {}) {
       console.warn("Export thumb failed:", e);
     }
   }
-  const id = makeId("e");
+  const id = providedId || makeId("e");
   const meta = {
     id,
     mime,

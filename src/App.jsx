@@ -1,5 +1,6 @@
 import { useRef, useState, useEffect } from "react";
-import { BrowserRouter, Routes, Route, NavLink, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, NavLink, Navigate, useNavigate } from "react-router-dom";
+import JSZip from "jszip";
 import CalendarBuilder from "./pages/CalendarBuilder.jsx";
 import NewsletterBuilder from "./pages/NewsletterBuilder.jsx";
 import ReelTool from "./pages/ReelTool.jsx";
@@ -12,7 +13,9 @@ import { useEventsStore } from "./store";
 import { exportWorkspace, previewWorkspace, importWorkspace, workspaceFilename } from "./shared/workspaceSync.js";
 import { checkCloudAvailable, cloudSave, cloudLoad } from "./shared/cloudSync.js";
 import { CloudWorkspaceModal } from "./shared/CloudWorkspaceModal.jsx";
-import { saveExport } from "./shared/photoLibrary.js";
+import { saveExport, loadExportRecord, savePhotoAndNotify } from "./shared/photoLibrary.js";
+import { readCgeExportTag } from "./shared/pngMetadata.js";
+import { useRestoreStore } from "./store";
 
 // Wrap a CSV cell — quote if it contains a comma, quote, or newline.
 const csvCell = (v) => {
@@ -76,7 +79,11 @@ function Nav() {
   const eventCount = events.length;
   const clear = useEventsStore(s => s.clearEvents);
   const wsFileRef = useRef(null);
+  const importFileRef = useRef(null);
   const [wsBusy, setWsBusy] = useState(false);
+  const [importBusy, setImportBusy] = useState(false);
+  const setPending = useRestoreStore(s => s.setPending);
+  const navigate = useNavigate();
   // Cloud sync is only available when running through `npm run dev` (Node
   // + Vite middleware). In the static deployed build there's no Express
   // server, so we probe /api/health on boot and only show the cloud
@@ -211,6 +218,83 @@ function Nav() {
     className: "cge-nav-link",
   };
 
+  // === IMPORT FROM DISK ===
+  // Reads a PNG (tEXt cgeExport tag) or ZIP (.cgeexport sidecar), looks
+  // the id up in the cloud exports library, and routes the user to the
+  // right tool with the snapshot restored via useRestoreStore. Same
+  // pipeline as the ✎ Edit-in-tool button on saved library exports.
+  //
+  // Files without a tag (third-party PNGs, pre-tagging exports) get
+  // offered as photo-library uploads instead — still useful as
+  // background images even when the editable state is gone.
+  const TOOL_ROUTE = { media: "/media", flyer: "/flyer", calendar: "/calendar" };
+
+  const onImportFromDisk = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    if (importBusy) return;
+    setImportBusy(true);
+    try {
+      const name = (file.name || "").toLowerCase();
+      let tag = null;
+
+      if (name.endsWith(".png") || file.type === "image/png") {
+        tag = await readCgeExportTag(file);
+      } else if (name.endsWith(".zip") || file.type === "application/zip") {
+        // Parse zip, look for .cgeexport sidecar with id + tool + mode.
+        try {
+          const zip = await JSZip.loadAsync(file);
+          const sidecar = zip.file(".cgeexport");
+          if (sidecar) {
+            const json = JSON.parse(await sidecar.async("string"));
+            if (json?.id) tag = { id: json.id, tool: json.tool, mode: json.mode };
+          }
+        } catch { /* not a readable zip — fall through to "unidentified" */ }
+      }
+
+      if (!tag) {
+        // Untagged. If it's an image, offer the photo library as a Plan B.
+        if (file.type && file.type.startsWith("image/")) {
+          if (confirm(
+            `"${file.name}" doesn't carry a CGE export tag — can't auto-restore the editor state.\n\n` +
+            `Save it to the Photo Library so it's available as a background image in the tools?`
+          )) {
+            await savePhotoAndNotify(file, { sourceTool: "import", sourceMode: "untagged" });
+            alert("Saved to Photo Library.");
+          }
+        } else {
+          alert(`"${file.name}" doesn't carry a CGE export tag. Only PNGs and ZIPs exported from CGE Tools after this update can be re-imported.`);
+        }
+        return;
+      }
+
+      // We have a tag. Look up the cloud record for the snapshot.
+      const rec = await loadExportRecord(tag.id).catch(() => null);
+      if (!rec || !rec.snapshot) {
+        alert(
+          `Found a CGE tag (${tag.tool || "unknown tool"}) but the source export is no longer in the cloud library — ` +
+          `it was probably deleted from Recap → Library → Exports. The file's editable state is gone.`
+        );
+        return;
+      }
+
+      const route = TOOL_ROUTE[tag.tool];
+      if (!route) {
+        alert(`Got a tagged file for tool "${tag.tool}" but no editor matches that tool. (Reels aren't re-importable yet.)`);
+        return;
+      }
+
+      setPending({ tool: tag.tool, snapshot: rec.snapshot });
+      navigate(route);
+    } catch (err) {
+      console.error(err);
+      alert("Import failed: " + (err.message || err));
+    } finally {
+      setImportBusy(false);
+    }
+  };
+
   return (
     // Fragment so the CloudWorkspaceModal can render as a sibling of <nav>.
     // <nav> is position:sticky + zIndex:100, which creates a stacking
@@ -342,6 +426,35 @@ function Nav() {
         onChange={onImportWorkspace}
         style={{ display: "none" }}
       />
+      {/* Import-from-disk — works any time, even with 0 events. Picks a
+          PNG (tEXt cgeExport tag) or ZIP (.cgeexport sidecar) and routes
+          back into the right tool. */}
+      <input
+        ref={importFileRef}
+        type="file"
+        accept=".png,.zip,image/png,application/zip"
+        onChange={onImportFromDisk}
+        style={{ display: "none" }}
+      />
+      <button
+        onClick={() => importFileRef.current?.click()}
+        disabled={importBusy}
+        title="Import a PNG or ZIP previously exported from CGE Tools — restores the editable state in the right tool"
+        style={{
+          padding: "4px 10px",
+          background: "rgba(99,179,237,0.10)",
+          border: "1px solid rgba(99,179,237,0.3)",
+          borderRadius: "4px",
+          color: "#63B3ED",
+          fontSize: "0.6rem",
+          letterSpacing: "1px",
+          textTransform: "uppercase",
+          cursor: importBusy ? "wait" : "pointer",
+          fontFamily: "inherit",
+        }}
+      >
+        {importBusy ? "Reading…" : "📥 Import"}
+      </button>
       {eventCount > 0 && (
         <>
           <button

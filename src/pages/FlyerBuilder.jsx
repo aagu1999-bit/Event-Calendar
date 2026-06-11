@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { toPng } from "html-to-image";
 import { useEventsStore, useRestoreStore } from "../store";
 import { savePhotoAndNotify, saveExport } from "../shared/photoLibrary.js";
+import { tagPngWithCgeExport } from "../shared/pngMetadata.js";
 import { PhotoLibraryModal } from "../shared/PhotoLibraryModal.jsx";
 import { ExportLibraryModal } from "../shared/ExportLibraryModal.jsx";
 
@@ -1614,17 +1615,28 @@ export default function FlyerBuilder() {
         backgroundColor: undefined,  // preserve template's own bg
       });
       const filename = `CGE_${template}_${Date.now()}.png`;
+      // Pre-generate id, tag the PNG, then download the TAGGED blob (so the
+      // user's local copy is the version that can be re-imported). The
+      // tag is invisible to image viewers but readable on import.
+      const exportId = (typeof crypto !== "undefined" && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : `e_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+      let blob = await (await fetch(dataUrl)).blob();
+      try {
+        blob = await tagPngWithCgeExport(blob, { id: exportId, tool: "flyer", mode: template || "" });
+      } catch (err) {
+        console.warn("PNG tag failed (falling back to untagged):", err);
+      }
+      const blobUrl = URL.createObjectURL(blob);
       const a = document.createElement("a");
-      a.href = dataUrl;
+      a.href = blobUrl;
       a.download = filename;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      // Archive a copy to the export library so the user can re-download it
-      // without re-rendering. dataUrl → Blob via fetch keeps it simple.
+      URL.revokeObjectURL(blobUrl);
       try {
-        const blob = await (await fetch(dataUrl)).blob();
-        await saveExport(blob, { sourceTool: "flyer", sourceMode: template || "", name: filename, snapshot: makeFlyerSnapshot() });
+        await saveExport(blob, { id: exportId, sourceTool: "flyer", sourceMode: template || "", name: filename, snapshot: makeFlyerSnapshot() });
       } catch (err) {
         console.warn("Export archive failed:", err);
       }

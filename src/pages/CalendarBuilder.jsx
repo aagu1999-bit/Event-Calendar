@@ -4,6 +4,7 @@ import { useEventsStore, useRestoreStore } from "../store";
 import { EMOJI_MAP, getEmoji as getEmojiShared, parseRegion as parseRegionShared, normalizeHandle } from "../shared/parseEvents";
 import { UInput, UTextarea, todaysFridayMD } from "../shared/inputs.jsx";
 import { savePhotoAndNotify, saveExport } from "../shared/photoLibrary.js";
+import { tagPngWithCgeExport } from "../shared/pngMetadata.js";
 import { PhotoLibraryModal } from "../shared/PhotoLibraryModal.jsx";
 import { ExportLibraryModal } from "../shared/ExportLibraryModal.jsx";
 
@@ -1474,8 +1475,21 @@ export default function CalendarBuilder() {
       const dayColor = dayColors[pd.day] || "purple";
       renderCal(cv, pd.events, { colorKey: dayColor, friDate, size: SIZES[sz], pageIdx: pi, totalPages: pages, dates, texture, watermark, isContinuation: pd.isContinuation });
     }
-    cv.toBlob((blob) => {
-      const url = URL.createObjectURL(blob);
+    cv.toBlob(async (blob) => {
+      // Pre-generate id + tag the PNG so the downloaded copy carries
+      // its identity. Re-import via the top-nav Import button → routed
+      // back into Calendar with all events restored.
+      const exportId = (typeof crypto !== "undefined" && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : `e_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+      const sm = mode === "preview" ? "preview" : "slide";
+      let tagged = blob;
+      try {
+        tagged = await tagPngWithCgeExport(blob, { id: exportId, tool: "calendar", mode: sm });
+      } catch (err) {
+        console.warn("PNG tag failed (falling back to untagged):", err);
+      }
+      const url = URL.createObjectURL(tagged);
       const a = document.createElement("a");
       const prefix = mode === "preview" ? "CGE_Preview" : "CGE";
       const filename = `${prefix}_${pd.day}_${friDate.replace("/", "-")}_P${pi + 1}.png`;
@@ -1485,13 +1499,22 @@ export default function CalendarBuilder() {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      saveExport(blob, { sourceTool: "calendar", sourceMode: mode === "preview" ? "preview" : "slide", name: filename, snapshot: makeCalendarSnapshot() })
+      saveExport(tagged, { id: exportId, sourceTool: "calendar", sourceMode: sm, name: filename, snapshot: makeCalendarSnapshot() })
         .catch(err => console.warn("Export archive failed:", err));
     }, "image/png");
   };
 
   const dlAll = async () => {
     const files = [];
+    // Pre-generate the zip's export id and add a `.cgeexport` sidecar so
+    // the imported zip can be identified even if renamed.
+    const zipExportId = (typeof crypto !== "undefined" && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : `e_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    files.push({
+      name: ".cgeexport",
+      blob: new Blob([JSON.stringify({ id: zipExportId, tool: "calendar", mode: "weekend-zip" })], { type: "application/json" }),
+    });
     for (let i = 0; i < pages; i++) {
       const cv = document.createElement("canvas");
       const pd = allPages[i];
@@ -1502,7 +1525,12 @@ export default function CalendarBuilder() {
         const dayColor = dayColors[pd.day] || "purple";
         renderCal(cv, pd.events, { colorKey: dayColor, friDate, size: SIZES[sz], pageIdx: i, totalPages: pages, dates, texture, watermark, isContinuation: pd.isContinuation });
       }
-      const blob = await new Promise(res => cv.toBlob(res, "image/png"));
+      let blob = await new Promise(res => cv.toBlob(res, "image/png"));
+      // Tag each individual slide too — that way a single PNG pulled
+      // out of the zip is also re-importable on its own.
+      try {
+        blob = await tagPngWithCgeExport(blob, { id: zipExportId, tool: "calendar", mode: "weekend-zip-slide" });
+      } catch { /* skip — untagged is fine */ }
       const prefix = mode === "preview" ? "CGE_Preview" : "CGE";
       files.push({ name: `${prefix}_${pd.day}_${friDate.replace("/", "-")}_P${i + 1}.png`, blob });
     }
@@ -1532,7 +1560,7 @@ export default function CalendarBuilder() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    saveExport(zipBlob, { sourceTool: "calendar", sourceMode: "weekend-zip", name: zipName, kind: "archive", snapshot: makeCalendarSnapshot() })
+    saveExport(zipBlob, { id: zipExportId, sourceTool: "calendar", sourceMode: "weekend-zip", name: zipName, kind: "archive", snapshot: makeCalendarSnapshot() })
       .catch(err => console.warn("Export archive failed:", err));
   };
 
