@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { listPhotos, loadPhotoBlob, loadPhotoAsImage, loadPhotoAsDataUrl, deletePhotoAndNotify, onLibraryChange, usageBytes } from "./photoLibrary.js";
+import { listPhotos, loadPhotoBlob, loadPhotoAsImage, loadPhotoAsDataUrl, deletePhotoAndNotify, onLibraryChange, usageBytes, countLegacyLibrary, migrateLegacyToCloud } from "./photoLibrary.js";
 
 const TOOLS = [
   { key: "",         label: "All" },
@@ -31,6 +31,12 @@ export function PhotoLibraryModal({ open, onClose, onPick, outputAs = "image", i
   const [filter, setFilter] = useState(initialFilter);
   const [total, setTotal] = useState(0);
   const [busy, setBusy] = useState(false);
+  // Legacy migration UX — see the bottom of photoLibrary.js. We check on
+  // open and offer to upload anything sitting in the per-browser IndexedDB
+  // to the cloud library so the user doesn't lose pre-cloud uploads.
+  const [legacy, setLegacy] = useState({ photos: 0, exports: 0 });
+  const [migrateProgress, setMigrateProgress] = useState(null); // null | {done, total}
+  const [migrateBusy, setMigrateBusy] = useState(false);
 
   // Re-query on open, on filter change, and whenever the library changes
   // (a parallel save from another tab / a delete from the grid).
@@ -58,12 +64,44 @@ export function PhotoLibraryModal({ open, onClose, onPick, outputAs = "image", i
     };
     reload();
     const off = onLibraryChange(reload);
+    // Probe the legacy IndexedDB whenever the modal opens. Cheap
+    // (just counts) and answers in <50ms even on a large library.
+    countLegacyLibrary().then(c => { if (live) setLegacy(c); });
     return () => {
       live = false;
       off();
       revokeOnUnmount.forEach(u => URL.revokeObjectURL(u));
     };
   }, [open, filter]);
+
+  const runMigration = async () => {
+    if (migrateBusy) return;
+    const total = legacy.photos + legacy.exports;
+    if (!confirm(
+      `Upload ${legacy.photos} photo${legacy.photos === 1 ? "" : "s"} + ` +
+      `${legacy.exports} export${legacy.exports === 1 ? "" : "s"} from this browser's local cache to the cloud library?\n\n` +
+      `After upload, the local cache will be cleared (the cloud is now the source of truth). ` +
+      `Other browsers / accounts on the Repl URL will see these photos too.`
+    )) return;
+    setMigrateBusy(true);
+    setMigrateProgress({ done: 0, total });
+    try {
+      const result = await migrateLegacyToCloud({
+        onProgress: (p) => setMigrateProgress({ done: p.done, total: p.total }),
+        clearAfter: true,
+      });
+      alert(
+        `Migrated ${result.migrated} of ${result.total} item${result.total === 1 ? "" : "s"}.` +
+        (result.errors > 0 ? `\n\n${result.errors} item${result.errors === 1 ? "" : "s"} failed (see console).` : "")
+      );
+      setLegacy({ photos: 0, exports: 0 });
+    } catch (e) {
+      alert("Migration failed: " + (e.message || e));
+    } finally {
+      setMigrateBusy(false);
+      setMigrateProgress(null);
+    }
+  };
 
   const pick = async (id) => {
     if (busy) return;
@@ -158,6 +196,42 @@ export function PhotoLibraryModal({ open, onClose, onPick, outputAs = "image", i
             }}
           >Close</button>
         </div>
+
+        {/* Legacy migration banner — only when the per-browser IndexedDB
+            still has unmigrated records. Disappears after the user clicks
+            Migrate (or after a fresh-from-clouds visit on a new browser). */}
+        {(legacy.photos + legacy.exports) > 0 && (
+          <div style={{
+            padding: "10px 18px",
+            background: "rgba(192,132,252,0.08)",
+            borderBottom: "1px solid rgba(192,132,252,0.18)",
+            display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap",
+          }}>
+            <div style={{ flex: 1, fontSize: "0.7rem", color: "rgba(245,240,232,0.8)", lineHeight: 1.4 }}>
+              <strong style={{ color: "#C084FC", letterSpacing: "1px", textTransform: "uppercase", fontSize: "0.6rem" }}>
+                Legacy local cache
+              </strong>{" "}
+              · {legacy.photos} photo{legacy.photos === 1 ? "" : "s"} + {legacy.exports} export{legacy.exports === 1 ? "" : "s"} are sitting only in <em>this browser's</em> IndexedDB. Upload them to the cloud so every account on the Repl URL can see them.
+              {migrateProgress && (
+                <div style={{ fontSize: "0.6rem", color: "#C084FC", marginTop: "4px" }}>
+                  Migrating · {migrateProgress.done} / {migrateProgress.total}
+                </div>
+              )}
+            </div>
+            <button
+              onClick={runMigration}
+              disabled={migrateBusy}
+              style={{
+                padding: "6px 14px", borderRadius: "4px",
+                background: "rgba(192,132,252,0.18)", color: "#C084FC",
+                border: "1px solid rgba(192,132,252,0.5)",
+                fontSize: "0.65rem", fontWeight: 700, letterSpacing: "1.5px",
+                textTransform: "uppercase", cursor: migrateBusy ? "wait" : "pointer",
+                fontFamily: "'Syne', sans-serif",
+              }}
+            >{migrateBusy ? "Uploading…" : "📤 Migrate → Cloud"}</button>
+          </div>
+        )}
 
         {/* Grid */}
         <div style={{ flex: 1, overflowY: "auto", padding: "14px 18px" }}>
