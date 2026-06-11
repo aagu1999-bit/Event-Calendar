@@ -3,6 +3,7 @@ import JSZip from "jszip";
 import { useEventsStore, useRestoreStore } from "../store";
 import { generateCaptions } from "../shared/gemini";
 import { savePhotoAndNotify, saveExport } from "../shared/photoLibrary.js";
+import { tagPngWithCgeExport } from "../shared/pngMetadata.js";
 import { PhotoLibraryModal } from "../shared/PhotoLibraryModal.jsx";
 
 const COLORS = {
@@ -2201,17 +2202,35 @@ export default function MediaTool() {
     else if(mode==="scene") renderScene(cv,{bgPhoto:sceneBgPhoto,sceneHero,sceneLeft,sceneRight,sceneTopLabel,sceneTitle,sceneBigText,sceneLeftMeta,sceneRightMeta,sceneInfo,sceneAddress,sceneHalftone,sceneHeroScale,sceneSideScale,accent,bgKey,dots,totalDots});
     else if(mode==="poster") renderPoster(cv,{photo:posterPhoto,opacity:posterOpacity,topLine:posterTopLine,hosts:posterHosts,kicker:posterKicker,title:posterTitle,subtitle:posterSubtitle,leftList:posterLeftList,rightList:posterRightList,dressCode:posterDressCode,dateLine:posterDateLine,titleSize:posterTitleSize,titleX:posterTitleX,titleY:posterTitleY,titleAlign:posterTitleAlign,titleColor:posterTitleColor,accent,bgKey,dots,totalDots});
     const exportCv = wrapForExport(cv, exportRatio, getModePrimaryPhoto());
-    exportCv.toBlob(blob=>{
-      const url=URL.createObjectURL(blob);
-      const a=document.createElement("a");
-      const filename=`CGE_${mode}_slide_${exportRatio.replace(":","x")}.png`;
-      a.download=filename;
-      a.href=url;
-      document.body.appendChild(a);a.click();document.body.removeChild(a);
+    exportCv.toBlob(async (blob) => {
+      // Pre-generate the export id so the PNG tag and the cloud record
+      // share it. Tag the blob FIRST so the downloaded file is the tagged
+      // version (otherwise the user's local copy is plain-untagged and the
+      // re-import feature wouldn't work).
+      const exportId = (typeof crypto !== "undefined" && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : `e_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+      let tagged = blob;
+      try {
+        tagged = await tagPngWithCgeExport(blob, { id: exportId, tool: "media", mode });
+      } catch (err) {
+        console.warn("PNG tag failed (falling back to untagged):", err);
+      }
+      const filename = `CGE_${mode}_slide_${exportRatio.replace(":", "x")}.png`;
+      const url = URL.createObjectURL(tagged);
+      const a = document.createElement("a");
+      a.download = filename;
+      a.href = url;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      saveExport(blob, { sourceTool: "media", sourceMode: `${mode}-${exportRatio}`, name: filename, snapshot: makeMediaExportSnapshot("single") })
-        .catch(err => console.warn("Export archive failed:", err));
-    },"image/png");
+      saveExport(tagged, {
+        id: exportId,
+        sourceTool: "media",
+        sourceMode: `${mode}-${exportRatio}`,
+        name: filename,
+        snapshot: makeMediaExportSnapshot("single"),
+      }).catch(err => console.warn("Export archive failed:", err));
+    }, "image/png");
   };
 
   // === SAVE DRAFT ===
@@ -2843,6 +2862,15 @@ export default function MediaTool() {
         const blob = await new Promise(r => exportCv.toBlob(r, "image/png"));
         zip.file(`CGE_carousel_${String(i+1).padStart(2,"0")}_${s.type}_${exportRatio.replace(":","x")}.png`, blob);
       }
+      // Pre-generate the export id and drop a tiny `.cgeexport` sidecar
+      // file inside the zip so re-importing the zip lets us identify it
+      // even if it gets renamed. The sidecar's contents are JSON with
+      // the id + tool + mode — same data the PNG tEXt tag carries for
+      // single-slide exports.
+      const exportId = (typeof crypto !== "undefined" && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : `e_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+      zip.file(".cgeexport", JSON.stringify({ id: exportId, tool: "media", mode: "carousel" }));
       const zipBlob = await zip.generateAsync({ type: "blob" });
       const url = URL.createObjectURL(zipBlob);
       const a = document.createElement("a");
@@ -2850,7 +2878,7 @@ export default function MediaTool() {
       a.href = url; a.download = zipName;
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      saveExport(zipBlob, { sourceTool: "media", sourceMode: `carousel-${exportRatio}`, name: zipName, kind: "archive", snapshot: makeMediaExportSnapshot("carousel") })
+      saveExport(zipBlob, { id: exportId, sourceTool: "media", sourceMode: `carousel-${exportRatio}`, name: zipName, kind: "archive", snapshot: makeMediaExportSnapshot("carousel") })
         .catch(err => console.warn("Export archive failed:", err));
     } catch (err) {
       console.error(err); alert("Export failed — see console");
