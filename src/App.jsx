@@ -19,12 +19,34 @@ const csvCell = (v) => {
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 
+// Derive a single user-facing URL per event:
+//   - if the user typed an explicit ticket/event link, use that
+//   - otherwise fall back to instagram.com/<igHandle> when an IG handle exists
+//   - else blank
+// Lets a CSV consumer (downstream tool, partner spreadsheet, etc.) have ONE
+// column to point a click at, instead of having to glue link + igHandle together
+// every time.
+function deriveDisplayUrl(ev) {
+  const link = (ev.link || "").trim();
+  if (link) return link;
+  const ig = (ev.igHandle || "").trim().replace(/^@+/, "");
+  if (ig) return `https://instagram.com/${ig}`;
+  return "";
+}
+
 function exportEventsCsv(events) {
   if (!events.length) return;
-  const cols = ["day", "time", "name", "venue", "area", "region", "type", "link", "igHandle", "featured", "emoji"];
+  // `date` (M/D) and `displayUrl` are first-class columns now — older
+  // exports were dropping the calendar date entirely (only day-of-week
+  // survived) and forcing the user to reassemble a clickable URL from
+  // `link` + `igHandle` themselves.
+  const cols = ["date", "day", "time", "name", "venue", "area", "region", "type", "link", "igHandle", "displayUrl", "featured", "emoji"];
   const lines = [cols.join(",")];
   for (const ev of events) {
-    lines.push(cols.map(c => csvCell(ev[c])).join(","));
+    lines.push(cols.map(c => {
+      const v = c === "displayUrl" ? deriveDisplayUrl(ev) : ev[c];
+      return csvCell(v);
+    }).join(","));
   }
   const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
