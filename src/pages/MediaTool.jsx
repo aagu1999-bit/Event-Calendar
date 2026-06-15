@@ -148,7 +148,11 @@ function renderCover(canvas, cfg) {
   const wrap=(f)=>{ ctx.font=ff(`800 ${f}px 'Syne',sans-serif`); const r=[]; let cl=[],cw=0; const sw=ctx.measureText(" ").width;
     for(let i=0;i<words.length;i++){const t=words[i].toUpperCase(),ww=ctx.measureText(t).width;if(cl.length>0&&cw+sw+ww>maxW){r.push(cl);cl=[{text:t,idx:i,width:ww}];cw=ww;}else{cw+=(cl.length>0?sw:0)+ww;cl.push({text:t,idx:i,width:ww});}}if(cl.length)r.push(cl);return r;};
   let lines=wrap(fs); while(lines.length*(fs*1.05)>H*0.55&&fs>36){fs-=2;lines=wrap(fs);}
-  const lh=fs*1.05, totalH=lines.length*lh, startY=H-50-totalH;
+  // Bottom margin 130 (was 50) so the title sits inside Instagram's 4:5
+  // safe zone — IG previews tend to crop or visually nibble the bottom
+  // edge of a 1:1 post (caption row, profile chip, action bar overlap).
+  // 130px keeps the full title visible across feed, grid, and explore.
+  const lh=fs*1.05, totalH=lines.length*lh, startY=H-130-totalH;
   if(ribbon?.trim()){
     const rt=ribbon.toUpperCase();
     ctx.font=ff("800 22px 'Syne',sans-serif"); ctx.letterSpacing="4px";
@@ -1674,46 +1678,64 @@ function renderFeatures(canvas, cfg) {
     titleBottom = barY + 18;
   }
 
-  // 2x2 grid of cards
-  const cards = (features || []).slice(0, 4);
+  // Adaptive grid — supports 1 to 6 cards. 1 = full width row.
+  // 2 = 2x1. 3-4 = 2 cols × ceil(n/2) rows. 5-6 = 2 cols × 3 rows. When
+  // n is odd in a 2-column layout the LAST card spans both columns so
+  // the bottom row isn't a lonely floater.
+  const cards = (features || []).slice(0, 6);
+  const n = cards.length;
+  const cols = n === 1 ? 1 : 2;
+  const rows = Math.ceil(n / cols);
   const margin = 60;
-  const gap = 36;
-  const cw = (W - margin*2 - gap) / 2;
-  const ch = 300;
+  const gap = 28;
+  const cw = (W - margin*2 - (cols-1)*gap) / cols;
   const gridTop = Math.max(titleBottom + 40, 240);
+  // Card height auto-scales to fit available vertical space — leaves room
+  // for the bottom footer + dots and clamps to 300px so single cards
+  // don't stretch unreasonably tall.
+  const availH = H - gridTop - 80;
+  const ch = Math.max(160, Math.min(300, (availH - (rows-1)*gap) / rows));
 
   cards.forEach((card, i) => {
-    const col = i % 2;
-    const row = Math.floor(i / 2);
-    const x = margin + col * (cw + gap);
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const isLastOdd = (cols === 2) && (i === n - 1) && (n % 2 === 1) && (i > 0);
+    const x = isLastOdd ? margin : (margin + col * (cw + gap));
     const y = gridTop + row * (ch + gap);
+    const thisCw = isLastOdd ? (cw * 2 + gap) : cw;
 
     // Card bg
     ctx.fillStyle = cardFill;
-    ctx.beginPath(); ctx.roundRect(x, y, cw, ch, 12); ctx.fill();
+    ctx.beginPath(); ctx.roundRect(x, y, thisCw, ch, 12); ctx.fill();
 
     // Left accent stripe
     ctx.fillStyle = accent;
     ctx.beginPath(); ctx.roundRect(x, y, 5, ch, [12, 0, 0, 12]); ctx.fill();
 
+    // Card font sizes shrink slightly for shorter cards (5-6 case)
+    const emojiSize = ch >= 260 ? 78 : ch >= 200 ? 64 : 52;
+    const emojiY = ch >= 260 ? 30 : ch >= 200 ? 22 : 16;
+    const headlineY = ch >= 260 ? 144 : ch >= 200 ? 110 : 84;
+    const subY = ch >= 260 ? 188 : ch >= 200 ? 150 : 120;
+
     // Emoji
     if (card.emoji?.trim()) {
-      ctx.font=ff("78px 'Apple Color Emoji','Segoe UI Emoji','Noto Color Emoji',sans-serif");
+      ctx.font=ff(`${emojiSize}px 'Apple Color Emoji','Segoe UI Emoji','Noto Color Emoji',sans-serif`);
       ctx.textAlign = "left"; ctx.textBaseline = "top";
       ctx.fillStyle = emojiBg;
-      ctx.fillText(card.emoji, x + 28, y + 30);
+      ctx.fillText(card.emoji, x + 28, y + emojiY);
     }
 
     // Headline
     if (card.headline?.trim()) {
-      let hfs = 30;
+      let hfs = ch >= 260 ? 30 : ch >= 200 ? 26 : 22;
       const headlineText = card.headline.toUpperCase();
       ctx.font=ff(`800 ${hfs}px 'Syne',sans-serif`);
-      while (ctx.measureText(headlineText).width > cw - 50 && hfs > 18) {
+      while (ctx.measureText(headlineText).width > thisCw - 50 && hfs > 16) {
         hfs -= 2; ctx.font=ff(`800 ${hfs}px 'Syne',sans-serif`);
       }
       ctx.fillStyle = cardHeadlineColor; ctx.textAlign = "left"; ctx.textBaseline = "top";
-      ctx.fillText(headlineText, x + 28, y + 144);
+      ctx.fillText(headlineText, x + 28, y + headlineY);
     }
 
     // Sub (wrap to 2 lines max)
@@ -1724,11 +1746,11 @@ function renderFeatures(canvas, cfg) {
       const subLines = []; let bl = "";
       for (const w of subWords) {
         const test = bl ? bl + " " + w : w;
-        if (ctx.measureText(test).width > cw - 50 && bl) { subLines.push(bl); bl = w; }
+        if (ctx.measureText(test).width > thisCw - 50 && bl) { subLines.push(bl); bl = w; }
         else bl = test;
       }
       if (bl) subLines.push(bl);
-      subLines.slice(0, 2).forEach((ln, j) => ctx.fillText(ln, x + 28, y + 188 + j*26));
+      subLines.slice(0, 2).forEach((ln, j) => ctx.fillText(ln, x + 28, y + subY + j*26));
     }
   });
 
@@ -2079,7 +2101,10 @@ export default function MediaTool() {
   const sceneBgRef = useRef(null), sceneHeroRef = useRef(null), sceneLeftRef = useRef(null), sceneRightRef = useRef(null);
   const posterFileRef = useRef(null);
   // One file input ref per Vibe Board slot (5 max).
-  const vibeFileRefs = [useRef(null), useRef(null), useRef(null), useRef(null), useRef(null)];
+  // Pre-allocate file-input refs for up to 6 Vibe Board cells. Rules of
+  // Hooks forbid creating refs in a loop on each render, so we declare
+  // the max we'll ever support and just index into them.
+  const vibeFileRefs = [useRef(null), useRef(null), useRef(null), useRef(null), useRef(null), useRef(null)];
   const accent = COLORS[accentKey]?.hex || "#FACC15";
   const words = headline.split(/\s+/).filter(w=>w);
   const textWords = textTitle.split(/\s+/).filter(w=>w);
@@ -3518,19 +3543,24 @@ export default function MediaTool() {
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Headline (try the quoted "I need ___" format)</label>
                 <input value={vibeHeadline} onChange={e=>setVibeHeadline(e.target.value)} style={I} placeholder='"I NEED SOME VITAMIN F"'/>
               </div>
-              <div style={{marginBottom:"0.5rem",fontSize:"0.5rem",color:"rgba(245,240,232,0.4)",letterSpacing:"1.5px",textTransform:"uppercase"}}>Cells · 5 max (top row 2 hero, bottom row 3 smaller)</div>
-              {vibePhotos.map((p,i)=>(
-                <div key={i} style={{display:"grid",gridTemplateColumns:"32px 1fr 1.2fr auto",gap:"0.3rem",marginBottom:"0.3rem",alignItems:"center"}}>
+              <div style={{marginBottom:"0.5rem",fontSize:"0.5rem",color:"rgba(245,240,232,0.4)",letterSpacing:"1.5px",textTransform:"uppercase"}}>{vibePhotos.length} Cell{vibePhotos.length===1?"":"s"} · {vibePhotos.length<=2?"full-width row":vibePhotos.length<=4?"2×2 grid":"2 hero top + bottom row"} · 1-6</div>
+              {vibePhotos.map((p,i)=>{
+                const placeholderLabels = ["farmers market","french fries","firmchella","festivals","family trivia","fireworks"];
+                return (
+                <div key={i} style={{display:"grid",gridTemplateColumns:"32px 1fr 1.2fr auto auto",gap:"0.3rem",marginBottom:"0.3rem",alignItems:"center"}}>
                   <span style={{fontSize:"0.55rem",color:"rgba(245,240,232,0.5)",letterSpacing:"1px",fontWeight:700}}>{i+1}</span>
-                  <input value={vibeLabels[i]||""} onChange={e=>setVibeLabels(prev=>prev.map((x,j)=>j===i?e.target.value:x))} style={I} placeholder={"label, e.g. " + ["farmers market","french fries","firmchella","festivals","family trivia"][i]}/>
+                  <input value={vibeLabels[i]||""} onChange={e=>setVibeLabels(prev=>prev.map((x,j)=>j===i?e.target.value:x))} style={I} placeholder={"label, e.g. " + (placeholderLabels[i] || "thing")}/>
                   <div style={{display:"flex",gap:"3px"}}>
-                    <button onClick={()=>vibeFileRefs[i].current?.click()} style={{...B,flex:1,fontSize:"0.55rem"}}>{p?"✓ Photo":"Upload"}</button>
+                    <button onClick={()=>vibeFileRefs[i]?.current?.click()} style={{...B,flex:1,fontSize:"0.55rem"}}>{p?"✓ Photo":"Upload"}</button>
                     <button onClick={()=>openLibrary(`vibe-${i}`)} style={{...B,padding:"4px 8px"}} title="Library">📚</button>
-                    <input ref={vibeFileRefs[i]} type="file" accept="image/*" onChange={handleVibePhoto(i)} style={{display:"none"}}/>
+                    {vibeFileRefs[i] && <input ref={vibeFileRefs[i]} type="file" accept="image/*" onChange={handleVibePhoto(i)} style={{display:"none"}}/>}
                   </div>
-                  {p&&<button onClick={()=>setVibePhotos(prev=>prev.map((x,j)=>j===i?null:x))} style={{...B,padding:"4px 6px",color:"rgba(251,113,133,0.6)"}}>×</button>}
+                  {p&&<button onClick={()=>setVibePhotos(prev=>prev.map((x,j)=>j===i?null:x))} style={{...B,padding:"4px 6px",color:"rgba(251,113,133,0.6)"}} title="Clear photo">×</button>}
+                  {vibePhotos.length>1&&<button onClick={()=>{setVibePhotos(prev=>prev.filter((_,j)=>j!==i)); setVibeLabels(prev=>prev.filter((_,j)=>j!==i));}} style={{...B,padding:"4px 6px",color:"rgba(251,113,133,0.4)"}} title="Remove cell">−</button>}
                 </div>
-              ))}
+                );
+              })}
+              {vibePhotos.length<6&&<button onClick={()=>{setVibePhotos(prev=>[...prev,null]); setVibeLabels(prev=>[...prev,""]);}} style={{...B,marginBottom:"0.6rem",fontSize:"0.55rem"}}>+ Add cell ({vibePhotos.length}/6)</button>}
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Background Color</label><div style={{display:"flex",gap:"3px",flexWrap:"wrap"}}>
                 {Object.entries(BG_COLORS).map(([k,v])=><button key={k} onClick={()=>setBgKey(k)} style={{width:28,height:28,borderRadius:"5px",cursor:"pointer",background:v.hex,border:bgKey===k?"2px solid #FFF":"2px solid transparent",boxShadow:bgKey===k?"0 0 6px rgba(255,255,255,0.3)":"none"}} title={v.name}/>)}</div></div>
               <p style={{fontSize:"0.55rem",color:"rgba(245,240,232,0.4)",lineHeight:1.5,marginTop:"4px"}}>
@@ -3775,14 +3805,16 @@ export default function MediaTool() {
                 </div>}
               </div>
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Title</label><input value={featuresTitle} onChange={e=>setFeaturesTitle(e.target.value)} style={I} placeholder="e.g. Here's the night"/></div>
-              <div style={{marginBottom:"0.5rem",fontSize:"0.5rem",color:"rgba(245,240,232,0.4)",letterSpacing:"1.5px",textTransform:"uppercase"}}>4 Cards · 2×2 Grid</div>
+              <div style={{marginBottom:"0.5rem",fontSize:"0.5rem",color:"rgba(245,240,232,0.4)",letterSpacing:"1.5px",textTransform:"uppercase"}}>{features.length} Card{features.length===1?"":"s"} · {features.length===1?"full width":features.length===2?"2×1":features.length<=4?"2 cols":"2 cols, 3 rows"} · 1-6</div>
               {features.map((card,i)=>(
-                <div key={i} style={{display:"grid",gridTemplateColumns:"50px 1fr 1fr",gap:"0.3rem",marginBottom:"0.4rem",alignItems:"center"}}>
+                <div key={i} style={{display:"grid",gridTemplateColumns:"50px 1fr 1fr auto",gap:"0.3rem",marginBottom:"0.4rem",alignItems:"center"}}>
                   <input value={card.emoji} onChange={e=>setFeatures(p=>p.map((c,j)=>j===i?{...c,emoji:e.target.value}:c))} style={{...I,textAlign:"center",fontSize:"1rem",padding:"4px"}} placeholder="🎾" maxLength={4}/>
                   <input value={card.headline} onChange={e=>setFeatures(p=>p.map((c,j)=>j===i?{...c,headline:e.target.value}:c))} style={{...I,fontSize:"0.6rem"}} placeholder="Headline"/>
                   <input value={card.sub} onChange={e=>setFeatures(p=>p.map((c,j)=>j===i?{...c,sub:e.target.value}:c))} style={{...I,fontSize:"0.6rem"}} placeholder="Sub copy"/>
+                  {features.length>1&&<button onClick={()=>setFeatures(p=>p.filter((_,j)=>j!==i))} style={{...B,padding:"4px 6px",color:"rgba(251,113,133,0.6)"}} title="Remove this card">×</button>}
                 </div>
               ))}
+              {features.length<6&&<button onClick={()=>setFeatures(p=>[...p,{emoji:"",headline:"",sub:""}])} style={{...B,marginBottom:"0.6rem",fontSize:"0.55rem"}}>+ Add card ({features.length}/6)</button>}
               {!textPhoto&&<div style={{marginBottom:"0.6rem"}}><label style={L}>Background Color</label><div style={{display:"flex",gap:"3px"}}>
                 {Object.entries(BG_COLORS).map(([k,v])=><button key={k} onClick={()=>setBgKey(k)} style={{width:28,height:28,borderRadius:"5px",cursor:"pointer",background:v.hex,border:bgKey===k?"2px solid #FFF":"2px solid transparent",boxShadow:bgKey===k?"0 0 6px rgba(255,255,255,0.3)":"none"}} title={v.name}/>)}</div></div>}
             </>}
