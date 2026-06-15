@@ -154,7 +154,9 @@ function renderCover(canvas, cfg) {
   drawLogo(ctx,accent,W); drawDots(ctx,W,dots,totalDots,accent);
   if (subtitle?.trim()) { ctx.font=ff("700 24px 'DM Sans',sans-serif"); ctx.fillStyle=accent; ctx.textBaseline="top"; ctx.letterSpacing="3px"; }
   if (!headline?.trim()) { drawFooter(ctx,W,H); return; }
-  const words=headline.split(/\s+/).filter(w=>w), px=60, maxW=W-px*2;
+  // px=110 keeps content inside IG's 4:5 cover-preview safe zone when
+  // exporting at 1:1 (864×1080 centered crop = 108px per side).
+  const words=headline.split(/\s+/).filter(w=>w), px=110, maxW=W-px*2;
   let fs=72; ctx.font=ff(`800 ${fs}px 'Syne',sans-serif`);
   const wrap=(f)=>{ ctx.font=ff(`800 ${f}px 'Syne',sans-serif`); const r=[]; let cl=[],cw=0; const sw=ctx.measureText(" ").width;
     for(let i=0;i<words.length;i++){const t=words[i].toUpperCase(),ww=ctx.measureText(t).width;if(cl.length>0&&cw+sw+ww>maxW){r.push(cl);cl=[{text:t,idx:i,width:ww}];cw=ww;}else{cw+=(cl.length>0?sw:0)+ww;cl.push({text:t,idx:i,width:ww});}}if(cl.length)r.push(cl);return r;};
@@ -169,12 +171,12 @@ function renderCover(canvas, cfg) {
     ctx.font=ff("800 22px 'Syne',sans-serif"); ctx.letterSpacing="4px";
     const tw=ctx.measureText(rt).width, rpadX=20, rectW=tw+rpadX*2, rectH=44;
     const ribbonY=subtitle?.trim()?startY-94:startY-60;
-    ctx.fillStyle=accent; ctx.beginPath(); ctx.roundRect(60,ribbonY,rectW,rectH,4); ctx.fill();
+    ctx.fillStyle=accent; ctx.beginPath(); ctx.roundRect(px,ribbonY,rectW,rectH,4); ctx.fill();
     ctx.fillStyle="#000"; ctx.textBaseline="middle"; ctx.textAlign="left";
-    ctx.fillText(rt,60+rpadX,ribbonY+rectH/2);
+    ctx.fillText(rt,px+rpadX,ribbonY+rectH/2);
     ctx.letterSpacing="0px"; ctx.textBaseline="top";
   }
-  if(subtitle?.trim()){ctx.font=ff("700 24px 'DM Sans',sans-serif");ctx.fillStyle=accent;ctx.textBaseline="bottom";ctx.letterSpacing="3px";ctx.fillText(subtitle.toUpperCase(),60,startY-12);ctx.letterSpacing="0px";}
+  if(subtitle?.trim()){ctx.font=ff("700 24px 'DM Sans',sans-serif");ctx.fillStyle=accent;ctx.textBaseline="bottom";ctx.letterSpacing="3px";ctx.fillText(subtitle.toUpperCase(),px,startY-12);ctx.letterSpacing="0px";}
   ctx.font=ff(`800 ${fs}px 'Syne',sans-serif`); ctx.textBaseline="top"; const sw=ctx.measureText(" ").width;
   lines.forEach((lw,li)=>{let x=px;const y=startY+li*lh;lw.forEach(w=>{ctx.fillStyle=highlights.has(w.idx)?accent:"#FFF";ctx.fillText(w.text,x,y);x+=w.width+sw;});});
   drawFooter(ctx,W,H);
@@ -203,24 +205,27 @@ function renderList(canvas, cfg) {
   const cardFill     = isLight ? "rgba(0,0,0,0.06)" : "rgba(255,255,255,0.06)";
   const accentStripe = isLight ? "rgba(0,0,0,0.10)" : "rgba(255,255,255,0.10)";
 
+  // px=110 keeps content inside IG's 4:5 cover-preview safe zone when
+  // exporting at 1:1 (864×1080 centered crop = 108px per side).
+  const px = 110;
   ctx.globalAlpha=1; ctx.textBaseline="top"; ctx.textAlign="left";
   drawDots(ctx,W,dots,totalDots,accent,isLight);
-  ctx.font=ff("800 52px 'Syne',sans-serif"); ctx.fillStyle=accent; ctx.fillText((listTitle||"FRIDAY").toUpperCase(),60,50);
+  ctx.font=ff("800 52px 'Syne',sans-serif"); ctx.fillStyle=accent; ctx.fillText((listTitle||"FRIDAY").toUpperCase(),px,50);
   ctx.font=ff("700 22px 'DM Sans',sans-serif"); ctx.fillStyle=textSubtle; ctx.letterSpacing="2px";
-  ctx.fillText((listSubtitle||"TOP PICKS").toUpperCase(),60,108); ctx.letterSpacing="0px";
-  ctx.fillStyle = `${accent}30`; ctx.fillRect(60,140,W-120,2);
+  ctx.fillText((listSubtitle||"TOP PICKS").toUpperCase(),px,108); ctx.letterSpacing="0px";
+  ctx.fillStyle = `${accent}30`; ctx.fillRect(px,140,W-px*2,2);
 
   const startY=155, rowH=100, maxItems=Math.min(items.length,8);
   items.slice(0,maxItems).forEach((item,i)=>{
     const y=startY+i*rowH;
-    ctx.fillStyle=cardFill; ctx.beginPath(); ctx.roundRect(60,y,W-120,rowH-12,10); ctx.fill();
+    ctx.fillStyle=cardFill; ctx.beginPath(); ctx.roundRect(px,y,W-px*2,rowH-12,10); ctx.fill();
     ctx.fillStyle=item.featured?accent:accentStripe;
-    ctx.beginPath(); ctx.roundRect(60,y,4,rowH-12,[10,0,0,10]); ctx.fill();
+    ctx.beginPath(); ctx.roundRect(px,y,4,rowH-12,[10,0,0,10]); ctx.fill();
     ctx.font=ff("700 34px 'DM Sans',sans-serif"); ctx.fillStyle=item.featured?accent:textPrimary; ctx.textBaseline="top";
-    let nm=item.name.toUpperCase(); if(ctx.measureText(nm).width>W-240){while(ctx.measureText(nm+"..").width>W-240&&nm.length>0)nm=nm.slice(0,-1);nm+="..";}
-    ctx.fillText(nm,82,y+14);
+    let nm=item.name.toUpperCase(); const nmMax=W-px*2-60; if(ctx.measureText(nm).width>nmMax){while(ctx.measureText(nm+"..").width>nmMax&&nm.length>0)nm=nm.slice(0,-1);nm+="..";}
+    ctx.fillText(nm,px+22,y+14);
     ctx.font=ff("400 26px 'DM Sans',sans-serif"); ctx.fillStyle=textMuted;
-    ctx.fillText(item.detail||"",82,y+54);
+    ctx.fillText(item.detail||"",px+22,y+54);
   });
 
   drawFooter(ctx,W,H,isLight);
@@ -294,7 +299,9 @@ function renderText(canvas, cfg) {
   ctx.globalAlpha=1; ctx.textBaseline="top"; ctx.textAlign="left";
 
   const words=(textTitle||"").split(/\s+/).filter(w=>w);
-  const px=60, maxW=W-px*2;
+  // px=110 keeps content inside IG's 4:5 cover-preview safe zone when
+  // exporting at 1:1 (864×1080 centered crop = 108px per side).
+  const px=110, maxW=W-px*2;
   let fs=60; ctx.font=ff(`800 ${fs}px 'Syne',sans-serif`);
   const wrap=(f)=>{ctx.font=ff(`800 ${f}px 'Syne',sans-serif`);const r=[];let cl=[],cw=0;const sw=ctx.measureText(" ").width;
     for(let i=0;i<words.length;i++){const t=words[i].toUpperCase(),ww=ctx.measureText(t).width;if(cl.length>0&&cw+sw+ww>maxW){r.push(cl);cl=[{text:t,idx:i,width:ww}];cw=ww;}else{cw+=(cl.length>0?sw:0)+ww;cl.push({text:t,idx:i,width:ww});}}if(cl.length)r.push(cl);return r;};
@@ -579,7 +586,9 @@ function renderSpotlight(canvas, cfg) {
   }
 
   ctx.globalAlpha = 1;
-  const px = 60;
+  // px=110 keeps content inside IG's 4:5 cover-preview safe zone when
+  // exporting at 1:1 (864×1080 centered crop = 108px per side).
+  const px = 110;
 
   // Text colors flip in day mode (no photo + light bg).
   const headlineColor = isLight ? "#0a0a0a" : "#FFF";
@@ -735,7 +744,8 @@ function renderCountdown(canvas, cfg) {
   if (ev) {
     const words = ev.toUpperCase().split(/\s+/).filter(w => w);
     let fs = 64;
-    const px = 60, maxW = W - px * 2;
+    // px=110 keeps content inside IG's 4:5 cover-preview safe zone.
+    const px = 110, maxW = W - px * 2;
     const wrap = (f) => {
       ctx.font = ff(`800 ${f}px 'Syne',sans-serif`);
       const r = []; let bl = "";
@@ -871,7 +881,8 @@ function renderSaveDate(canvas, cfg) {
   if (saveEvent?.trim()) {
     const words = saveEvent.toUpperCase().split(/\s+/).filter(w => w);
     let fs = 64;
-    const px = 60, maxW = W - px * 2;
+    // px=110 keeps content inside IG's 4:5 cover-preview safe zone.
+    const px = 110, maxW = W - px * 2;
     const wrap = (f) => {
       ctx.font = ff(`800 ${f}px 'Syne',sans-serif`);
       const r = []; let bl = "";
@@ -980,7 +991,9 @@ function renderSaveDates(canvas, cfg) {
     return;
   }
 
-  const px = 60;
+  // px=110 keeps content inside IG's 4:5 cover-preview safe zone when
+  // exporting at 1:1 (864×1080 centered crop = 108px per side).
+  const px = 110;
   // IG safe zone: CTA now sits at H-130 (was H-70), so reserve more room
   // above the grid to push the grid up correspondingly. Without-CTA gap
   // stays smaller since there's nothing to clear.
@@ -1276,15 +1289,17 @@ function renderScene(canvas, cfg) {
 
   // 8. META BLOCKS — left + right under the title
   ctx.textBaseline = "top";
+  // Meta blocks: x=110 / W-110 keeps them inside IG's 4:5 cover-preview
+  // safe zone (was 32 / W-32 which got cropped on horizontal preview).
   if (sceneLeftMeta?.trim()) {
     ctx.font = ff("800 20px 'DM Sans',sans-serif");
     ctx.fillStyle = "#FFF"; ctx.textAlign = "left";
-    sceneLeftMeta.split("\n").forEach((ln, i) => ctx.fillText(ln.toUpperCase(), 32, 220 + i * 26));
+    sceneLeftMeta.split("\n").forEach((ln, i) => ctx.fillText(ln.toUpperCase(), 110, 220 + i * 26));
   }
   if (sceneRightMeta?.trim()) {
     ctx.font = ff("800 20px 'DM Sans',sans-serif");
     ctx.fillStyle = "#FFF"; ctx.textAlign = "right";
-    sceneRightMeta.split("\n").forEach((ln, i) => ctx.fillText(ln.toUpperCase(), W - 32, 220 + i * 26));
+    sceneRightMeta.split("\n").forEach((ln, i) => ctx.fillText(ln.toUpperCase(), W - 110, 220 + i * 26));
   }
 
   // 9. BOTTOM INFO BAR — info line + address.
@@ -1404,7 +1419,8 @@ function renderPoster(canvas, cfg) {
     ctx.font = ff("italic 700 22px 'DM Sans',sans-serif");
     ctx.fillStyle = "#FFF";
     ctx.textAlign = "left"; ctx.textBaseline = "top";
-    ctx.fillText(kicker.toLowerCase(), 80, Math.max(hostsBottomY + 14, 200));
+    // x=110 keeps kicker inside IG's 4:5 cover-preview safe zone (was 80).
+    ctx.fillText(kicker.toLowerCase(), 110, Math.max(hostsBottomY + 14, 200));
   }
 
   // 5. TITLE — massive stacked headline. THE focal point. All the user's
@@ -1413,7 +1429,9 @@ function renderPoster(canvas, cfg) {
     const lines = title.split("\n").map(l => l.trim()).filter(Boolean);
     const sizeMult = (typeof titleSize === "number" && titleSize > 0) ? titleSize : 1.0;
     let fs = 170 * sizeMult;
-    const margin = 40;
+    // margin=110 keeps the title inside IG's 4:5 cover-preview safe zone
+    // (was 40, very edge-aggressive). Title still scales DOWN to fit.
+    const margin = 110;
 
     // Auto-scale DOWN if any line overflows width — the size slider is
     // a multiplier, not a force. Keeps the user from accidentally
@@ -1481,7 +1499,7 @@ function renderPoster(canvas, cfg) {
     // place depending on count and could overlap the bottom chrome.
     const startY = (H - 200) - (lines.length - 1) * 36; // bottom-anchored
     lines.forEach((ln, i) => {
-      ctx.fillText(ln.toUpperCase(), 56, startY + i * 36);
+      ctx.fillText(ln.toUpperCase(), 110, startY + i * 36);
     });
   }
 
@@ -1497,7 +1515,7 @@ function renderPoster(canvas, cfg) {
     // place depending on count and could overlap the bottom chrome.
     const startY = (H - 200) - (lines.length - 1) * 36;
     lines.forEach((ln, i) => {
-      ctx.fillText(ln.toUpperCase(), W - 56, startY + i * 36);
+      ctx.fillText(ln.toUpperCase(), W - 110, startY + i * 36);
     });
   }
 
@@ -1581,7 +1599,9 @@ function renderVibeBoard(canvas, cfg) {
     label: (vibeLabels && vibeLabels[i]) || "",
   })).filter(x => x.photo || x.label);
 
-  const px = 60;
+  // px=110 keeps content inside IG's 4:5 cover-preview safe zone when
+  // exporting at 1:1 (864×1080 centered crop = 108px per side).
+  const px = 110;
   const labelHeight = 50;
   const gridTop = headlineBottom + 40;
   const gridBottom = H - 110;
@@ -1727,7 +1747,9 @@ function renderFeatures(canvas, cfg) {
   const n = cards.length;
   const cols = n === 1 ? 1 : 2;
   const rows = Math.ceil(n / cols);
-  const margin = 60;
+  // margin=110 keeps cards inside IG's 4:5 cover-preview safe zone
+  // (was 60, which let the cards' left/right edges get cropped).
+  const margin = 110;
   const gap = 28;
   const cw = (W - margin*2 - (cols-1)*gap) / cols;
   const gridTop = Math.max(titleBottom + 40, 240);
