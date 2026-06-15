@@ -512,11 +512,13 @@ function renderPhotoCaption(canvas, cfg) {
     lines.forEach((ln,i)=>ctx.fillText(ln, ax, startY+i*lh));
   }
 
-  // Secondary line — small, letterspaced, accent
+  // Secondary line — small, letterspaced, accent.
+  // IG safe zone: was H-60; bumped to H-100 so it stays above the
+  // bottom action chrome / caption overlay in IG's preview.
   if (captionSecondary?.trim()) {
     ctx.font=ff("700 22px 'DM Sans',sans-serif");
     ctx.fillStyle=accent; ctx.letterSpacing="3px"; ctx.textAlign=align; ctx.textBaseline="bottom";
-    ctx.fillText(captionSecondary.toUpperCase(), ax, H-60);
+    ctx.fillText(captionSecondary.toUpperCase(), ax, H-100);
     ctx.letterSpacing="0px"; ctx.textBaseline="top";
   }
 
@@ -575,7 +577,11 @@ function renderSpotlight(canvas, cfg) {
   const counterColor  = isLight ? "rgba(0,0,0,0.7)" : "rgba(255,255,255,0.9)";
 
   // Layout from bottom up: footer (time/price/cta), detail line, venue name.
-  const FOOTER_BOTTOM = 60;
+  // IG safe zone: FOOTER_BOTTOM was 60; bumped to 110 so the time/price
+  // line stays above the bottom action chrome / caption overlay in IG's
+  // preview. Detail line + venue name stack relative to yBottom so they
+  // move up with it — no separate adjustment needed.
+  const FOOTER_BOTTOM = 110;
   let yBottom = H - FOOTER_BOTTOM;
 
   // FOOTER row — day/time on left, price · cta on right.
@@ -964,7 +970,10 @@ function renderSaveDates(canvas, cfg) {
   }
 
   const px = 60;
-  const ctaSpace = savesCta?.trim() ? 110 : 60;
+  // IG safe zone: CTA now sits at H-130 (was H-70), so reserve more room
+  // above the grid to push the grid up correspondingly. Without-CTA gap
+  // stays smaller since there's nothing to clear.
+  const ctaSpace = savesCta?.trim() ? 170 : 110;
   const gridTop = headerBottom + 40;
   const gridBottom = H - ctaSpace;
   const gridH = gridBottom - gridTop;
@@ -1099,11 +1108,11 @@ function renderSaveDates(canvas, cfg) {
     }
   });
 
-  // CTA at bottom
+  // CTA at bottom. IG safe zone: was H-70, bumped to H-130.
   if (savesCta?.trim()) {
     ctx.font = ff("700 30px 'DM Sans',sans-serif");
     ctx.fillStyle = accent; ctx.textAlign = "center"; ctx.textBaseline = "bottom";
-    ctx.fillText(savesCta, W / 2, H - 70);
+    ctx.fillText(savesCta, W / 2, H - 130);
   }
 
   ctx.textAlign = "left"; ctx.textBaseline = "top";
@@ -1262,7 +1271,11 @@ function renderScene(canvas, cfg) {
     sceneRightMeta.split("\n").forEach((ln, i) => ctx.fillText(ln.toUpperCase(), W - 32, 220 + i * 26));
   }
 
-  // 9. BOTTOM INFO BAR — info line + address
+  // 9. BOTTOM INFO BAR — info line + address.
+  // IG safe zone: info was at H-56, address at H-24 — both got nibbled
+  // by Instagram's bottom chrome. Pushed to H-130 / H-90 so they sit
+  // inside the safe area. Accent edge bar (next) still hugs the bottom
+  // since it's decorative chrome and partial cropping is harmless.
   if (sceneInfo?.trim()) {
     let fs = 30;
     ctx.font = ff(`800 ${fs}px 'Syne',sans-serif`);
@@ -1271,13 +1284,13 @@ function renderScene(canvas, cfg) {
     }
     ctx.fillStyle = "#FFF";
     ctx.textAlign = "center"; ctx.textBaseline = "bottom";
-    ctx.fillText(sceneInfo.toUpperCase(), W / 2, H - 56);
+    ctx.fillText(sceneInfo.toUpperCase(), W / 2, H - 130);
   }
   if (sceneAddress?.trim()) {
     ctx.font = ff("700 20px 'DM Sans',sans-serif");
     ctx.fillStyle = "rgba(255,255,255,0.85)";
     ctx.textAlign = "center"; ctx.textBaseline = "bottom";
-    ctx.fillText(sceneAddress.toUpperCase(), W / 2, H - 24);
+    ctx.fillText(sceneAddress.toUpperCase(), W / 2, H - 90);
   }
 
   // 10. ACCENT EDGE BAR
@@ -1446,7 +1459,11 @@ function renderPoster(canvas, cfg) {
     ctx.font = ff("900 28px 'Syne',sans-serif");
     ctx.fillStyle = accent;
     ctx.textAlign = "left"; ctx.textBaseline = "top";
-    const startY = H - 220 - lines.length * 6; // bottom-anchored
+    // IG safe zone: anchor the last line at H-200 so the whole block
+    // stays above the new dress-code position at H-130. Old formula
+    // (H - 220 - lines.length * 6) moved the last line all over the
+    // place depending on count and could overlap the bottom chrome.
+    const startY = (H - 200) - (lines.length - 1) * 36; // bottom-anchored
     lines.forEach((ln, i) => {
       ctx.fillText(ln.toUpperCase(), 56, startY + i * 36);
     });
@@ -1458,31 +1475,39 @@ function renderPoster(canvas, cfg) {
     ctx.font = ff("900 28px 'Syne',sans-serif");
     ctx.fillStyle = accent;
     ctx.textAlign = "right"; ctx.textBaseline = "top";
-    const startY = H - 220 - lines.length * 6;
+    // IG safe zone: anchor the last line at H-200 so the whole block
+    // stays above the new dress-code position at H-130. Old formula
+    // (H - 220 - lines.length * 6) moved the last line all over the
+    // place depending on count and could overlap the bottom chrome.
+    const startY = (H - 200) - (lines.length - 1) * 36;
     lines.forEach((ln, i) => {
       ctx.fillText(ln.toUpperCase(), W - 56, startY + i * 36);
     });
   }
 
-  // 9. DRESS CODE / TAGLINE — italic, small, centered just above date
+  // 9. DRESS CODE / TAGLINE — italic, small, centered just above date.
+  // IG safe zone: was H-70, bumped to H-130 so the line stays above
+  // the bottom action chrome / caption overlay in IG's preview.
   if (dressCode?.trim()) {
     ctx.font = ff("italic 600 22px 'DM Sans',sans-serif");
     ctx.fillStyle = "#FFF";
     ctx.textAlign = "center"; ctx.textBaseline = "bottom";
-    ctx.fillText(dressCode, W / 2, H - 70);
+    ctx.fillText(dressCode, W / 2, H - 130);
   }
 
-  // 10. DATE LINE — mono caps, letterspaced, very bottom
+  // 10. DATE LINE — mono caps, letterspaced.
+  // IG safe zone: was H-32, bumped to H-80.
   if (dateLine?.trim()) {
     ctx.font = `700 24px ${monoStack}`;
     ctx.fillStyle = "#FFF";
     ctx.textAlign = "center"; ctx.textBaseline = "bottom";
     ctx.letterSpacing = "3px";
-    ctx.fillText(dateLine.toUpperCase(), W / 2, H - 32);
+    ctx.fillText(dateLine.toUpperCase(), W / 2, H - 80);
     ctx.letterSpacing = "0px";
   }
 
-  // 11. ACCENT EDGE — brand cue at the very bottom
+  // 11. ACCENT EDGE — brand cue at the very bottom (decorative chrome,
+  // partial cropping is acceptable so it stays at the edge).
   ctx.fillStyle = accent;
   ctx.fillRect(0, H - 6, W, 6);
 
