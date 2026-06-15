@@ -1240,8 +1240,13 @@ function renderScene(canvas, cfg) {
     ctx.fillStyle = "#FFF";
     ctx.textAlign = "center"; ctx.textBaseline = "middle";
     const lh = fs * 0.92;
-    // Anchor lower-mid so cutouts placed centrally cross the text.
-    const startY = H * 0.78 - (lines.length - 1) * lh / 2;
+    // Anchor the BOTTOM of the big-text block at H*0.78 so the block
+    // stays a consistent ~108px above the info line at H-130 regardless
+    // of line count. Old formula centered the block around H*0.78, which
+    // meant a 2-line block extended down to ~H-100 and overlapped the
+    // info line. Now 1, 2, or 3 lines all bottom-out at H*0.78.
+    const blockBottom = H * 0.78;
+    const startY = blockBottom - (lines.length - 0.5) * lh;
     lines.forEach((ln, i) => ctx.fillText(ln, W / 2, startY + i * lh));
   }
 
