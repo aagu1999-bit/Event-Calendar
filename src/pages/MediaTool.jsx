@@ -65,7 +65,11 @@ function drawTexture(ctx, W, H, color, alpha, startY = 0) {
   ctx.save();
   if (startY > 0) { ctx.beginPath(); ctx.rect(0, startY, W, H - startY); ctx.clip(); }
   ctx.translate(W/2, H*0.6); ctx.rotate(-5*Math.PI/180); ctx.translate(-W/2, -H*0.6);
-  ctx.font=ff("800 22px 'Syne',sans-serif"); ctx.fillStyle = color; ctx.globalAlpha = alpha;
+  // Watermark grid letters are locked to Syne — the brand mark stays
+  // brand-consistent regardless of the content's font-pair choice.
+  // Don't pipe through ff().
+  ctx.font = "800 22px 'Syne',sans-serif";
+  ctx.fillStyle = color; ctx.globalAlpha = alpha;
   ctx.textBaseline = "middle"; ctx.textAlign = "center";
   const lts = ["C","G","E"]; let li = 0;
   for (let y = -60; y < H + 60; y += 32) {
@@ -88,17 +92,20 @@ function drawLogo(ctx, accent, W, isLight = false) {
   ctx.globalAlpha = 1;
   ctx.fillStyle = `${accent}25`; ctx.strokeStyle = `${accent}50`; ctx.lineWidth = 2.5;
   ctx.beginPath(); ctx.arc(58,52,28,0,Math.PI*2); ctx.fill(); ctx.stroke();
-  // CGE in the circle — use weight 700 (every font pair has it). Weight
-  // 800 silently failed for Bebas Neue (only 400) and Space Grotesk (max
-  // 700), making the swap look "locked to Syne" when the browser was
-  // actually falling back to system sans-serif (which happens to look
-  // geometric, so the bug masked itself).
-  ctx.font=ff("700 17px 'Syne',sans-serif"); ctx.fillStyle = accent; ctx.textBaseline = "middle"; ctx.textAlign = "center";
+  // Watermark text is locked to the original CGE brand fonts — Syne for
+  // the display piece (CGE in the circle) and DM Sans for the body
+  // pieces (Central Group Events + @centralgroupevents). The watermark
+  // is brand identity; it stays consistent regardless of which font
+  // pair the user picks for their slide content. Don't pipe through ff().
+  ctx.font = "700 17px 'Syne',sans-serif";
+  ctx.fillStyle = accent; ctx.textBaseline = "middle"; ctx.textAlign = "center";
   ctx.fillText("CGE",58,53); ctx.textAlign = "left";
   const primaryText = isLight ? "#0a0a0a" : "#FFF";
   const secondaryText = isLight ? "rgba(0,0,0,0.55)" : "rgba(255,255,255,0.50)";
-  ctx.font=ff("700 22px 'DM Sans',sans-serif"); ctx.fillStyle = primaryText; ctx.textBaseline = "top"; ctx.fillText("Central Group Events",96,35);
-  ctx.font=ff("500 17px 'DM Sans',sans-serif"); ctx.fillStyle = secondaryText; ctx.fillText("@centralgroupevents",96,60);
+  ctx.font = "700 22px 'DM Sans',sans-serif";
+  ctx.fillStyle = primaryText; ctx.textBaseline = "top"; ctx.fillText("Central Group Events",96,35);
+  ctx.font = "500 17px 'DM Sans',sans-serif";
+  ctx.fillStyle = secondaryText; ctx.fillText("@centralgroupevents",96,60);
 }
 
 function drawDots(ctx, W, current, total, accent, isLight = false) {
@@ -118,9 +125,13 @@ function drawFooter(ctx, W, H, isLight = false) {
   const brand      = isLight ? "rgba(0,0,0,0.30)" : "rgba(255,255,255,0.20)";
   const url        = isLight ? "rgba(0,0,0,0.22)" : "rgba(255,255,255,0.15)";
   ctx.fillStyle = rule; ctx.fillRect(60, H-38, W-120, 1);
-  ctx.font=ff("800 16px 'Syne',sans-serif"); ctx.fillStyle = brand; ctx.textBaseline = "bottom"; ctx.textAlign = "left";
+  // Watermark text locked to brand fonts (Syne + DM Sans) — never
+  // follows the content's font-pair selection. Don't pipe through ff().
+  ctx.font = "800 16px 'Syne',sans-serif";
+  ctx.fillStyle = brand; ctx.textBaseline = "bottom"; ctx.textAlign = "left";
   ctx.fillText("CENTRAL GROUP EVENTS", 60, H-14);
-  ctx.font=ff("500 14px 'DM Sans',sans-serif"); ctx.fillStyle = url; ctx.textAlign = "right";
+  ctx.font = "500 14px 'DM Sans',sans-serif";
+  ctx.fillStyle = url; ctx.textAlign = "right";
   ctx.fillText("centralgroupevents.com", W-60, H-14); ctx.textAlign = "left";
 }
 
@@ -3007,37 +3018,36 @@ export default function MediaTool() {
           </select>
         </div>
 
-        <div style={{
-          marginBottom: "1rem",
-          padding: "8px 12px",
-          background: "rgba(99,179,237,0.04)",
-          border: "1px solid rgba(99,179,237,0.18)",
-          borderRadius: "6px",
-          display: "flex",
-          alignItems: "center",
-          gap: "0.5rem",
-        }}>
-          <div style={{fontSize:"0.55rem",color:"#63B3ED",letterSpacing:"1.5px",textTransform:"uppercase",flexShrink:0,fontWeight:700}}>
-            Gemini Key
-          </div>
-          {envKey ? (
-            <div style={{flex:1,fontSize:"0.6rem",color:"rgba(245,240,232,0.7)"}}>
-              ✓ Loaded from <code style={{color:"#34D399",background:"rgba(52,211,153,0.1)",padding:"1px 5px",borderRadius:"3px",fontSize:"0.55rem"}}>.env.local</code>
+        {/* Gemini key panel — only renders when the user still NEEDS to
+            paste a key. Once VITE_GEMINI_API_KEY is set in .env.local
+            (or pasted into the input below), the whole block disappears
+            for good. Was previously persistent ("✓ Loaded from .env.local")
+            which the user only ever needed to see once. */}
+        {!envKey && (
+          <div style={{
+            marginBottom: "1rem",
+            padding: "8px 12px",
+            background: "rgba(99,179,237,0.04)",
+            border: "1px solid rgba(99,179,237,0.18)",
+            borderRadius: "6px",
+            display: "flex",
+            alignItems: "center",
+            gap: "0.5rem",
+          }}>
+            <div style={{fontSize:"0.55rem",color:"#63B3ED",letterSpacing:"1.5px",textTransform:"uppercase",flexShrink:0,fontWeight:700}}>
+              Gemini Key
             </div>
-          ) : (
-            <>
-              <input
-                type={showKey ? "text" : "password"}
-                value={uiKey}
-                onChange={e=>saveKey(e.target.value)}
-                placeholder="Paste key — or set VITE_GEMINI_API_KEY in .env.local + restart"
-                style={{...I,flex:1,fontSize:"0.6rem"}}
-              />
-              <button onClick={()=>setShowKey(v=>!v)} style={{...B,padding:"5px 10px",fontSize:"0.55rem"}}>{showKey ? "Hide" : "Show"}</button>
-              {uiKey && <span style={{fontSize:"0.5rem",color:"#34D399",letterSpacing:"1px"}}>✓ SAVED</span>}
-            </>
-          )}
-        </div>
+            <input
+              type={showKey ? "text" : "password"}
+              value={uiKey}
+              onChange={e=>saveKey(e.target.value)}
+              placeholder="Paste key — or set VITE_GEMINI_API_KEY in .env.local + restart"
+              style={{...I,flex:1,fontSize:"0.6rem"}}
+            />
+            <button onClick={()=>setShowKey(v=>!v)} style={{...B,padding:"5px 10px",fontSize:"0.55rem"}}>{showKey ? "Hide" : "Show"}</button>
+            {uiKey && <span style={{fontSize:"0.5rem",color:"#34D399",letterSpacing:"1px"}}>✓ SAVED</span>}
+          </div>
+        )}
 
         <div style={{
           marginBottom: "1rem",
