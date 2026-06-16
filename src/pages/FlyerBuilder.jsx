@@ -1676,7 +1676,7 @@ export default function FlyerBuilder() {
   const W = 1080, H = 1350;
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "340px 1fr", minHeight: "calc(100vh - 60px)" }}>
+    <div className="cge-builder-layout" style={{ display: "grid", gridTemplateColumns: "340px 1fr", minHeight: "calc(100vh - 60px)" }}>
       {/* CONTROLS */}
       <div style={{
         padding: "20px",
@@ -2126,7 +2126,7 @@ export default function FlyerBuilder() {
       </div>
 
       {/* PREVIEW */}
-      <div style={{
+      <div className="cge-builder-preview" style={{
         background: "#1a1a1a",
         padding: "30px",
         display: "flex", alignItems: "flex-start", justifyContent: "center",

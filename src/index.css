@@ -227,6 +227,50 @@ body {
     margin-left: auto;
   }
 
+  /* ---------- BUILDERS (Media / Flyer / Newsletter / Reel) ---------- */
+  /* Every builder tab uses a 2-column desktop layout: control panel +
+     preview canvas/HTML. On mobile we collapse to a single column so
+     the form gets the full viewport width and the preview drops to the
+     bottom (or top, depending on which side it's on). Each builder
+     adds className="cge-builder-layout" to its outer grid div. */
+  .cge-builder-layout {
+    grid-template-columns: 1fr !important;
+    gap: 1rem !important;
+  }
+
+  /* Preview wrapper — clips overflow so a 1080×1080 canvas or 1080×1350
+     HTML mock doesn't cause horizontal page scroll. Children scale to
+     viewport width. */
+  .cge-builder-preview {
+    max-width: 100% !important;
+    overflow-x: hidden !important;
+  }
+  .cge-builder-preview canvas {
+    max-width: 100% !important;
+    height: auto !important;
+    display: block !important;
+  }
+
+  /* HTML-based previews (Flyer + Newsletter) render at fixed pixel
+     dimensions (1080×1350) with absolute positioning inside. CSS
+     transform: scale() shrinks the whole node to viewport width while
+     keeping the inner coordinates intact. The wrapper sets the
+     POST-scale height so the next element below doesn't get covered. */
+  .cge-builder-preview-scaled {
+    --cge-scale: calc((100vw - 2rem) / 1080);
+    transform: scale(var(--cge-scale));
+    transform-origin: top left;
+  }
+  /* Wrapper to reserve the post-scale layout box. The inner
+     .cge-builder-preview-scaled div renders at full pixel size but
+     visually shrunken; this wrapper claims height = 1350 * scale so
+     downstream content doesn't overlap. */
+  .cge-builder-preview-frame {
+    width: calc(100vw - 2rem);
+    overflow: hidden;
+    /* Height auto-derived per builder via inline style on the frame. */
+  }
+
   /* ---------- GLOBAL: bigger touch targets for inputs ---------- */
   /* iOS auto-zooms inputs whose font-size is < 16px. Bump base inputs
      inside main content (not the nav) to 16px to suppress that zoom. */

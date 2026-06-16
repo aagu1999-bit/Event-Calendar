@@ -629,7 +629,7 @@ export default function NewsletterBuilder() {
           </span>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "340px 1fr", gap: "1.5rem", alignItems: "start" }}>
+        <div className="cge-builder-layout" style={{ display: "grid", gridTemplateColumns: "340px 1fr", gap: "1.5rem", alignItems: "start" }}>
           {/* LEFT: CONTROLS */}
           <div>
             <div style={{ display: "grid", gridTemplateColumns: "90px 1fr", gap: "0.4rem", marginBottom: "0.6rem" }}>
@@ -791,7 +791,7 @@ export default function NewsletterBuilder() {
           </div>
 
           {/* RIGHT: PREVIEW */}
-          <div>
+          <div className="cge-builder-preview">
             <label style={{ ...L, marginBottom: "6px" }}>Newsletter Preview</label>
             <div ref={previewRef} style={{
               background: "#FFFFFF", borderRadius: "8px", padding: "28px 32px", minHeight: 400,

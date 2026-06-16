@@ -3285,7 +3285,7 @@ export default function MediaTool() {
           )}
         </div>
 
-        <div style={{display:"grid",gridTemplateColumns:"1fr 400px",gap:"1.5rem",alignItems:"start"}}>
+        <div className="cge-builder-layout" style={{display:"grid",gridTemplateColumns:"1fr 400px",gap:"1.5rem",alignItems:"start"}}>
           <div>
             {mode==="cover"&&<>
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Background Photo</label>
@@ -3891,7 +3891,7 @@ export default function MediaTool() {
             <p style={{fontSize:"0.55rem",color:"rgba(245,240,232,0.18)",marginTop:"6px",lineHeight:1.5}}>{EXPORT_RATIOS[exportRatio].w}×{EXPORT_RATIOS[exportRatio].h}px · Syne 800 + DM Sans · CGE branded</p>
           </div>
 
-          <div><label style={{...L,marginBottom:"6px"}}>Preview</label>
+          <div className="cge-builder-preview"><label style={{...L,marginBottom:"6px"}}>Preview</label>
             <canvas ref={cvRef} style={{width:390,height:390,borderRadius:"4px",display:"block",background:"#000"}}/>
           </div>
         </div>
