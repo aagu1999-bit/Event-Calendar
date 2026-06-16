@@ -443,7 +443,7 @@ export default function ReelTool(){
           <span style={{fontSize:"0.6rem",color:co.accent,letterSpacing:"1.5px",textTransform:"uppercase",padding:"2px 8px",border:"1px solid rgba(255,255,255,0.08)",borderRadius:"14px"}}>{dayEv.length} events · {batchCount} batch{batchCount>1?"es":""} · {duration}s</span>
           {recording&&<span style={{fontSize:"0.6rem",color:"#FB7185",fontWeight:700}}>● REC</span>}
         </div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 340px",gap:"1.5rem",alignItems:"start"}}>
+        <div className="cge-builder-layout" style={{display:"grid",gridTemplateColumns:"1fr 340px",gap:"1.5rem",alignItems:"start"}}>
           <div>
             <div style={{display:"grid",gridTemplateColumns:"100px 1fr",gap:"0.4rem",marginBottom:"0.6rem"}}>
               <div><label style={L}>Friday Date</label><input value={friDate} onChange={e=>setFriDate(e.target.value)} style={I} placeholder="4/18"/></div>
@@ -549,7 +549,7 @@ export default function ReelTool(){
               })()}{dayEv.length===0&&<p style={{textAlign:"center",padding:"1rem",color:"rgba(245,240,232,0.1)",fontSize:"0.7rem"}}>Upload events</p>}</div>
             </div>
           </div>
-          <div><label style={{...L,marginBottom:"6px"}}>Preview (9:16)</label>
+          <div className="cge-builder-preview"><label style={{...L,marginBottom:"6px"}}>Preview (9:16)</label>
             <canvas ref={cvRef} style={{width:300,height:533,borderRadius:"8px",display:"block",background:"#000"}}/>
           </div>
         </div>
