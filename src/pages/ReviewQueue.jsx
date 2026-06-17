@@ -154,6 +154,7 @@ export default function ReviewQueue() {
         const payload = await loadSession(name);
         if (Array.isArray(payload?.events)) setEvents(payload.events);
         if (payload?.approvals && typeof payload.approvals === "object") setApprovals(payload.approvals);
+        if (Array.isArray(payload?.vetted)) setVettedArr(payload.vetted);
         setLastSessionName(name);
       } catch (err) {
         // Session was deleted or Repl offline — clear the pointer so we
@@ -166,21 +167,27 @@ export default function ReviewQueue() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Build the payload Review Sessions snapshots — events + approvals
-  // + filter state at save time.
+  // Build the payload Review Sessions snapshots — captures the full
+  // working state so loading a session puts you back exactly where you
+  // were: every event (worked-on OR not), the ✓ vetted markers, the
+  // selection checkboxes, the filter + sort. Flagged status is computed
+  // from the events themselves at render time, so it doesn't need to be
+  // persisted explicitly.
   const getSessionPayload = () => ({
     events,
     approvals,
+    vetted: vettedArr,
     filter,
     sortByTag,
   });
 
-  // Apply a loaded session: replace store events + approvals, remember
-  // the session name so the header pill updates and the next boot can
-  // auto-load it.
+  // Apply a loaded session: replace store events + approvals + vetted,
+  // remember the session name so the header pill updates and the next
+  // boot can auto-load it.
   const applyLoadedSession = (payload, name) => {
     if (Array.isArray(payload?.events)) setEvents(payload.events);
     if (payload?.approvals && typeof payload.approvals === "object") setApprovals(payload.approvals);
+    if (Array.isArray(payload?.vetted)) setVettedArr(payload.vetted);
     if (typeof payload?.filter === "string") setFilter(payload.filter);
     if (typeof payload?.sortByTag === "string" || payload?.sortByTag === null) setSortByTag(payload?.sortByTag || null);
     rememberLastSession(name);
@@ -190,7 +197,18 @@ export default function ReviewQueue() {
   const [pending, setPending] = useState([]); // parsed Event[]
   // Approval is a separate stamp from selection: marking a row "approved"
   // says it has been vetted, distinct from "selected for an action".
-  const [approvedSet, setApprovedSet] = useState(() => new Set());
+  // Backed by the store now (was useState) so it survives nav AND gets
+  // captured in Review Sessions. Component code still consumes a Set
+  // (existing .has() + function-updater callsites) — we shim Set ↔ Array
+  // around the store's array-backed `vetted` field.
+  const vettedArr = useEventsStore(s => s.vetted);
+  const setVettedArr = useEventsStore(s => s.setVetted);
+  const approvedSet = useMemo(() => new Set(vettedArr || []), [vettedArr]);
+  const setApprovedSet = (updaterOrSet) => {
+    const current = new Set(vettedArr || []);
+    const next = typeof updaterOrSet === "function" ? updaterOrSet(current) : updaterOrSet;
+    setVettedArr(Array.from(next || []));
+  };
   const [filter, setFilter] = useState("all"); // all | clean | flagged | unapproved | approved
   const [sortByTag, setSortByTag] = useState(null); // tag name to float to top (separate from filter)
   // Highlighted group captures the event IDs at click time so the sort/highlight

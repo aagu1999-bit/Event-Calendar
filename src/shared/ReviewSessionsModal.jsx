@@ -83,7 +83,12 @@ export function ReviewSessionsModal({
       const cur = getCurrent();
       await saveSession(name, cur);
       await reload();
-      alert(`Saved "${name}" with ${cur.events?.length || 0} events + ${Object.keys(cur.approvals || {}).length} approvals.`);
+      alert(
+        `Saved "${name}":\n` +
+        `· ${cur.events?.length || 0} events total (including untouched, flagged, and worked-on)\n` +
+        `· ${(cur.vetted?.length) || 0} marked ✓ vetted\n` +
+        `· ${Object.values(cur.approvals || {}).filter(Boolean).length} ☑ selected`
+      );
     } catch (e) {
       alert("Save failed: " + (e.message || e));
     } finally {
@@ -183,7 +188,7 @@ export function ReviewSessionsModal({
             <div
               key={s.name}
               onClick={() => onPickLoad(s.name)}
-              title={`${s.name} · ${s.eventCount} events · ${s.approvalCount} approvals · ${formatBytes(s.size)}`}
+              title={`${s.name} · ${s.eventCount} events total · ${s.vettedCount || 0} vetted · ${s.approvalCount} selected · ${formatBytes(s.size)}`}
               style={{
                 display: "flex", alignItems: "center", gap: "12px",
                 padding: "12px 14px", marginBottom: "6px",
@@ -199,7 +204,7 @@ export function ReviewSessionsModal({
                   {s.name}
                 </div>
                 <div style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.5)", letterSpacing: "0.5px", textTransform: "uppercase", marginTop: "3px" }}>
-                  {s.eventCount} event{s.eventCount === 1 ? "" : "s"} · {s.approvalCount} approved · saved {formatWhen(s.savedAt || s.mtime)}
+                  {s.eventCount} event{s.eventCount === 1 ? "" : "s"} total · {s.vettedCount || 0} ✓ vetted · {s.approvalCount} ☑ selected · saved {formatWhen(s.savedAt || s.mtime)}
                 </div>
               </div>
               <button
