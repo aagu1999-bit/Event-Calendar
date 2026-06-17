@@ -68,6 +68,12 @@ export const useEventsStore = create(
       // Replaces the prior live-sync architecture (deleted) with explicit
       // save points.
       approvals: {},
+      // Per-event "✓ vetted" stamp — distinct from `approvals` (which is
+      // the checkbox SELECTION state for bulk actions). Stored as an
+      // array because Sets don't survive Zustand's persist middleware
+      // and the JSON sent to /api/review-sessions. ReviewQueue derives a
+      // memoized Set from this on read; writes go through setVetted().
+      vetted: [],
       setEvents: (events) =>
         set({ events: typeof events === "function" ? events([]) : events }),
       updateEvents: (updater) =>
@@ -93,7 +99,17 @@ export const useEventsStore = create(
         if (toAdd.length) set({ events: [...existing, ...toAdd] });
         return { added: toAdd.length, skipped };
       },
-      clearEvents: () => set({ events: [], approvals: {} }),
+      clearEvents: () => set({ events: [], approvals: {}, vetted: [] }),
+      // Vetted actions — array-backed for serialization. Accept either
+      // a new array or an updater function for parity with React's
+      // setState pattern.
+      setVetted: (vettedOrUpdater) =>
+        set((state) => {
+          const next = typeof vettedOrUpdater === "function"
+            ? vettedOrUpdater(state.vetted)
+            : vettedOrUpdater;
+          return { vetted: Array.isArray(next) ? next : [] };
+        }),
       // Approval actions — used by ReviewQueue's checkbox column.
       // Accepts either a new map or an updater function for parity with
       // the React setState pattern existing callers already use.
@@ -128,14 +144,14 @@ export const useEventsStore = create(
     }),
     {
       name: "cge-events",
-      version: 2,
-      // v2 migration: ensure approvals key exists on older persisted state.
+      version: 3,
+      // Migration: ensure approvals + vetted keys exist on older state.
       migrate: (persistedState, version) => {
-        if (!persistedState) return { events: [], approvals: {} };
-        if (version < 2 && !persistedState.approvals) {
-          return { ...persistedState, approvals: {} };
-        }
-        return persistedState;
+        if (!persistedState) return { events: [], approvals: {}, vetted: [] };
+        const out = { ...persistedState };
+        if (version < 2 && !out.approvals) out.approvals = {};
+        if (version < 3 && !Array.isArray(out.vetted)) out.vetted = [];
+        return out;
       },
     }
   )

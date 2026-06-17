@@ -260,11 +260,12 @@ app.get("/api/review-sessions", async (_req, res) => {
       if (!f.endsWith(".json")) continue;
       try {
         const st = await fs.stat(path.join(SESSIONS_DIR, f));
-        let eventCount = 0, approvalCount = 0, savedAt = st.mtimeMs;
+        let eventCount = 0, approvalCount = 0, vettedCount = 0, savedAt = st.mtimeMs;
         try {
           const data = JSON.parse(await fs.readFile(path.join(SESSIONS_DIR, f), "utf8"));
           eventCount = Array.isArray(data.events) ? data.events.length : 0;
           approvalCount = data.approvals ? Object.values(data.approvals).filter(Boolean).length : 0;
+          vettedCount = Array.isArray(data.vetted) ? data.vetted.length : 0;
           if (data.savedAt) savedAt = data.savedAt;
         } catch { /* corrupt — surface as 0 counts */ }
         out.push({
@@ -274,6 +275,7 @@ app.get("/api/review-sessions", async (_req, res) => {
           savedAt,
           eventCount,
           approvalCount,
+          vettedCount,
         });
       } catch { /* vanished mid-list */ }
     }
@@ -305,6 +307,7 @@ app.put("/api/review-sessions/:name", express.json({ limit: "10mb" }), async (re
     const data = {
       events: Array.isArray(body.events) ? body.events : [],
       approvals: body.approvals && typeof body.approvals === "object" ? body.approvals : {},
+      vetted: Array.isArray(body.vetted) ? body.vetted : [],
       filter: typeof body.filter === "string" ? body.filter : "",
       sortByTag: typeof body.sortByTag === "string" ? body.sortByTag : null,
       savedAt: Date.now(),
