@@ -229,11 +229,55 @@ app.delete("/api/library/:kind/:id", async (req, res) => {
   }
 });
 
+// === REVIEW STATE (live sync) ===
+// Single shared JSON blob holding the events list + approvals + UI
+// filters that the Review tab manipulates. Auto-saved by the client
+// on changes (debounced), auto-loaded on boot, so any device that
+// opens the Repl URL picks up where the last device left off.
+//
+// Storage: one file. Last write wins. Acceptable trade-off for a
+// small private team — solo editing is the common case, and the
+// existing workspace zip + manual cloud save still handles
+// "I need a versioned snapshot" use cases.
+const REVIEW_STATE_PATH = path.resolve(__dirname, "data/review-state.json");
+
+app.get("/api/review-state", async (_req, res) => {
+  try {
+    if (!existsSync(REVIEW_STATE_PATH)) {
+      return res.json({ events: [], approvals: {}, ts: 0 });
+    }
+    const raw = await fs.readFile(REVIEW_STATE_PATH, "utf8");
+    res.json(JSON.parse(raw));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT replaces the whole blob — the client always sends a complete
+// snapshot. 10mb covers thousands of events with full metadata.
+app.put("/api/review-state", express.json({ limit: "10mb" }), async (req, res) => {
+  try {
+    const body = req.body || {};
+    const data = {
+      events: Array.isArray(body.events) ? body.events : [],
+      approvals: body.approvals && typeof body.approvals === "object" ? body.approvals : {},
+      filter: typeof body.filter === "string" ? body.filter : "",
+      sortByTag: typeof body.sortByTag === "string" ? body.sortByTag : null,
+      ts: Date.now(),
+    };
+    await fs.mkdir(path.dirname(REVIEW_STATE_PATH), { recursive: true });
+    await fs.writeFile(REVIEW_STATE_PATH, JSON.stringify(data));
+    res.json({ ok: true, ts: data.ts });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Health check — the client pings this on boot to decide whether to show
 // the cloud buttons. Returns version so we can tell apart old servers if
 // the API ever changes.
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, api: "workspaces+library", version: 2, env: NODE_ENV });
+  res.json({ ok: true, api: "workspaces+library+reviewState", version: 3, env: NODE_ENV });
 });
 
 // === VITE MIDDLEWARE / STATIC ===
