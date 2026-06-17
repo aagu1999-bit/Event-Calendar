@@ -16,6 +16,7 @@ import { CloudWorkspaceModal } from "./shared/CloudWorkspaceModal.jsx";
 import { saveExport, loadExportRecord, savePhotoAndNotify } from "./shared/photoLibrary.js";
 import { readCgeExportTag } from "./shared/pngMetadata.js";
 import { useRestoreStore } from "./store";
+import { startSync, onStatusChange, getEnabled, setEnabled } from "./shared/reviewSync.js";
 
 // Wrap a CSV cell — quote if it contains a comma, quote, or newline.
 const csvCell = (v) => {
@@ -90,10 +91,26 @@ function Nav() {
   // buttons if it answers.
   const [cloudOk, setCloudOk] = useState(false);
   const [cloudPickOpen, setCloudPickOpen] = useState(false);
+  // Live review sync — events list is auto-pushed to /api/review-state on
+  // change and pulled on boot + window-focus + 20s poll. Status drives a
+  // tiny indicator in the nav so the user sees "Saved 12s ago" / "Saving…"
+  // / "Offline".
+  const [syncStatus, setSyncStatus] = useState({ state: "idle", lastSyncTs: 0, enabled: getEnabled() });
+  const [, setTick] = useState(0); // forces re-render so "12s ago" stays live
   useEffect(() => {
     let live = true;
     checkCloudAvailable().then(ok => { if (live) setCloudOk(ok); });
-    return () => { live = false; };
+    // Start the sync engine. It will pull on boot, then push on changes.
+    const stopSync = startSync();
+    const offStatus = onStatusChange(s => { if (live) setSyncStatus(s); });
+    // Re-render every 5s so the "Saved Ns ago" label stays accurate.
+    const tickT = setInterval(() => setTick(t => t + 1), 5000);
+    return () => {
+      live = false;
+      try { stopSync && stopSync(); } catch {}
+      try { offStatus(); } catch {}
+      clearInterval(tickT);
+    };
   }, []);
 
   const onCloudSave = async () => {
@@ -338,6 +355,52 @@ function Nav() {
       }}>
         {eventCount} event{eventCount === 1 ? "" : "s"} loaded
       </div>
+      {/* Live review sync indicator — shows the auto-sync state for the
+          events store. Click to toggle on/off. */}
+      {cloudOk && (() => {
+        const s = syncStatus;
+        const ago = s.lastSyncTs ? Math.max(0, Math.floor((Date.now() - s.lastSyncTs) / 1000)) : null;
+        const label =
+          !s.enabled ? "● Sync off"
+          : s.state === "saving" ? "● Saving…"
+          : s.state === "loading" ? "● Loading…"
+          : s.state === "offline" ? "● Offline"
+          : ago === null ? "● Live sync"
+          : ago < 5 ? "● Live · just now"
+          : ago < 60 ? `● Live · ${ago}s ago`
+          : ago < 3600 ? `● Live · ${Math.floor(ago/60)}m ago`
+          : "● Live";
+        const dotColor =
+          !s.enabled ? "rgba(245,240,232,0.3)"
+          : s.state === "saving" || s.state === "loading" ? "#FACC15"
+          : s.state === "offline" ? "#FB7185"
+          : "#34D399";
+        return (
+          <button
+            onClick={() => setEnabled(!s.enabled)}
+            title={
+              !s.enabled
+                ? "Auto-sync is off. Click to enable — Review events will save to the Repl on change and load on boot."
+                : `Auto-sync is on. Events list is shared across every device on this Repl URL.${s.lastError ? "\n\nLast error: " + s.lastError : ""}`
+            }
+            style={{
+              padding: "4px 9px",
+              background: s.state === "offline" ? "rgba(251,113,133,0.10)" : "rgba(52,211,153,0.06)",
+              border: `1px solid ${s.state === "offline" ? "rgba(251,113,133,0.3)" : "rgba(52,211,153,0.2)"}`,
+              borderRadius: "4px",
+              color: dotColor,
+              fontSize: "0.55rem",
+              letterSpacing: "1px",
+              textTransform: "uppercase",
+              cursor: "pointer",
+              fontFamily: "inherit",
+              fontWeight: 700,
+              whiteSpace: "nowrap",
+            }}
+          >{label}</button>
+        );
+      })()}
+
       {/* Cloud sync (Repl-side persistence). Hidden when the static build
           is served without the Express server. */}
       {cloudOk && (
