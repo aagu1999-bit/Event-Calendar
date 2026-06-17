@@ -229,33 +229,77 @@ app.delete("/api/library/:kind/:id", async (req, res) => {
   }
 });
 
-// === REVIEW STATE (live sync) ===
-// Single shared JSON blob holding the events list + approvals + UI
-// filters that the Review tab manipulates. Auto-saved by the client
-// on changes (debounced), auto-loaded on boot, so any device that
-// opens the Repl URL picks up where the last device left off.
+// === REVIEW SESSIONS ===
+// Named snapshots of the Review tab's working state (events list +
+// approvals + filter). Same shape as workspaces — list / get / put /
+// delete — but stored as plain JSON instead of zip files because the
+// payload is small (events array + approvals map, no photos).
 //
-// Storage: one file. Last write wins. Acceptable trade-off for a
-// small private team — solo editing is the common case, and the
-// existing workspace zip + manual cloud save still handles
-// "I need a versioned snapshot" use cases.
-const REVIEW_STATE_PATH = path.resolve(__dirname, "data/review-state.json");
+// Use case: "save my Friday triage at 4 PM, pick up Saturday morning
+// from wherever I left off." Multiple parallel sessions are supported
+// (e.g. one per weekend). Last write wins per session name.
+const SESSIONS_DIR = path.resolve(__dirname, "data/review-sessions");
 
-app.get("/api/review-state", async (_req, res) => {
+// Same filename guard as workspaces — strip path traversal, leading
+// dots, excessive length.
+function safeSessionName(raw) {
+  const base = path.basename(String(raw || "").replace(/\.json$/i, ""));
+  if (!base || base.startsWith(".") || base.includes("..") || base.length > 100) return null;
+  return base + ".json";
+}
+
+// List every session in the dir, newest first, with name + size + mtime
+// + event count peeked from the JSON. The peek is cheap because review
+// sessions are small JSON.
+app.get("/api/review-sessions", async (_req, res) => {
   try {
-    if (!existsSync(REVIEW_STATE_PATH)) {
-      return res.json({ events: [], approvals: {}, ts: 0 });
+    await fs.mkdir(SESSIONS_DIR, { recursive: true });
+    const files = await fs.readdir(SESSIONS_DIR);
+    const out = [];
+    for (const f of files) {
+      if (!f.endsWith(".json")) continue;
+      try {
+        const st = await fs.stat(path.join(SESSIONS_DIR, f));
+        let eventCount = 0, approvalCount = 0, savedAt = st.mtimeMs;
+        try {
+          const data = JSON.parse(await fs.readFile(path.join(SESSIONS_DIR, f), "utf8"));
+          eventCount = Array.isArray(data.events) ? data.events.length : 0;
+          approvalCount = data.approvals ? Object.values(data.approvals).filter(Boolean).length : 0;
+          if (data.savedAt) savedAt = data.savedAt;
+        } catch { /* corrupt — surface as 0 counts */ }
+        out.push({
+          name: f.replace(/\.json$/, ""),
+          size: st.size,
+          mtime: st.mtimeMs,
+          savedAt,
+          eventCount,
+          approvalCount,
+        });
+      } catch { /* vanished mid-list */ }
     }
-    const raw = await fs.readFile(REVIEW_STATE_PATH, "utf8");
-    res.json(JSON.parse(raw));
+    out.sort((a, b) => b.savedAt - a.savedAt);
+    res.json(out);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// PUT replaces the whole blob — the client always sends a complete
-// snapshot. 10mb covers thousands of events with full metadata.
-app.put("/api/review-state", express.json({ limit: "10mb" }), async (req, res) => {
+app.get("/api/review-sessions/:name", async (req, res) => {
+  const name = safeSessionName(req.params.name);
+  if (!name) return res.status(400).json({ error: "Invalid name" });
+  const full = path.join(SESSIONS_DIR, name);
+  if (!existsSync(full)) return res.status(404).json({ error: "Not found" });
+  try {
+    const data = JSON.parse(await fs.readFile(full, "utf8"));
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put("/api/review-sessions/:name", express.json({ limit: "10mb" }), async (req, res) => {
+  const name = safeSessionName(req.params.name);
+  if (!name) return res.status(400).json({ error: "Invalid name" });
   try {
     const body = req.body || {};
     const data = {
@@ -263,12 +307,24 @@ app.put("/api/review-state", express.json({ limit: "10mb" }), async (req, res) =
       approvals: body.approvals && typeof body.approvals === "object" ? body.approvals : {},
       filter: typeof body.filter === "string" ? body.filter : "",
       sortByTag: typeof body.sortByTag === "string" ? body.sortByTag : null,
-      ts: Date.now(),
+      savedAt: Date.now(),
     };
-    await fs.mkdir(path.dirname(REVIEW_STATE_PATH), { recursive: true });
-    await fs.writeFile(REVIEW_STATE_PATH, JSON.stringify(data));
-    res.json({ ok: true, ts: data.ts });
+    await fs.mkdir(SESSIONS_DIR, { recursive: true });
+    await fs.writeFile(path.join(SESSIONS_DIR, name), JSON.stringify(data));
+    res.json({ ok: true, savedAt: data.savedAt });
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete("/api/review-sessions/:name", async (req, res) => {
+  const name = safeSessionName(req.params.name);
+  if (!name) return res.status(400).json({ error: "Invalid name" });
+  try {
+    await fs.unlink(path.join(SESSIONS_DIR, name));
+    res.json({ ok: true });
+  } catch (err) {
+    if (err.code === "ENOENT") return res.status(404).json({ error: "Not found" });
     res.status(500).json({ error: err.message });
   }
 });
@@ -277,7 +333,7 @@ app.put("/api/review-state", express.json({ limit: "10mb" }), async (req, res) =
 // the cloud buttons. Returns version so we can tell apart old servers if
 // the API ever changes.
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, api: "workspaces+library+reviewState", version: 3, env: NODE_ENV });
+  res.json({ ok: true, api: "workspaces+library+reviewSessions", version: 4, env: NODE_ENV });
 });
 
 // === VITE MIDDLEWARE / STATIC ===

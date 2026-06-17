@@ -62,6 +62,12 @@ export const useEventsStore = create(
   persist(
     (set, get) => ({
       events: [],
+      // Per-event "selected for inclusion" map { [eventId]: true }. Lifted
+      // out of ReviewQueue's local useState so Review Sessions can save
+      // and restore the user's checkbox state alongside the events.
+      // Replaces the prior live-sync architecture (deleted) with explicit
+      // save points.
+      approvals: {},
       setEvents: (events) =>
         set({ events: typeof events === "function" ? events([]) : events }),
       updateEvents: (updater) =>
@@ -87,11 +93,50 @@ export const useEventsStore = create(
         if (toAdd.length) set({ events: [...existing, ...toAdd] });
         return { added: toAdd.length, skipped };
       },
-      clearEvents: () => set({ events: [] }),
+      clearEvents: () => set({ events: [], approvals: {} }),
+      // Approval actions — used by ReviewQueue's checkbox column.
+      // Accepts either a new map or an updater function for parity with
+      // the React setState pattern existing callers already use.
+      setApprovals: (approvalsOrUpdater) =>
+        set((state) => {
+          const next = typeof approvalsOrUpdater === "function"
+            ? approvalsOrUpdater(state.approvals)
+            : approvalsOrUpdater;
+          return { approvals: next && typeof next === "object" ? next : {} };
+        }),
+      toggleApproval: (id) =>
+        set((state) => {
+          const next = { ...state.approvals };
+          if (next[id]) delete next[id];
+          else next[id] = true;
+          return { approvals: next };
+        }),
+      setApproval: (id, on) =>
+        set((state) => {
+          const next = { ...state.approvals };
+          if (on) next[id] = true;
+          else delete next[id];
+          return { approvals: next };
+        }),
+      clearApprovals: () => set({ approvals: {} }),
+      approveMany: (ids) =>
+        set((state) => {
+          const next = { ...state.approvals };
+          for (const id of ids) next[id] = true;
+          return { approvals: next };
+        }),
     }),
     {
       name: "cge-events",
-      version: 1,
+      version: 2,
+      // v2 migration: ensure approvals key exists on older persisted state.
+      migrate: (persistedState, version) => {
+        if (!persistedState) return { events: [], approvals: {} };
+        if (version < 2 && !persistedState.approvals) {
+          return { ...persistedState, approvals: {} };
+        }
+        return persistedState;
+      },
     }
   )
 );
