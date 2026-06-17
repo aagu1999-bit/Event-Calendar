@@ -6,6 +6,8 @@ import { computeWarnings, findFlagPartners } from "../shared/validateEvents";
 import { detectRegulars } from "../shared/regulars";
 import { normalizeHandle } from "../shared/parseEvents";
 import { UInput } from "../shared/inputs.jsx";
+import { ReviewSessionsModal } from "../shared/ReviewSessionsModal.jsx";
+import { rememberLastSession, getLastSession, forgetLastSession, loadSession } from "../shared/reviewSessions.js";
 
 // Flag glossary — shown in the collapsible cheat sheet. Order matters
 // (most-severe first); descriptions are 1-line so the grid stays tight.
@@ -127,9 +129,65 @@ const PILL_HIGHLIGHTED = {
 export default function ReviewQueue() {
   const events = useEventsStore(s => s.events);
   const updateEvents = useEventsStore(s => s.updateEvents);
+  // Approvals lifted into the store (was useState here) so Review Sessions
+  // can save and restore the user's checkbox state alongside the events.
+  const approvals = useEventsStore(s => s.approvals);
+  const setApprovals = useEventsStore(s => s.setApprovals);
+
+  // Review Sessions modal state + last-loaded session name (drives the
+  // "Session: <name>" pill in the header so the user remembers where
+  // they are).
+  const [sessionsOpen, setSessionsOpen] = useState(false);
+  const [lastSessionName, setLastSessionName] = useState(() => getLastSession());
+
+  const setEvents = useEventsStore(s => s.setEvents);
+
+  // Auto-load the most-recently-used session on mount (once). Skipped if
+  // local already has events (user came back to an in-progress workspace)
+  // or no session is remembered.
+  useEffect(() => {
+    const name = getLastSession();
+    if (!name) return;
+    if ((events?.length || 0) > 0) return; // user has working state — don't clobber
+    (async () => {
+      try {
+        const payload = await loadSession(name);
+        if (Array.isArray(payload?.events)) setEvents(payload.events);
+        if (payload?.approvals && typeof payload.approvals === "object") setApprovals(payload.approvals);
+        setLastSessionName(name);
+      } catch (err) {
+        // Session was deleted or Repl offline — clear the pointer so we
+        // don't keep trying to load a ghost.
+        console.warn("Auto-load session failed:", err);
+        forgetLastSession();
+        setLastSessionName(null);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Build the payload Review Sessions snapshots — events + approvals
+  // + filter state at save time.
+  const getSessionPayload = () => ({
+    events,
+    approvals,
+    filter,
+    sortByTag,
+  });
+
+  // Apply a loaded session: replace store events + approvals, remember
+  // the session name so the header pill updates and the next boot can
+  // auto-load it.
+  const applyLoadedSession = (payload, name) => {
+    if (Array.isArray(payload?.events)) setEvents(payload.events);
+    if (payload?.approvals && typeof payload.approvals === "object") setApprovals(payload.approvals);
+    if (typeof payload?.filter === "string") setFilter(payload.filter);
+    if (typeof payload?.sortByTag === "string" || payload?.sortByTag === null) setSortByTag(payload?.sortByTag || null);
+    rememberLastSession(name);
+    setLastSessionName(name);
+  };
 
   const [pending, setPending] = useState([]); // parsed Event[]
-  const [approvals, setApprovals] = useState({}); // id -> bool — SELECTION state (checkbox / bulk-action target)
   // Approval is a separate stamp from selection: marking a row "approved"
   // says it has been vetted, distinct from "selected for an action".
   const [approvedSet, setApprovedSet] = useState(() => new Set());
@@ -539,8 +597,30 @@ export default function ReviewQueue() {
           </div>
           <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" onChange={handleFile} style={{ display: "none" }} />
           <button onClick={() => fileRef.current?.click()} style={Bgold}>
-            {pending.length === 0 ? "Upload sheet" : "Re-upload"}
+            {pending.length === 0 ? "Upload sheet" : "+ Add sheet"}
           </button>
+          {/* Sessions — named save points for the events + approvals.
+              Replaces the deleted live-sync architecture. Click to open
+              the picker (load existing) or use the "+ Save Current as New"
+              button inside to capture the current state. */}
+          <button
+            onClick={() => setSessionsOpen(true)}
+            title={lastSessionName ? `Sessions — currently working in "${lastSessionName}". Click to load another or save the current state.` : "Save the current events + approvals as a named session, or load one."}
+            style={{
+              padding: "6px 12px",
+              background: "rgba(52,211,153,0.10)",
+              border: "1px solid rgba(52,211,153,0.35)",
+              borderRadius: "5px",
+              color: "#34D399",
+              fontSize: "0.6rem",
+              fontWeight: 700,
+              letterSpacing: "1.5px",
+              textTransform: "uppercase",
+              cursor: "pointer",
+              fontFamily: "inherit",
+              whiteSpace: "nowrap",
+            }}
+          >📁 {lastSessionName ? `Session: ${lastSessionName.length > 14 ? lastSessionName.slice(0, 14) + "…" : lastSessionName}` : "Sessions"}</button>
         </div>
 
         {/* Weekly Regulars — master-sheet importer (step 1: no browse UI yet). */}
@@ -1192,6 +1272,12 @@ export default function ReviewQueue() {
           </div>
         )}
       </div>
+      <ReviewSessionsModal
+        open={sessionsOpen}
+        onClose={() => setSessionsOpen(false)}
+        onLoad={applyLoadedSession}
+        getCurrent={getSessionPayload}
+      />
     </div>
   );
 }
