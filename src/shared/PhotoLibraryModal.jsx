@@ -45,6 +45,10 @@ export function PhotoLibraryModal({ open, onClose, onPick, outputAs = "image", i
   const [urlBusy, setUrlBusy] = useState(false);
   const [urlProgress, setUrlProgress] = useState(null); // null | { done, total, msg }
   const [scrapeQueue, setScrapeQueue] = useState([]); // [{ sourceUrl, images: [], picked: Set }]
+  // Paste-from-clipboard status — shows a brief toast after a clipboard
+  // image saves so the user knows it landed without scrolling to find
+  // the new tile.
+  const [pasteToast, setPasteToast] = useState(null); // null | { msg, error }
 
   // Re-query on open, on filter change, and whenever the library changes
   // (a parallel save from another tab / a delete from the grid).
@@ -75,10 +79,64 @@ export function PhotoLibraryModal({ open, onClose, onPick, outputAs = "image", i
     // Probe the legacy IndexedDB whenever the modal opens. Cheap
     // (just counts) and answers in <50ms even on a large library.
     countLegacyLibrary().then(c => { if (live) setLegacy(c); });
+
+    // Clipboard paste — listen at the document level while the modal is
+    // open. Skip when the user is pasting text into an input / textarea
+    // (e.g. the URL panel) so we don't hijack their input. Multiple
+    // images in one clipboard event all save.
+    const onPaste = async (e) => {
+      const targetIsTextField =
+        e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA");
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      const imageItems = [];
+      for (const it of items) {
+        if (it.kind === "file" && it.type && it.type.startsWith("image/")) {
+          imageItems.push(it);
+        }
+      }
+      if (imageItems.length === 0) return;
+      // If the paste is going into a text field AND the clipboard has
+      // text too, let the field handle the text. We only steal the
+      // paste when there's an image to save.
+      if (targetIsTextField) {
+        // Bail unless this is purely image content (no text companion).
+        const hasText = Array.from(items).some(x => x.kind === "string");
+        if (hasText) return;
+      }
+      e.preventDefault();
+      try {
+        let savedCount = 0;
+        for (const it of imageItems) {
+          const blob = it.getAsFile();
+          if (!blob) continue;
+          const ext = (blob.type.split("/")[1] || "png").split(";")[0];
+          const name = blob.name || `pasted-${Date.now()}-${savedCount}.${ext}`;
+          await savePhotoAndNotify(
+            new File([blob], name, { type: blob.type }),
+            { sourceTool: "import", sourceMode: "paste" }
+          );
+          savedCount++;
+        }
+        if (savedCount > 0 && live) {
+          setPasteToast({ msg: `📋 Pasted ${savedCount} image${savedCount === 1 ? "" : "s"} → saved to library`, error: false });
+          setTimeout(() => { if (live) setPasteToast(null); }, 2500);
+        }
+      } catch (err) {
+        console.warn("Paste save failed:", err);
+        if (live) {
+          setPasteToast({ msg: `Paste failed: ${err.message || err}`, error: true });
+          setTimeout(() => { if (live) setPasteToast(null); }, 3500);
+        }
+      }
+    };
+    document.addEventListener("paste", onPaste);
+
     return () => {
       live = false;
       off();
       revokeOnUnmount.forEach(u => URL.revokeObjectURL(u));
+      document.removeEventListener("paste", onPaste);
     };
   }, [open, filter]);
 
@@ -287,6 +345,7 @@ export function PhotoLibraryModal({ open, onClose, onPick, outputAs = "image", i
           display: "flex", flexDirection: "column",
           color: "#F5F0E8",
           fontFamily: "'DM Sans', sans-serif",
+          position: "relative",  // anchor for the paste-toast
         }}
       >
         {/* Header */}
@@ -317,6 +376,9 @@ export function PhotoLibraryModal({ open, onClose, onPick, outputAs = "image", i
           <div style={{ flex: 1 }} />
           <div style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.4)", letterSpacing: "1px", textTransform: "uppercase" }}>
             {photos.length} photo{photos.length === 1 ? "" : "s"} · {formatBytes(total)}
+          </div>
+          <div title="Tip: copy any image (Cmd+C / Ctrl+C) and press Cmd+V / Ctrl+V here to save it to the library directly" style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: "1px", textTransform: "uppercase", whiteSpace: "nowrap" }}>
+            📋 paste image to add
           </div>
           <button
             onClick={() => setUrlOpen(v => !v)}
@@ -590,6 +652,29 @@ export function PhotoLibraryModal({ open, onClose, onPick, outputAs = "image", i
             </div>
           )}
         </div>
+        {/* Paste toast — bottom-center inside the modal so it's anchored
+            to the library context rather than the global viewport. */}
+        {pasteToast && (
+          <div style={{
+            position: "absolute",
+            bottom: 20,
+            left: "50%",
+            transform: "translateX(-50%)",
+            padding: "8px 16px",
+            background: pasteToast.error ? "rgba(251,113,133,0.95)" : "rgba(52,211,153,0.95)",
+            color: "#0a0a0a",
+            borderRadius: 6,
+            fontSize: "0.7rem",
+            fontWeight: 700,
+            letterSpacing: "0.5px",
+            boxShadow: "0 6px 24px rgba(0,0,0,0.5)",
+            pointerEvents: "none",
+            fontFamily: "'DM Sans', sans-serif",
+            zIndex: 1,
+          }}>
+            {pasteToast.msg}
+          </div>
+        )}
       </div>
     </div>,
     document.body
