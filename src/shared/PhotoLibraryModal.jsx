@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { listPhotos, loadPhotoBlob, loadPhotoAsImage, loadPhotoAsDataUrl, deletePhotoAndNotify, onLibraryChange, usageBytes, countLegacyLibrary, migrateLegacyToCloud } from "./photoLibrary.js";
+import { listPhotos, loadPhotoBlob, loadPhotoAsImage, loadPhotoAsDataUrl, deletePhotoAndNotify, onLibraryChange, usageBytes, countLegacyLibrary, migrateLegacyToCloud, savePhotoAndNotify } from "./photoLibrary.js";
 
 const TOOLS = [
   { key: "",         label: "All" },
@@ -37,6 +37,14 @@ export function PhotoLibraryModal({ open, onClose, onPick, outputAs = "image", i
   const [legacy, setLegacy] = useState({ photos: 0, exports: 0 });
   const [migrateProgress, setMigrateProgress] = useState(null); // null | {done, total}
   const [migrateBusy, setMigrateBusy] = useState(false);
+  // URL import panel — collapsible section above the grid. Textarea takes
+  // any number of URLs (one per line). Server fetches each; image URLs
+  // save directly, HTML URLs surface their <img> tags in a picker.
+  const [urlOpen, setUrlOpen] = useState(false);
+  const [urlText, setUrlText] = useState("");
+  const [urlBusy, setUrlBusy] = useState(false);
+  const [urlProgress, setUrlProgress] = useState(null); // null | { done, total, msg }
+  const [scrapeQueue, setScrapeQueue] = useState([]); // [{ sourceUrl, images: [], picked: Set }]
 
   // Re-query on open, on filter change, and whenever the library changes
   // (a parallel save from another tab / a delete from the grid).
@@ -126,6 +134,131 @@ export function PhotoLibraryModal({ open, onClose, onPick, outputAs = "image", i
     await deletePhotoAndNotify(id);
   };
 
+  // === URL IMPORT ===
+  // Fetch a list of URLs serially through /api/library/import-url. Each
+  // image URL → save to library. Each HTML URL → queue its scraped
+  // <img> srcs into a per-source picker so the user can choose which to
+  // import. Progress reported per URL processed.
+  const dataUrlToBlob = (b64, mime) => {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new Blob([bytes], { type: mime });
+  };
+
+  const importOneUrl = async (url) => {
+    const res = await fetch("/api/library/import-url", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    });
+    if (!res.ok) {
+      let msg = `${res.status} ${res.statusText}`;
+      try { const j = await res.json(); if (j?.error) msg += ` — ${j.error}`; } catch {}
+      throw new Error(msg);
+    }
+    return res.json();
+  };
+
+  const runUrlImport = async () => {
+    if (urlBusy) return;
+    const lines = urlText.split(/[\n,]/).map(s => s.trim()).filter(Boolean);
+    if (lines.length === 0) {
+      alert("Paste at least one URL (one per line).");
+      return;
+    }
+    setUrlBusy(true);
+    setUrlProgress({ done: 0, total: lines.length, msg: "" });
+    const newScrapes = [];
+    let imported = 0;
+    let failed = 0;
+    for (let i = 0; i < lines.length; i++) {
+      const url = lines[i];
+      setUrlProgress({ done: i, total: lines.length, msg: url.slice(0, 70) });
+      try {
+        const result = await importOneUrl(url);
+        if (result.kind === "image") {
+          const blob = dataUrlToBlob(result.data, result.mime);
+          // Tag with sourceTool="import" so the user can filter to recently
+          // imported items in the library grid.
+          await savePhotoAndNotify(
+            new File([blob], result.name || "imported.jpg", { type: result.mime }),
+            { sourceTool: "import", sourceMode: "url" }
+          );
+          imported++;
+        } else if (result.kind === "html") {
+          if (Array.isArray(result.images) && result.images.length) {
+            newScrapes.push({
+              sourceUrl: result.sourceUrl,
+              images: result.images,
+              picked: new Set(),
+            });
+          }
+        }
+      } catch (err) {
+        failed++;
+        console.warn(`Import failed for ${url}:`, err);
+      }
+    }
+    setUrlProgress(null);
+    setUrlBusy(false);
+    if (newScrapes.length) {
+      // Surface the pickers; keep the textarea content in case the user
+      // wants to re-run a subset.
+      setScrapeQueue(prev => [...prev, ...newScrapes]);
+    } else {
+      setUrlText("");
+    }
+    const parts = [];
+    if (imported) parts.push(`${imported} image${imported === 1 ? "" : "s"} imported`);
+    if (newScrapes.length) parts.push(`${newScrapes.reduce((s, x) => s + x.images.length, 0)} found on ${newScrapes.length} webpage${newScrapes.length === 1 ? "" : "s"} — pick which to keep`);
+    if (failed) parts.push(`${failed} failed`);
+    if (parts.length) {
+      // Tiny non-blocking status — keep it lightweight.
+      console.log("URL import done:", parts.join(" · "));
+    }
+  };
+
+  const togglePicked = (idx, url) => {
+    setScrapeQueue(prev => prev.map((q, i) => {
+      if (i !== idx) return q;
+      const next = new Set(q.picked);
+      if (next.has(url)) next.delete(url); else next.add(url);
+      return { ...q, picked: next };
+    }));
+  };
+
+  const importPickedScrape = async (idx) => {
+    if (urlBusy) return;
+    const queue = scrapeQueue[idx];
+    if (!queue || queue.picked.size === 0) return;
+    const urls = Array.from(queue.picked);
+    setUrlBusy(true);
+    setUrlProgress({ done: 0, total: urls.length, msg: "" });
+    let ok = 0;
+    for (let i = 0; i < urls.length; i++) {
+      setUrlProgress({ done: i, total: urls.length, msg: urls[i].slice(0, 70) });
+      try {
+        const r = await importOneUrl(urls[i]);
+        if (r.kind === "image") {
+          const blob = dataUrlToBlob(r.data, r.mime);
+          await savePhotoAndNotify(
+            new File([blob], r.name || "scraped.jpg", { type: r.mime }),
+            { sourceTool: "import", sourceMode: "scrape" }
+          );
+          ok++;
+        }
+      } catch (err) {
+        console.warn("Scrape pick failed:", err);
+      }
+    }
+    setUrlProgress(null);
+    setUrlBusy(false);
+    setScrapeQueue(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  const dismissScrape = (idx) => setScrapeQueue(prev => prev.filter((_, i) => i !== idx));
+
   if (!open) return null;
 
   // React Portal: render directly into <body>, escaping any ancestor
@@ -186,6 +319,18 @@ export function PhotoLibraryModal({ open, onClose, onPick, outputAs = "image", i
             {photos.length} photo{photos.length === 1 ? "" : "s"} · {formatBytes(total)}
           </div>
           <button
+            onClick={() => setUrlOpen(v => !v)}
+            title="Paste image URLs (or webpage URLs to scrape <img> tags) and import directly to the library"
+            style={{
+              padding: "4px 10px", borderRadius: "4px",
+              background: urlOpen ? "rgba(99,179,237,0.18)" : "rgba(99,179,237,0.06)",
+              color: "#63B3ED",
+              border: `1px solid ${urlOpen ? "#63B3ED" : "rgba(99,179,237,0.3)"}`,
+              fontSize: "0.6rem", fontWeight: 700, letterSpacing: "1px",
+              textTransform: "uppercase", cursor: "pointer", fontFamily: "inherit",
+            }}
+          >🔗 Import URL</button>
+          <button
             onClick={onClose}
             className="cge-modal-close"
             style={{
@@ -230,6 +375,157 @@ export function PhotoLibraryModal({ open, onClose, onPick, outputAs = "image", i
                 fontFamily: "'Syne', sans-serif",
               }}
             >{migrateBusy ? "Uploading…" : "📤 Migrate → Cloud"}</button>
+          </div>
+        )}
+
+        {/* URL import panel — collapsible. Single textarea takes one or
+            many URLs (one per line, commas also work). Image URLs save
+            directly; HTML URLs surface their <img> tags in a picker. */}
+        {urlOpen && (
+          <div style={{
+            padding: "12px 18px",
+            background: "rgba(99,179,237,0.04)",
+            borderBottom: "1px solid rgba(99,179,237,0.15)",
+          }}>
+            <div style={{ fontSize: "0.55rem", color: "#63B3ED", letterSpacing: "1.5px", textTransform: "uppercase", fontWeight: 700, marginBottom: "6px" }}>
+              🔗 Import from URL · paste one image URL or many (one per line · webpages get their images scraped)
+            </div>
+            <textarea
+              value={urlText}
+              onChange={e => setUrlText(e.target.value)}
+              placeholder={"https://example.com/photo.jpg\nhttps://venue.com/gallery (← webpage, will scrape images)\nhttps://other.com/another.png"}
+              disabled={urlBusy}
+              style={{
+                width: "100%",
+                minHeight: "70px",
+                maxHeight: "200px",
+                padding: "8px 10px",
+                background: "rgba(0,0,0,0.4)",
+                border: "1px solid rgba(245,240,232,0.1)",
+                borderRadius: "4px",
+                color: "#F5F0E8",
+                fontFamily: "ui-monospace, Menlo, monospace",
+                fontSize: "0.7rem",
+                resize: "vertical",
+                outline: "none",
+              }}
+            />
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "8px" }}>
+              <button
+                onClick={runUrlImport}
+                disabled={urlBusy || !urlText.trim()}
+                style={{
+                  padding: "6px 12px",
+                  background: urlBusy ? "rgba(99,179,237,0.4)" : "#63B3ED",
+                  color: "#000",
+                  border: "none",
+                  borderRadius: "4px",
+                  fontSize: "0.65rem", fontWeight: 700, letterSpacing: "1.5px",
+                  textTransform: "uppercase",
+                  cursor: urlBusy ? "wait" : (urlText.trim() ? "pointer" : "not-allowed"),
+                  fontFamily: "'Syne', sans-serif",
+                }}
+              >{urlBusy ? "Fetching…" : "Import"}</button>
+              {urlProgress && (
+                <div style={{ flex: 1, fontSize: "0.6rem", color: "rgba(245,240,232,0.65)", display: "flex", alignItems: "center", gap: "8px" }}>
+                  <div style={{ flex: 1, height: "4px", background: "rgba(245,240,232,0.08)", borderRadius: "2px", overflow: "hidden" }}>
+                    <div style={{ width: `${(urlProgress.done / urlProgress.total) * 100}%`, height: "100%", background: "#63B3ED", transition: "width 120ms" }} />
+                  </div>
+                  <span style={{ whiteSpace: "nowrap" }}>{urlProgress.done}/{urlProgress.total}</span>
+                  {urlProgress.msg && <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "rgba(245,240,232,0.4)", fontFamily: "ui-monospace, monospace", fontSize: "0.55rem" }}>{urlProgress.msg}</span>}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Per-webpage scrape pickers — one panel per HTML URL that came
+            back with <img> tags. Click thumbnails to select, hit
+            "Import N" to save the selected images. */}
+        {scrapeQueue.length > 0 && (
+          <div style={{ padding: "12px 18px", borderBottom: "1px solid rgba(245,240,232,0.08)" }}>
+            {scrapeQueue.map((q, qi) => (
+              <div key={qi} style={{ marginBottom: "12px", padding: "10px 12px", background: "rgba(192,132,252,0.06)", border: "1px solid rgba(192,132,252,0.2)", borderRadius: "5px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
+                  <div style={{ fontSize: "0.55rem", color: "#C084FC", letterSpacing: "1.5px", textTransform: "uppercase", fontWeight: 700 }}>
+                    🌐 Scraped from
+                  </div>
+                  <div style={{ flex: 1, fontSize: "0.65rem", color: "rgba(245,240,232,0.7)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "ui-monospace, monospace" }}>
+                    {q.sourceUrl}
+                  </div>
+                  <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.5)" }}>
+                    {q.picked.size} / {q.images.length} picked
+                  </div>
+                  <button
+                    onClick={() => importPickedScrape(qi)}
+                    disabled={urlBusy || q.picked.size === 0}
+                    style={{
+                      padding: "4px 10px",
+                      background: q.picked.size > 0 ? "rgba(52,211,153,0.18)" : "rgba(245,240,232,0.04)",
+                      color: q.picked.size > 0 ? "#34D399" : "rgba(245,240,232,0.3)",
+                      border: `1px solid ${q.picked.size > 0 ? "#34D399" : "rgba(245,240,232,0.1)"}`,
+                      borderRadius: "4px",
+                      fontSize: "0.55rem", fontWeight: 700, letterSpacing: "1px",
+                      textTransform: "uppercase",
+                      cursor: q.picked.size > 0 && !urlBusy ? "pointer" : "not-allowed",
+                      fontFamily: "inherit",
+                    }}
+                  >Import {q.picked.size}</button>
+                  <button
+                    onClick={() => dismissScrape(qi)}
+                    style={{
+                      padding: "4px 8px",
+                      background: "rgba(251,113,133,0.06)", color: "#FB7185",
+                      border: "1px solid rgba(251,113,133,0.25)",
+                      borderRadius: "4px", fontSize: "0.55rem",
+                      cursor: "pointer", fontFamily: "inherit",
+                    }}
+                  >×</button>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(80px, 1fr))", gap: "6px", maxHeight: "240px", overflowY: "auto" }}>
+                  {q.images.slice(0, 80).map((src, i) => {
+                    const picked = q.picked.has(src);
+                    return (
+                      <div
+                        key={i}
+                        onClick={() => togglePicked(qi, src)}
+                        title={src}
+                        style={{
+                          position: "relative",
+                          aspectRatio: "1 / 1",
+                          background: "#000",
+                          border: picked ? "2px solid #34D399" : "1px solid rgba(245,240,232,0.1)",
+                          borderRadius: "4px",
+                          overflow: "hidden",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <img
+                          src={src}
+                          alt=""
+                          style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", opacity: picked ? 1 : 0.7 }}
+                          onError={(e) => { e.currentTarget.style.display = "none"; }}
+                        />
+                        {picked && (
+                          <div style={{
+                            position: "absolute", top: 2, right: 2,
+                            width: 18, height: 18, borderRadius: 3,
+                            background: "#34D399", color: "#000",
+                            fontSize: "0.7rem", fontWeight: 800,
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                          }}>✓</div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                {q.images.length > 80 && (
+                  <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", marginTop: "4px", textAlign: "center" }}>
+                    Showing first 80 of {q.images.length} — refine the URL or visit a specific gallery page for the rest.
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         )}
 
