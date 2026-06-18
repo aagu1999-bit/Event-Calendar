@@ -7,6 +7,7 @@ import { detectRegulars } from "../shared/regulars";
 import { normalizeHandle } from "../shared/parseEvents";
 import { UInput } from "../shared/inputs.jsx";
 import { ReviewSessionsModal } from "../shared/ReviewSessionsModal.jsx";
+import { ColumnMapperModal } from "../shared/ColumnMapperModal.jsx";
 import { rememberLastSession, getLastSession, forgetLastSession, loadSession } from "../shared/reviewSessions.js";
 
 // Flag glossary — shown in the collapsible cheat sheet. Order matters
@@ -195,6 +196,12 @@ export default function ReviewQueue() {
   };
 
   const [pending, setPending] = useState([]); // parsed Event[]
+  // Column-mapper state. After file upload, raw rows + filename are
+  // stashed here while the user picks how columns map to event fields.
+  // applyImport() consumes them and clears once import completes/cancels.
+  const [mapperOpen, setMapperOpen] = useState(false);
+  const [importRows, setImportRows] = useState(null);
+  const [importFileName, setImportFileName] = useState("");
   // Approval is a separate stamp from selection: marking a row "approved"
   // says it has been vetted, distinct from "selected for an action".
   // Backed by the store now (was useState) so it survives nav AND gets
@@ -315,21 +322,38 @@ export default function ReviewQueue() {
       const wb = XLSX.read(buf, { type: "array" });
       const sheet = wb.Sheets[wb.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: "" });
-      const parsed = parseRows(rows);
-      // Give each event a stable string id so React keys + selection work
-      const withIds = parsed.map((ev, i) => ({ ...ev, id: `pending_${Date.now()}_${i}` }));
-      setPending(withIds);
-      // Nothing pre-selected and nothing pre-approved — clicking the checkbox
-      // now means "select for a bulk action", and Approve is a separate
-      // explicit stamp. User wants full control: hit + Add to push straight
-      // to the calendar, or multi-select then bulk-approve / bulk-add / delete.
-      setApprovals({});
-      setApprovedSet(new Set());
+      // Surface the column-mapper modal instead of parsing immediately.
+      // The modal returns a { columnMap, hasHeaderRow } to applyImport()
+      // below, which then runs parseRows with the user's mapping.
+      setImportRows(rows);
+      setImportFileName(file.name || "Spreadsheet");
+      setMapperOpen(true);
     } catch (err) {
       console.error("CSV parse failed:", err);
       alert("Couldn't parse that file. Make sure it's CSV/XLSX with a header row.");
     }
     if (fileRef.current) fileRef.current.value = "";
+  };
+
+  // Column-mapper handoff — called by ColumnMapperModal when the user
+  // confirms their column → field assignment. Runs parseRows with the
+  // chosen mapping then drops the events into `pending` for review.
+  const applyImport = ({ columnMap, hasHeaderRow }) => {
+    try {
+      const parsed = parseRows(importRows, { columnMap, hasHeaderRow });
+      const withIds = parsed.map((ev, i) => ({ ...ev, id: `pending_${Date.now()}_${i}` }));
+      setPending(withIds);
+      // Same approve/select reset as the original handleFile.
+      setApprovals({});
+      setApprovedSet(new Set());
+    } catch (err) {
+      console.error("Mapped parse failed:", err);
+      alert("Import failed: " + (err.message || err));
+    } finally {
+      setMapperOpen(false);
+      setImportRows(null);
+      setImportFileName("");
+    }
   };
 
   const toggle = (id) => setApprovals(a => ({ ...a, [id]: !a[id] }));
@@ -1295,6 +1319,13 @@ export default function ReviewQueue() {
         onClose={() => setSessionsOpen(false)}
         onLoad={applyLoadedSession}
         getCurrent={getSessionPayload}
+      />
+      <ColumnMapperModal
+        open={mapperOpen}
+        rows={importRows}
+        fileName={importFileName}
+        onCancel={() => { setMapperOpen(false); setImportRows(null); setImportFileName(""); }}
+        onConfirm={applyImport}
       />
     </div>
   );

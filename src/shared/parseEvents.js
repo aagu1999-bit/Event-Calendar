@@ -257,21 +257,69 @@ export function matchColumns(headers) {
   return map;
 }
 
+// All target fields the column mapper exposes. The column mapper UI
+// renders a dropdown per source column; the user picks one of these
+// (or "Skip"). Mapping shape on the wire: { [fieldKey]: columnIndex }.
+// Kept here next to parseRows so the modal and the parser agree on
+// what each field means.
+export const TARGET_FIELDS = [
+  { key: "name",     label: "Event Name (title)", required: true },
+  { key: "date",     label: "Date (M/D)" },
+  { key: "day",      label: "Day (Fri/Sat/Sun)" },
+  { key: "time",     label: "Time" },
+  { key: "venue",    label: "Venue" },
+  { key: "area",     label: "Area / City" },
+  { key: "region",   label: "Region (North/Central/South)" },
+  { key: "type",     label: "Type (Party/Brunch/etc)" },
+  { key: "link",     label: "Link / URL" },
+  { key: "igHandle", label: "Instagram Handle" },
+];
+
 // Top-level: take 2D rows (header row + data rows, like xlsx sheet_to_json with
 // header:1, or pasted CSV/TSV split into rows) and return parsed Event[].
 // `defaultRegion` is used when a row has no region cell.
-export function parseRows(rows, defaultRegion = "North") {
-  if (!rows || !rows.length) return [];
-  const firstRow = rows[0].map(c => String(c ?? "").trim());
-  const colMap = matchColumns(firstRow);
-  const hasHeaders = Object.keys(colMap).length >= 2;
-  const dataRows = hasHeaders ? rows.slice(1) : rows;
-  const fm = hasHeaders ? colMap : { day: 0, time: 1, name: 2, venue: 3, area: 4, region: 5 };
+//
+// If `opts.columnMap` is provided, it's a { fieldKey: columnIndex } object
+// supplied by the user via the column-mapper modal. When given, AUTO-
+// DETECTION IS SKIPPED — the user's mapping is authoritative and
+// `opts.hasHeaderRow` decides whether row 0 is data or headers.
+export function parseRows(rows, defaultRegionOrOpts = "North", maybeOpts) {
+  // Backwards-compat: old signature was parseRows(rows, defaultRegion).
+  // New callers pass parseRows(rows, { columnMap, hasHeaderRow, defaultRegion }).
+  let defaultRegion = "North";
+  let columnMap = null;
+  let hasHeaderRow = null; // null = auto-detect (existing behavior)
+  if (typeof defaultRegionOrOpts === "string") {
+    defaultRegion = defaultRegionOrOpts;
+  } else if (defaultRegionOrOpts && typeof defaultRegionOrOpts === "object") {
+    defaultRegion = defaultRegionOrOpts.defaultRegion || "North";
+    columnMap = defaultRegionOrOpts.columnMap || null;
+    hasHeaderRow = defaultRegionOrOpts.hasHeaderRow ?? null;
+  } else if (maybeOpts && typeof maybeOpts === "object") {
+    columnMap = maybeOpts.columnMap || null;
+    hasHeaderRow = maybeOpts.hasHeaderRow ?? null;
+  }
 
-  // Headers but no name column? Take the first unmapped column as name.
-  if (hasHeaders && !("name" in fm)) {
-    for (let i = 0; i < firstRow.length; i++) {
-      if (!Object.values(fm).includes(i)) { fm.name = i; break; }
+  if (!rows || !rows.length) return [];
+
+  let fm, dataRows;
+  if (columnMap) {
+    // Explicit mapping from the column-mapper modal.
+    fm = columnMap;
+    dataRows = hasHeaderRow === false ? rows : rows.slice(1);
+  } else {
+    // Auto-detect (original behavior, kept for non-UI callers).
+    const firstRow = rows[0].map(c => String(c ?? "").trim());
+    const colMap = matchColumns(firstRow);
+    const hasHeaders = Object.keys(colMap).length >= 2;
+    dataRows = hasHeaders ? rows.slice(1) : rows;
+    fm = hasHeaders ? colMap : { day: 0, time: 1, name: 2, venue: 3, area: 4, region: 5 };
+
+    // Headers but no name column? Take the first unmapped column as name.
+    if (hasHeaders && !("name" in fm)) {
+      for (let i = 0; i < firstRow.length; i++) {
+        if (!Object.values(fm).includes(i)) { fm.name = i; break; }
+      }
     }
   }
 
