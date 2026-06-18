@@ -553,7 +553,7 @@ function renderPhotoCaption(canvas, cfg) {
 // line, footer with day/time on the left and price + CTA in accent on the
 // right. Slide counter top-right when the carousel has >1 slide.
 function renderSpotlight(canvas, cfg) {
-  const { photo, spotName, spotMeta, spotTime, spotPrice, spotCta, accent, bgKey, dots, totalDots } = cfg;
+  const { photo, spotName, spotNameHighlights, spotMeta, spotTime, spotPrice, spotCta, accent, bgKey, dots, totalDots } = cfg;
   const W = 1080, H = 1080;
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext("2d");
@@ -635,18 +635,33 @@ function renderSpotlight(canvas, cfg) {
   }
 
   // VENUE NAME — big bold uppercase, wraps if long, scales down to fit.
+  // VENUE NAME — big bold uppercase, wraps + scales. Now supports per-word
+  // highlighting via spotNameHighlights (Set of word indices) — same
+  // pattern Cover uses for its headline. Highlighted words render in the
+  // accent color, untouched words use the default headlineColor (which
+  // is already day-mode aware).
   if (spotName && spotName.trim()) {
     const words = spotName.toUpperCase().split(/\s+/).filter(w => w);
     let fs = 92;
+    // wrap returns lines as ARRAYS of word objects {text, idx, width}
+    // so the per-word renderer can pick a color per word at draw time.
     const wrap = (f) => {
       ctx.font = ff(`900 ${f}px 'Syne',sans-serif`);
-      const r = []; let bl = "";
-      for (const w of words) {
-        const test = bl ? bl + " " + w : w;
-        if (ctx.measureText(test).width > W - px * 2 && bl) { r.push(bl); bl = w; }
-        else bl = test;
+      const sw = ctx.measureText(" ").width;
+      const r = []; let cur = []; let curW = 0;
+      for (let i = 0; i < words.length; i++) {
+        const wtxt = words[i];
+        const ww = ctx.measureText(wtxt).width;
+        if (cur.length > 0 && curW + sw + ww > W - px * 2) {
+          r.push(cur);
+          cur = [{ text: wtxt, idx: i, width: ww }];
+          curW = ww;
+        } else {
+          curW += (cur.length > 0 ? sw : 0) + ww;
+          cur.push({ text: wtxt, idx: i, width: ww });
+        }
       }
-      if (bl) r.push(bl);
+      if (cur.length) r.push(cur);
       return r;
     };
     let lines = wrap(fs);
@@ -657,10 +672,19 @@ function renderSpotlight(canvas, cfg) {
     const totalH = lines.length * lh;
     const startY = yBottom - totalH - 6;
     ctx.font = ff(`900 ${fs}px 'Syne',sans-serif`);
-    ctx.fillStyle = headlineColor;
     ctx.textBaseline = "top";
     ctx.textAlign = "left";
-    lines.forEach((ln, i) => ctx.fillText(ln, px, startY + i * lh));
+    const sw = ctx.measureText(" ").width;
+    const hl = spotNameHighlights instanceof Set ? spotNameHighlights : new Set();
+    lines.forEach((lw, li) => {
+      let x = px;
+      const y = startY + li * lh;
+      lw.forEach(w => {
+        ctx.fillStyle = hl.has(w.idx) ? accent : headlineColor;
+        ctx.fillText(w.text, x, y);
+        x += w.width + sw;
+      });
+    });
   }
 
   // Slide counter — top-right corner. Only visible when this is part of a
@@ -1887,6 +1911,11 @@ export default function MediaTool() {
   // Spotlight — one-venue-per-slide body for roundup carousels.
   const [spotPhoto, setSpotPhoto] = useState(null);
   const [spotName, setSpotName] = useState("ROOFTOP NIGHT AT THE STANDARD");
+  // Per-word highlight set for the spotlight name — same pattern as
+  // Cover's `highlights`. Word indices match the order words appear in
+  // spotName.split(/\s+/). When the user types new text the indices
+  // shift, so the form auto-prunes out-of-range indices on edit.
+  const [spotNameHL, setSpotNameHL] = useState(new Set());
   const [spotMeta, setSpotMeta] = useState("9 Clinton St | Newark");
   const [spotTime, setSpotTime] = useState("Friday · 8 PM");
   const [spotPrice, setSpotPrice] = useState("$30");
@@ -2174,6 +2203,17 @@ export default function MediaTool() {
 
   const toggleHL = (idx) => setHighlights(p=>{const n=new Set(p);n.has(idx)?n.delete(idx):n.add(idx);return n;});
   const toggleTextHL = (idx) => setTextTitleHL(p=>{const n=new Set(p);n.has(idx)?n.delete(idx):n.add(idx);return n;});
+  // Spotlight per-word highlights — split the venue name into words and
+  // expose a clickable chip per word. Auto-prunes indices that are out of
+  // range when the user shortens the text (e.g. delete the last word and
+  // its highlight goes with it).
+  const spotWords = (spotName || "").split(/\s+/).filter(w=>w);
+  const toggleSpotNameHL = (idx) => setSpotNameHL(p=>{
+    const n = new Set();
+    p.forEach(i => { if (i < spotWords.length) n.add(i); });
+    if (n.has(idx)) n.delete(idx); else n.add(idx);
+    return n;
+  });
 
   // Cross-tool: pull events from the shared store into the List slide.
   // Filters by day if a day is picked; "all" pulls everything.
@@ -2198,14 +2238,14 @@ export default function MediaTool() {
     else if(mode==="cta") renderCTA(cv,{ctaKicker,ctaDate,ctaVenue,ctaUrl,photo:textPhoto,accent,bgKey,dots,totalDots,opacity:textOpacity});
     else if(mode==="features") renderFeatures(cv,{featuresTitle,features,accent,bgKey,dots,totalDots,photo:textPhoto,opacity:textOpacity});
     else if(mode==="photo") renderPhotoCaption(cv,{photo:captionPhoto,caption,captionSecondary,alignment:captionAlign,accent,bgKey,dots,totalDots});
-    else if(mode==="spotlight") renderSpotlight(cv,{photo:spotPhoto,spotName,spotMeta,spotTime,spotPrice,spotCta,accent,bgKey,dots,totalDots});
+    else if(mode==="spotlight") renderSpotlight(cv,{photo:spotPhoto,spotName,spotNameHighlights:spotNameHL,spotMeta,spotTime,spotPrice,spotCta,accent,bgKey,dots,totalDots});
     else if(mode==="countdown") renderCountdown(cv,{photo:countPhoto,countText,countEvent,countWhen,countCta,accent,bgKey,dots,totalDots,opacity:countOpacity});
     else if(mode==="savedate") renderSaveDate(cv,{photo:savePhoto,saveKicker,saveDay,saveDateBig,saveEvent,saveVenue,saveCta,accent,bgKey,dots,totalDots,opacity:saveOpacity});
     else if(mode==="savedates") renderSaveDates(cv,{photo:savesPhoto,savesHeader,savesItems,savesCta,accent,bgKey,dots,totalDots,opacity:savesOpacity});
     else if(mode==="vibe") renderVibeBoard(cv,{vibePhotos,vibeHeadline,vibeLabels,accent,bgKey,dots,totalDots});
     else if(mode==="scene") renderScene(cv,{bgPhoto:sceneBgPhoto,sceneHero,sceneLeft,sceneRight,sceneTopLabel,sceneTitle,sceneBigText,sceneLeftMeta,sceneRightMeta,sceneInfo,sceneAddress,sceneHalftone,sceneHeroScale,sceneSideScale,accent,bgKey,dots,totalDots});
     else if(mode==="poster") renderPoster(cv,{photo:posterPhoto,opacity:posterOpacity,topLine:posterTopLine,hosts:posterHosts,kicker:posterKicker,title:posterTitle,subtitle:posterSubtitle,leftList:posterLeftList,rightList:posterRightList,dressCode:posterDressCode,dateLine:posterDateLine,titleSize:posterTitleSize,titleX:posterTitleX,titleY:posterTitleY,titleAlign:posterTitleAlign,titleColor:posterTitleColor,accent,bgKey,dots,totalDots});
-  },[mode,photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,items,bgKey,listTitle,listSubtitle,statNumber,statLabel,statSub,textTitle,textTitleHL,textBody,pageNum,totalPages,textPhoto,textOpacity,ctaKicker,ctaDate,ctaVenue,ctaUrl,featuresTitle,features,captionPhoto,caption,captionSecondary,captionAlign,spotPhoto,spotName,spotMeta,spotTime,spotPrice,spotCta,countPhoto,countText,countEvent,countWhen,countCta,countOpacity,savePhoto,saveKicker,saveDay,saveDateBig,saveEvent,saveVenue,saveCta,saveOpacity,savesPhoto,savesHeader,savesItems,savesCta,savesOpacity,vibePhotos,vibeHeadline,vibeLabels,sceneBgPhoto,sceneHero,sceneLeft,sceneRight,sceneTopLabel,sceneTitle,sceneBigText,sceneLeftMeta,sceneRightMeta,sceneInfo,sceneAddress,sceneHalftone,sceneHeroScale,sceneSideScale,posterPhoto,posterOpacity,posterTopLine,posterHosts,posterKicker,posterTitle,posterSubtitle,posterLeftList,posterRightList,posterDressCode,posterDateLine,posterTitleSize,posterTitleX,posterTitleY,posterTitleAlign,posterTitleColor,watermark,fontTick]);
+  },[mode,photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,items,bgKey,listTitle,listSubtitle,statNumber,statLabel,statSub,textTitle,textTitleHL,textBody,pageNum,totalPages,textPhoto,textOpacity,ctaKicker,ctaDate,ctaVenue,ctaUrl,featuresTitle,features,captionPhoto,caption,captionSecondary,captionAlign,spotPhoto,spotName,spotNameHL,spotMeta,spotTime,spotPrice,spotCta,countPhoto,countText,countEvent,countWhen,countCta,countOpacity,savePhoto,saveKicker,saveDay,saveDateBig,saveEvent,saveVenue,saveCta,saveOpacity,savesPhoto,savesHeader,savesItems,savesCta,savesOpacity,vibePhotos,vibeHeadline,vibeLabels,sceneBgPhoto,sceneHero,sceneLeft,sceneRight,sceneTopLabel,sceneTitle,sceneBigText,sceneLeftMeta,sceneRightMeta,sceneInfo,sceneAddress,sceneHalftone,sceneHeroScale,sceneSideScale,posterPhoto,posterOpacity,posterTopLine,posterHosts,posterKicker,posterTitle,posterSubtitle,posterLeftList,posterRightList,posterDressCode,posterDateLine,posterTitleSize,posterTitleX,posterTitleY,posterTitleAlign,posterTitleColor,watermark,fontTick]);
 
   useEffect(()=>{const t=setTimeout(render,60);return()=>clearTimeout(t);},[render]);
 
@@ -2282,7 +2322,7 @@ export default function MediaTool() {
     else if(mode==="cta") renderCTA(cv,{ctaKicker,ctaDate,ctaVenue,ctaUrl,photo:textPhoto,accent,bgKey,dots,totalDots,opacity:textOpacity});
     else if(mode==="features") renderFeatures(cv,{featuresTitle,features,accent,bgKey,dots,totalDots,photo:textPhoto,opacity:textOpacity});
     else if(mode==="photo") renderPhotoCaption(cv,{photo:captionPhoto,caption,captionSecondary,alignment:captionAlign,accent,bgKey,dots,totalDots});
-    else if(mode==="spotlight") renderSpotlight(cv,{photo:spotPhoto,spotName,spotMeta,spotTime,spotPrice,spotCta,accent,bgKey,dots,totalDots});
+    else if(mode==="spotlight") renderSpotlight(cv,{photo:spotPhoto,spotName,spotNameHighlights:spotNameHL,spotMeta,spotTime,spotPrice,spotCta,accent,bgKey,dots,totalDots});
     else if(mode==="countdown") renderCountdown(cv,{photo:countPhoto,countText,countEvent,countWhen,countCta,accent,bgKey,dots,totalDots,opacity:countOpacity});
     else if(mode==="savedate") renderSaveDate(cv,{photo:savePhoto,saveKicker,saveDay,saveDateBig,saveEvent,saveVenue,saveCta,accent,bgKey,dots,totalDots,opacity:saveOpacity});
     else if(mode==="savedates") renderSaveDates(cv,{photo:savesPhoto,savesHeader,savesItems,savesCta,accent,bgKey,dots,totalDots,opacity:savesOpacity});
@@ -2348,7 +2388,7 @@ export default function MediaTool() {
       else if (mode === "cta") renderCTA(thumbCv, {...cfg, ctaKicker, ctaDate, ctaVenue, ctaUrl, photo: textPhoto, opacity: textOpacity});
       else if (mode === "features") renderFeatures(thumbCv, {...cfg, featuresTitle, features, photo: textPhoto, opacity: textOpacity});
       else if (mode === "photo") renderPhotoCaption(thumbCv, {...cfg, photo: captionPhoto, caption, captionSecondary, alignment: captionAlign});
-      else if (mode === "spotlight") renderSpotlight(thumbCv, {...cfg, photo: spotPhoto, spotName, spotMeta, spotTime, spotPrice, spotCta});
+      else if (mode === "spotlight") renderSpotlight(thumbCv, {...cfg, photo: spotPhoto, spotName, spotNameHighlights: spotNameHL, spotMeta, spotTime, spotPrice, spotCta});
       else if (mode === "countdown") renderCountdown(thumbCv, {...cfg, photo: countPhoto, countText, countEvent, countWhen, countCta, opacity: countOpacity});
       else if (mode === "savedate") renderSaveDate(thumbCv, {...cfg, photo: savePhoto, saveKicker, saveDay, saveDateBig, saveEvent, saveVenue, saveCta, opacity: saveOpacity});
       else if (mode === "savedates") renderSaveDates(thumbCv, {...cfg, photo: savesPhoto, savesHeader, savesItems, savesCta, opacity: savesOpacity});
@@ -2486,8 +2526,8 @@ export default function MediaTool() {
       caption: s.caption, captionSecondary: s.captionSecondary, alignment: s.captionAlign,
       bgKey: s.bgKey });
     else if (type === "spotlight") renderSpotlight(cv, { ...common, photo: s.photo,
-      spotName: s.spotName, spotMeta: s.spotMeta, spotTime: s.spotTime,
-      spotPrice: s.spotPrice, spotCta: s.spotCta, bgKey: s.bgKey });
+      spotName: s.spotName, spotNameHighlights: s.spotNameHL, spotMeta: s.spotMeta,
+      spotTime: s.spotTime, spotPrice: s.spotPrice, spotCta: s.spotCta, bgKey: s.bgKey });
     else if (type === "countdown") renderCountdown(cv, { ...common, photo: s.photo,
       countText: s.countText, countEvent: s.countEvent, countWhen: s.countWhen,
       countCta: s.countCta, bgKey: s.bgKey, opacity: s.countOpacity });
@@ -2528,7 +2568,7 @@ export default function MediaTool() {
       case "cta": return { ...common, ctaKicker, ctaDate, ctaVenue, ctaUrl, photo: textPhoto, textOpacity };
       case "features": return { ...common, featuresTitle, features: features.map(f=>({...f})), photo: textPhoto, textOpacity };
       case "photo": return { ...common, photo: captionPhoto, caption, captionSecondary, captionAlign };
-      case "spotlight": return { ...common, photo: spotPhoto, spotName, spotMeta, spotTime, spotPrice, spotCta };
+      case "spotlight": return { ...common, photo: spotPhoto, spotName, spotNameHL, spotMeta, spotTime, spotPrice, spotCta };
       case "countdown": return { ...common, photo: countPhoto, countText, countEvent, countWhen, countCta, countOpacity };
       case "savedate":  return { ...common, photo: savePhoto, saveKicker, saveDay, saveDateBig, saveEvent, saveVenue, saveCta, saveOpacity };
       case "savedates": return { ...common, photo: savesPhoto, savesHeader, savesItems: savesItems.map(x=>({...x})), savesCta, savesOpacity };
@@ -2581,6 +2621,13 @@ export default function MediaTool() {
         setSpotName(snapshot.spotName || ""); setSpotMeta(snapshot.spotMeta || "");
         setSpotTime(snapshot.spotTime || ""); setSpotPrice(snapshot.spotPrice || "");
         setSpotCta(snapshot.spotCta || "");
+        // spotNameHL is a Set; serializeSnap converts it to an array for
+        // IndexedDB / cloud storage, and deserializeSnap turns it back
+        // into a Set before we land here. Older snapshots without it
+        // get an empty Set.
+        setSpotNameHL(snapshot.spotNameHL instanceof Set ? snapshot.spotNameHL
+                    : Array.isArray(snapshot.spotNameHL) ? new Set(snapshot.spotNameHL)
+                    : new Set());
         break;
       case "countdown":
         setCountPhoto(snapshot.photo);
@@ -2675,6 +2722,7 @@ export default function MediaTool() {
     });
     if (out.highlights instanceof Set)  out.highlights  = [...out.highlights];
     if (out.textTitleHL instanceof Set) out.textTitleHL = [...out.textTitleHL];
+    if (out.spotNameHL instanceof Set)  out.spotNameHL  = [...out.spotNameHL];
     if (Array.isArray(out.items))       out.items       = out.items.map(x => ({...x}));
     if (Array.isArray(out.features))    out.features    = out.features.map(x => ({...x}));
     if (Array.isArray(out.savesItems))  out.savesItems  = out.savesItems.map(x => ({...x}));
@@ -2711,6 +2759,7 @@ export default function MediaTool() {
     }));
     if (Array.isArray(out.highlights))  out.highlights  = new Set(out.highlights);
     if (Array.isArray(out.textTitleHL)) out.textTitleHL = new Set(out.textTitleHL);
+    if (Array.isArray(out.spotNameHL))  out.spotNameHL  = new Set(out.spotNameHL);
     return out;
   };
 
@@ -3461,6 +3510,18 @@ export default function MediaTool() {
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Venue / event name (headline)</label>
                 <textarea value={spotName} onChange={e=>setSpotName(e.target.value)} style={{...I,height:55,resize:"vertical",fontFamily:"'Syne'"}} placeholder="e.g. ROOFTOP NIGHT AT THE STANDARD"/>
               </div>
+              {/* Per-word accent highlights — same pattern as Cover.
+                  Click any word chip to toggle whether it renders in
+                  the accent color (vs default white/day-mode dark). */}
+              {spotWords.length > 0 && (
+                <div style={{marginBottom:"0.6rem"}}><label style={L}>Click words to highlight</label>
+                  <div style={{display:"flex",flexWrap:"wrap",gap:"3px",padding:"6px",background:"#111",borderRadius:"6px",border:"1px solid rgba(245,240,232,0.04)"}}>
+                    {spotWords.map((w,i)=>(
+                      <button key={i} onClick={()=>toggleSpotNameHL(i)} style={{padding:"3px 7px",borderRadius:"4px",cursor:"pointer",fontSize:"0.65rem",fontWeight:700,fontFamily:"'Syne'",textTransform:"uppercase",background:spotNameHL.has(i)?`${accent}22`:"rgba(245,240,232,0.04)",color:spotNameHL.has(i)?accent:"rgba(245,240,232,0.30)",border:spotNameHL.has(i)?`2px solid ${accent}55`:"2px solid transparent"}}>{w}</button>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Detail line (address · city)</label>
                 <input value={spotMeta} onChange={e=>setSpotMeta(e.target.value)} style={I} placeholder="e.g. 9 Clinton St | Newark"/>
               </div>
