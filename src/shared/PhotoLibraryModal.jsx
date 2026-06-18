@@ -105,11 +105,28 @@ export function PhotoLibraryModal({ open, onClose, onPick, outputAs = "image", i
         if (hasText) return;
       }
       e.preventDefault();
+      // Show progress toast IMMEDIATELY — uploading a screenshot can take
+      // 3-10 seconds (PNG → base64 → POST to Repl filesystem) and without
+      // feedback the user thinks the paste didn't register.
+      if (live) {
+        setPasteToast({
+          msg: `📋 Saving ${imageItems.length} image${imageItems.length === 1 ? "" : "s"}… (this can take a few seconds for big screenshots)`,
+          error: false,
+        });
+      }
       try {
         let savedCount = 0;
         for (const it of imageItems) {
           const blob = it.getAsFile();
           if (!blob) continue;
+          // Update toast per-image so the user sees progress during a
+          // multi-image paste.
+          if (live && imageItems.length > 1) {
+            setPasteToast({
+              msg: `📋 Saving ${savedCount + 1}/${imageItems.length} (${(blob.size / 1024 / 1024).toFixed(1)} MB)…`,
+              error: false,
+            });
+          }
           const ext = (blob.type.split("/")[1] || "png").split(";")[0];
           const name = blob.name || `pasted-${Date.now()}-${savedCount}.${ext}`;
           await savePhotoAndNotify(
@@ -119,14 +136,19 @@ export function PhotoLibraryModal({ open, onClose, onPick, outputAs = "image", i
           savedCount++;
         }
         if (savedCount > 0 && live) {
-          setPasteToast({ msg: `📋 Pasted ${savedCount} image${savedCount === 1 ? "" : "s"} → saved to library`, error: false });
+          setPasteToast({ msg: `✓ Pasted ${savedCount} image${savedCount === 1 ? "" : "s"} → saved`, error: false });
+          setTimeout(() => { if (live) setPasteToast(null); }, 2500);
+        } else if (live) {
+          // Paste fired but no image got through (rare — maybe an empty
+          // image item from a weird app). Tell the user.
+          setPasteToast({ msg: "No image data found on the clipboard.", error: true });
           setTimeout(() => { if (live) setPasteToast(null); }, 2500);
         }
       } catch (err) {
         console.warn("Paste save failed:", err);
         if (live) {
           setPasteToast({ msg: `Paste failed: ${err.message || err}`, error: true });
-          setTimeout(() => { if (live) setPasteToast(null); }, 3500);
+          setTimeout(() => { if (live) setPasteToast(null); }, 4500);
         }
       }
     };
@@ -381,6 +403,22 @@ export function PhotoLibraryModal({ open, onClose, onPick, outputAs = "image", i
             📋 paste image to add
           </div>
           <button
+            onClick={() => {
+              // Force-refresh: invalidate the client-side cache by
+              // changing the filter pointer briefly. Cheap and uses the
+              // existing reload machinery.
+              const f = filter; setFilter("__refreshing__"); setTimeout(() => setFilter(f), 0);
+            }}
+            title="Re-fetch the library from the Repl — useful if a recent paste / import isn't showing yet"
+            style={{
+              padding: "4px 10px", borderRadius: "4px",
+              background: "rgba(245,240,232,0.04)", color: "rgba(245,240,232,0.7)",
+              border: "1px solid rgba(245,240,232,0.1)",
+              fontSize: "0.6rem", fontWeight: 700, letterSpacing: "1px",
+              textTransform: "uppercase", cursor: "pointer", fontFamily: "inherit",
+            }}
+          >↻ Refresh</button>
+          <button
             onClick={() => setUrlOpen(v => !v)}
             title="Paste image URLs (or webpage URLs to scrape <img> tags) and import directly to the library"
             style={{
@@ -622,6 +660,8 @@ export function PhotoLibraryModal({ open, onClose, onPick, outputAs = "image", i
                   <img
                     src={p.thumbUrl}
                     alt={p.name}
+                    loading="lazy"
+                    decoding="async"
                     style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
                   />
                   <button
