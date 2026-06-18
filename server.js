@@ -229,6 +229,162 @@ app.delete("/api/library/:kind/:id", async (req, res) => {
   }
 });
 
+// === LIBRARY URL IMPORT ===
+// Fetch an image (or a webpage to scrape) on the user's behalf and return
+// it to the client. Bypasses CORS — many image hosts block cross-origin
+// fetches from the browser — and centralizes user-agent + rate-limiting.
+//
+// Security: only http/https, blocks private/loopback IP ranges to prevent
+// SSRF, caps payload size, hard 30s timeout. Returns base64 so the JSON
+// pipeline matches the existing /api/library/* upload format.
+
+function isPrivateOrLocalHost(hostname) {
+  if (!hostname) return true;
+  const h = hostname.toLowerCase();
+  if (h === "localhost" || h === "0.0.0.0") return true;
+  if (h.endsWith(".localhost") || h.endsWith(".local")) return true;
+  // IPv4 private ranges
+  if (/^127\./.test(h)) return true;
+  if (/^10\./.test(h)) return true;
+  if (/^192\.168\./.test(h)) return true;
+  if (/^169\.254\./.test(h)) return true;
+  if (/^172\.(1[6-9]|2[0-9]|3[01])\./.test(h)) return true;
+  // IPv6 loopback / link-local
+  if (h === "::1" || h.startsWith("fc") || h.startsWith("fd") || h.startsWith("fe80")) return true;
+  return false;
+}
+
+// Scrape <img src> + <meta og:image> from an HTML body. Returns absolute
+// URLs (resolved against the page URL), de-duped, with the OG image
+// floated to the top so the user sees the "hero" thumbnail first.
+function extractImagesFromHtml(html, baseUrl) {
+  const out = [];
+  const seen = new Set();
+  const push = (raw, priority = false) => {
+    if (!raw) return;
+    const trimmed = String(raw).trim();
+    if (!trimmed || trimmed.startsWith("data:") || trimmed.startsWith("javascript:")) return;
+    try {
+      const abs = new URL(trimmed, baseUrl).href;
+      if (seen.has(abs)) return;
+      seen.add(abs);
+      if (priority) out.unshift(abs);
+      else out.push(abs);
+    } catch { /* invalid URL */ }
+  };
+  // OG image first (priority)
+  const og = /<meta[^>]+property\s*=\s*["']og:image(?::secure_url)?["'][^>]+content\s*=\s*["']([^"']+)["']/gi;
+  let m;
+  while ((m = og.exec(html))) push(m[1], true);
+  // Standard <img src=...>
+  const img = /<img[^>]+(?:src|data-src|data-original)\s*=\s*["']([^"']+)["']/gi;
+  while ((m = img.exec(html))) push(m[1]);
+  // srcset (take the first URL only — usually highest quality)
+  const srcset = /<img[^>]+srcset\s*=\s*["']([^"']+)["']/gi;
+  while ((m = srcset.exec(html))) {
+    const first = m[1].split(",")[0].trim().split(/\s+/)[0];
+    push(first);
+  }
+  return out;
+}
+
+app.post("/api/library/import-url", express.json({ limit: "1mb" }), async (req, res) => {
+  const { url, allowHtml = true } = req.body || {};
+  if (!url || typeof url !== "string") {
+    return res.status(400).json({ error: "Missing url" });
+  }
+  let parsed;
+  try { parsed = new URL(url.trim()); }
+  catch { return res.status(400).json({ error: "Invalid URL" }); }
+
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return res.status(400).json({ error: "Only http/https URLs allowed" });
+  }
+  if (isPrivateOrLocalHost(parsed.hostname)) {
+    return res.status(400).json({ error: "Private / local URLs are blocked" });
+  }
+
+  try {
+    const upstream = await fetch(parsed.href, {
+      method: "GET",
+      headers: {
+        // Mimic a regular browser so sites don't 403 us. CGE Tools tag at
+        // the end lets server operators identify the traffic.
+        "User-Agent": "Mozilla/5.0 (compatible; CGETools/1.0; +photo-library-import)",
+        "Accept": "image/*,text/html,*/*;q=0.8",
+      },
+      redirect: "follow",
+      signal: AbortSignal.timeout(30_000),
+    });
+
+    if (!upstream.ok) {
+      return res.status(502).json({ error: `Upstream returned ${upstream.status} ${upstream.statusText}` });
+    }
+
+    const contentType = (upstream.headers.get("content-type") || "").toLowerCase();
+    const contentLength = parseInt(upstream.headers.get("content-length") || "0", 10);
+    const MAX = 25 * 1024 * 1024;
+    if (contentLength && contentLength > MAX) {
+      return res.status(413).json({ error: `Resource too large (${(contentLength/1024/1024).toFixed(1)} MB)` });
+    }
+
+    if (contentType.startsWith("image/")) {
+      const buf = Buffer.from(await upstream.arrayBuffer());
+      if (buf.length > MAX) {
+        return res.status(413).json({ error: `Resource too large (${(buf.length/1024/1024).toFixed(1)} MB)` });
+      }
+      // Derive a sensible filename from the URL path.
+      let basename = "imported-image";
+      try {
+        const p = decodeURIComponent(parsed.pathname);
+        basename = path.basename(p) || basename;
+        if (!/\.[a-z0-9]{2,5}$/i.test(basename)) {
+          // No extension — guess from mime
+          const ext = contentType.split("/")[1]?.split(";")[0]?.replace(/\W/g, "") || "jpg";
+          basename = `${basename}.${ext}`;
+        }
+      } catch { /* keep default */ }
+      return res.json({
+        kind: "image",
+        mime: contentType.split(";")[0],
+        name: basename.slice(0, 200),
+        sourceUrl: parsed.href,
+        data: buf.toString("base64"),
+      });
+    }
+
+    if (allowHtml && contentType.includes("text/html")) {
+      // Cap HTML body size for the scrape — anything past 5MB is unlikely
+      // to have meaningful additional img tags worth processing.
+      const reader = upstream.body.getReader();
+      const chunks = [];
+      let total = 0;
+      const HTML_MAX = 5 * 1024 * 1024;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.length;
+        if (total > HTML_MAX) break;
+        chunks.push(value);
+      }
+      const html = Buffer.concat(chunks).toString("utf8");
+      const images = extractImagesFromHtml(html, parsed.href);
+      return res.json({
+        kind: "html",
+        sourceUrl: parsed.href,
+        images,
+      });
+    }
+
+    return res.status(415).json({ error: `Unsupported content-type: ${contentType || "(none)"}` });
+  } catch (err) {
+    if (err.name === "TimeoutError" || err.name === "AbortError") {
+      return res.status(504).json({ error: "Upstream timeout" });
+    }
+    return res.status(502).json({ error: err.message || String(err) });
+  }
+});
+
 // === REVIEW SESSIONS ===
 // Named snapshots of the Review tab's working state (events list +
 // approvals + filter). Same shape as workspaces — list / get / put /
