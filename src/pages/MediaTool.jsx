@@ -144,7 +144,7 @@ function drawPageNum(ctx, W, H, current, total, accent, isLight = false) {
 
 // === COVER RENDERER ===
 function renderCover(canvas, cfg) {
-  const { photo, headline, highlights, accent, dots, totalDots, subtitle, opacity, ribbon } = cfg;
+  const { photo, headline, highlights, accent, dots, totalDots, subtitle, opacity, ribbon, categoryTag } = cfg;
   const W=1080, H=1080; canvas.width=W; canvas.height=H;
   const ctx = canvas.getContext("2d");
   if (photo) { const s=Math.max(W/photo.width,H/photo.height); const dw=photo.width*s,dh=photo.height*s; ctx.drawImage(photo,(W-dw)/2,(H-dh)/2,dw,dh); }
@@ -152,6 +152,26 @@ function renderCover(canvas, cfg) {
   const grd=ctx.createLinearGradient(0,H*0.25,0,H); grd.addColorStop(0,"transparent"); grd.addColorStop(0.3,`rgba(0,0,0,${opacity*0.6})`); grd.addColorStop(0.55,`rgba(0,0,0,${opacity*0.88})`); grd.addColorStop(1,`rgba(0,0,0,${opacity})`); ctx.fillStyle=grd; ctx.fillRect(0,0,W,H);
   drawTexture(ctx,W,H,"#FFF",0.04);
   drawLogo(ctx,accent,W); drawDots(ctx,W,dots,totalDots,accent);
+
+  // CATEGORY TAG — editorial section label, magazine-style. Sits in the
+  // top-center area just under the logo bar. Letterspaced small-caps,
+  // white-ish so it reads as a metadata tag rather than competing with
+  // the headline. Hides entirely when empty (the user's existing covers
+  // were fine without it — this is purely additive).
+  if (categoryTag?.trim()) {
+    ctx.save();
+    ctx.font = ff("700 18px 'DM Sans',sans-serif");
+    ctx.fillStyle = "rgba(255,255,255,0.78)";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    ctx.letterSpacing = "5px";
+    ctx.fillText(categoryTag.toUpperCase(), W / 2, 110);
+    // Thin underline rule beneath the tag, accent-colored, ~60px wide
+    ctx.fillStyle = accent;
+    ctx.fillRect(W / 2 - 30, 110 + 28, 60, 2);
+    ctx.restore();
+  }
+
   if (subtitle?.trim()) { ctx.font=ff("700 24px 'DM Sans',sans-serif"); ctx.fillStyle=accent; ctx.textBaseline="top"; ctx.letterSpacing="3px"; }
   if (!headline?.trim()) { drawFooter(ctx,W,H); return; }
   // px=110 keeps content inside IG's 4:5 cover-preview safe zone when
@@ -332,14 +352,26 @@ function renderText(canvas, cfg) {
       }
       if(bl)bodyLines.push(bl);
     }
-    const lineH=42, blockH=bodyLines.length*lineH;
+    // Variable-height layout — body lines use lineH (42), paragraph
+    // breaks (empty strings) use breakH (34, ~0.8 of lineH). Brings the
+    // editorial column together so two paragraphs read as one piece
+    // instead of two stacked blocks. The y-position of each line is
+    // accumulated so spacing stays correct regardless of break count.
+    const lineH = 42, breakH = 34;
+    const yOffsets = [];
+    let accumulated = 0;
+    bodyLines.forEach(ln => {
+      yOffsets.push(accumulated);
+      accumulated += (ln === "") ? breakH : lineH;
+    });
+    const blockH = accumulated;
     let startY=H/2-blockH/2;
     const minY=barY+30, maxBottom=H-70;
     if(startY<minY)startY=minY;
     if(startY+blockH>maxBottom)startY=maxBottom-blockH;
 
     bodyLines.forEach((ln,i)=>{
-      const y=startY+i*lineH;
+      const y = startY + yOffsets[i];
       if(y<0||y>H-40) return;
       const parts=ln.split(/(\*[^*]+\*)/g);
       let lineW=0;
@@ -2054,6 +2086,11 @@ export default function MediaTool() {
   const [totalDots, setTotalDots] = useState(5);
   const [opacity, setOpacity] = useState(0.92);
   const [ribbon, setRibbon] = useState("");
+  // Category tag — optional editorial section label (e.g. "WEEKEND GUIDE",
+  // "JUNETEENTH 2026", "WORLD CUP WATCH PARTIES"). Sits at the top-center
+  // under the logo bar. Hides when empty. Additive — existing covers
+  // without one render exactly as before.
+  const [categoryTag, setCategoryTag] = useState("");
   const [items, setItems] = useState([
     {name:"R&B Friday at Halftime",detail:"Jersey City · 8 PM",featured:true},
     {name:"Afrobeat Night",detail:"Suite 2, New Brunswick · 9 PM",featured:true},
@@ -2448,7 +2485,7 @@ export default function MediaTool() {
 
   const render = useCallback(()=>{
     const cv=cvRef.current; if(!cv) return;
-    if(mode==="cover") renderCover(cv,{photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon});
+    if(mode==="cover") renderCover(cv,{photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,categoryTag});
     else if(mode==="list") renderList(cv,{items,accent,bgKey,dots,totalDots,listTitle,listSubtitle});
     else if(mode==="stat") renderStat(cv,{statNumber,statLabel,statSub,accent,bgKey,dots,totalDots});
     else if(mode==="text") renderText(cv,{textTitle,textTitleHighlights:textTitleHL,textBody,accent,bgKey,dots,totalDots,pageNum,totalPages,photo:textPhoto,textOpacity});
@@ -2463,7 +2500,7 @@ export default function MediaTool() {
     else if(mode==="scene") renderScene(cv,{bgPhoto:sceneBgPhoto,sceneHero,sceneLeft,sceneRight,sceneTopLabel,sceneTitle,sceneBigText,sceneLeftMeta,sceneRightMeta,sceneInfo,sceneAddress,sceneHalftone,sceneHeroScale,sceneSideScale,accent,bgKey,dots,totalDots});
     else if(mode==="poster") renderPoster(cv,{photo:posterPhoto,opacity:posterOpacity,topLine:posterTopLine,hosts:posterHosts,kicker:posterKicker,title:posterTitle,subtitle:posterSubtitle,leftList:posterLeftList,rightList:posterRightList,dressCode:posterDressCode,dateLine:posterDateLine,titleSize:posterTitleSize,titleX:posterTitleX,titleY:posterTitleY,titleAlign:posterTitleAlign,titleColor:posterTitleColor,accent,bgKey,dots,totalDots});
     else if(mode==="press") renderPress(cv,{photo:pressPhoto,topMeta:pressTopMeta,title:pressTitle,badge:pressBadge,lineup:pressLineup,genres:pressGenres,dateLine:pressDateLine,badgeBg:pressBadgeBg,badgeText:pressBadgeText,genreBg:pressGenreBg,genreText:pressGenreText,dateBg:pressDateBg,dateText:pressDateText,photoOpacity:pressPhotoOpacity,accent,bgKey,dots,totalDots});
-  },[mode,photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,items,bgKey,listTitle,listSubtitle,statNumber,statLabel,statSub,textTitle,textTitleHL,textBody,pageNum,totalPages,textPhoto,textOpacity,ctaKicker,ctaDate,ctaVenue,ctaUrl,featuresTitle,features,captionPhoto,caption,captionSecondary,captionAlign,spotPhoto,spotName,spotNameHL,spotMeta,spotTime,spotPrice,spotCta,countPhoto,countText,countEvent,countWhen,countCta,countOpacity,savePhoto,saveKicker,saveDay,saveDateBig,saveEvent,saveVenue,saveCta,saveOpacity,savesPhoto,savesHeader,savesItems,savesCta,savesOpacity,vibePhotos,vibeHeadline,vibeLabels,sceneBgPhoto,sceneHero,sceneLeft,sceneRight,sceneTopLabel,sceneTitle,sceneBigText,sceneLeftMeta,sceneRightMeta,sceneInfo,sceneAddress,sceneHalftone,sceneHeroScale,sceneSideScale,posterPhoto,posterOpacity,posterTopLine,posterHosts,posterKicker,posterTitle,posterSubtitle,posterLeftList,posterRightList,posterDressCode,posterDateLine,posterTitleSize,posterTitleX,posterTitleY,posterTitleAlign,posterTitleColor,pressPhoto,pressTopMeta,pressTitle,pressBadge,pressLineup,pressGenres,pressDateLine,pressGenreBg,pressGenreText,pressDateBg,pressDateText,pressBadgeBg,pressBadgeText,pressPhotoOpacity,watermark,fontTick]);
+  },[mode,photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,categoryTag,items,bgKey,listTitle,listSubtitle,statNumber,statLabel,statSub,textTitle,textTitleHL,textBody,pageNum,totalPages,textPhoto,textOpacity,ctaKicker,ctaDate,ctaVenue,ctaUrl,featuresTitle,features,captionPhoto,caption,captionSecondary,captionAlign,spotPhoto,spotName,spotNameHL,spotMeta,spotTime,spotPrice,spotCta,countPhoto,countText,countEvent,countWhen,countCta,countOpacity,savePhoto,saveKicker,saveDay,saveDateBig,saveEvent,saveVenue,saveCta,saveOpacity,savesPhoto,savesHeader,savesItems,savesCta,savesOpacity,vibePhotos,vibeHeadline,vibeLabels,sceneBgPhoto,sceneHero,sceneLeft,sceneRight,sceneTopLabel,sceneTitle,sceneBigText,sceneLeftMeta,sceneRightMeta,sceneInfo,sceneAddress,sceneHalftone,sceneHeroScale,sceneSideScale,posterPhoto,posterOpacity,posterTopLine,posterHosts,posterKicker,posterTitle,posterSubtitle,posterLeftList,posterRightList,posterDressCode,posterDateLine,posterTitleSize,posterTitleX,posterTitleY,posterTitleAlign,posterTitleColor,pressPhoto,pressTopMeta,pressTitle,pressBadge,pressLineup,pressGenres,pressDateLine,pressGenreBg,pressGenreText,pressDateBg,pressDateText,pressBadgeBg,pressBadgeText,pressPhotoOpacity,watermark,fontTick]);
 
   useEffect(()=>{const t=setTimeout(render,60);return()=>clearTimeout(t);},[render]);
 
@@ -2535,7 +2572,7 @@ export default function MediaTool() {
   };
 
   const dl=()=>{const cv=document.createElement("canvas");
-    if(mode==="cover") renderCover(cv,{photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon});
+    if(mode==="cover") renderCover(cv,{photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,categoryTag});
     else if(mode==="list") renderList(cv,{items,accent,bgKey,dots,totalDots,listTitle,listSubtitle});
     else if(mode==="stat") renderStat(cv,{statNumber,statLabel,statSub,accent,bgKey,dots,totalDots});
     else if(mode==="text") renderText(cv,{textTitle,textTitleHighlights:textTitleHL,textBody,accent,bgKey,dots,totalDots,pageNum,totalPages,photo:textPhoto,textOpacity});
@@ -2602,7 +2639,7 @@ export default function MediaTool() {
       const thumbCv = document.createElement("canvas");
       thumbCv.width = 1080; thumbCv.height = 1080;
       const cfg = { accent, bgKey, dots, totalDots };
-      if (mode === "cover") renderCover(thumbCv, {...cfg, photo, headline, highlights, subtitle, opacity, ribbon});
+      if (mode === "cover") renderCover(thumbCv, {...cfg, photo, headline, highlights, subtitle, opacity, ribbon, categoryTag});
       else if (mode === "list") renderList(thumbCv, {...cfg, items, listTitle, listSubtitle});
       else if (mode === "stat") renderStat(thumbCv, {...cfg, statNumber, statLabel, statSub});
       else if (mode === "text") renderText(thumbCv, {...cfg, textTitle, textTitleHighlights: textTitleHL, textBody, pageNum, totalPages, photo: textPhoto, textOpacity});
@@ -2731,7 +2768,7 @@ export default function MediaTool() {
     const common = { accent: s.accent, dots: dotsNum, totalDots: dotsTot };
     if (type === "cover") renderCover(cv, { ...common, photo: s.photo, headline: s.headline,
       highlights: s.highlights instanceof Set ? s.highlights : new Set(s.highlights || []),
-      subtitle: s.subtitle, opacity: s.opacity, ribbon: s.ribbon });
+      subtitle: s.subtitle, opacity: s.opacity, ribbon: s.ribbon, categoryTag: s.categoryTag });
     else if (type === "list") renderList(cv, { ...common, items: s.items, bgKey: s.bgKey,
       listTitle: s.listTitle, listSubtitle: s.listSubtitle });
     else if (type === "stat") renderStat(cv, { ...common, statNumber: s.statNumber,
@@ -2790,7 +2827,7 @@ export default function MediaTool() {
   const makeSnapshot = () => {
     const common = { accent, accentKey, bgKey };
     switch (mode) {
-      case "cover": return { ...common, photo, headline, highlights, subtitle, opacity, ribbon };
+      case "cover": return { ...common, photo, headline, highlights, subtitle, opacity, ribbon, categoryTag };
       case "list": return { ...common, items: items.map(x=>({...x})), listTitle, listSubtitle };
       case "stat": return { ...common, statNumber, statLabel, statSub };
       case "text": return { ...common, textTitle, textTitleHL, textBody, photo: textPhoto, textOpacity, pageNum, totalPages };
@@ -2818,6 +2855,7 @@ export default function MediaTool() {
         setPhoto(snapshot.photo); setHeadline(snapshot.headline);
         setHighlights(snapshot.highlights instanceof Set ? new Set(snapshot.highlights) : new Set(snapshot.highlights || []));
         setSubtitle(snapshot.subtitle); setOpacity(snapshot.opacity); setRibbon(snapshot.ribbon || "");
+        setCategoryTag(snapshot.categoryTag || "");
         break;
       case "list":
         setItems(snapshot.items.map(x=>({...x})));
@@ -3592,7 +3630,15 @@ export default function MediaTool() {
                   <input ref={fileRef} type="file" accept="image/*" onChange={handlePhoto} style={{display:"none"}}/>
                 </div>
               </div>
-              <div style={{marginBottom:"0.6rem"}}><label style={L}>Subtitle (optional)</label><input value={subtitle} onChange={e=>setSubtitle(e.target.value)} style={I} placeholder="e.g. WEEKEND GUIDE · APRIL 2026"/></div>
+              {/* Category tag — new in news-editorial refinement. Sits at
+                  the top of the canvas as a small letterspaced section
+                  label, like a magazine category header. Hides when empty. */}
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Category tag · top section label · optional</label><input value={categoryTag} onChange={e=>setCategoryTag(e.target.value)} style={I} placeholder="e.g. WEEKEND GUIDE · JUNETEENTH 2026 · WORLD CUP WATCH"/></div>
+              {/* Tagline / region line — was previously labeled "Subtitle"
+                  generically. Same state + same render, just clearer about
+                  what this field is FOR in news-editorial usage: the small
+                  accent line beneath the headline naming where/when. */}
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Tagline / where line · region · scope · presenter · optional</label><input value={subtitle} onChange={e=>setSubtitle(e.target.value)} style={I} placeholder="e.g. NEWARK · NEW BRUNSWICK · JERSEY CITY + MORE"/></div>
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Ribbon (optional · short kicker)</label><input value={ribbon} onChange={e=>setRibbon(e.target.value)} style={I} placeholder="e.g. ANNOUNCING / EXCLUSIVE / BREAKING"/></div>
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Headline</label><textarea value={headline} onChange={e=>setHeadline(e.target.value)} style={{...I,height:55,resize:"vertical"}} placeholder="Type headline..."/></div>
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Click words to highlight</label>
