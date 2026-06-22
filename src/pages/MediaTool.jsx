@@ -5,6 +5,7 @@ import { generateCaptions } from "../shared/gemini";
 import { savePhotoAndNotify, saveExport } from "../shared/photoLibrary.js";
 import { tagPngWithCgeExport } from "../shared/pngMetadata.js";
 import { PhotoLibraryModal } from "../shared/PhotoLibraryModal.jsx";
+import { EventToolsPanel } from "../shared/EventToolsPanel.jsx";
 
 const COLORS = {
   yellow:{name:"Yellow",hex:"#FACC15"},purple:{name:"Purple",hex:"#C084FC"},
@@ -3123,6 +3124,170 @@ export default function MediaTool() {
     });
   };
 
+  // === EVENT TOOLS — apply Single Event data to the current template ===
+  // The Event Tools panel hands us a structured event payload (name, date,
+  // venue, hosts, lineup, etc.). Different templates have wildly different
+  // field shapes, so each one gets its own mapping below. Fields the
+  // event has that the template doesn't need are silently ignored;
+  // empty fields fall through so they don't clobber existing values.
+  const applyEventToCurrentMode = (d) => {
+    const set = (setter, val) => { if (val !== undefined && val !== null && String(val).trim() !== "") setter(val); };
+    const dateTime = [d.date, d.time].filter(Boolean).join(" · ");
+    const venueArea = [d.venue, d.area].filter(Boolean).join(" · ");
+    const venueAreaCity = [d.venue, d.area, d.city].filter(Boolean).join(" · ");
+
+    switch (mode) {
+      case "cover":
+        set(setHeadline, d.tagline || d.name);
+        set(setSubtitle, [d.venue, d.area, d.city].filter(Boolean).join(" · "));
+        if (d.photo) setPhoto(d.photo);
+        break;
+      case "text":
+        set(setTextTitle, d.name);
+        set(setTextBody, d.description);
+        if (d.photo) setTextPhoto(d.photo);
+        break;
+      case "spotlight":
+        set(setSpotName, d.name);
+        set(setSpotMeta, venueArea);
+        set(setSpotTime, [d.date, d.time].filter(Boolean).join(" · "));
+        set(setSpotCta, d.url);
+        if (d.photo) setSpotPhoto(d.photo);
+        break;
+      case "cta":
+        set(setCtaKicker, d.tagline);
+        set(setCtaDate, dateTime);
+        set(setCtaVenue, venueArea);
+        set(setCtaUrl, d.url);
+        if (d.photo) setTextPhoto(d.photo);
+        break;
+      case "savedate":
+        set(setSaveEvent, d.name);
+        set(setSaveDateBig, d.date);
+        set(setSaveVenue, venueAreaCity);
+        if (d.time) set(setSaveCta, d.time);
+        if (d.photo) setSavePhoto(d.photo);
+        break;
+      case "poster":
+        set(setPosterTitle, d.tagline || d.name);
+        set(setPosterHosts, d.hosts);
+        set(setPosterKicker, d.name);
+        set(setPosterDateLine, dateTime);
+        set(setPosterRightList, d.description);
+        if (d.photo) setPosterPhoto(d.photo);
+        break;
+      case "press":
+        set(setPressTitle, d.name);
+        set(setPressLineup, d.lineup);
+        set(setPressGenres, d.genres);
+        set(setPressDateLine, dateTime);
+        if (d.venue || d.area || d.city) {
+          // Press has 4 top-meta cells; we fill what we can without
+          // overwriting cells the user already populated.
+          setPressTopMeta(prev => {
+            const next = [...prev];
+            if (d.venue && !next[0]?.trim()) next[0] = d.venue.toUpperCase();
+            if (d.area  && !next[1]?.trim()) next[1] = d.area.toUpperCase();
+            if (d.city  && !next[2]?.trim()) next[2] = d.city.toUpperCase();
+            return next;
+          });
+        }
+        if (d.photo) setPressPhoto(d.photo);
+        break;
+      default:
+        alert(`No event mapping defined for "${mode}" mode yet — switch to a template like Cover, Spotlight, Save Date, Poster, or Press first.`);
+        return;
+    }
+    alert(`Applied event data to ${mode} mode. Tweak the fields below and add to carousel when ready.`);
+  };
+
+  // === EVENT TOOLS — generate Roundup carousel ===
+  // Build snapshot objects directly (without touching template setters)
+  // for each slide in the Cover + Text + N Spotlights + CTA shape, then
+  // hand them to buildCarouselFromSnapshots which renders and stages
+  // them in the carousel composer.
+  const generateRoundupCarousel = ({ theme, picks }) => {
+    if (carousel.length > 0 && !confirm(`Replace ${carousel.length} existing carousel slide${carousel.length === 1 ? "" : "s"} with a fresh ${picks.length + 3}-slide roundup?`)) return;
+
+    // Use existing accent + dot counts so the generated slides stay on-brand.
+    const common = { accent, dots: 1, totalDots: 1 };
+    const snapshots = [];
+
+    // 1. COVER — theme headline + tagline + categoryTag + cover photo
+    snapshots.push({
+      type: "cover",
+      snapshot: {
+        ...common,
+        photo: theme.coverPhoto || null,
+        headline: theme.headline || "",
+        highlights: new Set(),
+        subtitle: theme.tagline || "",
+        ribbon: "",
+        categoryTag: theme.categoryTag || "",
+        opacity: 0.85,
+      },
+    });
+
+    // 2. TEXT — theme body
+    snapshots.push({
+      type: "text",
+      snapshot: {
+        ...common,
+        photo: theme.coverPhoto || null,
+        textTitle: theme.bodyTitle || theme.headline || "",
+        textTitleHL: new Set(),
+        textBody: theme.bodyText || "",
+        pageNum: 2,
+        totalPages: picks.length + 3,
+        textOpacity: 0.85,
+        bgKey: "black",
+      },
+    });
+
+    // 3. SPOTLIGHTS — one per picked event
+    picks.forEach((p, i) => {
+      const ev = p.event || {};
+      const venueArea = [ev.venue, ev.area].filter(Boolean).join(" · ");
+      const dateTime = [ev.day, ev.time].filter(Boolean).join(" · ");
+      snapshots.push({
+        type: "spotlight",
+        snapshot: {
+          ...common,
+          dots: i + 3,
+          totalDots: picks.length + 3,
+          photo: p.photo || theme.coverPhoto || null,
+          spotName: ev.name || "",
+          spotNameHL: new Set(),
+          spotMeta: venueArea,
+          spotTime: dateTime,
+          spotPrice: "",
+          spotCta: theme.url || "",
+          bgKey: "black",
+        },
+      });
+    });
+
+    // 4. CTA — closer
+    snapshots.push({
+      type: "cta",
+      snapshot: {
+        ...common,
+        dots: picks.length + 3,
+        totalDots: picks.length + 3,
+        photo: theme.coverPhoto || null,
+        ctaKicker: "",
+        ctaDate: theme.ctaText || "FIND FULL LIST AT",
+        ctaVenue: "",
+        ctaUrl: theme.url || "",
+        textOpacity: 0.85,
+        bgKey: "black",
+      },
+    });
+
+    buildCarouselFromSnapshots(snapshots);
+    alert(`Generated ${snapshots.length} slides → check the carousel composer below to tweak before export.`);
+  };
+
   // Templates call this to push their snapshot list into the carousel.
   const buildCarouselFromSnapshots = (snapshots) => {
     if (carousel.length > 0 && !confirm(`Replace ${carousel.length} existing carousel slide${carousel.length===1?"":"s"} with this template?`)) return;
@@ -3618,6 +3783,18 @@ export default function MediaTool() {
             </div>
           )}
         </div>
+
+        {/* Event Tools — collapsible at the top, sits above the
+            template-specific form. Two modes: Single Event (apply
+            structured data to the current template's fields) and
+            Roundup Generator (multi-select from Review queue → auto-
+            build a Cover + Text + N Spotlights + CTA carousel). */}
+        <EventToolsPanel
+          currentMode={mode}
+          events={events}
+          onApplyToTemplate={(d) => applyEventToCurrentMode(d)}
+          onGenerateRoundup={(payload) => generateRoundupCarousel(payload)}
+        />
 
         <div className="cge-builder-layout" style={{display:"grid",gridTemplateColumns:"1fr 400px",gap:"1.5rem",alignItems:"start"}}>
           <div>
