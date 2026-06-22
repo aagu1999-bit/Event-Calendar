@@ -1576,6 +1576,199 @@ function renderPoster(canvas, cfg) {
   // overcrowd it.
 }
 
+// === PRESS ===
+// Editorial flyer template inspired by the Afrogroove / event-press
+// aesthetic. Big distressed-feeling display title, four-cell mono meta
+// row at the top, optional accent badge to the right of the title,
+// lineup of artist/host names in the photo midground, full-width
+// marquee strip with comma-separated genre tags (configurable bg +
+// text color), and a big full-width date bar at the bottom
+// (configurable bg + text color).
+//
+// Three regions get user-pickable colors per the user's spec:
+//   1. The genre marquee strip
+//   2. The bottom date bar
+//   3. The small badge next to the title
+// Each region has BG + TEXT picker so you can do dark-text-on-yellow,
+// white-text-on-red, anything. Badge auto-hides when its text is empty.
+function renderPress(canvas, cfg) {
+  const {
+    photo,
+    topMeta,           // 4-cell array — each cell is a string with \n for two lines
+    title,
+    badge,             // small text in the badge; empty/blank → badge hidden
+    lineup,            // multi-line string of artist names
+    genres,            // comma-separated list ("AMAPIANO, AFROHOUSE, …")
+    dateLine,
+    badgeBg, badgeText,
+    genreBg, genreText,
+    dateBg, dateText,
+    photoOpacity,      // dark wash over photo for legibility (0..1)
+    accent, bgKey, dots, totalDots,
+  } = cfg;
+  const W = 1080, H = 1080;
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext("2d");
+
+  // 1. BACKGROUND — photo full-bleed or solid fallback. Subtle wash so
+  // the text reads against busy crowd photos.
+  if (photo) {
+    const s = Math.max(W / photo.width, H / photo.height);
+    const dw = photo.width * s, dh = photo.height * s;
+    ctx.drawImage(photo, (W - dw) / 2, (H - dh) / 2, dw, dh);
+    ctx.fillStyle = `rgba(0,0,0,${typeof photoOpacity === "number" ? photoOpacity : 0.30})`;
+    ctx.fillRect(0, 0, W, H);
+  } else {
+    const bg = BG_COLORS[bgKey] || BG_COLORS.black;
+    ctx.fillStyle = bg.hex; ctx.fillRect(0, 0, W, H);
+  }
+
+  const mono = "ui-monospace, Menlo, 'Courier New', monospace";
+
+  // 2. TOP META ROW — 4 equal cells, each with up to 2 lines.
+  // Painted edge-to-edge with small left/right padding (the meta lives
+  // outside the IG 4:5 safe zone intentionally — it's small contextual
+  // text that survives partial cropping).
+  const metaCells = Array.isArray(topMeta) ? topMeta : ["", "", "", ""];
+  const padX = 56;
+  const cellW = (W - padX * 2) / 4;
+  const metaTop = 40;
+  ctx.fillStyle = "#FFF"; ctx.textBaseline = "top";
+  ctx.font = `700 18px ${mono}`;
+  for (let i = 0; i < 4; i++) {
+    const cellLines = String(metaCells[i] || "").split("\n").slice(0, 2);
+    const cellX = padX + i * cellW;
+    ctx.textAlign = "left";
+    cellLines.forEach((ln, li) => {
+      ctx.fillText(String(ln || "").toUpperCase(), cellX, metaTop + li * 22);
+    });
+  }
+
+  // 3. TITLE — huge condensed-feeling display type. Letter-spacing
+  // tightened slightly so it reads as one impactful word. Edge-to-edge
+  // horizontally; we intentionally let it bleed past the 4:5 safe zone
+  // because the title IS the art.
+  const titleY = 110;
+  let titleH = 0;
+  let titleFontSize = 240;
+  if (title?.trim()) {
+    const t = title.toUpperCase();
+    ctx.font = ff(`900 ${titleFontSize}px 'Syne',sans-serif`);
+    ctx.letterSpacing = "-4px";
+    while (ctx.measureText(t).width > W - 60 && titleFontSize > 100) {
+      titleFontSize -= 6;
+      ctx.font = ff(`900 ${titleFontSize}px 'Syne',sans-serif`);
+    }
+    ctx.fillStyle = "#FFF";
+    ctx.textAlign = "left"; ctx.textBaseline = "top";
+    ctx.fillText(t, 40, titleY);
+    titleH = titleFontSize * 0.95;
+    ctx.letterSpacing = "0px";
+  }
+
+  // 4. BADGE — small filled rectangle with text inside, sits to the
+  // right of the title's bottom-right corner. Hidden entirely when
+  // `badge` is empty/whitespace, per the user's spec.
+  if (badge?.trim()) {
+    const bt = badge.toUpperCase();
+    ctx.font = ff("800 22px 'Syne',sans-serif");
+    ctx.letterSpacing = "1.5px";
+    const tw = ctx.measureText(bt).width;
+    const rectW = tw + 28, rectH = 38;
+    // Anchored to the title's bottom right, but kept inside the canvas.
+    const rx = Math.min(W - rectW - 40, 40 + (title ? (W - 80) : 0) - rectW);
+    const ry = titleY + titleH + 4;
+    ctx.fillStyle = badgeBg || "#D43F2F";
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(rx, ry, rectW, rectH, 3);
+    else ctx.rect(rx, ry, rectW, rectH);
+    ctx.fill();
+    ctx.fillStyle = badgeText || "#FFFFFF";
+    ctx.textBaseline = "middle"; ctx.textAlign = "left";
+    ctx.fillText(bt, rx + 14, ry + rectH / 2);
+    ctx.letterSpacing = "0px";
+  }
+
+  // 5. LINEUP — two-line bold sans, centered, lower-mid of canvas.
+  // Anchored from the BOTTOM up so adding/removing lines doesn't shift
+  // the genre + date bars.
+  if (lineup?.trim()) {
+    const lines = lineup.split("\n").map(l => l.trim().toUpperCase()).filter(Boolean);
+    let fs = 50;
+    ctx.font = ff(`900 ${fs}px 'Syne',sans-serif`);
+    ctx.letterSpacing = "-1px";
+    while (Math.max(...lines.map(l => ctx.measureText(l).width)) > W - 80 && fs > 24) {
+      fs -= 2;
+      ctx.font = ff(`900 ${fs}px 'Syne',sans-serif`);
+    }
+    ctx.fillStyle = "#FFF";
+    ctx.textAlign = "center"; ctx.textBaseline = "bottom";
+    const lh = fs * 1.08;
+    // Lineup baseline-top sits 240px above bottom — leaves room for
+    // genre strip (60px) + date bar (90px) + buffer.
+    const lineupBottom = H - 240;
+    lines.forEach((ln, i) => {
+      const y = lineupBottom - (lines.length - 1 - i) * lh;
+      ctx.fillText(ln, W / 2, y);
+    });
+    ctx.letterSpacing = "0px";
+  }
+
+  // 6. GENRE STRIP — full-width horizontal bar with comma-separated
+  // genres joined by a ★ star. Bg + text are user-pickable; star
+  // shares the text color. Strip is intentionally taller than just
+  // the text so it reads as a printed flyer band.
+  const stripH = 60;
+  const stripY = H - 90 - stripH;
+  ctx.fillStyle = genreBg || "#3A8B5F";
+  ctx.fillRect(0, stripY, W, stripH);
+  if (genres?.trim()) {
+    const items = genres.split(",").map(s => s.trim()).filter(Boolean).map(s => s.toUpperCase());
+    if (items.length) {
+      // Repeat the genre list so the strip feels marquee-cropped at
+      // the canvas edges — same trick the reference uses to suggest
+      // motion.
+      const joined = items.join(" ★ ");
+      ctx.font = ff("800 28px 'Syne',sans-serif");
+      ctx.letterSpacing = "2px";
+      const oneRun = ctx.measureText("★ " + joined + " ").width;
+      const repeats = Math.ceil((W + 200) / oneRun) + 1;
+      const runText = ("★ " + joined + " ").repeat(repeats);
+      ctx.fillStyle = genreText || "#F2C94C";
+      ctx.textAlign = "left"; ctx.textBaseline = "middle";
+      // Offset so the strip looks mid-marquee (clipped on left edge).
+      ctx.fillText(runText, -40, stripY + stripH / 2);
+      ctx.letterSpacing = "0px";
+    }
+  }
+
+  // 7. DATE BAR — big bottom bar, bg + text user-pickable. Date text
+  // is mono caps with a ★ star separator the user can include in their
+  // input (e.g. "21 DE JUNHO ★ 22H").
+  const dateH = 90;
+  const dateY = H - dateH;
+  ctx.fillStyle = dateBg || "#E55F2B";
+  ctx.fillRect(0, dateY, W, dateH);
+  if (dateLine?.trim()) {
+    let fs = 56;
+    ctx.font = `900 ${fs}px ${mono}`;
+    ctx.letterSpacing = "2px";
+    while (ctx.measureText(dateLine.toUpperCase()).width > W - 80 && fs > 24) {
+      fs -= 2;
+      ctx.font = `900 ${fs}px ${mono}`;
+    }
+    ctx.fillStyle = dateText || "#0a0a0a";
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(dateLine.toUpperCase(), W / 2, dateY + dateH / 2);
+    ctx.letterSpacing = "0px";
+  }
+
+  ctx.textAlign = "left"; ctx.textBaseline = "top";
+  drawDots(ctx, W, dots, totalDots, accent);
+  // No drawLogo / drawFooter — the meta row + date bar already serve
+  // as the brand cues; standard watermark would clutter.
+}
+
 // === VIBE BOARD ===
 // Moodboard collage. Headline at top (quoted, conversational), 5-cell
 // grid of photo cards below (4 in a 2x2 plus 1 hero, OR 2x3 layout).
@@ -1993,6 +2186,29 @@ export default function MediaTool() {
   // exact brand color when needed.
   const [posterTitleColor, setPosterTitleColor] = useState("#FB7185");
 
+  // Press — editorial flyer template. Three user-pickable color regions
+  // (genre strip, date bar, badge) per the spec, plus a configurable
+  // photo darken so a busy crowd photo doesn't overwhelm the text.
+  const [pressPhoto, setPressPhoto] = useState(null);
+  const [pressTopMeta, setPressTopMeta] = useState([
+    "CASA SAVANA\nRUA CAMERINO",
+    "—\n162",
+    "RIO DE\nBRASIL",
+    "JANEIRO\n2026",
+  ]);
+  const [pressTitle, setPressTitle] = useState("AFROGROOVE");
+  const [pressBadge, setPressBadge] = useState("RIO DE JANEIRO");
+  const [pressLineup, setPressLineup] = useState("CABANECO · DJ TALIE · NAIRO PUMA\nCRAZY  JEFFS · YURE  IDD");
+  const [pressGenres, setPressGenres] = useState("AMAPIANO, AFROHOUSE, AFROBEATS");
+  const [pressDateLine, setPressDateLine] = useState("21 DE JUNHO ★ 22H");
+  const [pressGenreBg, setPressGenreBg] = useState("#3A8B5F");
+  const [pressGenreText, setPressGenreText] = useState("#F2C94C");
+  const [pressDateBg, setPressDateBg] = useState("#E55F2B");
+  const [pressDateText, setPressDateText] = useState("#0a0a0a");
+  const [pressBadgeBg, setPressBadgeBg] = useState("#D43F2F");
+  const [pressBadgeText, setPressBadgeText] = useState("#FFFFFF");
+  const [pressPhotoOpacity, setPressPhotoOpacity] = useState(0.30);
+
   // Vibe Board — moodboard collage with headline + 5 photo cells.
   const [vibePhotos, setVibePhotos] = useState([null, null, null, null, null]);
   const [vibeHeadline, setVibeHeadline] = useState('"I NEED SOME VITAMIN F"');
@@ -2191,6 +2407,7 @@ export default function MediaTool() {
   const cvRef = useRef(null), fileRef = useRef(null), textFileRef = useRef(null), captionFileRef = useRef(null), spotFileRef = useRef(null), countFileRef = useRef(null), saveFileRef = useRef(null), savesFileRef = useRef(null);
   // Scene Composer — 4 slots, each needs its own file input ref.
   const sceneBgRef = useRef(null), sceneHeroRef = useRef(null), sceneLeftRef = useRef(null), sceneRightRef = useRef(null);
+  const pressFileRef = useRef(null);
   const posterFileRef = useRef(null);
   // One file input ref per Vibe Board slot (5 max).
   // Pre-allocate file-input refs for up to 6 Vibe Board cells. Rules of
@@ -2245,7 +2462,8 @@ export default function MediaTool() {
     else if(mode==="vibe") renderVibeBoard(cv,{vibePhotos,vibeHeadline,vibeLabels,accent,bgKey,dots,totalDots});
     else if(mode==="scene") renderScene(cv,{bgPhoto:sceneBgPhoto,sceneHero,sceneLeft,sceneRight,sceneTopLabel,sceneTitle,sceneBigText,sceneLeftMeta,sceneRightMeta,sceneInfo,sceneAddress,sceneHalftone,sceneHeroScale,sceneSideScale,accent,bgKey,dots,totalDots});
     else if(mode==="poster") renderPoster(cv,{photo:posterPhoto,opacity:posterOpacity,topLine:posterTopLine,hosts:posterHosts,kicker:posterKicker,title:posterTitle,subtitle:posterSubtitle,leftList:posterLeftList,rightList:posterRightList,dressCode:posterDressCode,dateLine:posterDateLine,titleSize:posterTitleSize,titleX:posterTitleX,titleY:posterTitleY,titleAlign:posterTitleAlign,titleColor:posterTitleColor,accent,bgKey,dots,totalDots});
-  },[mode,photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,items,bgKey,listTitle,listSubtitle,statNumber,statLabel,statSub,textTitle,textTitleHL,textBody,pageNum,totalPages,textPhoto,textOpacity,ctaKicker,ctaDate,ctaVenue,ctaUrl,featuresTitle,features,captionPhoto,caption,captionSecondary,captionAlign,spotPhoto,spotName,spotNameHL,spotMeta,spotTime,spotPrice,spotCta,countPhoto,countText,countEvent,countWhen,countCta,countOpacity,savePhoto,saveKicker,saveDay,saveDateBig,saveEvent,saveVenue,saveCta,saveOpacity,savesPhoto,savesHeader,savesItems,savesCta,savesOpacity,vibePhotos,vibeHeadline,vibeLabels,sceneBgPhoto,sceneHero,sceneLeft,sceneRight,sceneTopLabel,sceneTitle,sceneBigText,sceneLeftMeta,sceneRightMeta,sceneInfo,sceneAddress,sceneHalftone,sceneHeroScale,sceneSideScale,posterPhoto,posterOpacity,posterTopLine,posterHosts,posterKicker,posterTitle,posterSubtitle,posterLeftList,posterRightList,posterDressCode,posterDateLine,posterTitleSize,posterTitleX,posterTitleY,posterTitleAlign,posterTitleColor,watermark,fontTick]);
+    else if(mode==="press") renderPress(cv,{photo:pressPhoto,topMeta:pressTopMeta,title:pressTitle,badge:pressBadge,lineup:pressLineup,genres:pressGenres,dateLine:pressDateLine,badgeBg:pressBadgeBg,badgeText:pressBadgeText,genreBg:pressGenreBg,genreText:pressGenreText,dateBg:pressDateBg,dateText:pressDateText,photoOpacity:pressPhotoOpacity,accent,bgKey,dots,totalDots});
+  },[mode,photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,items,bgKey,listTitle,listSubtitle,statNumber,statLabel,statSub,textTitle,textTitleHL,textBody,pageNum,totalPages,textPhoto,textOpacity,ctaKicker,ctaDate,ctaVenue,ctaUrl,featuresTitle,features,captionPhoto,caption,captionSecondary,captionAlign,spotPhoto,spotName,spotNameHL,spotMeta,spotTime,spotPrice,spotCta,countPhoto,countText,countEvent,countWhen,countCta,countOpacity,savePhoto,saveKicker,saveDay,saveDateBig,saveEvent,saveVenue,saveCta,saveOpacity,savesPhoto,savesHeader,savesItems,savesCta,savesOpacity,vibePhotos,vibeHeadline,vibeLabels,sceneBgPhoto,sceneHero,sceneLeft,sceneRight,sceneTopLabel,sceneTitle,sceneBigText,sceneLeftMeta,sceneRightMeta,sceneInfo,sceneAddress,sceneHalftone,sceneHeroScale,sceneSideScale,posterPhoto,posterOpacity,posterTopLine,posterHosts,posterKicker,posterTitle,posterSubtitle,posterLeftList,posterRightList,posterDressCode,posterDateLine,posterTitleSize,posterTitleX,posterTitleY,posterTitleAlign,posterTitleColor,pressPhoto,pressTopMeta,pressTitle,pressBadge,pressLineup,pressGenres,pressDateLine,pressGenreBg,pressGenreText,pressDateBg,pressDateText,pressBadgeBg,pressBadgeText,pressPhotoOpacity,watermark,fontTick]);
 
   useEffect(()=>{const t=setTimeout(render,60);return()=>clearTimeout(t);},[render]);
 
@@ -2279,6 +2497,7 @@ export default function MediaTool() {
   const handleSceneLeft  = makeUploadHandler(setSceneLeft,    "scene-left");
   const handleSceneRight = makeUploadHandler(setSceneRight,   "scene-right");
   const handlePosterPhoto = makeUploadHandler(setPosterPhoto, "poster");
+  const handlePressPhoto  = makeUploadHandler(setPressPhoto,  "press");
   // Vibe Board has 5 photo slots — one upload handler per slot.
   const handleVibePhoto = (idx) => (e) => {
     const f = e.target.files?.[0]; if (!f) return;
@@ -2311,6 +2530,7 @@ export default function MediaTool() {
     else if (pickTarget === "scene-left")  setSceneLeft(img);
     else if (pickTarget === "scene-right") setSceneRight(img);
     else if (pickTarget === "poster")      setPosterPhoto(img);
+    else if (pickTarget === "press")       setPressPhoto(img);
     else                                  setTextPhoto(img); // text/cta/features share textPhoto
   };
 
@@ -2329,6 +2549,7 @@ export default function MediaTool() {
     else if(mode==="vibe") renderVibeBoard(cv,{vibePhotos,vibeHeadline,vibeLabels,accent,bgKey,dots,totalDots});
     else if(mode==="scene") renderScene(cv,{bgPhoto:sceneBgPhoto,sceneHero,sceneLeft,sceneRight,sceneTopLabel,sceneTitle,sceneBigText,sceneLeftMeta,sceneRightMeta,sceneInfo,sceneAddress,sceneHalftone,sceneHeroScale,sceneSideScale,accent,bgKey,dots,totalDots});
     else if(mode==="poster") renderPoster(cv,{photo:posterPhoto,opacity:posterOpacity,topLine:posterTopLine,hosts:posterHosts,kicker:posterKicker,title:posterTitle,subtitle:posterSubtitle,leftList:posterLeftList,rightList:posterRightList,dressCode:posterDressCode,dateLine:posterDateLine,titleSize:posterTitleSize,titleX:posterTitleX,titleY:posterTitleY,titleAlign:posterTitleAlign,titleColor:posterTitleColor,accent,bgKey,dots,totalDots});
+    else if(mode==="press") renderPress(cv,{photo:pressPhoto,topMeta:pressTopMeta,title:pressTitle,badge:pressBadge,lineup:pressLineup,genres:pressGenres,dateLine:pressDateLine,badgeBg:pressBadgeBg,badgeText:pressBadgeText,genreBg:pressGenreBg,genreText:pressGenreText,dateBg:pressDateBg,dateText:pressDateText,photoOpacity:pressPhotoOpacity,accent,bgKey,dots,totalDots});
     const exportCv = wrapForExport(cv, exportRatio, getModePrimaryPhoto());
     exportCv.toBlob(async (blob) => {
       // Pre-generate the export id so the PNG tag and the cloud record
@@ -2395,6 +2616,7 @@ export default function MediaTool() {
       else if (mode === "vibe") renderVibeBoard(thumbCv, {...cfg, vibePhotos, vibeHeadline, vibeLabels});
       else if (mode === "scene") renderScene(thumbCv, {...cfg, bgPhoto: sceneBgPhoto, sceneHero, sceneLeft, sceneRight, sceneTopLabel, sceneTitle, sceneBigText, sceneLeftMeta, sceneRightMeta, sceneInfo, sceneAddress, sceneHalftone, sceneHeroScale, sceneSideScale});
       else if (mode === "poster") renderPoster(thumbCv, {...cfg, photo: posterPhoto, opacity: posterOpacity, topLine: posterTopLine, hosts: posterHosts, kicker: posterKicker, title: posterTitle, subtitle: posterSubtitle, leftList: posterLeftList, rightList: posterRightList, dressCode: posterDressCode, dateLine: posterDateLine, titleSize: posterTitleSize, titleX: posterTitleX, titleY: posterTitleY, titleAlign: posterTitleAlign, titleColor: posterTitleColor});
+      else if (mode === "press") renderPress(thumbCv, {...cfg, photo: pressPhoto, topMeta: pressTopMeta, title: pressTitle, badge: pressBadge, lineup: pressLineup, genres: pressGenres, dateLine: pressDateLine, badgeBg: pressBadgeBg, badgeText: pressBadgeText, genreBg: pressGenreBg, genreText: pressGenreText, dateBg: pressDateBg, dateText: pressDateText, photoOpacity: pressPhotoOpacity});
 
       const thumbBlob = await new Promise(r => thumbCv.toBlob(r, "image/png"));
       const fname = `DRAFT_${mode}_${userName.replace(/[^a-z0-9]/gi, "_")}.png`;
@@ -2414,7 +2636,7 @@ export default function MediaTool() {
     }
   };
 
-  const MODES=[["cover","Cover"],["list","List"],["stat","Stat"],["text","Text"],["cta","CTA"],["features","Features"],["photo","Photo"],["spotlight","Spotlight"],["countdown","Countdown"],["savedate","Save Date"],["savedates","Save Dates"],["vibe","Vibe Board"],["scene","Scene"],["poster","Poster"]];
+  const MODES=[["cover","Cover"],["list","List"],["stat","Stat"],["text","Text"],["cta","CTA"],["features","Features"],["photo","Photo"],["spotlight","Spotlight"],["countdown","Countdown"],["savedate","Save Date"],["savedates","Save Dates"],["vibe","Vibe Board"],["scene","Scene"],["poster","Poster"],["press","Press"]];
 
   // Templates push snapshots into the carousel composer.
   // Weekend (5 slides): Cover + Fri/Sat/Sun lists + Stat.
@@ -2556,6 +2778,13 @@ export default function MediaTool() {
       titleSize: s.posterTitleSize, titleX: s.posterTitleX, titleY: s.posterTitleY,
       titleAlign: s.posterTitleAlign, titleColor: s.posterTitleColor,
       bgKey: s.bgKey });
+    else if (type === "press") renderPress(cv, { ...common, photo: s.photo,
+      topMeta: s.pressTopMeta, title: s.pressTitle, badge: s.pressBadge,
+      lineup: s.pressLineup, genres: s.pressGenres, dateLine: s.pressDateLine,
+      badgeBg: s.pressBadgeBg, badgeText: s.pressBadgeText,
+      genreBg: s.pressGenreBg, genreText: s.pressGenreText,
+      dateBg: s.pressDateBg, dateText: s.pressDateText,
+      photoOpacity: s.pressPhotoOpacity, bgKey: s.bgKey });
   };
 
   const makeSnapshot = () => {
@@ -2575,6 +2804,7 @@ export default function MediaTool() {
       case "vibe":      return { ...common, vibePhotos: [...vibePhotos], vibeHeadline, vibeLabels: [...vibeLabels] };
       case "scene":     return { ...common, bgPhoto: sceneBgPhoto, sceneHero, sceneLeft, sceneRight, sceneTopLabel, sceneTitle, sceneBigText, sceneLeftMeta, sceneRightMeta, sceneInfo, sceneAddress, sceneHalftone, sceneHeroScale, sceneSideScale };
       case "poster":    return { ...common, photo: posterPhoto, posterOpacity, posterTopLine, posterHosts, posterKicker, posterTitle, posterSubtitle, posterLeftList, posterRightList, posterDressCode, posterDateLine, posterTitleSize, posterTitleX, posterTitleY, posterTitleAlign, posterTitleColor };
+      case "press":     return { ...common, photo: pressPhoto, pressTopMeta: [...pressTopMeta], pressTitle, pressBadge, pressLineup, pressGenres, pressDateLine, pressGenreBg, pressGenreText, pressDateBg, pressDateText, pressBadgeBg, pressBadgeText, pressPhotoOpacity };
       default: return common;
     }
   };
@@ -2671,6 +2901,22 @@ export default function MediaTool() {
         if (typeof snapshot.posterTitleY === "number")    setPosterTitleY(snapshot.posterTitleY);
         if (typeof snapshot.posterTitleAlign === "string") setPosterTitleAlign(snapshot.posterTitleAlign);
         if (typeof snapshot.posterTitleColor === "string") setPosterTitleColor(snapshot.posterTitleColor);
+        break;
+      case "press":
+        setPressPhoto(snapshot.photo);
+        if (Array.isArray(snapshot.pressTopMeta)) setPressTopMeta([...snapshot.pressTopMeta]);
+        setPressTitle(snapshot.pressTitle || "");
+        setPressBadge(snapshot.pressBadge || "");
+        setPressLineup(snapshot.pressLineup || "");
+        setPressGenres(snapshot.pressGenres || "");
+        setPressDateLine(snapshot.pressDateLine || "");
+        if (typeof snapshot.pressGenreBg === "string")   setPressGenreBg(snapshot.pressGenreBg);
+        if (typeof snapshot.pressGenreText === "string") setPressGenreText(snapshot.pressGenreText);
+        if (typeof snapshot.pressDateBg === "string")    setPressDateBg(snapshot.pressDateBg);
+        if (typeof snapshot.pressDateText === "string")  setPressDateText(snapshot.pressDateText);
+        if (typeof snapshot.pressBadgeBg === "string")   setPressBadgeBg(snapshot.pressBadgeBg);
+        if (typeof snapshot.pressBadgeText === "string") setPressBadgeText(snapshot.pressBadgeText);
+        if (typeof snapshot.pressPhotoOpacity === "number") setPressPhotoOpacity(snapshot.pressPhotoOpacity);
         break;
       case "scene":
         setSceneBgPhoto(snapshot.bgPhoto);
@@ -2886,6 +3132,7 @@ export default function MediaTool() {
       case "savedates": return savesPhoto;
       case "scene":     return sceneBgPhoto;
       case "poster":    return posterPhoto;
+      case "press":     return pressPhoto;
       default:          return null;  // list / stat / vibe — no shared bg photo
     }
   };
@@ -3905,6 +4152,96 @@ export default function MediaTool() {
 
               <p style={{fontSize:"0.55rem",color:"rgba(245,240,232,0.4)",lineHeight:1.5,marginTop:"6px"}}>
                 Title color, accent (hosts + lists), and bg color are all changeable — defaults land on the CGE wine accent so the first render is on-brand. Push the title around with the X/Y sliders if it lands on a building, a face, or a sign in your photo. The mono top-line and bottom date use the system mono font (Menlo / Courier) for an editorial feel.
+              </p>
+            </>}
+
+            {/* PRESS — editorial event flyer. Big distressed title, 4-cell
+                mono meta row at top, optional red badge, lineup names,
+                marquee-style genre strip, big date bar. Three color
+                regions (genre + date + badge) are user-pickable. */}
+            {mode==="press"&&<>
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Background Photo</label>
+                <div style={{display:"flex",gap:"0.3rem",alignItems:"center"}}>
+                  <button onClick={()=>pressFileRef.current?.click()} style={{...B,flex:1}}>{pressPhoto?"✓ Photo loaded — change":"Upload Photo"}</button>
+                  <button onClick={()=>openLibrary("press")} style={{...B,padding:"5px 10px"}} title="Pick a photo from the library">📚</button>
+                  {pressPhoto&&<button onClick={()=>setPressPhoto(null)} style={{...B,color:"rgba(251,113,133,0.5)"}}>×</button>}
+                  <input ref={pressFileRef} type="file" accept="image/*" onChange={handlePressPhoto} style={{display:"none"}}/>
+                </div>
+                {pressPhoto&&<div style={{marginTop:"6px"}}>
+                  <div style={{fontSize:"0.5rem",color:"rgba(245,240,232,0.45)",letterSpacing:"1px",textTransform:"uppercase",marginBottom:"3px"}}>
+                    Photo darken · {Math.round(pressPhotoOpacity*100)}%
+                  </div>
+                  <input type="range" min="0" max="0.7" step="0.02" value={pressPhotoOpacity} onChange={e=>setPressPhotoOpacity(parseFloat(e.target.value))} style={{width:"100%",accentColor:accent}}/>
+                </div>}
+              </div>
+
+              <div style={{marginBottom:"0.5rem",fontSize:"0.5rem",color:"rgba(245,240,232,0.4)",letterSpacing:"1.5px",textTransform:"uppercase",fontWeight:700}}>Top meta · 4 cells · use ⏎ for 2nd line in each cell</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0.4rem",marginBottom:"0.6rem"}}>
+                {[0,1,2,3].map(i => (
+                  <div key={i}>
+                    <label style={L}>Cell {i+1}</label>
+                    <textarea
+                      value={pressTopMeta[i] || ""}
+                      onChange={e=>setPressTopMeta(prev=>prev.map((c,j)=>j===i?e.target.value:c))}
+                      style={{...I,height:50,resize:"vertical",fontFamily:"ui-monospace, monospace",fontSize:"0.65rem"}}
+                      placeholder={["CASA SAVANA\nRUA CAMERINO","—\n162","RIO DE\nBRASIL","JANEIRO\n2026"][i]}
+                    />
+                  </div>
+                ))}
+              </div>
+
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Title (big distressed display word)</label>
+                <input value={pressTitle} onChange={e=>setPressTitle(e.target.value)} style={{...I,fontWeight:900,letterSpacing:"-0.5px"}} placeholder="AFROGROOVE"/>
+              </div>
+
+              <div style={{marginBottom:"0.6rem"}}>
+                <label style={L}>Badge text · OPTIONAL · disappears when blank</label>
+                <input value={pressBadge} onChange={e=>setPressBadge(e.target.value)} style={I} placeholder="RIO DE JANEIRO (leave empty to hide the badge)"/>
+              </div>
+
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Lineup · one or two lines (⏎ for line 2)</label>
+                <textarea value={pressLineup} onChange={e=>setPressLineup(e.target.value)} style={{...I,height:55,resize:"vertical"}} placeholder={"CABANECO · DJ TALIE · NAIRO PUMA\nCRAZY  JEFFS · YURE  IDD"}/>
+              </div>
+
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Genres · comma-separated · render as marquee strip</label>
+                <input value={pressGenres} onChange={e=>setPressGenres(e.target.value)} style={I} placeholder="AMAPIANO, AFROHOUSE, AFROBEATS"/>
+              </div>
+
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Date · use ★ for the star separator</label>
+                <input value={pressDateLine} onChange={e=>setPressDateLine(e.target.value)} style={{...I,fontFamily:"ui-monospace, monospace"}} placeholder="21 DE JUNHO ★ 22H"/>
+              </div>
+
+              <div style={{marginBottom:"0.5rem",fontSize:"0.5rem",color:"rgba(245,240,232,0.4)",letterSpacing:"1.5px",textTransform:"uppercase",fontWeight:700,marginTop:"10px"}}>Colors · the three pickable regions</div>
+
+              {[
+                { label: "Genre Strip", bg: pressGenreBg, setBg: setPressGenreBg, txt: pressGenreText, setTxt: setPressGenreText },
+                { label: "Date Bar",    bg: pressDateBg,  setBg: setPressDateBg,  txt: pressDateText,  setTxt: setPressDateText  },
+                { label: "Badge",       bg: pressBadgeBg, setBg: setPressBadgeBg, txt: pressBadgeText, setTxt: setPressBadgeText },
+              ].map(row => (
+                <div key={row.label} style={{display:"grid",gridTemplateColumns:"90px 1fr 1fr",gap:"6px",alignItems:"center",marginBottom:"0.4rem"}}>
+                  <div style={{fontSize:"0.6rem",color:"rgba(245,240,232,0.55)",letterSpacing:"1px",textTransform:"uppercase",fontWeight:700}}>{row.label}</div>
+                  <div>
+                    <div style={{fontSize:"0.45rem",color:"rgba(245,240,232,0.3)",letterSpacing:"1px",textTransform:"uppercase",marginBottom:"2px"}}>Background</div>
+                    <div style={{display:"flex",gap:"4px",alignItems:"center"}}>
+                      <input type="color" value={row.bg} onChange={e=>row.setBg(e.target.value)} style={{width:32,height:28,padding:0,border:"1px solid rgba(245,240,232,0.1)",borderRadius:4,background:"transparent",cursor:"pointer"}}/>
+                      <input type="text" value={row.bg} onChange={e=>row.setBg(e.target.value)} style={{...I,fontFamily:"ui-monospace, monospace",fontSize:"0.65rem",padding:"4px 6px"}}/>
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{fontSize:"0.45rem",color:"rgba(245,240,232,0.3)",letterSpacing:"1px",textTransform:"uppercase",marginBottom:"2px"}}>Text</div>
+                    <div style={{display:"flex",gap:"4px",alignItems:"center"}}>
+                      <input type="color" value={row.txt} onChange={e=>row.setTxt(e.target.value)} style={{width:32,height:28,padding:0,border:"1px solid rgba(245,240,232,0.1)",borderRadius:4,background:"transparent",cursor:"pointer"}}/>
+                      <input type="text" value={row.txt} onChange={e=>row.setTxt(e.target.value)} style={{...I,fontFamily:"ui-monospace, monospace",fontSize:"0.65rem",padding:"4px 6px"}}/>
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              {!pressPhoto&&<div style={{marginBottom:"0.6rem",marginTop:"8px"}}><label style={L}>Background Color (no photo)</label><div style={{display:"flex",gap:"3px",flexWrap:"wrap"}}>
+                {Object.entries(BG_COLORS).map(([k,v])=><button key={k} onClick={()=>setBgKey(k)} style={{width:28,height:28,borderRadius:"5px",cursor:"pointer",background:v.hex,border:bgKey===k?"2px solid #FFF":"2px solid transparent",boxShadow:bgKey===k?"0 0 6px rgba(255,255,255,0.3)":"none"}} title={v.name}/>)}</div></div>}
+
+              <p style={{fontSize:"0.55rem",color:"rgba(245,240,232,0.4)",lineHeight:1.5,marginTop:"6px"}}>
+                Three pickable color regions: <strong>genre strip</strong> (the marquee bar), <strong>date bar</strong> (bottom band), <strong>badge</strong> (the small accent box next to the title). Each has independent BG + Text pickers — set wild contrasts like yellow-on-green or black-on-orange. Badge auto-hides if its text is empty. Title font follows your current font-pair selection.
               </p>
             </>}
 
