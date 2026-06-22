@@ -19,6 +19,12 @@ import { PhotoLibraryModal } from "./PhotoLibraryModal.jsx";
 // All callbacks are owned by MediaTool (the only place that has access to
 // every template's setters + the carousel composer state).
 
+// Templates that have a defined event-data mapping in MediaTool's
+// applyEventToCurrentMode(). Other modes (list, stat, features, vibe,
+// scene, etc.) don't have a single-event shape, so Apply is disabled
+// with an explanation when the user is on one of them.
+const APPLY_MODES = ["cover", "text", "spotlight", "cta", "savedate", "poster", "press"];
+
 const L = { display: "block", fontSize: "0.5rem", letterSpacing: "1.5px", textTransform: "uppercase", color: "rgba(245,240,232,0.5)", marginBottom: "3px" };
 const I = { width: "100%", padding: "6px 8px", background: "#111", border: "1px solid rgba(245,240,232,0.05)", borderRadius: "4px", color: "#F5F0E8", fontFamily: "'DM Sans',sans-serif", fontSize: "0.7rem", outline: "none" };
 const B = { padding: "5px 8px", background: "rgba(245,240,232,0.04)", border: "1px solid rgba(245,240,232,0.04)", borderRadius: "4px", color: "rgba(245,240,232,0.55)", fontSize: "0.65rem", cursor: "pointer", fontFamily: "'DM Sans',sans-serif" };
@@ -37,7 +43,10 @@ export function EventToolsPanel({
   // a loaded HTMLImageElement or null if the user skipped that one.
   onGenerateRoundup,
 }) {
-  const [open, setOpen] = useState(false);
+  // Open by default on first mount so users discover the feature.
+  // (Was collapsed by default which hid Apply behind a click users
+  // didn't know they needed to make.)
+  const [open, setOpen] = useState(true);
   const [tab, setTab] = useState("single"); // "single" | "roundup"
 
   return (
@@ -169,21 +178,47 @@ function SingleEventForm({ currentMode, onApplyToTemplate }) {
         </div>
       </div>
 
+      {/* Legend — show which modes Apply works on so users don't have to
+          guess. Light-touch chip row; the current mode highlights. */}
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "6px", marginBottom: "8px", padding: "8px 10px", background: "rgba(245,240,232,0.03)", borderRadius: 4, fontSize: "0.55rem" }}>
+        <span style={{ color: "rgba(245,240,232,0.5)", letterSpacing: "1px", textTransform: "uppercase", fontWeight: 700, marginRight: "2px" }}>Apply works on:</span>
+        {APPLY_MODES.map(m => (
+          <span key={m} style={{
+            padding: "2px 8px", borderRadius: 3,
+            background: m === currentMode ? "rgba(229,188,79,0.18)" : "rgba(245,240,232,0.06)",
+            border: `1px solid ${m === currentMode ? "#E5BC4F" : "rgba(245,240,232,0.08)"}`,
+            color: m === currentMode ? "#E5BC4F" : "rgba(245,240,232,0.55)",
+            letterSpacing: "0.5px", textTransform: "uppercase", fontWeight: 700,
+          }}>{m}</span>
+        ))}
+      </div>
+
       <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
         <button
           onClick={apply}
-          disabled={!data.name.trim()}
+          disabled={!data.name.trim() || !APPLY_MODES.includes(currentMode)}
+          title={
+            !data.name.trim() ? "Add an event name above to enable Apply." :
+            !APPLY_MODES.includes(currentMode) ? `Apply doesn't have a mapping for "${currentMode}" yet — switch to one of: ${APPLY_MODES.join(", ")}` :
+            `Push the event fields into ${currentMode}'s form. Empty fields above stay empty in the template.`
+          }
           style={{
             flex: 1,
-            padding: "10px 14px",
-            background: data.name.trim() ? "#E5BC4F" : "rgba(229,188,79,0.3)",
-            color: "#000", border: "none", borderRadius: 4,
-            fontSize: "0.7rem", fontWeight: 700, letterSpacing: "1.5px",
+            padding: "12px 16px",
+            background: (data.name.trim() && APPLY_MODES.includes(currentMode)) ? "#E5BC4F" : "rgba(229,188,79,0.15)",
+            color: (data.name.trim() && APPLY_MODES.includes(currentMode)) ? "#000" : "rgba(245,240,232,0.4)",
+            border: `2px dashed ${(data.name.trim() && APPLY_MODES.includes(currentMode)) ? "transparent" : "rgba(229,188,79,0.4)"}`,
+            borderRadius: 4,
+            fontSize: "0.75rem", fontWeight: 800, letterSpacing: "1.5px",
             textTransform: "uppercase",
-            cursor: data.name.trim() ? "pointer" : "not-allowed",
+            cursor: (data.name.trim() && APPLY_MODES.includes(currentMode)) ? "pointer" : "not-allowed",
             fontFamily: "'Syne', sans-serif",
           }}
-        >→ Apply to {currentMode}</button>
+        >
+          {!data.name.trim() ? `↑ Fill in Event Name first` :
+           !APPLY_MODES.includes(currentMode) ? `No mapping for ${currentMode} — switch templates` :
+           `→ Apply to ${currentMode}`}
+        </button>
       </div>
 
       <PhotoLibraryModal
