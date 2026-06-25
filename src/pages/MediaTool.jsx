@@ -3442,9 +3442,13 @@ export default function MediaTool() {
       const dateTime = [ev.day, ev.time].filter(Boolean).join(" · ");
 
       if (style === "editorial") {
-        // Editorial style → CTA card per event. Kicker holds the event
-        // name (the big bold title of a CTA), date + venue fill the
-        // schedule slots, and the URL is the per-event link.
+        // Editorial style → CTA card per event. The big-bold slot (ctaDate
+        // by field name, but actually "biggest centered text" by render)
+        // gets the EVENT NAME so each card reads as a directory listing
+        // headlined by what's happening. Venue + day/time stack below in
+        // the venue slot. Kicker pill left blank — editorial directory
+        // cards read cleaner without it.
+        const venueParts = [venueArea, dateTime].filter(Boolean);
         snapshots.push({
           type: "cta",
           snapshot: {
@@ -3452,9 +3456,9 @@ export default function MediaTool() {
             dots: i + 3,
             totalDots: total,
             photo: p.photo || theme.coverPhoto || null,
-            ctaKicker: ev.name || "",
-            ctaDate: dateTime,
-            ctaVenue: venueArea,
+            ctaKicker: "",
+            ctaDate: (ev.name || "").trim(),
+            ctaVenue: venueParts.join(" · "),
             ctaUrl: eventUrl(ev),
             textOpacity: 0.85,
             bgKey: "black",
