@@ -58,6 +58,101 @@ export const useRegularsStore = create(
   )
 );
 
+// Brand Kit — centralized brand identity that every tool reads from.
+// This is the "Reactive Core State Object" pattern: instead of each
+// template hardcoding "#E5BC4F" / "CGE" / "centralgroupevents.com",
+// they read from here. Changing a value here ripples to every tool.
+//
+// Categories:
+//   palette        — brand colors (background, text, accent)
+//   alternateColors — whether to swap bg/accent every other slide
+//   fontPairKey    — default Syne+DM Sans, etc. (matches MediaTool's FONT_PAIRS)
+//   creator        — the brand's identity: name, handle, watermark text, URL
+//   defaults       — category tag presets, region (for Cover/News templates)
+//   voice          — Phase 2: voice description + exemplar captions (Gemini)
+export const useBrandStore = create(
+  persist(
+    (set, get) => ({
+      // Visual identity
+      palette: {
+        background: "#0a0a0a",   // legacy default
+        text: "#F5F0E8",          // legacy ivory
+        accent: "#E5BC4F",        // legacy gold
+      },
+      alternateColors: false,
+
+      // Typography — matches FONT_PAIRS keys in MediaTool
+      fontPairKey: "default",     // "default" | "bold" | "serif" | "modern"
+
+      // Creator / brand identity — watermarks read from here
+      creator: {
+        brandName: "Central Group Events",
+        handle: "@centralgroupevents",
+        logoText: "CGE",          // the letters in the circle
+        url: "centralgroupevents.com",
+        showWatermark: true,
+      },
+
+      // Defaults that templates seed from
+      defaults: {
+        categoryTagPresets: ["WEEKEND GUIDE", "EVENT DROP", "TONIGHT", "SCENE REPORT"],
+        defaultCategoryTag: "EVENT DROP",
+        region: "NJ",
+      },
+
+      // Voice fingerprint — Phase 2 (textareas exist but no Gemini wiring yet)
+      voice: {
+        description: "",          // e.g. "Editorial, NJ-first, news-headline framing"
+        exemplars: [],            // array of past captions for Gemini priming
+      },
+
+      // Setters — accept either a value or a function (parity with React setState)
+      setPalette: (p) => set((s) => ({
+        palette: typeof p === "function" ? p(s.palette) : { ...s.palette, ...p },
+      })),
+      setAlternateColors: (v) => set({ alternateColors: !!v }),
+      setFontPairKey: (k) => set({ fontPairKey: k }),
+      setCreator: (c) => set((s) => ({
+        creator: typeof c === "function" ? c(s.creator) : { ...s.creator, ...c },
+      })),
+      setDefaults: (d) => set((s) => ({
+        defaults: typeof d === "function" ? d(s.defaults) : { ...s.defaults, ...d },
+      })),
+      setVoice: (v) => set((s) => ({
+        voice: typeof v === "function" ? v(s.voice) : { ...s.voice, ...v },
+      })),
+      addExemplar: (caption) => set((s) => ({
+        voice: { ...s.voice, exemplars: [...s.voice.exemplars, String(caption || "").trim()].filter(Boolean) },
+      })),
+      removeExemplar: (idx) => set((s) => ({
+        voice: { ...s.voice, exemplars: s.voice.exemplars.filter((_, i) => i !== idx) },
+      })),
+      resetToDefaults: () => set({
+        palette: { background: "#0a0a0a", text: "#F5F0E8", accent: "#E5BC4F" },
+        alternateColors: false,
+        fontPairKey: "default",
+        creator: {
+          brandName: "Central Group Events",
+          handle: "@centralgroupevents",
+          logoText: "CGE",
+          url: "centralgroupevents.com",
+          showWatermark: true,
+        },
+        defaults: {
+          categoryTagPresets: ["WEEKEND GUIDE", "EVENT DROP", "TONIGHT", "SCENE REPORT"],
+          defaultCategoryTag: "EVENT DROP",
+          region: "NJ",
+        },
+        voice: { description: "", exemplars: [] },
+      }),
+    }),
+    {
+      name: "cge-brand-kit",
+      version: 1,
+    }
+  )
+);
+
 export const useEventsStore = create(
   persist(
     (set, get) => ({

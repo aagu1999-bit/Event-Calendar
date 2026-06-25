@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import JSZip from "jszip";
-import { useEventsStore, useRestoreStore } from "../store";
+import { useEventsStore, useRestoreStore, useBrandStore } from "../store";
 import { generateCaptions } from "../shared/gemini";
 import { savePhotoAndNotify, saveExport } from "../shared/photoLibrary.js";
 import { tagPngWithCgeExport } from "../shared/pngMetadata.js";
@@ -50,9 +50,19 @@ const EXPORT_RATIOS = {
 let _displayFont = "Syne";
 let _bodyFont = "DM Sans";
 let _watermark = true;
+// Brand identity — synced from useBrandStore via useEffect inside the
+// component. Renderers read these so watermark text follows whatever
+// the user set in Brand Kit (defaults to CGE values for back-compat).
+let _brand = {
+  logoText: "CGE",
+  brandName: "Central Group Events",
+  handle: "@centralgroupevents",
+  url: "centralgroupevents.com",
+};
 const ff = (s) => s.replace(/'Syne'/g, `'${_displayFont}'`).replace(/'DM Sans'/g, `'${_bodyFont}'`);
 const setActiveFonts = (d, b) => { _displayFont = d; _bodyFont = b; };
 const setActiveWatermark = (w) => { _watermark = w; };
+const setActiveBrand = (b) => { _brand = { ..._brand, ...b }; };
 
 const FONT_PAIRS = {
   default: { name: "Syne + DM Sans", display: "Syne", body: "DM Sans" },
@@ -72,10 +82,14 @@ function drawTexture(ctx, W, H, color, alpha, startY = 0) {
   ctx.font = "800 22px 'Syne',sans-serif";
   ctx.fillStyle = color; ctx.globalAlpha = alpha;
   ctx.textBaseline = "middle"; ctx.textAlign = "center";
-  const lts = ["C","G","E"]; let li = 0;
+  // Watermark grid letters come from Brand Kit logoText (e.g. "CGE" → ["C","G","E"]).
+  // Falls back to the original CGE letters when nothing's set.
+  const lts = (_brand.logoText || "CGE").split("").filter(Boolean);
+  const ltsSafe = lts.length ? lts : ["C","G","E"];
+  let li = 0;
   for (let y = -60; y < H + 60; y += 32) {
     const off = (Math.round((y+60)/32) % 2 === 1) ? 18 : 0;
-    for (let x = -60+off; x < W+60; x += 36) { ctx.fillText(lts[li%3], x, y); li++; }
+    for (let x = -60+off; x < W+60; x += 36) { ctx.fillText(ltsSafe[li % ltsSafe.length], x, y); li++; }
   }
   ctx.restore();
 }
@@ -100,13 +114,16 @@ function drawLogo(ctx, accent, W, isLight = false) {
   // pair the user picks for their slide content. Don't pipe through ff().
   ctx.font = "700 17px 'Syne',sans-serif";
   ctx.fillStyle = accent; ctx.textBaseline = "middle"; ctx.textAlign = "center";
-  ctx.fillText("CGE",58,53); ctx.textAlign = "left";
+  // Logo letters, brand name, and handle all come from Brand Kit.
+  ctx.fillText(_brand.logoText || "CGE", 58, 53); ctx.textAlign = "left";
   const primaryText = isLight ? "#0a0a0a" : "#FFF";
   const secondaryText = isLight ? "rgba(0,0,0,0.55)" : "rgba(255,255,255,0.50)";
   ctx.font = "700 22px 'DM Sans',sans-serif";
-  ctx.fillStyle = primaryText; ctx.textBaseline = "top"; ctx.fillText("Central Group Events",96,35);
+  ctx.fillStyle = primaryText; ctx.textBaseline = "top";
+  ctx.fillText(_brand.brandName || "Central Group Events", 96, 35);
   ctx.font = "500 17px 'DM Sans',sans-serif";
-  ctx.fillStyle = secondaryText; ctx.fillText("@centralgroupevents",96,60);
+  ctx.fillStyle = secondaryText;
+  ctx.fillText(_brand.handle || "@centralgroupevents", 96, 60);
 }
 
 function drawDots(ctx, W, current, total, accent, isLight = false) {
@@ -130,10 +147,13 @@ function drawFooter(ctx, W, H, isLight = false) {
   // follows the content's font-pair selection. Don't pipe through ff().
   ctx.font = "800 16px 'Syne',sans-serif";
   ctx.fillStyle = brand; ctx.textBaseline = "bottom"; ctx.textAlign = "left";
-  ctx.fillText("CENTRAL GROUP EVENTS", 60, H-14);
+  // Footer pulls brand name + URL from Brand Kit. Uppercase the brand name
+  // to match the historical CGE footer treatment.
+  const footerName = (_brand.brandName || "Central Group Events").toUpperCase();
+  ctx.fillText(footerName, 60, H-14);
   ctx.font = "500 14px 'DM Sans',sans-serif";
   ctx.fillStyle = url; ctx.textAlign = "right";
-  ctx.fillText("centralgroupevents.com", W-60, H-14); ctx.textAlign = "left";
+  ctx.fillText(_brand.url || "centralgroupevents.com", W-60, H-14); ctx.textAlign = "left";
 }
 
 function drawPageNum(ctx, W, H, current, total, accent, isLight = false) {
@@ -2265,6 +2285,22 @@ export default function MediaTool() {
   // renderers are coded for 1080×1080.
   const [exportRatio, setExportRatio] = useState("1:1");
   useEffect(() => { setActiveWatermark(watermark); }, [watermark]);
+
+  // Brand identity sync — watermark/logo/footer renderers read from the
+  // module-level _brand. Subscribing here means edits in the Brand Kit
+  // tab propagate to the live preview immediately.
+  const brandCreator = useBrandStore((s) => s.creator);
+  useEffect(() => {
+    setActiveBrand({
+      logoText: brandCreator.logoText,
+      brandName: brandCreator.brandName,
+      handle: brandCreator.handle,
+      url: brandCreator.url,
+    });
+    // Force re-render so the canvas picks up the new brand text without
+    // waiting for another state change.
+    setFontTick((t) => t + 1);
+  }, [brandCreator.logoText, brandCreator.brandName, brandCreator.handle, brandCreator.url]);
   useEffect(() => {
     const pair = FONT_PAIRS[fontPairKey];
     setActiveFonts(pair.display, pair.body);

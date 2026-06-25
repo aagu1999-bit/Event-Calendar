@@ -9,6 +9,7 @@ import MediaTool from "./pages/MediaTool.jsx";
 import RecapPicker from "./pages/RecapPicker.jsx";
 import ReviewQueue from "./pages/ReviewQueue.jsx";
 import Regulars from "./pages/Regulars.jsx";
+import BrandKit from "./pages/BrandKit.jsx";
 import { useEventsStore } from "./store";
 import { exportWorkspace, previewWorkspace, importWorkspace, workspaceFilename } from "./shared/workspaceSync.js";
 import { checkCloudAvailable, cloudSave, cloudLoad } from "./shared/cloudSync.js";
@@ -329,6 +330,7 @@ function Nav() {
       <NavLink to="/recap"      {...navLinkCommon}>Recap</NavLink>
       <NavLink to="/review"     {...navLinkCommon}>Review</NavLink>
       <NavLink to="/regulars"   {...navLinkCommon}>Regulars</NavLink>
+      <NavLink to="/brand"      {...navLinkCommon}>Brand</NavLink>
       <div className="cge-nav-spacer" style={{ flex: 1 }} />
       <div className="cge-nav-count" style={{
         fontSize: "0.6rem",
@@ -518,6 +520,7 @@ export default function App() {
         <Route path="/recap" element={<RecapPicker />} />
         <Route path="/review" element={<ReviewQueue />} />
         <Route path="/regulars" element={<Regulars />} />
+        <Route path="/brand" element={<BrandKit />} />
         <Route path="*" element={<Navigate to="/calendar" replace />} />
       </Routes>
     </BrowserRouter>
