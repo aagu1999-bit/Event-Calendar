@@ -3381,12 +3381,28 @@ export default function MediaTool() {
   // for each slide in the Cover + Text + N Spotlights + CTA shape, then
   // hand them to buildCarouselFromSnapshots which renders and stages
   // them in the carousel composer.
-  const generateRoundupCarousel = ({ theme, picks }) => {
-    if (carousel.length > 0 && !confirm(`Replace ${carousel.length} existing carousel slide${carousel.length === 1 ? "" : "s"} with a fresh ${picks.length + 3}-slide roundup?`)) return;
+  const generateRoundupCarousel = ({ theme, picks, style = "spotlight" }) => {
+    // Total slide count differs by style:
+    //   spotlight: Cover + Text + Spotlight×N + CTA closer = picks.length + 3
+    //   editorial: Cover + Text + CTA×N (no separate closer) = picks.length + 2
+    const total = style === "editorial" ? picks.length + 2 : picks.length + 3;
+
+    if (carousel.length > 0 && !confirm(`Replace ${carousel.length} existing carousel slide${carousel.length === 1 ? "" : "s"} with a fresh ${total}-slide ${style === "editorial" ? "editorial" : "spotlight"} roundup?`)) return;
 
     // Use existing accent + dot counts so the generated slides stay on-brand.
     const common = { accent, dots: 1, totalDots: 1 };
     const snapshots = [];
+
+    // Derive a per-event URL: explicit link → instagram.com/<handle> →
+    // fall back to the theme URL. Used for the Editorial CTA cards so
+    // each event gets its OWN ticket/info link, not just the bio link.
+    const eventUrl = (ev) => {
+      const link = (ev?.link || "").trim();
+      if (link) return link;
+      const ig = (ev?.igHandle || "").trim().replace(/^@+/, "");
+      if (ig) return `instagram.com/${ig}`;
+      return theme.url || "";
+    };
 
     // 1. COVER — theme headline + tagline + categoryTag + cover photo
     snapshots.push({
@@ -3413,54 +3429,79 @@ export default function MediaTool() {
         textTitleHL: new Set(),
         textBody: theme.bodyText || "",
         pageNum: 2,
-        totalPages: picks.length + 3,
+        totalPages: total,
         textOpacity: 0.85,
         bgKey: "black",
       },
     });
 
-    // 3. SPOTLIGHTS — one per picked event
+    // 3. PER-EVENT CARDS — Spotlight or CTA depending on style.
     picks.forEach((p, i) => {
       const ev = p.event || {};
       const venueArea = [ev.venue, ev.area].filter(Boolean).join(" · ");
       const dateTime = [ev.day, ev.time].filter(Boolean).join(" · ");
+
+      if (style === "editorial") {
+        // Editorial style → CTA card per event. Kicker holds the event
+        // name (the big bold title of a CTA), date + venue fill the
+        // schedule slots, and the URL is the per-event link.
+        snapshots.push({
+          type: "cta",
+          snapshot: {
+            ...common,
+            dots: i + 3,
+            totalDots: total,
+            photo: p.photo || theme.coverPhoto || null,
+            ctaKicker: ev.name || "",
+            ctaDate: dateTime,
+            ctaVenue: venueArea,
+            ctaUrl: eventUrl(ev),
+            textOpacity: 0.85,
+            bgKey: "black",
+          },
+        });
+      } else {
+        snapshots.push({
+          type: "spotlight",
+          snapshot: {
+            ...common,
+            dots: i + 3,
+            totalDots: total,
+            photo: p.photo || theme.coverPhoto || null,
+            spotName: ev.name || "",
+            spotNameHL: new Set(),
+            spotMeta: venueArea,
+            spotTime: dateTime,
+            spotPrice: "",
+            spotCta: theme.url || "",
+            bgKey: "black",
+          },
+        });
+      }
+    });
+
+    // 4. CLOSER CTA — only in spotlight style; editorial style's last CTA
+    //    already functions as both the final listing and the closer.
+    if (style !== "editorial") {
       snapshots.push({
-        type: "spotlight",
+        type: "cta",
         snapshot: {
           ...common,
-          dots: i + 3,
-          totalDots: picks.length + 3,
-          photo: p.photo || theme.coverPhoto || null,
-          spotName: ev.name || "",
-          spotNameHL: new Set(),
-          spotMeta: venueArea,
-          spotTime: dateTime,
-          spotPrice: "",
-          spotCta: theme.url || "",
+          dots: total,
+          totalDots: total,
+          photo: theme.coverPhoto || null,
+          ctaKicker: "",
+          ctaDate: theme.ctaText || "FIND FULL LIST AT",
+          ctaVenue: "",
+          ctaUrl: theme.url || "",
+          textOpacity: 0.85,
           bgKey: "black",
         },
       });
-    });
-
-    // 4. CTA — closer
-    snapshots.push({
-      type: "cta",
-      snapshot: {
-        ...common,
-        dots: picks.length + 3,
-        totalDots: picks.length + 3,
-        photo: theme.coverPhoto || null,
-        ctaKicker: "",
-        ctaDate: theme.ctaText || "FIND FULL LIST AT",
-        ctaVenue: "",
-        ctaUrl: theme.url || "",
-        textOpacity: 0.85,
-        bgKey: "black",
-      },
-    });
+    }
 
     buildCarouselFromSnapshots(snapshots);
-    alert(`Generated ${snapshots.length} slides → check the carousel composer below to tweak before export.`);
+    alert(`Generated ${snapshots.length} slides (${style} style) → check the carousel composer below to tweak before export.`);
   };
 
   // Templates call this to push their snapshot list into the carousel.

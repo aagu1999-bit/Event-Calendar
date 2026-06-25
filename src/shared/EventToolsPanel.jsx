@@ -244,6 +244,14 @@ function RoundupGenerator({ events, onGenerateRoundup }) {
     ctaText: "FIND FULL LIST AT",
     url: "centralgroupevents.com",
   });
+  // Style of the middle-of-carousel event cards:
+  //   "spotlight" — each event → a Spotlight (venue/photo/meta) — existing
+  //                 behavior, good for a richer per-venue feel
+  //   "editorial" — each event → a CTA card (kicker/date/venue/URL) —
+  //                 matches the Editorial Roundup template (Juneteenth pattern)
+  //                 where each event is a directory listing with the per-event
+  //                 URL on each card
+  const [style, setStyle] = useState("spotlight");
   const [coverPhoto, setCoverPhoto] = useState(null);
   const [coverLibraryOpen, setCoverLibraryOpen] = useState(false);
   const [filter, setFilter] = useState("");
@@ -284,13 +292,53 @@ function RoundupGenerator({ events, onGenerateRoundup }) {
       const photo = picked[eventId]?.photo || null;
       return { event, photo };
     }).filter(p => p.event);
-    onGenerateRoundup({ theme: { ...theme, coverPhoto }, picks });
+    onGenerateRoundup({ theme: { ...theme, coverPhoto }, picks, style });
   };
 
   return (
     <>
       <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.55)", lineHeight: 1.5, marginBottom: "8px" }}>
-        Pick events from your Review queue, set the theme + URL, hit <strong style={{ color: "#34D399" }}>Generate Carousel</strong>. Output: <strong>Cover</strong> (headline) → <strong>Text</strong> (body) → <strong>{pickedCount || "N"} × Spotlight</strong> (one per pick) → <strong>CTA</strong>.
+        Pick events from your Review queue, set the theme + URL, hit <strong style={{ color: "#34D399" }}>Generate Carousel</strong>. Output:{" "}
+        {style === "editorial"
+          ? <>Cover (headline) → Text (manifesto) → <strong>{pickedCount || "N"} × CTA</strong> (one event per card — directory listing).</>
+          : <>Cover (headline) → Text (body) → <strong>{pickedCount || "N"} × Spotlight</strong> (one per pick) → CTA closer.</>
+        }
+      </div>
+
+      {/* === Style toggle === Pick between rich Spotlight cards (venue + photo)
+          or editorial CTA cards (Juneteenth-style directory listings, each with
+          per-event URL). */}
+      <div style={{ fontSize: "0.5rem", letterSpacing: "1.5px", textTransform: "uppercase", color: "rgba(245,240,232,0.4)", fontWeight: 700, marginBottom: "6px" }}>0 · Style</div>
+      <div style={{ display: "flex", gap: "6px", marginBottom: "10px" }}>
+        {[
+          { key: "spotlight", label: "Spotlight cards", hint: "Rich per-venue feel — photo + venue name + time + price" },
+          { key: "editorial", label: "Editorial CTA cards", hint: "Juneteenth pattern — directory listings with per-event URL" },
+        ].map(opt => (
+          <button
+            key={opt.key}
+            onClick={() => setStyle(opt.key)}
+            title={opt.hint}
+            style={{
+              flex: 1,
+              padding: "8px 10px",
+              background: style === opt.key ? "rgba(52,211,153,0.12)" : "rgba(245,240,232,0.03)",
+              border: "1px solid " + (style === opt.key ? "rgba(52,211,153,0.45)" : "rgba(245,240,232,0.08)"),
+              color: style === opt.key ? "#34D399" : "rgba(245,240,232,0.55)",
+              borderRadius: 4,
+              fontSize: "0.6rem",
+              fontWeight: 700,
+              letterSpacing: "1px",
+              textTransform: "uppercase",
+              cursor: "pointer",
+              fontFamily: "'Syne',sans-serif",
+              textAlign: "left",
+              lineHeight: 1.3,
+            }}
+          >
+            {opt.label}
+            <div style={{ fontSize: "0.5rem", fontWeight: 500, letterSpacing: "0.5px", textTransform: "none", color: "rgba(245,240,232,0.4)", marginTop: 3 }}>{opt.hint}</div>
+          </button>
+        ))}
       </div>
 
       {/* === Theme fields === */}
