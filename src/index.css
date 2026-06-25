@@ -237,6 +237,13 @@ body {
     grid-template-columns: 1fr !important;
     gap: 1rem !important;
   }
+  /* Main 70/30 outer grid in MediaTool — on mobile, collapse to single
+     column so bands + form + preview all stack. Without this the 7fr/3fr
+     gives the preview an unusably-narrow column on phones. */
+  .cge-main-grid {
+    grid-template-columns: 1fr !important;
+    gap: 1rem !important;
+  }
 
   /* Preview wrapper — clips overflow so a 1080×1080 canvas or 1080×1350
      HTML mock doesn't cause horizontal page scroll. Children scale to

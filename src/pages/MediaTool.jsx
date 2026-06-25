@@ -4004,6 +4004,14 @@ export default function MediaTool() {
           </div>
         )}
 
+        {/* Outer 70/30 main grid — all the control bands (captions,
+            carousel composer, event tools) and the form sit in the left
+            column; preview is sticky-pinned in the right column so it
+            rises to the top of the page and stays visible while editing.
+            Constrains those wide control bands to the left 70% so they
+            no longer extend full-width past the preview. */}
+        <div className="cge-main-grid" style={{display:"grid",gridTemplateColumns:"7fr 3fr",gap:"1.25rem",alignItems:"start"}}>
+          <div>
         {/* Legacy "Weekend Roundup / Client Event" auto-template dropdown
             was removed — those flows are now covered by:
               · Roundup Generator (Event Tools → Roundup tab) for events-driven
@@ -4422,11 +4430,11 @@ export default function MediaTool() {
           onGenerateRoundup={(payload) => generateRoundupCarousel(payload)}
         />
 
-        {/* Form sidebar (380px) + preview (flexible) — form's narrower
-            column so the preview gets more room and rises higher while
-            edits happen. Mobile media query overrides to a single
-            stacked column via the cge-builder-layout class. */}
-        <div className="cge-builder-layout" style={{display:"grid",gridTemplateColumns:"380px 1fr",gap:"1.25rem",alignItems:"start"}}>
+        {/* Form fields (per-mode). The outer 70/30 grid above wraps
+            everything; this is just the form area inside the left column.
+            cge-builder-layout class kept so the mobile media query still
+            collapses to a single stacked column on small viewports. */}
+        <div className="cge-builder-layout" style={{display:"block"}}>
           <div>
             {mode==="cover"&&<>
               {/* ✨ AI Generate Cover — calls Gemini with the Cover slot
@@ -5216,11 +5224,17 @@ export default function MediaTool() {
             <button onClick={dl} style={{width:"100%",padding:"12px",background:accent,color:"#000",border:"none",borderRadius:"6px",fontSize:"0.85rem",fontWeight:700,cursor:"pointer"}}>Download {mode.charAt(0).toUpperCase()+mode.slice(1)} Slide (PNG · {exportRatio})</button>
             <p style={{fontSize:"0.55rem",color:"rgba(245,240,232,0.18)",marginTop:"6px",lineHeight:1.5}}>{EXPORT_RATIOS[exportRatio].w}×{EXPORT_RATIOS[exportRatio].h}px · Syne 800 + DM Sans · CGE branded</p>
           </div>
+        </div>
+          {/* === LEFT COLUMN END === */}
+          </div>
 
-          <div className="cge-builder-preview"><label style={{...L,marginBottom:"6px"}}>Preview</label>
-            <canvas ref={cvRef} style={{width:390,height:390,borderRadius:"4px",display:"block",background:"#000"}}/>
+          {/* === RIGHT COLUMN — sticky preview === */}
+          <div className="cge-builder-preview" style={{position:"sticky",top:"80px"}}>
+            <label style={{...L,marginBottom:"6px"}}>Preview</label>
+            <canvas ref={cvRef} style={{width:"100%",maxWidth:"100%",aspectRatio:"1 / 1",borderRadius:"4px",display:"block",background:"#000"}}/>
           </div>
         </div>
+        {/* === OUTER GRID END === */}
       </div>
       <PhotoLibraryModal
         open={libOpen}
