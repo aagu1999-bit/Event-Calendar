@@ -2408,6 +2408,10 @@ export default function MediaTool() {
   const [showKey, setShowKey] = useState(false);
   const [isGenCaptions, setIsGenCaptions] = useState(false);
   const [captions, setCaptions] = useState([]);
+  // Which caption is currently visible in the picker view. Reset to 0
+  // whenever a fresh batch comes back from Gemini so the user lands on
+  // the first variant by default and can flip through with the dropdown.
+  const [captionPickIdx, setCaptionPickIdx] = useState(0);
   const [captionsError, setCaptionsError] = useState("");
   const [copiedIdx, setCopiedIdx] = useState(null);
   const [useVision, setUseVision] = useState(false);
@@ -2542,6 +2546,7 @@ export default function MediaTool() {
       const results = await generateCaptions(geminiKey, ctx, images, { voice: brandVoice });
       if (!results.length) throw new Error("Got 0 captions back");
       setCaptions(results);
+      setCaptionPickIdx(0);
     } catch (err) {
       console.error(err);
       setCaptionsError(err.message || "Generation failed");
@@ -3857,28 +3862,65 @@ export default function MediaTool() {
           </div>
         )}
 
-        {captions.length > 0 && (
-          <div style={{marginBottom:"1rem",display:"flex",flexDirection:"column",gap:"6px"}}>
-            <div style={{fontSize:"0.55rem",color:"#63B3ED",letterSpacing:"1.5px",textTransform:"uppercase",fontWeight:700,marginBottom:"2px"}}>
-              {captions.length} captions · click Copy
-            </div>
-            {captions.map((c, i) => (
-              <div key={i} style={{padding:"10px 12px",background:"rgba(99,179,237,0.04)",border:"1px solid rgba(99,179,237,0.15)",borderRadius:"6px"}}>
-                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"6px"}}>
-                  <div style={{fontSize:"0.55rem",color:"#63B3ED",letterSpacing:"2px",textTransform:"uppercase",fontWeight:700,fontFamily:"'Syne',sans-serif"}}>
-                    {c.tone || `Variant ${i+1}`}
-                  </div>
-                  <button onClick={()=>copyCaption(c.text || "", i)} style={{padding:"4px 10px",background:copiedIdx===i?"#34D399":"rgba(99,179,237,0.18)",color:copiedIdx===i?"#000":"#63B3ED",border:"none",borderRadius:"3px",fontSize:"0.55rem",fontWeight:700,letterSpacing:"1px",textTransform:"uppercase",cursor:"pointer",fontFamily:"'Syne',sans-serif"}}>
-                    {copiedIdx===i?"Copied ✓":"Copy"}
-                  </button>
+        {captions.length > 0 && (() => {
+          // Picker view — one caption shown at a time. Dropdown lists all
+          // tone variants; selecting one swaps the visible caption + its
+          // copy button. Keeps the page compact instead of stacking 8
+          // full-text blocks.
+          const safeIdx = Math.min(captionPickIdx, captions.length - 1);
+          const current = captions[safeIdx] || {};
+          return (
+            <div style={{marginBottom:"1rem",display:"flex",flexDirection:"column",gap:"8px"}}>
+              <div style={{display:"flex",alignItems:"center",gap:"8px",flexWrap:"wrap"}}>
+                <div style={{fontSize:"0.55rem",color:"#63B3ED",letterSpacing:"1.5px",textTransform:"uppercase",fontWeight:700}}>
+                  {captions.length} captions · pick a tone
                 </div>
-                <div style={{fontSize:"0.65rem",lineHeight:1.6,whiteSpace:"pre-wrap",color:"rgba(245,240,232,0.8)"}}>
-                  {c.text}
+                <select
+                  value={safeIdx}
+                  onChange={(e)=>setCaptionPickIdx(Number(e.target.value))}
+                  style={{
+                    padding:"5px 10px",
+                    background:"rgba(99,179,237,0.10)",
+                    color:"#63B3ED",
+                    border:"1px solid rgba(99,179,237,0.35)",
+                    borderRadius:4,
+                    fontSize:"0.65rem",
+                    fontWeight:700,
+                    letterSpacing:"1.5px",
+                    textTransform:"uppercase",
+                    cursor:"pointer",
+                    fontFamily:"'Syne',sans-serif",
+                  }}
+                >
+                  {captions.map((c,i)=>(
+                    <option key={i} value={i} style={{color:"#000"}}>
+                      {c.tone || `Variant ${i+1}`}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  onClick={()=>copyCaption(current.text || "", safeIdx)}
+                  style={{
+                    padding:"5px 12px",
+                    background:copiedIdx===safeIdx?"#34D399":"rgba(99,179,237,0.18)",
+                    color:copiedIdx===safeIdx?"#000":"#63B3ED",
+                    border:"none",borderRadius:3,
+                    fontSize:"0.6rem",fontWeight:700,letterSpacing:"1px",textTransform:"uppercase",
+                    cursor:"pointer",fontFamily:"'Syne',sans-serif",
+                  }}
+                >
+                  {copiedIdx===safeIdx?"Copied ✓":"Copy"}
+                </button>
+                <div style={{marginLeft:"auto",fontSize:"0.5rem",color:"rgba(245,240,232,0.4)",letterSpacing:"1px",textTransform:"uppercase"}}>
+                  ← {safeIdx+1} / {captions.length} →
                 </div>
               </div>
-            ))}
-          </div>
-        )}
+              <div style={{padding:"12px 14px",background:"rgba(99,179,237,0.04)",border:"1px solid rgba(99,179,237,0.15)",borderRadius:6,fontSize:"0.7rem",lineHeight:1.6,whiteSpace:"pre-wrap",color:"rgba(245,240,232,0.85)",maxHeight:"360px",overflowY:"auto"}}>
+                {current.text || ""}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Template Queue banner — shown when the user is walking through
             a Carousel Template. The progress chip narrates which slot

@@ -167,8 +167,8 @@ export const BUILTIN_CAROUSEL_TEMPLATES = [
   {
     id: "editorial-roundup",
     name: "Editorial Roundup",
-    intent: "Holiday coverage, weekend guides, scene reports. Literary register.",
-    sequence: ["cover", "text", "spotlight", "spotlight", "spotlight", "spotlight", "spotlight", "cta"],
+    intent: "Holiday coverage, weekend guides, scene reports. Cover + manifesto Text, then 5× CTA cards (one per event in the roundup — kicker/date/venue/URL).",
+    sequence: ["cover", "text", "cta", "cta", "cta", "cta", "cta"],
   },
   {
     id: "feature-drop",
