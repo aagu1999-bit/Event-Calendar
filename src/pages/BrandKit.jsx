@@ -11,6 +11,23 @@ const FONT_PAIR_OPTIONS = [
   { key: "modern",  name: "Space Grotesk + Inter", display: "Space Grotesk", body: "Inter" },
 ];
 
+// Mirrors MediaTool's BG_COLORS keys — used by the alternateBgKey
+// picker so the user can select which slide-background appears on every
+// odd-indexed carousel slide when alternateColors is on.
+const BG_OPTIONS = [
+  { key: "black",     name: "Black",       hex: "#000000" },
+  { key: "purple",    name: "Purple",      hex: "#7C3AED" },
+  { key: "wine",      name: "Wine",        hex: "#9B2C2C" },
+  { key: "emerald",   name: "Emerald",     hex: "#047857" },
+  { key: "amber",     name: "Amber",       hex: "#D97706" },
+  { key: "gold",      name: "Gold",        hex: "#E5BC4F" },
+  { key: "ivory",     name: "Ivory",       hex: "#F5F0E8" },
+  { key: "cream",     name: "Cream",       hex: "#EFE7DA" },
+  { key: "sage",      name: "Sage",        hex: "#D4DBC6" },
+  { key: "blush",     name: "Blush",       hex: "#E8C5BB" },
+  { key: "sand",      name: "Sand",        hex: "#E8D9B5" },
+];
+
 // Curated palette presets — small set so users can pick without
 // drowning in options. Brand colors live first; alt tones follow.
 const PALETTE_PRESETS = [
@@ -92,6 +109,7 @@ function ColorField({ label, value, onChange }) {
 export default function BrandKit() {
   const palette = useBrandStore((s) => s.palette);
   const alternateColors = useBrandStore((s) => s.alternateColors);
+  const alternateBgKey = useBrandStore((s) => s.alternateBgKey);
   const fontPairKey = useBrandStore((s) => s.fontPairKey);
   const creator = useBrandStore((s) => s.creator);
   const defaults = useBrandStore((s) => s.defaults);
@@ -100,6 +118,7 @@ export default function BrandKit() {
 
   const setPalette = useBrandStore((s) => s.setPalette);
   const setAlternateColors = useBrandStore((s) => s.setAlternateColors);
+  const setAlternateBgKey = useBrandStore((s) => s.setAlternateBgKey);
   const setFontPairKey = useBrandStore((s) => s.setFontPairKey);
   const setCreator = useBrandStore((s) => s.setCreator);
   const setDefaults = useBrandStore((s) => s.setDefaults);
@@ -243,8 +262,36 @@ export default function BrandKit() {
                   checked={alternateColors}
                   onChange={(e) => setAlternateColors(e.target.checked)}
                 />
-                Alternate background ↔ accent on every other slide
+                Alternate carousel-slide background every other slide
               </label>
+
+              {alternateColors && (
+                <div style={{ marginTop: 12, padding: "10px 12px", background: "rgba(229,188,79,0.04)", border: "1px solid rgba(229,188,79,0.15)", borderRadius: 5 }}>
+                  <Label>Alternate background (odd slides)</Label>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 3 }}>
+                    {BG_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.key}
+                        onClick={() => setAlternateBgKey(opt.key)}
+                        title={opt.name}
+                        style={{
+                          width: 28,
+                          height: 28,
+                          borderRadius: 5,
+                          cursor: "pointer",
+                          background: opt.hex,
+                          border: alternateBgKey === opt.key ? "2px solid #E5BC4F" : "2px solid rgba(245,240,232,0.08)",
+                          boxShadow: alternateBgKey === opt.key ? "0 0 6px rgba(229,188,79,0.4)" : "none",
+                          padding: 0,
+                        }}
+                      />
+                    ))}
+                  </div>
+                  <div style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.5)", marginTop: 6, lineHeight: 1.4 }}>
+                    Slide 1 stays as you built it. Slide 2 swaps to <strong style={{ color: BG_OPTIONS.find(o => o.key === alternateBgKey)?.hex || "#FFF" }}>{BG_OPTIONS.find(o => o.key === alternateBgKey)?.name || alternateBgKey}</strong>. Slide 3 back to primary. Pulse repeats.
+                  </div>
+                </div>
+              )}
             </Section>
 
             {/* Typography */}

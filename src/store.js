@@ -80,6 +80,11 @@ export const useBrandStore = create(
         accent: "#E5BC4F",        // legacy gold
       },
       alternateColors: false,
+      // When alternateColors is on, every odd-indexed carousel slide
+      // overrides its bgKey to this value. Default purple — gives a
+      // strong coral-vs-purple rhythm against the typical black primary.
+      // User can pick from MediaTool's BG_COLORS palette in Brand Kit.
+      alternateBgKey: "purple",
 
       // Typography — matches FONT_PAIRS keys in MediaTool
       fontPairKey: "default",     // "default" | "bold" | "serif" | "modern"
@@ -149,6 +154,7 @@ Return JSON ONLY in this exact shape (3 different variations):
         palette: typeof p === "function" ? p(s.palette) : { ...s.palette, ...p },
       })),
       setAlternateColors: (v) => set({ alternateColors: !!v }),
+      setAlternateBgKey: (k) => set({ alternateBgKey: String(k || "purple") }),
       setFontPairKey: (k) => set({ fontPairKey: k }),
       setCreator: (c) => set((s) => ({
         creator: typeof c === "function" ? c(s.creator) : { ...s.creator, ...c },
@@ -171,6 +177,7 @@ Return JSON ONLY in this exact shape (3 different variations):
       resetToDefaults: () => set({
         palette: { background: "#0a0a0a", text: "#F5F0E8", accent: "#E5BC4F" },
         alternateColors: false,
+        alternateBgKey: "purple",
         fontPairKey: "default",
         creator: {
           brandName: "Central Group Events",

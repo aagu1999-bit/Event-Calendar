@@ -167,7 +167,7 @@ function drawPageNum(ctx, W, H, current, total, accent, isLight = false) {
 
 // === COVER RENDERER ===
 function renderCover(canvas, cfg) {
-  const { photo, headline, highlights, accent, dots, totalDots, subtitle, opacity, ribbon, categoryTag } = cfg;
+  const { photo, headline, highlights, accent, dots, totalDots, subtitle, opacity, ribbon, categoryTag, coverCtaButton } = cfg;
   const W=1080, H=1080; canvas.width=W; canvas.height=H;
   const ctx = canvas.getContext("2d");
   if (photo) { const s=Math.max(W/photo.width,H/photo.height); const dw=photo.width*s,dh=photo.height*s; ctx.drawImage(photo,(W-dw)/2,(H-dh)/2,dw,dh); }
@@ -222,6 +222,33 @@ function renderCover(canvas, cfg) {
   if(subtitle?.trim()){ctx.font=ff("700 24px 'DM Sans',sans-serif");ctx.fillStyle=accent;ctx.textBaseline="bottom";ctx.letterSpacing="3px";ctx.fillText(subtitle.toUpperCase(),px,startY-12);ctx.letterSpacing="0px";}
   ctx.font=ff(`800 ${fs}px 'Syne',sans-serif`); ctx.textBaseline="top"; const sw=ctx.measureText(" ").width;
   lines.forEach((lw,li)=>{let x=px;const y=startY+li*lh;lw.forEach(w=>{ctx.fillStyle=highlights.has(w.idx)?accent:"#FFF";ctx.fillText(w.text,x,y);x+=w.width+sw;});});
+
+  // Optional CTA pill button — sits below the headline, above the footer.
+  // Renders as a rounded rect filled with the accent color and dark text.
+  // Skipped silently when empty so editorial covers stay clean.
+  const ctaText = (coverCtaButton || "").trim();
+  if (ctaText) {
+    ctx.save();
+    ctx.font = ff("700 22px 'Syne',sans-serif");
+    ctx.letterSpacing = "2px";
+    const upper = ctaText.toUpperCase();
+    const tw = ctx.measureText(upper).width;
+    const padX = 28, padY = 14;
+    const pillW = tw + padX * 2;
+    const pillH = 28 + padY * 2;
+    const pillX = (W - pillW) / 2;
+    // Anchor 56px above the footer so it doesn't collide with the
+    // 38px-tall watermark footer or its top divider line.
+    const pillY = H - 56 - pillH;
+    ctx.fillStyle = accent;
+    ctx.beginPath(); ctx.roundRect(pillX, pillY, pillW, pillH, pillH / 2); ctx.fill();
+    ctx.fillStyle = "#000";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(upper, W / 2, pillY + pillH / 2 + 1);
+    ctx.restore();
+  }
+
   drawFooter(ctx,W,H);
 }
 
@@ -2171,6 +2198,10 @@ export default function MediaTool() {
   // under the logo bar. Hides when empty. Additive — existing covers
   // without one render exactly as before.
   const [categoryTag, setCategoryTag] = useState("");
+  // Optional CTA pill button on Cover — renders below headline when set.
+  // Defaults blank so editorial Covers (no button) stay clean. Use for
+  // promo Covers: "TAP THE LINK", "RSVP IN BIO", "SEE THE LINEUP", etc.
+  const [coverCtaButton, setCoverCtaButton] = useState("");
   const [items, setItems] = useState([
     {name:"R&B Friday at Halftime",detail:"Jersey City · 8 PM",featured:true},
     {name:"Afrobeat Night",detail:"Suite 2, New Brunswick · 9 PM",featured:true},
@@ -2361,6 +2392,13 @@ export default function MediaTool() {
   // renderers are coded for 1080×1080.
   const [exportRatio, setExportRatio] = useState("1:1");
   useEffect(() => { setActiveWatermark(watermark); }, [watermark]);
+
+  // Alternate-colors wiring — when on, every odd-indexed carousel slide
+  // overrides its bgKey to alternateBgKey at render time. Live previews
+  // unaffected (idx=0 implicitly); thumbnails regenerated via useEffect
+  // when alternation toggles.
+  const alternateColors = useBrandStore((s) => s.alternateColors);
+  const alternateBgKey = useBrandStore((s) => s.alternateBgKey);
 
   // Carousel templates — built-ins from constant, user customs from
   // persisted Zustand store. The picker UI merges both lists.
@@ -2613,7 +2651,7 @@ export default function MediaTool() {
 
   const render = useCallback(()=>{
     const cv=cvRef.current; if(!cv) return;
-    if(mode==="cover") renderCover(cv,{photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,categoryTag});
+    if(mode==="cover") renderCover(cv,{photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,categoryTag,coverCtaButton});
     else if(mode==="list") renderList(cv,{items,accent,bgKey,dots,totalDots,listTitle,listSubtitle});
     else if(mode==="stat") renderStat(cv,{statNumber,statLabel,statSub,accent,bgKey,dots,totalDots});
     else if(mode==="text") renderText(cv,{textTitle,textTitleHighlights:textTitleHL,textBody,accent,bgKey,dots,totalDots,pageNum,totalPages,photo:textPhoto,textOpacity});
@@ -2700,7 +2738,7 @@ export default function MediaTool() {
   };
 
   const dl=()=>{const cv=document.createElement("canvas");
-    if(mode==="cover") renderCover(cv,{photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,categoryTag});
+    if(mode==="cover") renderCover(cv,{photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,categoryTag,coverCtaButton});
     else if(mode==="list") renderList(cv,{items,accent,bgKey,dots,totalDots,listTitle,listSubtitle});
     else if(mode==="stat") renderStat(cv,{statNumber,statLabel,statSub,accent,bgKey,dots,totalDots});
     else if(mode==="text") renderText(cv,{textTitle,textTitleHighlights:textTitleHL,textBody,accent,bgKey,dots,totalDots,pageNum,totalPages,photo:textPhoto,textOpacity});
@@ -2767,7 +2805,7 @@ export default function MediaTool() {
       const thumbCv = document.createElement("canvas");
       thumbCv.width = 1080; thumbCv.height = 1080;
       const cfg = { accent, bgKey, dots, totalDots };
-      if (mode === "cover") renderCover(thumbCv, {...cfg, photo, headline, highlights, subtitle, opacity, ribbon, categoryTag});
+      if (mode === "cover") renderCover(thumbCv, {...cfg, photo, headline, highlights, subtitle, opacity, ribbon, categoryTag, coverCtaButton});
       else if (mode === "list") renderList(thumbCv, {...cfg, items, listTitle, listSubtitle});
       else if (mode === "stat") renderStat(thumbCv, {...cfg, statNumber, statLabel, statSub});
       else if (mode === "text") renderText(thumbCv, {...cfg, textTitle, textTitleHighlights: textTitleHL, textBody, pageNum, totalPages, photo: textPhoto, textOpacity});
@@ -2892,49 +2930,56 @@ export default function MediaTool() {
   };
 
   // === CAROUSEL COMPOSER ===
-  const renderSlide = (cv, type, s, dotsNum, dotsTot) => {
+  const renderSlide = (cv, type, s, dotsNum, dotsTot, slideIdx = 0) => {
+    // Effective bgKey — apply Brand Kit's alternateColors swap on odd
+    // carousel slides. Live previews call with idx=0 so they aren't
+    // affected; thumbnails + export pass the real index.
+    const effBgKey = (alternateColors && slideIdx > 0 && slideIdx % 2 === 1)
+      ? alternateBgKey
+      : s.bgKey;
     const common = { accent: s.accent, dots: dotsNum, totalDots: dotsTot };
     if (type === "cover") renderCover(cv, { ...common, photo: s.photo, headline: s.headline,
       highlights: s.highlights instanceof Set ? s.highlights : new Set(s.highlights || []),
-      subtitle: s.subtitle, opacity: s.opacity, ribbon: s.ribbon, categoryTag: s.categoryTag });
-    else if (type === "list") renderList(cv, { ...common, items: s.items, bgKey: s.bgKey,
+      subtitle: s.subtitle, opacity: s.opacity, ribbon: s.ribbon, categoryTag: s.categoryTag,
+      coverCtaButton: s.coverCtaButton });
+    else if (type === "list") renderList(cv, { ...common, items: s.items, bgKey: effBgKey,
       listTitle: s.listTitle, listSubtitle: s.listSubtitle });
     else if (type === "stat") renderStat(cv, { ...common, statNumber: s.statNumber,
-      statLabel: s.statLabel, statSub: s.statSub, bgKey: s.bgKey });
+      statLabel: s.statLabel, statSub: s.statSub, bgKey: effBgKey });
     else if (type === "text") renderText(cv, { ...common, textTitle: s.textTitle,
       textTitleHighlights: s.textTitleHL instanceof Set ? s.textTitleHL : new Set(s.textTitleHL || []),
-      textBody: s.textBody, bgKey: s.bgKey, pageNum: s.pageNum, totalPages: s.totalPages,
+      textBody: s.textBody, bgKey: effBgKey, pageNum: s.pageNum, totalPages: s.totalPages,
       photo: s.photo, textOpacity: s.textOpacity });
     else if (type === "cta") renderCTA(cv, { ...common, ctaKicker: s.ctaKicker, ctaDate: s.ctaDate,
-      ctaVenue: s.ctaVenue, ctaUrl: s.ctaUrl, photo: s.photo, bgKey: s.bgKey, opacity: s.textOpacity });
+      ctaVenue: s.ctaVenue, ctaUrl: s.ctaUrl, photo: s.photo, bgKey: effBgKey, opacity: s.textOpacity });
     else if (type === "features") renderFeatures(cv, { ...common, featuresTitle: s.featuresTitle,
-      features: s.features, bgKey: s.bgKey, photo: s.photo, opacity: s.textOpacity });
+      features: s.features, bgKey: effBgKey, photo: s.photo, opacity: s.textOpacity });
     else if (type === "photo") renderPhotoCaption(cv, { ...common, photo: s.photo,
       caption: s.caption, captionSecondary: s.captionSecondary, alignment: s.captionAlign,
-      bgKey: s.bgKey });
+      bgKey: effBgKey });
     else if (type === "spotlight") renderSpotlight(cv, { ...common, photo: s.photo,
       spotName: s.spotName, spotNameHighlights: s.spotNameHL, spotMeta: s.spotMeta,
       spotTime: s.spotTime, spotPrice: s.spotPrice, spotCta: s.spotCta,
-      spotNumber: s.spotNumber, bgKey: s.bgKey });
+      spotNumber: s.spotNumber, bgKey: effBgKey });
     else if (type === "countdown") renderCountdown(cv, { ...common, photo: s.photo,
       countText: s.countText, countEvent: s.countEvent, countWhen: s.countWhen,
-      countCta: s.countCta, bgKey: s.bgKey, opacity: s.countOpacity });
+      countCta: s.countCta, bgKey: effBgKey, opacity: s.countOpacity });
     else if (type === "savedate") renderSaveDate(cv, { ...common, photo: s.photo,
       saveKicker: s.saveKicker, saveDay: s.saveDay, saveDateBig: s.saveDateBig,
       saveEvent: s.saveEvent, saveVenue: s.saveVenue, saveCta: s.saveCta,
-      bgKey: s.bgKey, opacity: s.saveOpacity });
+      bgKey: effBgKey, opacity: s.saveOpacity });
     else if (type === "savedates") renderSaveDates(cv, { ...common, photo: s.photo,
       savesHeader: s.savesHeader, savesItems: s.savesItems, savesCta: s.savesCta,
-      bgKey: s.bgKey, opacity: s.savesOpacity });
+      bgKey: effBgKey, opacity: s.savesOpacity });
     else if (type === "vibe") renderVibeBoard(cv, { ...common, vibePhotos: s.vibePhotos,
-      vibeHeadline: s.vibeHeadline, vibeLabels: s.vibeLabels, bgKey: s.bgKey });
+      vibeHeadline: s.vibeHeadline, vibeLabels: s.vibeLabels, bgKey: effBgKey });
     else if (type === "scene") renderScene(cv, { ...common, bgPhoto: s.bgPhoto,
       sceneHero: s.sceneHero, sceneLeft: s.sceneLeft, sceneRight: s.sceneRight,
       sceneTopLabel: s.sceneTopLabel, sceneTitle: s.sceneTitle, sceneBigText: s.sceneBigText,
       sceneLeftMeta: s.sceneLeftMeta, sceneRightMeta: s.sceneRightMeta,
       sceneInfo: s.sceneInfo, sceneAddress: s.sceneAddress,
       sceneHalftone: s.sceneHalftone, sceneHeroScale: s.sceneHeroScale, sceneSideScale: s.sceneSideScale,
-      bgKey: s.bgKey });
+      bgKey: effBgKey });
     else if (type === "poster") renderPoster(cv, { ...common, photo: s.photo,
       opacity: s.posterOpacity,
       topLine: s.posterTopLine, hosts: s.posterHosts, kicker: s.posterKicker,
@@ -2943,20 +2988,20 @@ export default function MediaTool() {
       dressCode: s.posterDressCode, dateLine: s.posterDateLine,
       titleSize: s.posterTitleSize, titleX: s.posterTitleX, titleY: s.posterTitleY,
       titleAlign: s.posterTitleAlign, titleColor: s.posterTitleColor,
-      bgKey: s.bgKey });
+      bgKey: effBgKey });
     else if (type === "press") renderPress(cv, { ...common, photo: s.photo,
       topMeta: s.pressTopMeta, title: s.pressTitle, badge: s.pressBadge,
       lineup: s.pressLineup, genres: s.pressGenres, dateLine: s.pressDateLine,
       badgeBg: s.pressBadgeBg, badgeText: s.pressBadgeText,
       genreBg: s.pressGenreBg, genreText: s.pressGenreText,
       dateBg: s.pressDateBg, dateText: s.pressDateText,
-      photoOpacity: s.pressPhotoOpacity, bgKey: s.bgKey });
+      photoOpacity: s.pressPhotoOpacity, bgKey: effBgKey });
   };
 
   const makeSnapshot = () => {
     const common = { accent, accentKey, bgKey };
     switch (mode) {
-      case "cover": return { ...common, photo, headline, highlights, subtitle, opacity, ribbon, categoryTag };
+      case "cover": return { ...common, photo, headline, highlights, subtitle, opacity, ribbon, categoryTag, coverCtaButton };
       case "list": return { ...common, items: items.map(x=>({...x})), listTitle, listSubtitle };
       case "stat": return { ...common, statNumber, statLabel, statSub };
       case "text": return { ...common, textTitle, textTitleHL, textBody, photo: textPhoto, textOpacity, pageNum, totalPages };
@@ -2985,6 +3030,8 @@ export default function MediaTool() {
         setHighlights(snapshot.highlights instanceof Set ? new Set(snapshot.highlights) : new Set(snapshot.highlights || []));
         setSubtitle(snapshot.subtitle); setOpacity(snapshot.opacity); setRibbon(snapshot.ribbon || "");
         setCategoryTag(snapshot.categoryTag || "");
+        // coverCtaButton may be missing on older snapshots — empty default.
+        setCoverCtaButton(snapshot.coverCtaButton || "");
         break;
       case "list":
         setItems(snapshot.items.map(x=>({...x})));
@@ -3240,7 +3287,9 @@ export default function MediaTool() {
     await document.fonts.ready;
     const snapshot = makeSnapshot();
     const cv = document.createElement("canvas");
-    renderSlide(cv, mode, snapshot, 1, 1);
+    // Pass the about-to-be position for alternation; the new slide
+    // sits at index = carousel.length.
+    renderSlide(cv, mode, snapshot, carousel.length + 1, carousel.length + 1, carousel.length);
     const thumb = cv.toDataURL("image/png");
     setCarousel(prev => {
       const next = [...prev, {
@@ -3253,6 +3302,11 @@ export default function MediaTool() {
       setTotalDots(next.length);
       return next;
     });
+    // (We don't re-render thumbnails of earlier slides on push — they
+    // were stamped with their correct position-aware bgKey at creation.
+    // Reorder via drag, however, would desync; the alternation useEffect
+    // below + onDrop handler regenerate thumbs as needed.)
+
     // Template queue auto-advance — if the user is walking through a
     // template, jump the mode to the next slot in the sequence. When the
     // sequence is exhausted, dismiss the queue with a "complete" state
@@ -3518,7 +3572,7 @@ export default function MediaTool() {
     if (carousel.length > 0 && !confirm(`Replace ${carousel.length} existing carousel slide${carousel.length===1?"":"s"} with this template?`)) return;
     const newSlides = snapshots.map((s, i) => {
       const cv = document.createElement("canvas");
-      renderSlide(cv, s.type, s.snapshot, 1, 1);
+      renderSlide(cv, s.type, s.snapshot, i + 1, snapshots.length, i);
       const thumb = cv.toDataURL("image/png");
       return {
         id: `s_${Date.now()}_${i}_${Math.random().toString(36).slice(2,4)}`,
@@ -3528,7 +3582,40 @@ export default function MediaTool() {
     setCarousel(newSlides);
   };
 
-  const deleteSlide = (idx) => setCarousel(p => p.filter((_, i) => i !== idx));
+  const deleteSlide = (idx) => setCarousel(p => regenerateThumbs(p.filter((_, i) => i !== idx)));
+
+  // Bulk-toggle numbered badges on every Spotlight in the carousel.
+  // Auto-numbers them 1, 2, 3... in order of appearance (skipping non-
+  // Spotlight slides between them). Clicking again clears all numbers.
+  // Modes:
+  //   "auto"  — set every Spotlight's spotNumber to its 1-based position
+  //              in the Spotlight-only subsequence
+  //   "clear" — wipe every Spotlight's spotNumber to ""
+  const bulkNumberSpotlights = (mode) => {
+    setCarousel(prev => {
+      let spotIdx = 0;
+      const updated = prev.map(slide => {
+        if (slide.type !== "spotlight") return slide;
+        spotIdx++;
+        const newNumber = mode === "auto" ? String(spotIdx) : "";
+        return { ...slide, snapshot: { ...slide.snapshot, spotNumber: newNumber } };
+      });
+      // Regen thumbs so the badge change shows immediately in the composer.
+      return regenerateThumbs(updated);
+    });
+  };
+
+  // Derived: how many Spotlights are in the carousel + how many are
+  // currently numbered. Used to label the bulk button (Number vs Clear).
+  const spotlightStats = (() => {
+    let total = 0, numbered = 0;
+    for (const s of carousel) {
+      if (s.type !== "spotlight") continue;
+      total++;
+      if (s.snapshot?.spotNumber && String(s.snapshot.spotNumber).trim()) numbered++;
+    }
+    return { total, numbered };
+  })();
   const clearCarousel = () => { if (confirm("Clear all carousel slides?")) setCarousel([]); };
 
   // Keep the slide-counter dots in sync with the carousel. Whenever the user
@@ -3665,7 +3752,7 @@ export default function MediaTool() {
       for (let i = 0; i < carousel.length; i++) {
         const s = carousel[i];
         const cv = document.createElement("canvas");
-        renderSlide(cv, s.type, s.snapshot, i+1, carousel.length);
+        renderSlide(cv, s.type, s.snapshot, i+1, carousel.length, i);
         // Per-slide photo bleed at 4:5 / 9:16 — looks up that slide's
         // primary background from its snapshot rather than current React
         // state, so each slide bleeds its OWN photo even though they may
@@ -3722,10 +3809,30 @@ export default function MediaTool() {
       const next = [...prev];
       const [moved] = next.splice(dragIdx, 1);
       next.splice(targetIdx, 0, moved);
-      return next;
+      // After reorder, slides may now sit at different alternation
+      // parities — regenerate thumbs so the visible carousel matches what
+      // will be exported.
+      return regenerateThumbs(next);
     });
     setDragIdx(null);
   };
+
+  // Re-render all carousel thumbnails. Called after reorder, delete, and
+  // whenever alternateColors/alternateBgKey changes — keeps the visible
+  // composer thumbs aligned with what export will produce.
+  const regenerateThumbs = (slides) => {
+    return slides.map((slide, idx) => {
+      const cv = document.createElement("canvas");
+      renderSlide(cv, slide.type, slide.snapshot, idx + 1, slides.length, idx);
+      return { ...slide, thumb: cv.toDataURL("image/png") };
+    });
+  };
+
+  // Watch alternation settings — when either toggles, refresh all thumbs.
+  useEffect(() => {
+    setCarousel(prev => prev.length === 0 ? prev : regenerateThumbs(prev));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [alternateColors, alternateBgKey]);
 
   return(
     <div style={{minHeight:"calc(100vh - 60px)",background:"#080808",color:"#F5F0E8",fontFamily:"'DM Sans',sans-serif"}}>
@@ -4108,6 +4215,36 @@ export default function MediaTool() {
                 }}
               >💾 Save Sequence</button>
             )}
+            {spotlightStats.total >= 2 && (
+              <button
+                onClick={() => bulkNumberSpotlights(spotlightStats.numbered >= spotlightStats.total ? "clear" : "auto")}
+                title={spotlightStats.numbered >= spotlightStats.total
+                  ? "Clear the numbered circle badges from every Spotlight"
+                  : `Auto-number every Spotlight 1..${spotlightStats.total} in carousel order (Feature Drop / listicle treatment)`}
+                style={{
+                  padding: "6px 10px",
+                  background: spotlightStats.numbered >= spotlightStats.total
+                    ? "rgba(251,113,133,0.08)"
+                    : "rgba(99,179,237,0.10)",
+                  color: spotlightStats.numbered >= spotlightStats.total ? "#FB7185" : "#63B3ED",
+                  border: "1px solid " + (spotlightStats.numbered >= spotlightStats.total
+                    ? "rgba(251,113,133,0.35)"
+                    : "rgba(99,179,237,0.35)"),
+                  borderRadius: 4,
+                  fontSize: "0.6rem",
+                  fontWeight: 700,
+                  letterSpacing: "1px",
+                  textTransform: "uppercase",
+                  cursor: "pointer",
+                  fontFamily: "'Syne',sans-serif",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {spotlightStats.numbered >= spotlightStats.total
+                  ? `× Clear ${spotlightStats.total} Numbers`
+                  : `🔢 Number ${spotlightStats.total} Spotlights`}
+              </button>
+            )}
             {carousel.length > 0 && <>
               <button
                 onClick={exportCarouselZip}
@@ -4240,6 +4377,19 @@ export default function MediaTool() {
                   <input type="range" min="0.20" max="1.0" step="0.01" value={opacity} onChange={e=>setOpacity(parseFloat(e.target.value))} style={{flex:1,accentColor:accent}}/>
                   <span style={{fontSize:"0.45rem",color:"rgba(245,240,232,0.3)"}}>100%</span>
                 </div>
+              </div>
+              {/* Optional pill button below the headline — for promo Covers
+                  (the "Tap the link in bio" / "See the lineup" treatment).
+                  Empty = no pill (default; editorial Covers stay clean). */}
+              <div style={{marginBottom:"0.6rem"}}>
+                <label style={L}>CTA pill button · optional · renders below headline</label>
+                <input
+                  value={coverCtaButton}
+                  onChange={e=>setCoverCtaButton(e.target.value.slice(0,28))}
+                  style={I}
+                  placeholder='e.g. TAP THE LINK · RSVP IN BIO · SEE THE LINEUP'
+                  maxLength={28}
+                />
               </div>
             </>}
 
