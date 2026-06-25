@@ -58,6 +58,85 @@ export async function generateSlideContent({ apiKey, slotType, topic, voice, slo
   return options;
 }
 
+// AI Template Picker — given a topic + context, ask Gemini which of
+// the available Carousel Templates fits best. Returns {templateId,
+// reasoning}. Used by AI Fill Template when the user toggles "Let AI
+// pick the template" — saves them from having to guess which sequence
+// fits their content best.
+//
+// candidates is an array of { id, name, sequence, intent } drawn from
+// BUILTIN_CAROUSEL_TEMPLATES + custom user templates.
+
+export async function pickTemplate({ apiKey, topic, context, candidates }) {
+  if (!apiKey) throw new Error("Missing Gemini API key");
+  if (!Array.isArray(candidates) || candidates.length === 0) throw new Error("No candidate templates");
+  if (!topic || !topic.trim()) throw new Error("Missing topic");
+
+  const list = candidates.map(t => {
+    const intent = t.intent || (t.custom ? "User-saved sequence." : "");
+    return `- id: ${t.id}\n  name: ${t.name}\n  sequence: ${t.sequence.join(" → ")} (${t.sequence.length} slides)\n  best for: ${intent}`;
+  }).join("\n\n");
+
+  const prompt = [
+    "You are picking the best carousel template for a CGE Instagram post.",
+    "",
+    `Topic: ${topic.trim()}`,
+    "",
+    ...(context && context.trim() ? [
+      "Context (what the carousel covers):",
+      context.trim(),
+      "",
+    ] : []),
+    "Available templates:",
+    "",
+    list,
+    "",
+    "Pick the ONE template whose structure best fits the topic + context. Consider:",
+    "- Editorial Roundup (cover + text + cta×N) fits roundups of multiple distinct events",
+    "- Feature Drop (cover + spotlight×N + cta) fits ONE event broken into selling-points",
+    "- List Tour (poster + spotlight×N + cta) fits curated lists of places/venues",
+    "- Single Beat (cover only) fits one-image scene reports or partner spotlights",
+    "- Recap (cover + photo×N + stat + cta) fits post-event content",
+    "",
+    "Return JSON ONLY:",
+    `{"templateId":"<one of the ids above>","reasoning":"<1 sentence explaining the pick>"}`,
+  ].join("\n");
+
+  const res = await fetch(`${URL_BASE}?key=${encodeURIComponent(apiKey)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: {
+        responseMimeType: "application/json",
+        temperature: 0.4,
+      },
+    }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Gemini ${res.status}: ${errText.slice(0, 240)}`);
+  }
+
+  const data = await res.json();
+  const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!raw) throw new Error("Empty response from Gemini");
+
+  let parsed;
+  try { parsed = JSON.parse(raw); }
+  catch { throw new Error("Gemini did not return valid JSON"); }
+
+  const templateId = parsed?.templateId;
+  if (!templateId) throw new Error("Gemini did not return a templateId");
+
+  // Validate that the picked id actually exists in candidates
+  const match = candidates.find(c => c.id === templateId);
+  if (!match) throw new Error(`Gemini picked unknown templateId "${templateId}"`);
+
+  return { templateId, reasoning: parsed.reasoning || "", template: match };
+}
+
 // AI Template Fill — generates content for an ENTIRE carousel template
 // in a single Gemini call. Each slide in the template's sequence gets
 // its own per-slot rule applied, but Gemini sees the whole sequence at

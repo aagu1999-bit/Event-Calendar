@@ -2224,14 +2224,6 @@ export default function MediaTool() {
   const [textPhoto, setTextPhoto] = useState(null);
   const [textOpacity, setTextOpacity] = useState(0.85);
   const [editItem, setEditItem] = useState(null);
-  const [template, setTemplate] = useState("weekend");
-  const [clientCfg, setClientCfg] = useState({
-    problemTitle: "Tired of swiping?",
-    problemHighlights: "swiping",
-    problemBody: "Apps put you in a queue of profiles. *Real life puts you in a room of people.* Sunday, June 14 — we're filling that room.",
-    benefitsTitle: "Here's the night",
-    benefits: "*Pickleball games* — no partner needed\n*Speed connections* — meet everyone\n*Bachata dancing* — beginner friendly\n*Gift baskets* — good vibes",
-  });
   const [ctaKicker, setCtaKicker] = useState("SAVE YOUR SPOT");
   const [ctaDate, setCtaDate] = useState("Sunday, June 14 · 6 PM");
   const [ctaVenue, setCtaVenue] = useState("Pickleball HQ — Aberdeen");
@@ -2579,8 +2571,6 @@ export default function MediaTool() {
       } else {
         ctx = {
           headline, subtitle, ribbon,
-          problemTitle: clientCfg.problemTitle, problemBody: clientCfg.problemBody,
-          benefits: clientCfg.benefits,
           statNumber, statLabel, statSub,
           ctaDate, ctaVenue, ctaUrl,
         };
@@ -2845,93 +2835,12 @@ export default function MediaTool() {
 
   const MODES=[["cover","Cover"],["list","List"],["stat","Stat"],["text","Text"],["cta","CTA"],["features","Features"],["photo","Photo"],["spotlight","Spotlight"],["countdown","Countdown"],["savedate","Save Date"],["savedates","Save Dates"],["vibe","Vibe Board"],["scene","Scene"],["poster","Poster"],["press","Press"]];
 
-  // Templates push snapshots into the carousel composer.
-  // Weekend (5 slides): Cover + Fri/Sat/Sun lists + Stat.
-  // Client (6 slides): Cover + Text + Features + Photo + Stat + CTA.
+  // isAutoGen is the "I'm busy exporting the carousel ZIP" flag —
+  // legacy name from when this also drove auto-template generation.
+  // The old autoGenerateCarousel / generateClientEventCarousel paths
+  // were removed; their use cases are now covered by Roundup Generator,
+  // ✨ AI Fill Template, and the Carousel Template Library.
   const [isAutoGen, setIsAutoGen] = useState(false);
-  const autoGenerateCarousel = async () => {
-    if (events.length === 0 || isAutoGen) return;
-    setIsAutoGen(true);
-    try {
-      await document.fonts.ready;
-      const byDay = (d) => events
-        .filter(e => e.day === d)
-        .slice(0, 6)
-        .map(e => ({
-          name: e.name || "Untitled",
-          detail: [e.venue, e.area, e.time].filter(Boolean).join(" · "),
-          featured: false,
-        }));
-      const friItems = byDay("Fri");
-      const satItems = byDay("Sat");
-      const sunItems = byDay("Sun");
-      const dayCount = [friItems, satItems, sunItems].filter(a => a.length > 0).length;
-      const regionCount = new Set(events.map(e => e.region).filter(Boolean)).size;
-      const typeCount = new Set(events.map(e => e.type).filter(Boolean)).size;
-      const common = { accent, accentKey };
-      const snapshots = [
-        { type: "cover", snapshot: { ...common, bgKey, photo,
-          headline: `This weekend in NJ has ${events.length} events. Here's what you need to know`,
-          highlights: new Set([5, 6, 9]),
-          subtitle: "WEEKEND GUIDE", opacity, ribbon: "" } },
-        ...(friItems.length > 0 ? [{ type: "list", snapshot: { ...common, bgKey: "purple",
-          items: friItems, listTitle: "FRIDAY", listSubtitle: "TOP PICKS" } }] : []),
-        ...(satItems.length > 0 ? [{ type: "list", snapshot: { ...common, bgKey: "wine",
-          items: satItems, listTitle: "SATURDAY", listSubtitle: "TOP PICKS" } }] : []),
-        ...(sunItems.length > 0 ? [{ type: "list", snapshot: { ...common, bgKey: "emerald",
-          items: sunItems, listTitle: "SUNDAY", listSubtitle: "TOP PICKS" } }] : []),
-        { type: "stat", snapshot: { ...common, bgKey: "black",
-          statNumber: String(events.length), statLabel: "EVENTS",
-          statSub: `Across ${dayCount} day${dayCount === 1 ? "" : "s"}, ${regionCount} region${regionCount === 1 ? "" : "s"},\nand ${typeCount} categor${typeCount === 1 ? "y" : "ies"}` } },
-      ];
-      buildCarouselFromSnapshots(snapshots);
-    } catch (err) {
-      console.error("Weekend template failed:", err);
-      alert("Build failed — see console.");
-    } finally {
-      setIsAutoGen(false);
-    }
-  };
-
-  const generateClientEventCarousel = async () => {
-    if (isAutoGen) return;
-    setIsAutoGen(true);
-    try {
-      await document.fonts.ready;
-      const problemWords = clientCfg.problemTitle.split(/\s+/).filter(w => w);
-      const hlWords = clientCfg.problemHighlights.toLowerCase().split(/\s+/).filter(w => w);
-      const problemHLSet = new Set();
-      problemWords.forEach((w, i) => { if (hlWords.includes(w.toLowerCase())) problemHLSet.add(i); });
-      const common = { accent, accentKey, bgKey };
-      const snapshots = [
-        { type: "cover", snapshot: { ...common, photo, headline,
-          highlights: new Set(highlights), subtitle, opacity, ribbon } },
-        { type: "text", snapshot: { ...common,
-          textTitle: clientCfg.problemTitle, textTitleHL: problemHLSet,
-          textBody: clientCfg.problemBody, photo: textPhoto, textOpacity,
-          pageNum: 2, totalPages: 6 } },
-        { type: "features", snapshot: { ...common,
-          featuresTitle: clientCfg.benefitsTitle,
-          features: features.map(f => ({...f})), photo: null, textOpacity } },
-        { type: "photo", snapshot: { ...common, photo: captionPhoto,
-          caption, captionSecondary, captionAlign } },
-        { type: "stat", snapshot: { ...common, statNumber, statLabel, statSub } },
-        { type: "cta", snapshot: { ...common, ctaKicker, ctaDate, ctaVenue, ctaUrl,
-          photo: textPhoto, textOpacity } },
-      ];
-      buildCarouselFromSnapshots(snapshots);
-    } catch (err) {
-      console.error("Client template failed:", err);
-      alert("Build failed — see console.");
-    } finally {
-      setIsAutoGen(false);
-    }
-  };
-
-  const handleGenerate = () => {
-    if (template === "weekend") return autoGenerateCarousel();
-    if (template === "client") return generateClientEventCarousel();
-  };
 
   // === CAROUSEL COMPOSER ===
   const renderSlide = (cv, type, s, dotsNum, dotsTot, slideIdx = 0) => {
@@ -4007,32 +3916,23 @@ export default function MediaTool() {
           </div>
         )}
 
+        {/* Legacy "Weekend Roundup / Client Event" auto-template dropdown
+            was removed — those flows are now covered by:
+              · Roundup Generator (Event Tools → Roundup tab) for events-driven
+              · ✨ AI Fill Template for topic-driven, any sequence
+              · 📐 From Template… for manual fill via a structural template
+            Captions / Vision / Voice chip controls relocated to a leaner row. */}
         <div style={{
           marginBottom: "1rem",
           padding: "10px 14px",
-          background: "rgba(229,188,79,0.06)",
-          border: "1px solid rgba(229,188,79,0.22)",
+          background: "rgba(99,179,237,0.04)",
+          border: "1px solid rgba(99,179,237,0.18)",
           borderRadius: "6px",
         }}>
-          <div style={{display:"flex",alignItems:"center",gap:"0.5rem"}}>
-            <div style={{ fontSize: "0.6rem", color: "#E5BC4F", letterSpacing: "1.5px", textTransform: "uppercase", flexShrink: 0 }}>Template</div>
-            <select value={template} onChange={e=>setTemplate(e.target.value)} style={{...I, flex: 1, fontSize: "0.7rem"}}>
-              <option value="weekend">Weekend Roundup{events.length > 0 ? ` (${events.length} events)` : " (no events)"}</option>
-              <option value="client">Client Event · Hype + Benefits</option>
-            </select>
-            <button
-              onClick={handleGenerate}
-              disabled={isAutoGen || (template === "weekend" && events.length === 0)}
-              style={{
-                padding: "8px 14px",
-                background: (isAutoGen || (template === "weekend" && events.length === 0)) ? "rgba(229,188,79,0.4)" : "#E5BC4F",
-                color: "#000", border: "none", borderRadius: "4px",
-                fontSize: "0.65rem", fontWeight: 700, letterSpacing: "1.5px",
-                textTransform: "uppercase",
-                cursor: isAutoGen ? "wait" : "pointer",
-                fontFamily: "'Syne', sans-serif", whiteSpace: "nowrap",
-              }}
-            >{isAutoGen ? "Building…" : "→ Carousel"}</button>
+          <div style={{display:"flex",alignItems:"center",gap:"0.5rem",flexWrap:"wrap"}}>
+            <div style={{ fontSize: "0.6rem", color: "#63B3ED", letterSpacing: "1.5px", textTransform: "uppercase", flexShrink: 0, fontWeight: 700 }}>
+              Captions
+            </div>
             <button
               onClick={runCaptions}
               disabled={isGenCaptions || !geminiKey}
@@ -4081,36 +3981,9 @@ export default function MediaTool() {
             >👁 Vision {useVision ? (carousel.length > 0 ? "ON" : "ON ⚠") : ""}</button>
           </div>
 
-          {template === "weekend" && (
-            <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.55)", marginTop: "6px" }}>
-              {events.length > 0
-                ? `${events.length} events → 5 slides pushed to carousel (Cover + Fri/Sat/Sun + Stat). Edit/reorder below, then Export ZIP.`
-                : "Import events on Calendar tab to enable this template."}
-            </div>
-          )}
-
-          {template === "client" && (
-            <div style={{ marginTop: "10px", display: "flex", flexDirection: "column", gap: "8px" }}>
-              <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.55)", lineHeight: 1.5 }}>
-                <strong style={{color:"#E5BC4F"}}>Slide 1</strong> Cover · <strong style={{color:"#E5BC4F"}}>2</strong> Text+photo · <strong style={{color:"#E5BC4F"}}>3</strong> Features · <strong style={{color:"#E5BC4F"}}>4</strong> Photo+caption · <strong style={{color:"#E5BC4F"}}>5</strong> Stat · <strong style={{color:"#E5BC4F"}}>6</strong> CTA. → pushes to carousel below, edit/reorder/export from there.
-              </div>
-              <div><label style={L}>Slide 2 Title (problem hook)</label>
-                <input value={clientCfg.problemTitle} onChange={e=>setClientCfg(p=>({...p,problemTitle:e.target.value}))} style={I}/></div>
-              <div><label style={L}>Slide 2 highlights (space-separated words)</label>
-                <input value={clientCfg.problemHighlights} onChange={e=>setClientCfg(p=>({...p,problemHighlights:e.target.value}))} style={I}/></div>
-              <div><label style={L}>Slide 2 Body (*bold*)</label>
-                <textarea value={clientCfg.problemBody} onChange={e=>setClientCfg(p=>({...p,problemBody:e.target.value}))} style={{...I,height:60,resize:"vertical"}}/></div>
-              <div><label style={L}>Slide 3 Title (benefits)</label>
-                <input value={clientCfg.benefitsTitle} onChange={e=>setClientCfg(p=>({...p,benefitsTitle:e.target.value}))} style={I}/></div>
-              <div><label style={L}>CTA Kicker pill</label><input value={ctaKicker} onChange={e=>setCtaKicker(e.target.value)} style={I} placeholder="SAVE YOUR SPOT"/></div>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0.4rem"}}>
-                <div><label style={L}>CTA Date</label><input value={ctaDate} onChange={e=>setCtaDate(e.target.value)} style={I}/></div>
-                <div><label style={L}>CTA Venue</label><input value={ctaVenue} onChange={e=>setCtaVenue(e.target.value)} style={I}/></div>
-              </div>
-              <div><label style={L}>CTA URL</label>
-                <input value={ctaUrl} onChange={e=>setCtaUrl(e.target.value)} style={I}/></div>
-            </div>
-          )}
+          <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", marginTop: "8px", lineHeight: 1.5 }}>
+            Captions read the current carousel (or the active form if empty). Vision adds rendered images. Voice chip → Brand Kit.
+          </div>
         </div>
 
         {captionsError && (

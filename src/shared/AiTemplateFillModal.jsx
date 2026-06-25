@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useBrandStore, useCarouselTemplatesStore, BUILTIN_CAROUSEL_TEMPLATES } from "../store";
-import { generateTemplateFill } from "./aiContent.js";
+import { generateTemplateFill, pickTemplate } from "./aiContent.js";
 
 // Modal for AI-assisted whole-carousel generation. Pick a template,
 // type a topic + context, Gemini fills every slot in the sequence in
@@ -25,13 +25,24 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
   const [context, setContext] = useState("");
   const [slides, setSlides] = useState([]);
   const [busy, setBusy] = useState(false);
+  const [busyLabel, setBusyLabel] = useState("");
   const [error, setError] = useState("");
+  // When true, Gemini picks the template instead of the user. The
+  // template dropdown gets hidden and replaced with an "AI will pick"
+  // banner. After generation, the picked template + reasoning displays
+  // in the result panel so the user knows what was chosen.
+  const [letAiPick, setLetAiPick] = useState(false);
+  const [pickedTemplate, setPickedTemplate] = useState(null);
+  const [pickReasoning, setPickReasoning] = useState("");
 
   useEffect(() => {
     if (open) {
       setSlides([]);
       setError("");
       setBusy(false);
+      setBusyLabel("");
+      setPickedTemplate(null);
+      setPickReasoning("");
       if (initialTemplateId) setTemplateId(initialTemplateId);
     }
   }, [open, initialTemplateId]);
@@ -44,15 +55,33 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
 
   const handleGenerate = async () => {
     if (!apiKey) { setError("Paste your Gemini API key in the MediaTool toolbar first."); return; }
-    if (!template) { setError("Pick a template first."); return; }
+    if (!letAiPick && !template) { setError("Pick a template first or toggle 'Let AI pick'."); return; }
     if (!topic.trim()) { setError("Type a topic first."); return; }
     setBusy(true);
     setError("");
     setSlides([]);
+    setPickedTemplate(null);
+    setPickReasoning("");
     try {
+      // Phase 1 (optional): AI picks the template.
+      let useTemplate = template;
+      if (letAiPick) {
+        setBusyLabel("Picking template…");
+        const pick = await pickTemplate({
+          apiKey,
+          topic,
+          context,
+          candidates: allTemplates,
+        });
+        useTemplate = pick.template;
+        setPickedTemplate(pick.template);
+        setPickReasoning(pick.reasoning);
+      }
+      // Phase 2: fill the picked/chosen template.
+      setBusyLabel(`Filling ${useTemplate.sequence.length} slides…`);
       const result = await generateTemplateFill({
         apiKey,
-        sequence: template.sequence,
+        sequence: useTemplate.sequence,
         topic,
         context,
         voice,
@@ -64,11 +93,12 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
       setError(err.message || "Generation failed");
     } finally {
       setBusy(false);
+      setBusyLabel("");
     }
   };
 
   const handlePush = () => {
-    onAccept(slides, template);
+    onAccept(slides, pickedTemplate || template);
     onClose();
   };
 
@@ -203,25 +233,45 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
           Pick a template, type your topic + context. Gemini fills every slide in the sequence in one coherent pass — Cover headline, Text manifesto, Spotlight cards (one per angle), CTA listings (one per event). Per-slot rules from <strong>/brand → Slide Content Rules</strong> apply.
         </div>
 
+        {/* Let AI pick toggle — when on, Gemini chooses the best
+            template from built-ins + customs based on topic + context.
+            Two Gemini calls instead of one. */}
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.72rem", color: letAiPick ? "#E5BC4F" : "rgba(245,240,232,0.7)", cursor: "pointer", marginBottom: 12, padding: "8px 10px", background: letAiPick ? "rgba(229,188,79,0.08)" : "transparent", border: "1px solid " + (letAiPick ? "rgba(229,188,79,0.35)" : "rgba(245,240,232,0.08)"), borderRadius: 4 }}>
+          <input
+            type="checkbox"
+            checked={letAiPick}
+            onChange={(e) => setLetAiPick(e.target.checked)}
+          />
+          <span style={{ fontWeight: 700, letterSpacing: 0.5 }}>
+            ✨ Let AI pick the best template
+          </span>
+          <span style={{ marginLeft: "auto", fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: 0.5 }}>
+            picks from {allTemplates.length} templates
+          </span>
+        </label>
+
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
           <div>
             <label style={{ fontSize: "0.65rem", color: "rgba(245,240,232,0.65)", display: "block", marginBottom: 5, letterSpacing: 0.5 }}>
-              Template
+              Template {letAiPick && <span style={{ color: "rgba(245,240,232,0.4)", fontStyle: "italic", textTransform: "none", letterSpacing: 0 }}>(AI will pick)</span>}
             </label>
             <select
               value={templateId}
               onChange={(e) => setTemplateId(e.target.value)}
+              disabled={letAiPick}
               style={{
                 width: "100%",
                 padding: "8px 10px",
                 background: "#111",
                 border: "1px solid rgba(245,240,232,0.08)",
                 borderRadius: 4,
-                color: "#F5F0E8",
+                color: letAiPick ? "rgba(245,240,232,0.35)" : "#F5F0E8",
                 fontFamily: "inherit",
                 fontSize: "0.78rem",
                 outline: "none",
                 boxSizing: "border-box",
+                opacity: letAiPick ? 0.5 : 1,
+                cursor: letAiPick ? "not-allowed" : "pointer",
               }}
             >
               <optgroup label="Built-in" style={{ color: "#000" }}>
@@ -237,7 +287,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
                 </optgroup>
               )}
             </select>
-            {template && (
+            {template && !letAiPick && (
               <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.45)", marginTop: 4, letterSpacing: 0.5 }}>
                 {template.sequence.join(" → ")}
               </div>
@@ -310,7 +360,13 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
               cursor: busy ? "wait" : (topic.trim() ? "pointer" : "not-allowed"),
               fontFamily: "'Syne',sans-serif",
             }}
-          >{busy ? "Generating…" : (slides.length ? "↻ Regenerate" : `✨ Generate ${template?.sequence?.length || 0} slides`)}</button>
+          >{busy
+              ? (busyLabel || "Generating…")
+              : (slides.length
+                  ? "↻ Regenerate"
+                  : (letAiPick
+                      ? "✨ Let AI pick + generate"
+                      : `✨ Generate ${template?.sequence?.length || 0} slides`))}</button>
 
           <span style={{ fontSize: "0.6rem", color: voiceOn ? "#34D399" : "rgba(245,240,232,0.4)", letterSpacing: 1, textTransform: "uppercase", fontFamily: "'Syne',sans-serif", fontWeight: 700 }}>
             {voiceOn ? "🎙 Voice: ON" : "🎙 Voice: off"}
@@ -325,6 +381,21 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
 
         {slides.length > 0 && (
           <>
+            {pickedTemplate && (
+              <div style={{ marginBottom: 12, padding: "10px 12px", background: "rgba(52,211,153,0.05)", border: "1px solid rgba(52,211,153,0.25)", borderRadius: 5 }}>
+                <div style={{ fontSize: "0.55rem", color: "#34D399", letterSpacing: 1.5, textTransform: "uppercase", fontWeight: 700, fontFamily: "'Syne',sans-serif", marginBottom: 4 }}>
+                  ✨ AI picked: {pickedTemplate.name}
+                </div>
+                {pickReasoning && (
+                  <div style={{ fontSize: "0.7rem", color: "rgba(245,240,232,0.7)", fontStyle: "italic", lineHeight: 1.4 }}>
+                    "{pickReasoning}"
+                  </div>
+                )}
+                <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.45)", marginTop: 4, letterSpacing: 0.5 }}>
+                  Sequence: {pickedTemplate.sequence.join(" → ")}
+                </div>
+              </div>
+            )}
             <div style={{ fontSize: "0.55rem", color: "#E5BC4F", letterSpacing: 1.5, textTransform: "uppercase", fontWeight: 700, fontFamily: "'Syne',sans-serif", marginBottom: 8 }}>
               Preview · {slides.length} slides
             </div>
