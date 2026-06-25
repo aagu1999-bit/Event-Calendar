@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import * as XLSX from "xlsx";
-import { useEventsStore } from "../store";
+import { useEventsStore, useBrandStore } from "../store";
 import { EMOJI_MAP, getEmoji, parseRegion } from "../shared/parseEvents";
 import { saveExport } from "../shared/photoLibrary.js";
 
@@ -50,7 +50,11 @@ const DF={Fri:"FRIDAY",Sat:"SATURDAY",Sun:"SUNDAY"};
 const MAX_VIS = 13; // max events visible at once
 
 function renderFrame(canvas, events, cfg, time) {
-  const { colorKey, dayLabel, dateLabel, style, duration, batches, batchCount } = cfg;
+  const { colorKey, dayLabel, dateLabel, style, duration, batches, batchCount, brand } = cfg;
+  // Brand identity (from Brand Kit) — falls back to CGE defaults so a
+  // missing brand prop never breaks the render.
+  const brandName = (brand?.brandName || "Central Group Events").toUpperCase();
+  const brandUrl = brand?.url || "centralgroupevents.com";
   const co = COLORS[colorKey];
   const W = 1080, H = 1920;
   canvas.width = W; canvas.height = H;
@@ -352,15 +356,17 @@ function renderFrame(canvas, events, cfg, time) {
   ctx.fillStyle = "rgba(0,0,0,0.35)"; ctx.fillRect(0,fy,W,footerH);
   ctx.fillStyle = "rgba(255,255,255,0.12)"; ctx.fillRect(60,fy,W-120,2);
   ctx.font = "800 32px 'Syne',sans-serif"; ctx.fillStyle = "#FFF"; ctx.textBaseline = "top";
-  ctx.fillText("CENTRAL GROUP EVENTS",60,fy+25);
+  ctx.fillText(brandName,60,fy+25);
   ctx.font = "600 24px 'DM Sans',sans-serif"; ctx.fillStyle = "rgba(255,255,255,0.45)";
-  ctx.fillText("centralgroupevents.com",60,fy+68);
+  ctx.fillText(brandUrl,60,fy+68);
 }
 
 export default function ReelTool(){
   const events = useEventsStore(s => s.events);
   const setEvents = useEventsStore(s => s.updateEvents);
   const addEvents = useEventsStore(s => s.addEvents);
+  // Brand identity for canvas footer — wordmark + URL come from /brand.
+  const brandCreator = useBrandStore(s => s.creator);
   const[color,setColor]=useState("purple");
   const[style,setStyle]=useState("paparazzi");
   const[duration,setDuration]=useState(8);
@@ -410,7 +416,7 @@ export default function ReelTool(){
     if(!startRef.current)startRef.current=ts;
     const el=(ts-startRef.current)/1000;
     const cv=cvRef.current;if(!cv)return;
-    renderFrame(cv,dayEv,{colorKey:color,dayLabel:DF[day],dateLabel:dates[day],style,duration,batches,batchCount},el);
+    renderFrame(cv,dayEv,{colorKey:color,dayLabel:DF[day],dateLabel:dates[day],style,duration,batches,batchCount,brand:brandCreator},el);
     if(el<duration){animRef.current=requestAnimationFrame(animate);}
     else{setPlaying(false);if(recRef.current&&recRef.current.state==="recording")recRef.current.stop();}
   },[dayEv,color,day,dates,style,duration,batches,batchCount]);
@@ -430,7 +436,7 @@ export default function ReelTool(){
   };
 
   useEffect(()=>{if(playing){animRef.current=requestAnimationFrame(animate);}return()=>{if(animRef.current)cancelAnimationFrame(animRef.current);};},[playing,animate]);
-  useEffect(()=>{if(!playing){const cv=cvRef.current;if(cv)renderFrame(cv,dayEv,{colorKey:color,dayLabel:DF[day],dateLabel:dates[day],style,duration,batches,batchCount},0.8);}},[dayEv,color,day,dates,style,playing,duration,batches,batchCount]);
+  useEffect(()=>{if(!playing){const cv=cvRef.current;if(cv)renderFrame(cv,dayEv,{colorKey:color,dayLabel:DF[day],dateLabel:dates[day],style,duration,batches,batchCount,brand:brandCreator},0.8);}},[dayEv,color,day,dates,style,playing,duration,batches,batchCount,brandCreator]);
 
   const isLight=color==="gold"||color==="yellow";
 

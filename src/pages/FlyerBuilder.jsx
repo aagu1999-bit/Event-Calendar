@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { toPng } from "html-to-image";
-import { useEventsStore, useRestoreStore } from "../store";
+import { useEventsStore, useRestoreStore, useBrandStore } from "../store";
 import { savePhotoAndNotify, saveExport } from "../shared/photoLibrary.js";
 import { tagPngWithCgeExport } from "../shared/pngMetadata.js";
 import { PhotoLibraryModal } from "../shared/PhotoLibraryModal.jsx";
@@ -1492,11 +1492,19 @@ function FlyerSurface({ template, ...rest }) {
 // ==================== PAGE ====================
 export default function FlyerBuilder() {
   const events = useEventsStore(s => s.events);
+  // Brand identity from /brand — seeds the default wordmark + ticketUrl
+  // for a brand-new flyer so a CGE rename ripples into the starting
+  // point. Per-flyer edits in the form still override these.
+  const brandCreator = useBrandStore.getState().creator;
+  const brandLogo = brandCreator.logoText || "CGE";
+  const brandUrl = brandCreator.url || "centralgroupevents.com";
+  const defaultWordmark = `${brandLogo} · NJ WEEKEND EVENTS`;
+  const defaultTicketUrl = `TICKETS ON SALE AT ${brandUrl.toUpperCase()}`;
 
   // Default sample (Social Club homage so we have something to look at on first load)
   const [data, setData] = useState({
     // Universal fields (used across templates)
-    wordmark: "CGE · NJ WEEKEND EVENTS",
+    wordmark: defaultWordmark,
     title1: "THE SOCIAL CLUB",
     title2: "NEW YORK CITY",
     date: "MAY 17",
@@ -1507,7 +1515,7 @@ export default function FlyerBuilder() {
     footerItems: ["FREE OHSO", "ROSEGOLD", "FLYGERIAN"],
     // PhotoHero-specific
     topTitle: "NEW YORK",
-    ticketUrl: "TICKETS ON SALE AT CGE.COM",
+    ticketUrl: defaultTicketUrl,
     // Boutique-specific
     dayName: "SATURDAY",
     address: "905 MATEO ST.\nLOS ANGELES, CA\n90021",

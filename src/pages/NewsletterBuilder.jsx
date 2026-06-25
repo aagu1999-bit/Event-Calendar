@@ -1,6 +1,6 @@
 import { useState, useRef, useMemo } from "react";
 import * as XLSX from "xlsx";
-import { useEventsStore } from "../store";
+import { useEventsStore, useBrandStore } from "../store";
 import { EMOJI_MAP, getEmoji, parseRegion as parseRegionShared } from "../shared/parseEvents";
 import { computeWarnings } from "../shared/validateEvents";
 
@@ -231,7 +231,20 @@ function calcDates(friDate) {
   return { Fri: friDate, Sat: d + 1 > mx ? `${m + 1}/1` : `${m}/${d + 1}`, Sun: d + 2 > mx ? `${m + 1}/${d + 2 - mx}` : `${m}/${d + 2}` };
 }
 
-function buildHTML(events, intro, friDate, showPicks) {
+// Pull a safe brand identity (falls back to CGE defaults if no brand
+// is set in /brand). Used by both the HTML and plain-text builders so
+// they speak the same brand across copy actions.
+function resolveBrand(brand) {
+  return {
+    name: (brand?.brandName || "Central Group Events").toUpperCase(),
+    url: brand?.url || "centralgroupevents.com",
+    handle: (brand?.handle || "@centralgroupevents").replace(/^@*/, "@"),
+  };
+}
+
+function buildHTML(events, intro, friDate, showPicks, brand) {
+  const b = resolveBrand(brand);
+  const handleNoAt = b.handle.replace(/^@/, "");
   const sorted = sortEv(events);
   const picks = sorted.filter(e => e.featured);
   const dates = calcDates(friDate);
@@ -322,12 +335,12 @@ function buildHTML(events, intro, friDate, showPicks) {
   html += `<p style="font-size:15px;color:#333;line-height:1.7;margin-bottom:16px;">That's <strong>${total} events</strong> across <strong>${Object.keys(dayCount).length} days</strong> and <strong>${[...new Set(events.map(e => e.region))].length} regions</strong> this weekend. Whether you're looking for a night out, a daytime vibe, or something lowkey — NJ has it.</p>\n`;
   html += `<p style="font-size:15px;color:#333;line-height:1.7;margin-bottom:16px;">See something you like? Forward this to someone who needs weekend plans. The more people know, the better the scene gets for everyone.</p>\n`;
   html += `<div style="background:#000;color:#fff;padding:20px 24px;border-radius:8px;margin-top:20px;">\n`;
-  html += `<div style="font-size:18px;font-weight:800;letter-spacing:1px;margin-bottom:4px;">CENTRAL GROUP EVENTS</div>\n`;
+  html += `<div style="font-size:18px;font-weight:800;letter-spacing:1px;margin-bottom:4px;">${b.name}</div>\n`;
   html += `<div style="font-size:13px;color:#999;margin-bottom:12px;">We find it all so you don't have to.</div>\n`;
   html += `<div style="font-size:13px;color:#aaa;">`;
-  html += `<a href="https://centralgroupevents.com" style="color:#FACC15;text-decoration:none;font-weight:600;">centralgroupevents.com</a>`;
+  html += `<a href="https://${b.url}" style="color:#FACC15;text-decoration:none;font-weight:600;">${b.url}</a>`;
   html += ` · `;
-  html += `<a href="https://instagram.com/centralgroupevents" style="color:#FACC15;text-decoration:none;font-weight:600;">@centralgroupevents</a>`;
+  html += `<a href="https://instagram.com/${handleNoAt}" style="color:#FACC15;text-decoration:none;font-weight:600;">${b.handle}</a>`;
   html += `</div>\n`;
   html += `</div>\n`;
   html += `</div>\n`;
@@ -335,7 +348,8 @@ function buildHTML(events, intro, friDate, showPicks) {
   return html;
 }
 
-function buildPlainText(events, intro, friDate, showPicks) {
+function buildPlainText(events, intro, friDate, showPicks, brand) {
+  const b = resolveBrand(brand);
   const sorted = sortEv(events);
   const picks = sorted.filter(e => e.featured);
   const dates = calcDates(friDate);
@@ -344,7 +358,7 @@ function buildPlainText(events, intro, friDate, showPicks) {
   events.forEach(e => { dayCount[e.day] = (dayCount[e.day] || 0) + 1; });
   let txt = "";
 
-  txt += "CENTRAL GROUP EVENTS\n";
+  txt += `${b.name}\n`;
   txt += `Weekend of ${dates.Fri} — ${dates.Sun}\n`;
   txt += "─".repeat(40) + "\n\n";
 
@@ -381,9 +395,9 @@ function buildPlainText(events, intro, friDate, showPicks) {
   txt += "─".repeat(40) + "\n\n";
   txt += `That's ${total} events across ${Object.keys(dayCount).length} days and ${[...new Set(events.map(e => e.region))].length} regions this weekend.\n\n`;
   txt += "See something you like? Forward this to someone who needs weekend plans.\n\n";
-  txt += "CENTRAL GROUP EVENTS\n";
+  txt += `${b.name}\n`;
   txt += "We find it all so you don't have to.\n";
-  txt += "centralgroupevents.com · @centralgroupevents\n";
+  txt += `${b.url} · ${b.handle}\n`;
   return txt;
 }
 
@@ -391,6 +405,9 @@ export default function NewsletterBuilder() {
   const events = useEventsStore(s => s.events);
   const setEvents = useEventsStore(s => s.updateEvents);
   const addEvents = useEventsStore(s => s.addEvents);
+  // Brand identity — wordmark + URL + handle in the rendered HTML/text
+  // footer come from /brand so a name change in Brand Kit ripples here.
+  const brandCreator = useBrandStore(s => s.creator);
   const [friDate, setFriDate] = useState("4/25");
   const [intro, setIntro] = useState("");
   const [showPicks, setShowPicks] = useState(true);
@@ -543,7 +560,7 @@ export default function NewsletterBuilder() {
   };
 
   const copyRich = () => {
-    const html = buildHTML(events, intro, friDate, showPicks);
+    const html = buildHTML(events, intro, friDate, showPicks, brandCreator);
     try {
       // Create a hidden div with the HTML content
       const el = document.createElement("div");
@@ -575,7 +592,7 @@ export default function NewsletterBuilder() {
   };
 
   const copyPlain = () => {
-    const plain = buildPlainText(events, intro, friDate, showPicks);
+    const plain = buildPlainText(events, intro, friDate, showPicks, brandCreator);
     try {
       const ta = document.createElement("textarea");
       ta.value = plain;
@@ -597,7 +614,7 @@ export default function NewsletterBuilder() {
   };
 
   const copyHTML = () => {
-    const html = buildHTML(events, intro, friDate, showPicks);
+    const html = buildHTML(events, intro, friDate, showPicks, brandCreator);
     try {
       const ta = document.createElement("textarea");
       ta.value = html;
@@ -796,7 +813,7 @@ export default function NewsletterBuilder() {
             <div ref={previewRef} style={{
               background: "#FFFFFF", borderRadius: "8px", padding: "28px 32px", minHeight: 400,
               maxHeight: "80vh", overflowY: "auto", color: "#333", fontFamily: "sans-serif", fontSize: "14px", lineHeight: 1.6,
-            }} dangerouslySetInnerHTML={{ __html: events.length > 0 ? buildHTML(events, intro, friDate, showPicks) : '<p style="color:#ccc;text-align:center;padding:60px 0;">Upload events to see the newsletter preview</p>' }} />
+            }} dangerouslySetInnerHTML={{ __html: events.length > 0 ? buildHTML(events, intro, friDate, showPicks, brandCreator) : '<p style="color:#ccc;text-align:center;padding:60px 0;">Upload events to see the newsletter preview</p>' }} />
           </div>
         </div>
       </div>
