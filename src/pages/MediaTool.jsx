@@ -7,6 +7,7 @@ import { savePhotoAndNotify, saveExport } from "../shared/photoLibrary.js";
 import { tagPngWithCgeExport } from "../shared/pngMetadata.js";
 import { PhotoLibraryModal } from "../shared/PhotoLibraryModal.jsx";
 import { EventToolsPanel } from "../shared/EventToolsPanel.jsx";
+import { AiSlideGeneratorModal } from "../shared/AiSlideGeneratorModal.jsx";
 
 const COLORS = {
   yellow:{name:"Yellow",hex:"#FACC15"},purple:{name:"Purple",hex:"#C084FC"},
@@ -2349,6 +2350,10 @@ export default function MediaTool() {
   // Shape: { id, name, sequence: ["cover", "text", ...], progress: 0 }
   const [templateQueue, setTemplateQueue] = useState(null);
 
+  // AI Slide Generator modal — null when closed, slot name when open.
+  // Same modal handles both Cover and CTA via slotType prop.
+  const [aiSlotOpen, setAiSlotOpen] = useState(null);
+
   // Global render flags — synced into module-level vars via useEffect.
   const [watermark, setWatermark] = useState(true);
   const [fontPairKey, setFontPairKey] = useState("default");
@@ -4181,6 +4186,28 @@ export default function MediaTool() {
         <div className="cge-builder-layout" style={{display:"grid",gridTemplateColumns:"1fr 400px",gap:"1.5rem",alignItems:"start"}}>
           <div>
             {mode==="cover"&&<>
+              {/* ✨ AI Generate Cover — calls Gemini with the Cover slot
+                  prompt + brand voice + a topic. Returns 3 headlines; user
+                  picks → fills headline, subtitle, and accent highlight. */}
+              <button
+                onClick={()=>setAiSlotOpen("cover")}
+                title="Generate 3 editorial headline options with AI (uses Brand Kit voice + Cover content rule)"
+                style={{
+                  width:"100%",
+                  padding:"8px 12px",
+                  background:"rgba(229,188,79,0.10)",
+                  border:"1px dashed rgba(229,188,79,0.45)",
+                  color:"#E5BC4F",
+                  borderRadius:4,
+                  fontSize:"0.65rem",
+                  fontWeight:700,
+                  letterSpacing:"1.5px",
+                  textTransform:"uppercase",
+                  cursor:"pointer",
+                  fontFamily:"'Syne',sans-serif",
+                  marginBottom:"0.8rem",
+                }}
+              >✨ AI Generate Cover</button>
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Background Photo</label>
                 <div style={{display:"flex",gap:"0.3rem"}}>
                   <button onClick={()=>fileRef.current?.click()} style={{...B,flex:1}}>{photo?"✓ Photo loaded — change":"Upload Photo"}</button>
@@ -4298,6 +4325,28 @@ export default function MediaTool() {
             </>}
 
             {mode==="cta"&&<>
+              {/* ✨ AI Generate CTA — same modal as Cover, different slot
+                  prompt. Returns 3 CTA copy options; user picks → fills
+                  ctaKicker, ctaDate (big-bold mainLine), ctaVenue (subLine). */}
+              <button
+                onClick={()=>setAiSlotOpen("cta")}
+                title="Generate 3 editorial CTA options with AI (uses Brand Kit voice + CTA content rule)"
+                style={{
+                  width:"100%",
+                  padding:"8px 12px",
+                  background:"rgba(229,188,79,0.10)",
+                  border:"1px dashed rgba(229,188,79,0.45)",
+                  color:"#E5BC4F",
+                  borderRadius:4,
+                  fontSize:"0.65rem",
+                  fontWeight:700,
+                  letterSpacing:"1.5px",
+                  textTransform:"uppercase",
+                  cursor:"pointer",
+                  fontFamily:"'Syne',sans-serif",
+                  marginBottom:"0.8rem",
+                }}
+              >✨ AI Generate CTA</button>
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Background Photo (optional · shares Text-mode photo)</label>
                 <div style={{display:"flex",gap:"0.3rem",alignItems:"center"}}>
                   <button onClick={()=>textFileRef.current?.click()} style={{...B,flex:1}}>{textPhoto?"✓ Photo loaded — change":"Upload Photo"}</button>
@@ -4923,6 +4972,44 @@ export default function MediaTool() {
         onPick={onLibraryPick}
         outputAs="image"
         initialFilter="media"
+      />
+      {/* AI Slide Generator modal — opens when ✨ AI Generate is clicked
+          on Cover or CTA form. Accept callback populates the active form's
+          fields with the chosen option. */}
+      <AiSlideGeneratorModal
+        open={!!aiSlotOpen}
+        slotType={aiSlotOpen || "cover"}
+        apiKey={geminiKey}
+        initialTopic={
+          aiSlotOpen === "cover"
+            ? (categoryTag || subtitle || headline || "")
+            : (ctaKicker || ctaDate || "")
+        }
+        onClose={() => setAiSlotOpen(null)}
+        onAccept={(opt) => {
+          if (aiSlotOpen === "cover") {
+            // Fill Cover form: headline, subtitle, accent-word highlight.
+            const newHeadline = String(opt.headline || "").trim();
+            setHeadline(newHeadline);
+            if (opt.subtitle) setSubtitle(String(opt.subtitle).trim());
+            // Highlight the accent word — Cover renders highlights as a
+            // Set of word indices (uppercased word match).
+            if (opt.accentWord && newHeadline) {
+              const words = newHeadline.toUpperCase().split(/\s+/).filter(Boolean);
+              const target = String(opt.accentWord).toUpperCase().trim();
+              const idx = words.findIndex(w => w.replace(/[^A-Z0-9]/g, "") === target.replace(/[^A-Z0-9]/g, ""));
+              setHighlights(idx >= 0 ? new Set([idx]) : new Set());
+            } else {
+              setHighlights(new Set());
+            }
+          } else if (aiSlotOpen === "cta") {
+            // Fill CTA form: kicker pill, big-bold mainLine (ctaDate slot),
+            // sub-line (ctaVenue slot). URL stays user-controlled.
+            if (opt.kicker != null) setCtaKicker(String(opt.kicker).trim());
+            if (opt.mainLine != null) setCtaDate(String(opt.mainLine).trim());
+            if (opt.subLine != null) setCtaVenue(String(opt.subLine).trim());
+          }
+        }}
       />
     </div>
   );

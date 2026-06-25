@@ -96,6 +96,7 @@ export default function BrandKit() {
   const creator = useBrandStore((s) => s.creator);
   const defaults = useBrandStore((s) => s.defaults);
   const voice = useBrandStore((s) => s.voice);
+  const slotPrompts = useBrandStore((s) => s.slotPrompts);
 
   const setPalette = useBrandStore((s) => s.setPalette);
   const setAlternateColors = useBrandStore((s) => s.setAlternateColors);
@@ -105,6 +106,7 @@ export default function BrandKit() {
   const setVoice = useBrandStore((s) => s.setVoice);
   const addExemplar = useBrandStore((s) => s.addExemplar);
   const removeExemplar = useBrandStore((s) => s.removeExemplar);
+  const setSlotPrompt = useBrandStore((s) => s.setSlotPrompt);
   const resetToDefaults = useBrandStore((s) => s.resetToDefaults);
 
   const [exemplarDraft, setExemplarDraft] = useState("");
@@ -465,6 +467,34 @@ export default function BrandKit() {
                   fontFamily: "inherit",
                 }}
               >+ Add caption</button>
+            </Section>
+
+            <Section title="Slide Content Rules (AI Slide Generator)">
+              <div style={{ fontSize: "0.68rem", color: "rgba(245,240,232,0.55)", marginBottom: 12, lineHeight: 1.5 }}>
+                When you click <strong style={{ color: "#E5BC4F" }}>✨ AI Generate</strong> inside a Cover or CTA form in the Media tool, these prompts tell Gemini HOW to write. They're prepended to your topic + voice fingerprint. Edit to tighten the editorial style or swap in your own framing — defaults are strong CGE starting points.
+              </div>
+
+              <Label>Cover prompt</Label>
+              <textarea
+                rows={10}
+                value={slotPrompts?.cover || ""}
+                onChange={(e) => setSlotPrompt("cover", e.target.value)}
+                style={{ ...inputStyle, resize: "vertical", marginBottom: 14, fontFamily: "ui-monospace,Menlo,monospace", fontSize: "0.7rem", lineHeight: 1.5 }}
+                placeholder="Rules for AI-generated Cover headlines..."
+              />
+
+              <Label>CTA prompt</Label>
+              <textarea
+                rows={9}
+                value={slotPrompts?.cta || ""}
+                onChange={(e) => setSlotPrompt("cta", e.target.value)}
+                style={{ ...inputStyle, resize: "vertical", marginBottom: 8, fontFamily: "ui-monospace,Menlo,monospace", fontSize: "0.7rem", lineHeight: 1.5 }}
+                placeholder="Rules for AI-generated CTA copy..."
+              />
+
+              <div style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.4)", marginTop: 4, fontStyle: "italic" }}>
+                Phase 3 will add Text (manifesto) + Spotlight prompts. Today these power Cover and CTA only.
+              </div>
             </Section>
 
             <div style={{ marginTop: 20, padding: "12px 16px", background: "rgba(251,113,133,0.04)", border: "1px solid rgba(251,113,133,0.15)", borderRadius: 6 }}>

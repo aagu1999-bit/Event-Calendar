@@ -106,6 +106,44 @@ export const useBrandStore = create(
         exemplars: [],            // array of past captions for Gemini priming
       },
 
+      // Slide Content Rules — per-slot prompts the AI Slide Generator uses
+      // to fill Cover and CTA slides. Editable in Brand Kit. Defaults are
+      // strong CGE editorial starting points; the user can tighten any of
+      // them as they learn what works.
+      slotPrompts: {
+        cover: `Generate an eye-catching EDITORIAL headline for a CGE social media carousel Cover slide.
+
+Requirements:
+- Use a historical/contextual hook when possible. Pick whichever fits the topic:
+    1. ANNIVERSARY ("Five years since...", "On this weekend in 2019...")
+    2. SEASONAL ("First weekend of summer in NJ", "Last chance before...")
+    3. SCENE-HISTORY ("The Newark warehouse scene resurfaces...")
+- 4-8 words MAX on the main headline.
+- News-headline framing — NOT event-flyer language.
+- Garden State / NJ named or implied up front when relevant.
+- Optional X/Y contrast structure ("Tired of X. Try Y.").
+- Subtitle: 1 short line (8-15 words) that grounds the headline.
+- Pick ONE accentWord — the most editorially-charged word from the headline (the one Gemini judges as the strongest verb/noun). This word will render in the brand accent color.
+
+Return JSON ONLY in this exact shape (3 different variations):
+{"options":[{"headline":"...","subtitle":"...","accentWord":"..."},{...},{...}]}`,
+
+        cta: `Generate editorial CTA copy for a CGE carousel CLOSER slide.
+
+Requirements:
+- Soft invitation, NEVER "RSVP NOW!!!" or hype.
+- Reference the link directly or imply "link in bio" naturally.
+- Community/curatorial framing — "stand with the scene", "pull up", "honor the day".
+- Match the brand voice (editorial, NJ-first, three-beat sentences welcome).
+- Structure:
+    · kicker: 1-3 word pill (e.g. "LINK IN BIO", "FULL LIST", "STAY TUNED")
+    · mainLine: 3-7 word bold statement
+    · subLine: 1 short sentence (8-15 words)
+
+Return JSON ONLY in this exact shape (3 different variations):
+{"options":[{"kicker":"...","mainLine":"...","subLine":"..."},{...},{...}]}`,
+      },
+
       // Setters — accept either a value or a function (parity with React setState)
       setPalette: (p) => set((s) => ({
         palette: typeof p === "function" ? p(s.palette) : { ...s.palette, ...p },
@@ -120,6 +158,9 @@ export const useBrandStore = create(
       })),
       setVoice: (v) => set((s) => ({
         voice: typeof v === "function" ? v(s.voice) : { ...s.voice, ...v },
+      })),
+      setSlotPrompt: (slot, text) => set((s) => ({
+        slotPrompts: { ...s.slotPrompts, [slot]: String(text || "") },
       })),
       addExemplar: (caption) => set((s) => ({
         voice: { ...s.voice, exemplars: [...s.voice.exemplars, String(caption || "").trim()].filter(Boolean) },
