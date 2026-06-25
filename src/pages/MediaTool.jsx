@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
 import JSZip from "jszip";
-import { useEventsStore, useRestoreStore, useBrandStore } from "../store";
+import { useEventsStore, useRestoreStore, useBrandStore, useCarouselTemplatesStore, BUILTIN_CAROUSEL_TEMPLATES } from "../store";
 import { generateCaptions } from "../shared/gemini";
 import { savePhotoAndNotify, saveExport } from "../shared/photoLibrary.js";
 import { tagPngWithCgeExport } from "../shared/pngMetadata.js";
@@ -607,7 +607,7 @@ function renderPhotoCaption(canvas, cfg) {
 // line, footer with day/time on the left and price + CTA in accent on the
 // right. Slide counter top-right when the carousel has >1 slide.
 function renderSpotlight(canvas, cfg) {
-  const { photo, spotName, spotNameHighlights, spotMeta, spotTime, spotPrice, spotCta, accent, bgKey, dots, totalDots } = cfg;
+  const { photo, spotName, spotNameHighlights, spotMeta, spotTime, spotPrice, spotCta, spotNumber, accent, bgKey, dots, totalDots } = cfg;
   const W = 1080, H = 1080;
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext("2d");
@@ -686,6 +686,27 @@ function renderSpotlight(canvas, cfg) {
     ctx.textAlign = "left";
     ctx.fillText(spotMeta, px, yBottom);
     yBottom -= 44;
+  }
+
+  // NUMBERED BADGE — optional Feature Drop / listicle treatment. Drawn
+  // before the venue name so the text stack reads: badge → venue name →
+  // meta → footer. Off by default; turns on when spotNumber is set in
+  // the form. Disc + inverse number, day-mode aware.
+  if (spotNumber != null && String(spotNumber).trim()) {
+    const numStr = String(spotNumber).trim();
+    const cx = W / 2;
+    const cy = Math.round(H * 0.30);
+    const r = 38;
+    const discFill = isLight ? "#0a0a0a" : "#FFFFFF";
+    const numFill  = isLight ? "#FFFFFF" : "#0a0a0a";
+    ctx.fillStyle = discFill;
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = numFill;
+    ctx.font = ff(`800 ${numStr.length === 1 ? 36 : 28}px 'Syne',sans-serif`);
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(numStr, cx, cy + 2);
+    ctx.textAlign = "left"; ctx.textBaseline = "top";
   }
 
   // VENUE NAME — big bold uppercase, wraps if long, scales down to fit.
@@ -2198,6 +2219,11 @@ export default function MediaTool() {
 
   // Spotlight — one-venue-per-slide body for roundup carousels.
   const [spotPhoto, setSpotPhoto] = useState(null);
+  // Optional Spotlight number — when set, renders a small circular badge
+  // near the top of the slide (Feature Drop / listicle pattern). Empty
+  // string keeps the badge off (default behavior — editorial spotlights
+  // typically don't need numbering).
+  const [spotNumber, setSpotNumber] = useState("");
   const [spotName, setSpotName] = useState("ROOFTOP NIGHT AT THE STANDARD");
   // Per-word highlight set for the spotlight name — same pattern as
   // Cover's `highlights`. Word indices match the order words appear in
@@ -2315,6 +2341,14 @@ export default function MediaTool() {
   const [carousel, setCarousel] = useState([]);
   const [dragIdx, setDragIdx] = useState(null);
 
+  // Carousel Template queue — when the user picks a template from the
+  // Template Library, this stores the planned sequence and current
+  // position. Each "→ Carousel" push auto-advances the mode to the next
+  // slot in the sequence, walking the user through the template's
+  // structure one slide at a time. null = no template active.
+  // Shape: { id, name, sequence: ["cover", "text", ...], progress: 0 }
+  const [templateQueue, setTemplateQueue] = useState(null);
+
   // Global render flags — synced into module-level vars via useEffect.
   const [watermark, setWatermark] = useState(true);
   const [fontPairKey, setFontPairKey] = useState("default");
@@ -2322,6 +2356,12 @@ export default function MediaTool() {
   // renderers are coded for 1080×1080.
   const [exportRatio, setExportRatio] = useState("1:1");
   useEffect(() => { setActiveWatermark(watermark); }, [watermark]);
+
+  // Carousel templates — built-ins from constant, user customs from
+  // persisted Zustand store. The picker UI merges both lists.
+  const customCarouselTemplates = useCarouselTemplatesStore((s) => s.customs);
+  const addCustomCarouselTemplate = useCarouselTemplatesStore((s) => s.addTemplate);
+  const removeCustomCarouselTemplate = useCarouselTemplatesStore((s) => s.removeTemplate);
 
   // Brand identity sync — watermark/logo/footer renderers read from the
   // module-level _brand. Subscribing here means edits in the Brand Kit
@@ -2570,7 +2610,7 @@ export default function MediaTool() {
     else if(mode==="cta") renderCTA(cv,{ctaKicker,ctaDate,ctaVenue,ctaUrl,photo:textPhoto,accent,bgKey,dots,totalDots,opacity:textOpacity});
     else if(mode==="features") renderFeatures(cv,{featuresTitle,features,accent,bgKey,dots,totalDots,photo:textPhoto,opacity:textOpacity});
     else if(mode==="photo") renderPhotoCaption(cv,{photo:captionPhoto,caption,captionSecondary,alignment:captionAlign,accent,bgKey,dots,totalDots});
-    else if(mode==="spotlight") renderSpotlight(cv,{photo:spotPhoto,spotName,spotNameHighlights:spotNameHL,spotMeta,spotTime,spotPrice,spotCta,accent,bgKey,dots,totalDots});
+    else if(mode==="spotlight") renderSpotlight(cv,{photo:spotPhoto,spotName,spotNameHighlights:spotNameHL,spotMeta,spotTime,spotPrice,spotCta,spotNumber,accent,bgKey,dots,totalDots});
     else if(mode==="countdown") renderCountdown(cv,{photo:countPhoto,countText,countEvent,countWhen,countCta,accent,bgKey,dots,totalDots,opacity:countOpacity});
     else if(mode==="savedate") renderSaveDate(cv,{photo:savePhoto,saveKicker,saveDay,saveDateBig,saveEvent,saveVenue,saveCta,accent,bgKey,dots,totalDots,opacity:saveOpacity});
     else if(mode==="savedates") renderSaveDates(cv,{photo:savesPhoto,savesHeader,savesItems,savesCta,accent,bgKey,dots,totalDots,opacity:savesOpacity});
@@ -2657,7 +2697,7 @@ export default function MediaTool() {
     else if(mode==="cta") renderCTA(cv,{ctaKicker,ctaDate,ctaVenue,ctaUrl,photo:textPhoto,accent,bgKey,dots,totalDots,opacity:textOpacity});
     else if(mode==="features") renderFeatures(cv,{featuresTitle,features,accent,bgKey,dots,totalDots,photo:textPhoto,opacity:textOpacity});
     else if(mode==="photo") renderPhotoCaption(cv,{photo:captionPhoto,caption,captionSecondary,alignment:captionAlign,accent,bgKey,dots,totalDots});
-    else if(mode==="spotlight") renderSpotlight(cv,{photo:spotPhoto,spotName,spotNameHighlights:spotNameHL,spotMeta,spotTime,spotPrice,spotCta,accent,bgKey,dots,totalDots});
+    else if(mode==="spotlight") renderSpotlight(cv,{photo:spotPhoto,spotName,spotNameHighlights:spotNameHL,spotMeta,spotTime,spotPrice,spotCta,spotNumber,accent,bgKey,dots,totalDots});
     else if(mode==="countdown") renderCountdown(cv,{photo:countPhoto,countText,countEvent,countWhen,countCta,accent,bgKey,dots,totalDots,opacity:countOpacity});
     else if(mode==="savedate") renderSaveDate(cv,{photo:savePhoto,saveKicker,saveDay,saveDateBig,saveEvent,saveVenue,saveCta,accent,bgKey,dots,totalDots,opacity:saveOpacity});
     else if(mode==="savedates") renderSaveDates(cv,{photo:savesPhoto,savesHeader,savesItems,savesCta,accent,bgKey,dots,totalDots,opacity:savesOpacity});
@@ -2724,7 +2764,7 @@ export default function MediaTool() {
       else if (mode === "cta") renderCTA(thumbCv, {...cfg, ctaKicker, ctaDate, ctaVenue, ctaUrl, photo: textPhoto, opacity: textOpacity});
       else if (mode === "features") renderFeatures(thumbCv, {...cfg, featuresTitle, features, photo: textPhoto, opacity: textOpacity});
       else if (mode === "photo") renderPhotoCaption(thumbCv, {...cfg, photo: captionPhoto, caption, captionSecondary, alignment: captionAlign});
-      else if (mode === "spotlight") renderSpotlight(thumbCv, {...cfg, photo: spotPhoto, spotName, spotNameHighlights: spotNameHL, spotMeta, spotTime, spotPrice, spotCta});
+      else if (mode === "spotlight") renderSpotlight(thumbCv, {...cfg, photo: spotPhoto, spotName, spotNameHighlights: spotNameHL, spotMeta, spotTime, spotPrice, spotCta, spotNumber});
       else if (mode === "countdown") renderCountdown(thumbCv, {...cfg, photo: countPhoto, countText, countEvent, countWhen, countCta, opacity: countOpacity});
       else if (mode === "savedate") renderSaveDate(thumbCv, {...cfg, photo: savePhoto, saveKicker, saveDay, saveDateBig, saveEvent, saveVenue, saveCta, opacity: saveOpacity});
       else if (mode === "savedates") renderSaveDates(thumbCv, {...cfg, photo: savesPhoto, savesHeader, savesItems, savesCta, opacity: savesOpacity});
@@ -2864,7 +2904,8 @@ export default function MediaTool() {
       bgKey: s.bgKey });
     else if (type === "spotlight") renderSpotlight(cv, { ...common, photo: s.photo,
       spotName: s.spotName, spotNameHighlights: s.spotNameHL, spotMeta: s.spotMeta,
-      spotTime: s.spotTime, spotPrice: s.spotPrice, spotCta: s.spotCta, bgKey: s.bgKey });
+      spotTime: s.spotTime, spotPrice: s.spotPrice, spotCta: s.spotCta,
+      spotNumber: s.spotNumber, bgKey: s.bgKey });
     else if (type === "countdown") renderCountdown(cv, { ...common, photo: s.photo,
       countText: s.countText, countEvent: s.countEvent, countWhen: s.countWhen,
       countCta: s.countCta, bgKey: s.bgKey, opacity: s.countOpacity });
@@ -2912,7 +2953,7 @@ export default function MediaTool() {
       case "cta": return { ...common, ctaKicker, ctaDate, ctaVenue, ctaUrl, photo: textPhoto, textOpacity };
       case "features": return { ...common, featuresTitle, features: features.map(f=>({...f})), photo: textPhoto, textOpacity };
       case "photo": return { ...common, photo: captionPhoto, caption, captionSecondary, captionAlign };
-      case "spotlight": return { ...common, photo: spotPhoto, spotName, spotNameHL, spotMeta, spotTime, spotPrice, spotCta };
+      case "spotlight": return { ...common, photo: spotPhoto, spotName, spotNameHL, spotMeta, spotTime, spotPrice, spotCta, spotNumber };
       case "countdown": return { ...common, photo: countPhoto, countText, countEvent, countWhen, countCta, countOpacity };
       case "savedate":  return { ...common, photo: savePhoto, saveKicker, saveDay, saveDateBig, saveEvent, saveVenue, saveCta, saveOpacity };
       case "savedates": return { ...common, photo: savesPhoto, savesHeader, savesItems: savesItems.map(x=>({...x})), savesCta, savesOpacity };
@@ -2967,6 +3008,9 @@ export default function MediaTool() {
         setSpotName(snapshot.spotName || ""); setSpotMeta(snapshot.spotMeta || "");
         setSpotTime(snapshot.spotTime || ""); setSpotPrice(snapshot.spotPrice || "");
         setSpotCta(snapshot.spotCta || "");
+        // spotNumber is optional and may be missing on older snapshots —
+        // default to empty string (renderer treats falsy as "no badge").
+        setSpotNumber(snapshot.spotNumber || "");
         // spotNameHL is a Set; serializeSnap converts it to an array for
         // IndexedDB / cloud storage, and deserializeSnap turns it back
         // into a Set before we land here. Older snapshots without it
@@ -3199,6 +3243,55 @@ export default function MediaTool() {
       setTotalDots(next.length);
       return next;
     });
+    // Template queue auto-advance — if the user is walking through a
+    // template, jump the mode to the next slot in the sequence. When the
+    // sequence is exhausted, dismiss the queue with a "complete" state
+    // so the banner can flash "template done" before disappearing.
+    if (templateQueue) {
+      const nextProgress = templateQueue.progress + 1;
+      if (nextProgress < templateQueue.sequence.length) {
+        setMode(templateQueue.sequence[nextProgress]);
+        setTemplateQueue({ ...templateQueue, progress: nextProgress });
+      } else {
+        // Done — clear the queue.
+        setTemplateQueue(null);
+      }
+    }
+  };
+
+  // === CAROUSEL TEMPLATE LIBRARY ===
+  // Pick a template → switch to its first slide type + start a queue
+  // that auto-advances on each "+ Add Current Slide" push. The user
+  // works through the template's structure one slide at a time, filling
+  // each with real content (instead of pre-populating placeholder
+  // snapshots that would need to be cleared).
+  const startCarouselTemplate = (tpl) => {
+    if (!tpl || !Array.isArray(tpl.sequence) || !tpl.sequence.length) return;
+    setMode(tpl.sequence[0]);
+    setTemplateQueue({
+      id: tpl.id,
+      name: tpl.name,
+      sequence: [...tpl.sequence],
+      progress: 0,
+    });
+  };
+
+  // Save the current carousel's slide-type sequence (NOT the content) as
+  // a reusable custom template. The user names it; it shows up in the
+  // picker dropdown alongside the built-ins for next time.
+  const saveCarouselAsTemplate = () => {
+    if (carousel.length < 2) return;
+    const seq = carousel.map((s) => s.type);
+    const name = prompt(
+      `Save this ${seq.length}-slide sequence as a reusable template.\n\n` +
+      `Sequence: ${seq.join(" → ")}\n\nTemplate name:`,
+      ""
+    );
+    if (!name) return;
+    const tpl = addCustomCarouselTemplate(name, seq);
+    if (tpl) {
+      alert(`Saved "${tpl.name}" — ${tpl.sequence.length} slides. Available in the From Template picker for next time.`);
+    }
   };
 
   // === EVENT TOOLS — apply Single Event data to the current template ===
@@ -3787,6 +3880,60 @@ export default function MediaTool() {
           </div>
         )}
 
+        {/* Template Queue banner — shown when the user is walking through
+            a Carousel Template. The progress chip narrates which slot
+            they're filling next so the auto-advance after each push feels
+            intentional, not magic. */}
+        {templateQueue && (
+          <div style={{
+            marginBottom: "0.5rem",
+            padding: "8px 12px",
+            background: "rgba(229,188,79,0.08)",
+            border: "1px solid rgba(229,188,79,0.35)",
+            borderRadius: "6px",
+            display: "flex",
+            alignItems: "center",
+            gap: "10px",
+            flexWrap: "wrap",
+          }}>
+            <span style={{ fontSize: "0.7rem", color: "#E5BC4F" }}>📐</span>
+            <span style={{ fontSize: "0.65rem", color: "#E5BC4F", letterSpacing: "1.5px", textTransform: "uppercase", fontWeight: 700, fontFamily: "'Syne',sans-serif" }}>
+              {templateQueue.name}
+            </span>
+            <span style={{ fontSize: "0.65rem", color: "rgba(245,240,232,0.55)" }}>
+              Slide {templateQueue.progress + 1} of {templateQueue.sequence.length} ·{" "}
+              <strong style={{ color: "#F5F0E8" }}>
+                {(MODES.find(([k]) => k === templateQueue.sequence[templateQueue.progress]) || ["", templateQueue.sequence[templateQueue.progress]])[1].toUpperCase()}
+              </strong>{" "}
+              {templateQueue.progress + 1 < templateQueue.sequence.length && (
+                <>
+                  →{" "}
+                  <span style={{ color: "rgba(245,240,232,0.45)" }}>
+                    next: {(MODES.find(([k]) => k === templateQueue.sequence[templateQueue.progress + 1]) || ["", templateQueue.sequence[templateQueue.progress + 1]])[1]}
+                  </span>
+                </>
+              )}
+            </span>
+            <button
+              onClick={() => setTemplateQueue(null)}
+              style={{
+                marginLeft: "auto",
+                background: "transparent",
+                border: "1px solid rgba(245,240,232,0.15)",
+                color: "rgba(245,240,232,0.55)",
+                fontSize: "0.55rem",
+                padding: "3px 9px",
+                borderRadius: 3,
+                letterSpacing: "1px",
+                textTransform: "uppercase",
+                cursor: "pointer",
+                fontFamily: "'Syne',sans-serif",
+              }}
+              title="Stop following the template — you can keep building free-form"
+            >Dismiss</button>
+          </div>
+        )}
+
         <div style={{
           marginBottom: "1rem",
           padding: "10px 12px",
@@ -3803,6 +3950,72 @@ export default function MediaTool() {
               style={{padding:"6px 12px",background:"#A855F7",color:"#FFF",border:"none",borderRadius:"4px",fontSize:"0.6rem",fontWeight:700,letterSpacing:"1px",textTransform:"uppercase",cursor:"pointer",fontFamily:"'Syne',sans-serif",whiteSpace:"nowrap"}}
               title="Snapshot the current slide and add it to the carousel"
             >+ Add Current Slide</button>
+            {/* From Template picker — built-ins first, customs second.
+                Picking re-starts the queue from slide 1 of that template. */}
+            <select
+              value=""
+              onChange={(e) => {
+                const id = e.target.value;
+                if (!id) return;
+                const tpl =
+                  BUILTIN_CAROUSEL_TEMPLATES.find((t) => t.id === id) ||
+                  customCarouselTemplates.find((t) => t.id === id);
+                if (tpl) startCarouselTemplate(tpl);
+                e.target.value = ""; // reset so re-picking the same one works
+              }}
+              title="Start a guided carousel template — auto-advances mode after each Add Current Slide"
+              style={{
+                padding: "6px 10px",
+                background: "rgba(229,188,79,0.08)",
+                color: "#E5BC4F",
+                border: "1px solid rgba(229,188,79,0.35)",
+                borderRadius: 4,
+                fontSize: "0.6rem",
+                fontWeight: 700,
+                letterSpacing: "1px",
+                textTransform: "uppercase",
+                cursor: "pointer",
+                fontFamily: "'Syne',sans-serif",
+              }}
+            >
+              <option value="" style={{ color: "#000" }}>📐 From Template…</option>
+              <optgroup label="Built-in" style={{ color: "#000" }}>
+                {BUILTIN_CAROUSEL_TEMPLATES.map((t) => (
+                  <option key={t.id} value={t.id} style={{ color: "#000" }}>
+                    {t.name} ({t.sequence.length})
+                  </option>
+                ))}
+              </optgroup>
+              {customCarouselTemplates.length > 0 && (
+                <optgroup label="Your saved" style={{ color: "#000" }}>
+                  {customCarouselTemplates.map((t) => (
+                    <option key={t.id} value={t.id} style={{ color: "#000" }}>
+                      {t.name} ({t.sequence.length})
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+            </select>
+            {carousel.length >= 2 && (
+              <button
+                onClick={saveCarouselAsTemplate}
+                title="Save the current carousel's slide-type sequence as a reusable template (content stays with this carousel only)"
+                style={{
+                  padding: "6px 10px",
+                  background: "transparent",
+                  color: "#E5BC4F",
+                  border: "1px solid rgba(229,188,79,0.35)",
+                  borderRadius: 4,
+                  fontSize: "0.6rem",
+                  fontWeight: 700,
+                  letterSpacing: "1px",
+                  textTransform: "uppercase",
+                  cursor: "pointer",
+                  fontFamily: "'Syne',sans-serif",
+                  whiteSpace: "nowrap",
+                }}
+              >💾 Save Sequence</button>
+            )}
             {carousel.length > 0 && <>
               <button
                 onClick={exportCarouselZip}
@@ -4074,6 +4287,24 @@ export default function MediaTool() {
                   </div>
                 </div>
               )}
+              {/* Optional numbered badge — Feature Drop / listicle treatment.
+                  Empty = no badge (default). Pair with a Carousel Template
+                  like Feature Drop where 5+ Spotlights stack as numbered
+                  ideas. Per-slide — set "1", "2", "3" on consecutive Spotlights. */}
+              <div style={{display:"grid",gridTemplateColumns:"110px 1fr",gap:"0.4rem",marginBottom:"0.6rem",alignItems:"end"}}>
+                <div><label style={L}>Number badge</label>
+                  <input
+                    value={spotNumber}
+                    onChange={e=>setSpotNumber(e.target.value.slice(0,3))}
+                    style={{...I,textAlign:"center",fontWeight:700,fontFamily:"'Syne',sans-serif"}}
+                    placeholder="—"
+                    maxLength={3}
+                  />
+                </div>
+                <div style={{fontSize:"0.55rem",color:"rgba(245,240,232,0.4)",lineHeight:1.4,paddingBottom:"6px"}}>
+                  Optional. Renders a circular badge above the venue name. Use for Feature Drop / listicle posts where Spotlights stack as numbered ideas. Leave blank for editorial spotlights.
+                </div>
+              </div>
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Detail line (address · city)</label>
                 <input value={spotMeta} onChange={e=>setSpotMeta(e.target.value)} style={I} placeholder="e.g. 9 Clinton St | Newark"/>
               </div>

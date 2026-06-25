@@ -153,6 +153,78 @@ export const useBrandStore = create(
   )
 );
 
+// Built-in carousel template archetypes — sequences of slide types that
+// match patterns the user has already proven work. NOT user data — these
+// are reference patterns. User custom templates live in useCarouselTemplatesStore.
+//
+// Each archetype maps to one of CGE's established post structures:
+//   editorial-roundup — Juneteenth pattern (manifesto + numbered scene reports)
+//   feature-drop      — Pickleball Nights pattern (event with multiple selling points)
+//   list-tour         — World Cup watch parties pattern (themed list of locations)
+//   single-beat       — Running club pattern (one-image partner spotlight)
+//   recap             — post-event recap (cover + photo captions + stat)
+export const BUILTIN_CAROUSEL_TEMPLATES = [
+  {
+    id: "editorial-roundup",
+    name: "Editorial Roundup",
+    intent: "Holiday coverage, weekend guides, scene reports. Literary register.",
+    sequence: ["cover", "text", "spotlight", "spotlight", "spotlight", "spotlight", "spotlight", "cta"],
+  },
+  {
+    id: "feature-drop",
+    name: "Feature Drop",
+    intent: "Single event with multiple selling points. Numbered Spotlights work well here.",
+    sequence: ["cover", "spotlight", "spotlight", "spotlight", "spotlight", "spotlight", "spotlight", "cta"],
+  },
+  {
+    id: "list-tour",
+    name: "List Tour",
+    intent: "Themed lists — watch parties, openings, weekly drops. Curator register.",
+    sequence: ["poster", "spotlight", "spotlight", "spotlight", "spotlight", "spotlight", "cta"],
+  },
+  {
+    id: "single-beat",
+    name: "Single Beat",
+    intent: "Partner spotlight, one-image scene report. Cover + optional Text.",
+    sequence: ["cover"],
+  },
+  {
+    id: "recap",
+    name: "Recap",
+    intent: "Post-event content. Photos + captions + headline stat.",
+    sequence: ["cover", "photo", "photo", "photo", "stat", "cta"],
+  },
+];
+
+// Carousel templates store — only user customs persist; built-ins are
+// merged in at read-time from BUILTIN_CAROUSEL_TEMPLATES.
+export const useCarouselTemplatesStore = create(
+  persist(
+    (set, get) => ({
+      customs: [],
+      addTemplate: (name, sequence) => {
+        const trimmed = String(name || "").trim();
+        if (!trimmed) return null;
+        if (!Array.isArray(sequence) || !sequence.length) return null;
+        const id = `tpl_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+        const tpl = { id, name: trimmed, sequence: [...sequence], custom: true };
+        set((state) => ({ customs: [...state.customs, tpl] }));
+        return tpl;
+      },
+      removeTemplate: (id) => set((state) => ({
+        customs: state.customs.filter((t) => t.id !== id),
+      })),
+      renameTemplate: (id, name) => set((state) => ({
+        customs: state.customs.map((t) => t.id === id ? { ...t, name: String(name || "").trim() || t.name } : t),
+      })),
+    }),
+    {
+      name: "cge-carousel-templates",
+      version: 1,
+    }
+  )
+);
+
 export const useEventsStore = create(
   persist(
     (set, get) => ({
