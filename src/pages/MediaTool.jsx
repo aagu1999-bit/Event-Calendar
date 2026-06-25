@@ -45,6 +45,7 @@ const BG_COLORS = {
 const EXPORT_RATIOS = {
   "1:1":  { w: 1080, h: 1080, label: "1:1 · Square" },
   "4:5":  { w: 1080, h: 1350, label: "4:5 · IG Post" },
+  "3:4":  { w: 1080, h: 1440, label: "3:4 · Print / Pinterest" },
   "9:16": { w: 1080, h: 1920, label: "9:16 · Story/Reel" },
 };
 
@@ -2709,9 +2710,69 @@ export default function MediaTool() {
   // Library picker state — opened by the "📚 Library" button next to each
   // Upload Photo button. `pickTarget` decides which setter to feed.
   const [libOpen, setLibOpen] = useState(false);
-  const [pickTarget, setPickTarget] = useState(null); // "cover" | "text" | "photo" | "spotlight"
+  const [pickTarget, setPickTarget] = useState(null); // "cover" | "text" | "photo" | "spotlight" | "slide:<id>"
   const openLibrary = (target) => { setPickTarget(target); setLibOpen(true); };
+
+  // === Per-carousel-slide photo helpers ===
+  // Update the PRIMARY photo of a slide already in the carousel. Used by
+  // the 📤 / 📚 buttons under each thumbnail so the user can drop a
+  // photo in without loading the slide back into the active form.
+  const setSnapshotPrimaryPhotoImg = (snap, type, img) => {
+    if (type === "scene") return { ...snap, bgPhoto: img };
+    if (type === "vibe") {
+      const prev = Array.isArray(snap.vibePhotos) ? snap.vibePhotos : [null,null,null,null,null];
+      const next = [...prev]; next[0] = img;
+      return { ...snap, vibePhotos: next };
+    }
+    return { ...snap, photo: img };
+  };
+  const applyPhotoToSlide = (slideId, img) => {
+    setCarousel(prev => {
+      const updated = prev.map(slide => {
+        if (slide.id !== slideId) return slide;
+        return { ...slide, snapshot: setSnapshotPrimaryPhotoImg(slide.snapshot, slide.type, img) };
+      });
+      return regenerateThumbs(updated);
+    });
+  };
+
+  // Hidden file input that the per-slide 📤 button triggers.
+  // slideUploadTargetId is set to the slide ID about to receive the photo;
+  // onChange reads the file, builds an Image, applies it, then clears.
+  const slideFileRef = useRef(null);
+  const [slideUploadTargetId, setSlideUploadTargetId] = useState(null);
+  const onSlideFilePick = (e) => {
+    const f = e.target.files?.[0];
+    const targetId = slideUploadTargetId;
+    e.target.value = "";
+    setSlideUploadTargetId(null);
+    if (!f || !targetId) return;
+    const r = new FileReader();
+    r.onload = ev => {
+      const img = new Image();
+      img.onload = () => applyPhotoToSlide(targetId, img);
+      img.src = ev.target.result;
+    };
+    r.readAsDataURL(f);
+    // Also save to library so it's available cross-tool.
+    savePhotoAndNotify(f, { sourceTool: "media", sourceMode: "carousel-slide" })
+      .catch(err => console.warn("Photo library save failed:", err));
+  };
+  const triggerSlideUpload = (slideId) => {
+    setSlideUploadTargetId(slideId);
+    // Wait a tick so state lands before opening the picker — file input
+    // onChange fires synchronously and we read slideUploadTargetId there.
+    setTimeout(() => slideFileRef.current?.click(), 0);
+  };
+
   const onLibraryPick = (img) => {
+    // Per-slide library targets ("slide:<id>") update that slide's primary
+    // photo + regenerate thumbs; everything else falls through to form setters.
+    if (pickTarget && pickTarget.startsWith("slide:")) {
+      const slideId = pickTarget.slice("slide:".length);
+      applyPhotoToSlide(slideId, img);
+      return;
+    }
     if (pickTarget === "cover")          setPhoto(img);
     else if (pickTarget === "photo")     setCaptionPhoto(img);
     else if (pickTarget === "spotlight") setSpotPhoto(img);
@@ -3851,8 +3912,35 @@ export default function MediaTool() {
           <span style={{fontSize:"0.6rem",color:accent,letterSpacing:"1.5px",textTransform:"uppercase",padding:"2px 8px",border:"1px solid rgba(255,255,255,0.08)",borderRadius:"14px"}}>{mode} Slide · Export {exportRatio}</span>
         </div>
 
-        <div style={{display:"flex",gap:"0.3rem",marginBottom:"0.6rem",flexWrap:"wrap",alignItems:"center"}}>
-          {MODES.map(([k,lb])=><button key={k} onClick={()=>setMode(k)} style={{padding:"6px 16px",borderRadius:"5px",fontSize:"0.7rem",fontWeight:700,cursor:"pointer",border:mode===k?"2px solid #FACC15":"2px solid rgba(245,240,232,0.06)",background:mode===k?"rgba(250,204,21,0.12)":"transparent",color:mode===k?"#FACC15":"rgba(245,240,232,0.25)",fontFamily:"'Syne',sans-serif",letterSpacing:"1px",textTransform:"uppercase"}}>{lb}</button>)}
+        <div style={{display:"flex",gap:"0.4rem",marginBottom:"0.6rem",flexWrap:"wrap",alignItems:"center"}}>
+          {/* Template (mode) picker — was a grid of 15 buttons; now a
+              compact dropdown like the font picker. Keeps the top row
+              tight so the preview can rise. */}
+          <div style={{display:"flex",alignItems:"center",gap:"0.3rem"}}>
+            <span style={{fontSize:"0.55rem",color:"#FACC15",letterSpacing:"1.5px",textTransform:"uppercase",fontWeight:700,fontFamily:"'Syne',sans-serif"}}>Template</span>
+            <select
+              value={mode}
+              onChange={(e)=>setMode(e.target.value)}
+              style={{
+                padding:"6px 10px",
+                borderRadius:"5px",
+                fontSize:"0.7rem",
+                fontWeight:700,
+                cursor:"pointer",
+                border:"2px solid #FACC15",
+                background:"rgba(250,204,21,0.12)",
+                color:"#FACC15",
+                fontFamily:"'Syne',sans-serif",
+                letterSpacing:"1px",
+                textTransform:"uppercase",
+                outline:"none",
+              }}
+            >
+              {MODES.map(([k,lb])=>(
+                <option key={k} value={k} style={{color:"#000"}}>{lb}</option>
+              ))}
+            </select>
+          </div>
           <div style={{flex:1}}/>
           <div style={{display:"flex",gap:"3px",alignItems:"center",padding:"2px",border:"2px solid rgba(245,240,232,0.1)",borderRadius:"5px"}} title="Export aspect ratio — applies to single-slide downloads and carousel ZIPs">
             {Object.entries(EXPORT_RATIOS).map(([k, r]) => (
@@ -4258,7 +4346,8 @@ export default function MediaTool() {
           {carousel.length > 0 && (
             <div style={{display:"flex",gap:"6px",overflowX:"auto",paddingBottom:"4px"}}>
               {carousel.map((slide, idx) => (
-                <div key={slide.id}
+                <div key={slide.id} style={{display:"flex",flexDirection:"column",gap:"3px",flexShrink:0}}>
+                <div
                   draggable
                   onDragStart={(e)=>onDragStart(e, idx)}
                   onDragOver={onDragOver}
@@ -4298,6 +4387,24 @@ export default function MediaTool() {
                     title="Remove from carousel"
                   >×</button>
                 </div>
+                {/* Per-slide photo buttons — drop a photo onto a specific
+                    slide without loading it into the active form. Both
+                    buttons update the slide's primary photo (cover.photo,
+                    spotlight.photo, scene.bgPhoto, vibe.vibePhotos[0]) and
+                    regenerate the thumbnail. */}
+                <div style={{display:"flex",gap:"2px",width:"86px"}}>
+                  <button
+                    onClick={(e)=>{e.stopPropagation();triggerSlideUpload(slide.id);}}
+                    title="Upload a photo to this slide from disk"
+                    style={{flex:1,padding:"3px 0",background:"rgba(168,85,247,0.10)",color:"#A855F7",border:"1px solid rgba(168,85,247,0.30)",borderRadius:"3px",fontSize:"0.55rem",cursor:"pointer",fontFamily:"'Syne',sans-serif",letterSpacing:"0.5px",lineHeight:1}}
+                  >📤</button>
+                  <button
+                    onClick={(e)=>{e.stopPropagation();openLibrary(`slide:${slide.id}`);}}
+                    title="Pick a photo from the library for this slide"
+                    style={{flex:1,padding:"3px 0",background:"rgba(168,85,247,0.10)",color:"#A855F7",border:"1px solid rgba(168,85,247,0.30)",borderRadius:"3px",fontSize:"0.55rem",cursor:"pointer",fontFamily:"'Syne',sans-serif",letterSpacing:"0.5px",lineHeight:1}}
+                  >📚</button>
+                </div>
+                </div>
               ))}
             </div>
           )}
@@ -4315,7 +4422,11 @@ export default function MediaTool() {
           onGenerateRoundup={(payload) => generateRoundupCarousel(payload)}
         />
 
-        <div className="cge-builder-layout" style={{display:"grid",gridTemplateColumns:"1fr 400px",gap:"1.5rem",alignItems:"start"}}>
+        {/* Form sidebar (380px) + preview (flexible) — form's narrower
+            column so the preview gets more room and rises higher while
+            edits happen. Mobile media query overrides to a single
+            stacked column via the cge-builder-layout class. */}
+        <div className="cge-builder-layout" style={{display:"grid",gridTemplateColumns:"380px 1fr",gap:"1.25rem",alignItems:"start"}}>
           <div>
             {mode==="cover"&&<>
               {/* ✨ AI Generate Cover — calls Gemini with the Cover slot
@@ -5117,6 +5228,16 @@ export default function MediaTool() {
         onPick={onLibraryPick}
         outputAs="image"
         initialFilter="media"
+      />
+      {/* Hidden file input for per-slide upload (📤 button under each
+          carousel thumbnail). Slide ID is held in slideUploadTargetId
+          state; onSlideFilePick consumes it once and clears. */}
+      <input
+        ref={slideFileRef}
+        type="file"
+        accept="image/*"
+        onChange={onSlideFilePick}
+        style={{display:"none"}}
       />
       {/* AI Slide Generator modal — opens when ✨ AI Generate is clicked
           on Cover or CTA form. Accept callback populates the active form's
