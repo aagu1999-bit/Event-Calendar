@@ -1,11 +1,12 @@
 const MODEL = "gemini-2.5-flash";
 const URL_BASE = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 
-export async function generateCaptions(apiKey, eventCtx, images = []) {
+export async function generateCaptions(apiKey, eventCtx, images = [], options = {}) {
   if (!apiKey) throw new Error("Missing Gemini API key");
 
   const hasVision = Array.isArray(images) && images.length > 0;
-  const prompt = buildCaptionPrompt(eventCtx, hasVision);
+  const voice = options.voice || null;
+  const prompt = buildCaptionPrompt(eventCtx, hasVision, voice);
 
   const parts = [{ text: prompt }];
   if (hasVision) {
@@ -43,7 +44,37 @@ export async function generateCaptions(apiKey, eventCtx, images = []) {
   return Array.isArray(parsed?.captions) ? parsed.captions : [];
 }
 
-function buildCaptionPrompt(ctx, hasVision = false) {
+function buildCaptionPrompt(ctx, hasVision = false, voice = null) {
+  // Voice fingerprint priming — when the user has filled in the Brand Kit
+  // voice section, prepend it so every caption sounds like THIS brand,
+  // not Gemini's generic register. Description sets cadence/tone; exemplars
+  // give the model concrete texture to imitate.
+  const hasVoiceDesc = voice && typeof voice.description === "string" && voice.description.trim();
+  const exemplars = Array.isArray(voice?.exemplars) ? voice.exemplars.filter(e => e && e.trim()) : [];
+  const hasExemplars = exemplars.length > 0;
+  const voiceBlock = (hasVoiceDesc || hasExemplars) ? [
+    "BRAND VOICE FINGERPRINT — read this BEFORE writing anything.",
+    "Every caption you write must sound like the brand voice described below,",
+    "regardless of which tone variant (HYPE / PROFESSIONAL / etc.) it is.",
+    "The tone variant changes the energy; the voice stays the same.",
+    "",
+    ...(hasVoiceDesc ? [
+      "Voice description:",
+      voice.description.trim(),
+      "",
+    ] : []),
+    ...(hasExemplars ? [
+      `Past captions in this voice (${exemplars.length} examples — study sentence length, cadence, hashtag style, what gets named vs implied):`,
+      "",
+      ...exemplars.map((e, i) => `=== Example ${i + 1} ===\n${e.trim()}`),
+      "",
+      "Now write the new captions in the same voice as those examples.",
+      "",
+    ] : []),
+    "─────────────────────────────",
+    "",
+  ] : [];
+
   // The caller may pass either a flat form-field ctx (old behavior, used
   // when the carousel is empty) OR a `carouselSummary` block (preferred
   // when the carousel has slides). The latter gives the model a much
@@ -64,6 +95,7 @@ function buildCaptionPrompt(ctx, hasVision = false) {
   const hasCarouselContext = Boolean(ctx.carouselSummary);
 
   return [
+    ...voiceBlock,
     "You are writing Instagram captions for an event promo carousel.",
     "",
     hasCarouselContext

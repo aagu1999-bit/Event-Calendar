@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { Link } from "react-router-dom";
 import JSZip from "jszip";
 import { useEventsStore, useRestoreStore, useBrandStore } from "../store";
 import { generateCaptions } from "../shared/gemini";
@@ -2092,6 +2093,42 @@ function renderFeatures(canvas, cfg) {
   drawFooter(ctx, W, H, isLight);
 }
 
+// Voice fingerprint indicator — small chip next to the Captions button.
+// Reads useBrandStore.voice. Green when ON (description OR exemplars set),
+// dim when off. Click-through to /brand for live editing.
+function VoiceChip() {
+  const voice = useBrandStore((s) => s.voice);
+  const hasDesc = !!(voice?.description && voice.description.trim());
+  const exemplarCount = Array.isArray(voice?.exemplars) ? voice.exemplars.filter(e => e && e.trim()).length : 0;
+  const isOn = hasDesc || exemplarCount > 0;
+  const label = isOn
+    ? `🎙 Voice: ON${exemplarCount > 0 ? ` · ${exemplarCount} ex` : ""}`
+    : "🎙 Voice: off";
+  const tooltip = isOn
+    ? `Brand Kit voice is primed into the next captions call.${hasDesc ? " Voice description ✓." : ""}${exemplarCount > 0 ? ` ${exemplarCount} example caption${exemplarCount === 1 ? "" : "s"} ✓.` : ""} Click to edit.`
+    : "No voice fingerprint set. Click to add a voice description and past captions in the Brand Kit.";
+  return (
+    <Link
+      to="/brand"
+      title={tooltip}
+      style={{
+        padding: "6px 10px",
+        background: isOn ? "rgba(52,211,153,0.10)" : "rgba(245,240,232,0.04)",
+        border: "1px solid " + (isOn ? "rgba(52,211,153,0.35)" : "rgba(245,240,232,0.10)"),
+        borderRadius: 4,
+        color: isOn ? "#34D399" : "rgba(245,240,232,0.45)",
+        fontSize: "0.6rem",
+        letterSpacing: "1px",
+        textTransform: "uppercase",
+        textDecoration: "none",
+        whiteSpace: "nowrap",
+        fontFamily: "'Syne', sans-serif",
+        fontWeight: 700,
+      }}
+    >{label}</Link>
+  );
+}
+
 // === MEDIA TOOL ===
 export default function MediaTool() {
   const events = useEventsStore(s => s.events);
@@ -2458,7 +2495,11 @@ export default function MediaTool() {
         };
       }
       const images = (useVision && carousel.length > 0) ? carousel.map(s => s.thumb) : [];
-      const results = await generateCaptions(geminiKey, ctx, images);
+      // Voice fingerprint from Brand Kit — prepended to the Gemini prompt
+      // when description or exemplars are set. Read fresh at call time
+      // so newly-added exemplars take effect immediately without re-mount.
+      const brandVoice = useBrandStore.getState().voice;
+      const results = await generateCaptions(geminiKey, ctx, images, { voice: brandVoice });
       if (!results.length) throw new Error("Got 0 captions back");
       setCaptions(results);
     } catch (err) {
@@ -3657,6 +3698,11 @@ export default function MediaTool() {
                 fontFamily: "'Syne', sans-serif", whiteSpace: "nowrap",
               }}
             >{isGenCaptions ? "Writing…" : (useVision && carousel.length>0 ? `👁 Captions` : `Captions${carousel.length > 0 ? ` (${carousel.length})` : ""}`)}</button>
+            {/* Voice fingerprint indicator — shows whether the next Captions
+                call will be primed with the Brand Kit voice. Clickable chip
+                routes to /brand so the user can add more exemplars on the fly. */}
+            <VoiceChip />
+
             <button
               onClick={()=>setUseVision(v=>!v)}
               title={
