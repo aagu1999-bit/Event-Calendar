@@ -530,6 +530,24 @@ export default function BrandKit() {
                 placeholder="Rules for AI-generated Cover headlines..."
               />
 
+              <Label>Text prompt (manifesto / editorial paragraph)</Label>
+              <textarea
+                rows={9}
+                value={slotPrompts?.text || ""}
+                onChange={(e) => setSlotPrompt("text", e.target.value)}
+                style={{ ...inputStyle, resize: "vertical", marginBottom: 14, fontFamily: "ui-monospace,Menlo,monospace", fontSize: "0.7rem", lineHeight: 1.5 }}
+                placeholder="Rules for AI-generated Text manifesto paragraphs..."
+              />
+
+              <Label>Spotlight prompt (single venue or idea)</Label>
+              <textarea
+                rows={10}
+                value={slotPrompts?.spotlight || ""}
+                onChange={(e) => setSlotPrompt("spotlight", e.target.value)}
+                style={{ ...inputStyle, resize: "vertical", marginBottom: 14, fontFamily: "ui-monospace,Menlo,monospace", fontSize: "0.7rem", lineHeight: 1.5 }}
+                placeholder="Rules for AI-generated Spotlight cards..."
+              />
+
               <Label>CTA prompt</Label>
               <textarea
                 rows={9}
@@ -540,7 +558,7 @@ export default function BrandKit() {
               />
 
               <div style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.4)", marginTop: 4, fontStyle: "italic" }}>
-                Phase 3 will add Text (manifesto) + Spotlight prompts. Today these power Cover and CTA only.
+                All four prompts power both ✨ AI Generate (single slot) and ✨ AI Fill Template (whole carousel). Tune the prompt to tighten the editorial style — Gemini reads them verbatim.
               </div>
             </Section>
 

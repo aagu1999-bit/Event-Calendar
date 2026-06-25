@@ -133,6 +133,35 @@ Requirements:
 Return JSON ONLY in this exact shape (3 different variations):
 {"options":[{"headline":"...","subtitle":"...","accentWord":"..."},{...},{...}]}`,
 
+        text: `Generate a TEXT-slide manifesto paragraph for a CGE editorial carousel.
+
+Requirements:
+- 2-4 short paragraphs, NOT one long block.
+- Editorial register — like a news column lede, NOT an event flyer.
+- Three-beat sentences are a signature ("Dates, times, venues." / "Pickleball. Bachata. Speed dating.").
+- X/Y contrast structure welcome ("Knowing about an event and feeling an event are two different things.").
+- Garden State / NJ named or implied up front when relevant.
+- Match the brand voice precisely.
+- The textTitle is a short kicker (3-7 words) that names what the paragraph is about; can echo the Cover.
+
+Return JSON ONLY in this exact shape:
+{"textTitle":"...","textBody":"...paragraph 1...\\n\\n...paragraph 2..."}`,
+
+        spotlight: `Generate ONE Spotlight-slide card for a CGE carousel.
+
+The Spotlight is a single venue, idea, or selling-point. In a Feature Drop carousel (listicle), N Spotlights stack as numbered ideas (Music, Dance, Game, Prizes...). In an Editorial Roundup, Spotlights are scene-report style venue listings.
+
+Requirements:
+- spotName: 2-5 word headline naming this idea/venue (e.g. "Epic Music", "Game On", "Rooftop Night at the Standard").
+- spotMeta: 1 short line of detail (address, by-line, or one-sentence explanation). 8-15 words max.
+- spotTime: day + time line (or season). Optional — leave blank if not applicable.
+- spotPrice: price or empty.
+- spotCta: short call ("tix in bio", "free", "RSVP") or empty.
+- Match the brand voice — editorial framing, NOT promo hype.
+
+Return JSON ONLY in this exact shape:
+{"spotName":"...","spotMeta":"...","spotTime":"...","spotPrice":"...","spotCta":"..."}`,
+
         cta: `Generate editorial CTA copy for a CGE carousel CLOSER slide.
 
 Requirements:

@@ -8,6 +8,7 @@ import { tagPngWithCgeExport } from "../shared/pngMetadata.js";
 import { PhotoLibraryModal } from "../shared/PhotoLibraryModal.jsx";
 import { EventToolsPanel } from "../shared/EventToolsPanel.jsx";
 import { AiSlideGeneratorModal } from "../shared/AiSlideGeneratorModal.jsx";
+import { AiTemplateFillModal } from "../shared/AiTemplateFillModal.jsx";
 
 const COLORS = {
   yellow:{name:"Yellow",hex:"#FACC15"},purple:{name:"Purple",hex:"#C084FC"},
@@ -2384,6 +2385,9 @@ export default function MediaTool() {
   // AI Slide Generator modal — null when closed, slot name when open.
   // Same modal handles both Cover and CTA via slotType prop.
   const [aiSlotOpen, setAiSlotOpen] = useState(null);
+  // AI Template Fill modal — whole-carousel generation. Open = true
+  // shows the modal; the picker inside lets the user choose template.
+  const [aiFillOpen, setAiFillOpen] = useState(false);
 
   // Global render flags — synced into module-level vars via useEffect.
   const [watermark, setWatermark] = useState(true);
@@ -3340,6 +3344,102 @@ export default function MediaTool() {
     });
   };
 
+  // Convert one AI-generated slot payload into a full snapshot object.
+  // Each slot type's AI schema is small (just the content fields); this
+  // wraps it with the visual defaults (accent, opacity, bgKey, etc.) so
+  // buildCarouselFromSnapshots can render and push it. Same approach as
+  // generateRoundupCarousel — re-used here for AI Template Fill.
+  const aiSlotToSnapshot = (slot, idx, total) => {
+    const common = { accent, dots: idx + 1, totalDots: total };
+    if (slot.type === "cover") {
+      const headline = String(slot.headline || "").trim();
+      let highlights = new Set();
+      if (slot.accentWord && headline) {
+        const words = headline.toUpperCase().split(/\s+/).filter(Boolean);
+        const tgt = String(slot.accentWord).toUpperCase().trim();
+        const i = words.findIndex(w => w.replace(/[^A-Z0-9]/g, "") === tgt.replace(/[^A-Z0-9]/g, ""));
+        if (i >= 0) highlights = new Set([i]);
+      }
+      return { type: "cover", snapshot: {
+        ...common,
+        photo: null,
+        headline,
+        highlights,
+        subtitle: String(slot.subtitle || "").trim(),
+        ribbon: "",
+        categoryTag: "",
+        opacity: 0.85,
+        coverCtaButton: "",
+      }};
+    }
+    if (slot.type === "text") {
+      return { type: "text", snapshot: {
+        ...common,
+        photo: null,
+        textTitle: String(slot.textTitle || "").trim(),
+        textTitleHL: new Set(),
+        textBody: String(slot.textBody || "").trim(),
+        pageNum: idx + 1,
+        totalPages: total,
+        textOpacity: 0.85,
+        bgKey: "black",
+      }};
+    }
+    if (slot.type === "spotlight") {
+      // Auto-number multi-Spotlight templates (Feature Drop). Detect by
+      // looking at the broader sequence — if there are 2+ Spotlights,
+      // assign positional 1..N numbering as part of fill.
+      return { type: "spotlight", snapshot: {
+        ...common,
+        photo: null,
+        spotName: String(slot.spotName || "").trim(),
+        spotNameHL: new Set(),
+        spotMeta: String(slot.spotMeta || "").trim(),
+        spotTime: String(slot.spotTime || "").trim(),
+        spotPrice: String(slot.spotPrice || "").trim(),
+        spotCta: String(slot.spotCta || "").trim(),
+        spotNumber: "", // bulk-number button can add post-push
+        bgKey: "black",
+      }};
+    }
+    if (slot.type === "cta") {
+      return { type: "cta", snapshot: {
+        ...common,
+        photo: null,
+        ctaKicker: String(slot.ctaKicker || "").trim(),
+        ctaDate: String(slot.ctaDate || "").trim(),
+        ctaVenue: String(slot.ctaVenue || "").trim(),
+        ctaUrl: String(slot.ctaUrl || "").trim(),
+        textOpacity: 0.85,
+        bgKey: "black",
+      }};
+    }
+    // Fallback — return null so caller can filter
+    return null;
+  };
+
+  // Accept the AI-generated slides and push to carousel. Auto-numbers
+  // Spotlights if there are 2+ of them (Feature Drop / listicle behavior).
+  const onAiTemplateAccept = (slides /*, template */) => {
+    const total = slides.length;
+    const spotlightCount = slides.filter(s => s.type === "spotlight").length;
+    let spotIdx = 0;
+    const snapshots = slides.map((slot, idx) => {
+      const built = aiSlotToSnapshot(slot, idx, total);
+      if (!built) return null;
+      if (built.type === "spotlight" && spotlightCount >= 2) {
+        spotIdx++;
+        built.snapshot.spotNumber = String(spotIdx);
+      }
+      return built;
+    }).filter(Boolean);
+    if (snapshots.length === 0) {
+      alert("AI returned 0 usable slides.");
+      return;
+    }
+    buildCarouselFromSnapshots(snapshots);
+  };
+
   // Save the current carousel's slide-type sequence (NOT the content) as
   // a reusable custom template. The user names it; it shows up in the
   // picker dropdown alongside the built-ins for next time.
@@ -4195,6 +4295,28 @@ export default function MediaTool() {
                 </optgroup>
               )}
             </select>
+            {/* ✨ AI Fill Template — opens the AiTemplateFillModal which
+                generates ALL slides in one Gemini call using brand voice
+                + slot prompts. Pair this with the From Template dropdown
+                (manual fill) — both compose with the same templates. */}
+            <button
+              onClick={() => setAiFillOpen(true)}
+              title="AI-fill the whole template in one call — type topic + context, get every slide back (Cover + Text + N×Spotlight or N×CTA + Closer)"
+              style={{
+                padding: "6px 10px",
+                background: "rgba(229,188,79,0.18)",
+                color: "#E5BC4F",
+                border: "1px dashed rgba(229,188,79,0.55)",
+                borderRadius: 4,
+                fontSize: "0.6rem",
+                fontWeight: 700,
+                letterSpacing: "1px",
+                textTransform: "uppercase",
+                cursor: "pointer",
+                fontFamily: "'Syne',sans-serif",
+                whiteSpace: "nowrap",
+              }}
+            >✨ AI Fill Template</button>
             {carousel.length >= 2 && (
               <button
                 onClick={saveCarouselAsTemplate}
@@ -5160,6 +5282,16 @@ export default function MediaTool() {
             if (opt.subLine != null) setCtaVenue(String(opt.subLine).trim());
           }
         }}
+      />
+      {/* AI Template Fill modal — whole-carousel generation. Generates
+          slot content for every slide in a selected template's sequence
+          in one Gemini call. Snapshots get built from the result and
+          pushed via buildCarouselFromSnapshots. */}
+      <AiTemplateFillModal
+        open={aiFillOpen}
+        apiKey={geminiKey}
+        onClose={() => setAiFillOpen(false)}
+        onAccept={onAiTemplateAccept}
       />
     </div>
   );
