@@ -244,6 +244,12 @@ body {
     grid-template-columns: 1fr !important;
     gap: 1rem !important;
   }
+  /* Show mobile-only controls (e.g. Sweep Conflicts button in Review).
+     Inline display:none keeps them invisible on desktop; this rule
+     flips to inline-flex on mobile to surface them. */
+  .cge-mobile-only {
+    display: inline-flex !important;
+  }
 
   /* Preview wrapper — clips overflow so a 1080×1080 canvas or 1080×1350
      HTML mock doesn't cause horizontal page scroll. Children scale to

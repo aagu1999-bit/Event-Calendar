@@ -8,6 +8,7 @@ import { normalizeHandle } from "../shared/parseEvents";
 import { UInput } from "../shared/inputs.jsx";
 import { ReviewSessionsModal } from "../shared/ReviewSessionsModal.jsx";
 import { ColumnMapperModal } from "../shared/ColumnMapperModal.jsx";
+import { ConflictSweepModal } from "../shared/ConflictSweepModal.jsx";
 import { rememberLastSession, getLastSession, forgetLastSession, loadSession } from "../shared/reviewSessions.js";
 
 // Flag glossary — shown in the collapsible cheat sheet. Order matters
@@ -217,6 +218,10 @@ export default function ReviewQueue() {
     setVettedArr(Array.from(next || []));
   };
   const [filter, setFilter] = useState("all"); // all | clean | flagged | unapproved | approved
+  // Mobile-only Sweep Mode — focused one-conflict-group-at-a-time
+  // triage. Button surfaces under .cge-mobile-only CSS so desktop users
+  // keep the existing flag-pill workflow.
+  const [sweepOpen, setSweepOpen] = useState(false);
   const [sortByTag, setSortByTag] = useState(null); // tag name to float to top (separate from filter)
   // Highlighted group captures the event IDs at click time so the sort/highlight
   // survives re-validation (group numbers renumber when events are deleted).
@@ -303,6 +308,19 @@ export default function ReviewQueue() {
       });
     });
     return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  }, [warnings]);
+
+  // Count of #N-grouped conflicts (DUPE / VENUE / MULTI) — used to label
+  // the mobile Sweep button so the user knows what's queued.
+  const conflictGroupCount = useMemo(() => {
+    const seen = new Set();
+    Object.values(warnings || {}).forEach(ws => {
+      (ws || []).forEach(w => {
+        const m = String(w.msg || "").match(/^(DUPE|VENUE|MULTI)\s+#(\d+)/);
+        if (m) seen.add(`${m[1]}-${m[2]}`);
+      });
+    });
+    return seen.size;
   }, [warnings]);
 
   // Helper — match a flag tag in summary to its event count for filter
@@ -784,6 +802,39 @@ export default function ReviewQueue() {
                 ))}
               </div>
             </details>
+
+            {/* Mobile-only Sweep Conflicts button — opens the
+                ConflictSweepModal, which walks the user through
+                DUPE/VENUE/MULTI groups one at a time. Hidden on desktop
+                via the cge-mobile-only CSS class — desktop users have
+                the flag pills + breakdown for the same job at scale. */}
+            {conflictGroupCount > 0 && (
+              <button
+                className="cge-mobile-only"
+                onClick={() => setSweepOpen(true)}
+                style={{
+                  width: "100%",
+                  padding: "12px 16px",
+                  marginBottom: "0.8rem",
+                  background: "rgba(229,188,79,0.12)",
+                  border: "1.5px solid rgba(229,188,79,0.45)",
+                  color: "#E5BC4F",
+                  borderRadius: 6,
+                  fontSize: "0.8rem",
+                  fontWeight: 800,
+                  letterSpacing: 1,
+                  textTransform: "uppercase",
+                  cursor: "pointer",
+                  fontFamily: "'Syne',sans-serif",
+                  display: "none", /* default; CSS overrides on mobile */
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 8,
+                }}
+              >
+                ⚡ Sweep {conflictGroupCount} Conflict Group{conflictGroupCount === 1 ? "" : "s"}
+              </button>
+            )}
 
             {/* Flag-type summary — counts per tag, click to filter */}
             {flagSummary.length > 0 && (
@@ -1326,6 +1377,25 @@ export default function ReviewQueue() {
         fileName={importFileName}
         onCancel={() => { setMapperOpen(false); setImportRows(null); setImportFileName(""); }}
         onConfirm={applyImport}
+      />
+      {/* Mobile Sweep Conflicts modal — opens via the ⚡ button. On
+          Apply, deletes the selected event IDs from pending and clears
+          their approval rows; warnings auto-recompute via useMemo. */}
+      <ConflictSweepModal
+        open={sweepOpen}
+        events={pending}
+        warnings={warnings}
+        onClose={() => setSweepOpen(false)}
+        onApplyDeletions={(idsToDelete) => {
+          if (!idsToDelete || idsToDelete.length === 0) return;
+          const idSet = new Set(idsToDelete.map(String));
+          setPending(p => p.filter(e => !idSet.has(String(e.id))));
+          setApprovals(a => {
+            const next = { ...a };
+            idsToDelete.forEach(id => { delete next[id]; });
+            return next;
+          });
+        }}
       />
     </div>
   );
