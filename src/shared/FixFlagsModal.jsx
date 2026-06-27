@@ -92,12 +92,66 @@ function isPartnerConflict(msg) {
   return /^(DUPE|VENUE|MULTI)\s+#\d+/.test(String(msg || ""));
 }
 
+// Priority order for the "primary" flag — the one rendered BIG and
+// centered in the header (the "name on a dating profile" treatment).
+// Required-field flags win over soft warnings; among required flags,
+// red (NO NAME / NO DAY) beats yellow (NO TIME etc) beats gray
+// (NO CITY / NO TYPE). Falls back to the first warning if nothing in
+// the priority list matches.
+const FLAG_PRIORITY = [
+  "NO NAME", "NO DAY",                                    // red — required
+  "NO TIME", "NO VENUE", "NO REGION",                     // yellow — strongly recommended
+  "NO CITY", "NO TYPE",                                   // gray — recommended
+  "WRONG DAY?",                                           // soft — name/day mismatch
+  "ALREADY IN STORE", "SAME VENUE/DAY IN STORE",          // advisory — store collision
+];
+function pickPrimaryFlag(warnings) {
+  if (!warnings || warnings.length === 0) return null;
+  for (const pri of FLAG_PRIORITY) {
+    const found = warnings.find(w => w.msg === pri);
+    if (found) return found;
+  }
+  // REGION? carries city detail in parens — match as prefix
+  const region = warnings.find(w => /^REGION\?/.test(w.msg));
+  if (region) return region;
+  return warnings[0];
+}
+
+// Plain-English descriptions for the big primary-flag headline. Reads
+// like a directive — what the user needs to actually DO.
+const FLAG_DESCRIPTION = {
+  "NO NAME":   "This event needs a name",
+  "NO DAY":    "Pick a day — Fri / Sat / Sun",
+  "NO TIME":   "What time does it start?",
+  "NO VENUE":  "Where is this event?",
+  "NO REGION": "Tag a region — North / Central / South",
+  "NO CITY":   "Which city?",
+  "NO TYPE":   "Add a type — Party / Mixer / Brunch / …",
+  "WRONG DAY?": "Event name mentions a different day than what's tagged",
+  "ALREADY IN STORE": "Same name + day is already in your saved events",
+  "SAME VENUE/DAY IN STORE": "Possible double-booking with something already saved",
+};
+function describeFlag(msg) {
+  if (!msg) return "";
+  if (FLAG_DESCRIPTION[msg]) return FLAG_DESCRIPTION[msg];
+  if (/^REGION\?/.test(msg)) return "City might be in a different region than tagged";
+  return "Review and approve when ready";
+}
+
 export function FixFlagsModal({ open, events, warnings, onEdit, onApply, onClose }) {
-  // === Compute the flagged-event queue ===
-  // An event qualifies if it has at least one non-partner warning.
-  // Sorted: required-field flags first, then soft warnings.
-  const flaggedQueue = useMemo(() => {
-    if (!open) return [];
+  // === Stable queue (frozen on open) ===
+  // queueIds is built ONCE when the modal opens — never re-sorted during
+  // a session. Critical for editing: when the user fills in a missing
+  // field, warnings recompute upstream. If the queue re-sorted on every
+  // keystroke (events without required flags get re-prioritized), the
+  // currently-displayed event would silently swap to a DIFFERENT event,
+  // and the user's edit would feel "lost" (it actually applied to the
+  // prior event, just no longer visible). Freezing the order keeps the
+  // user on the SAME event no matter what happens upstream.
+  const [queueIds, setQueueIds] = useState([]);
+
+  useEffect(() => {
+    if (!open) return;
     const byId = new Map();
     events.forEach(e => byId.set(String(e.id), e));
     const rows = [];
@@ -106,16 +160,24 @@ export function FixFlagsModal({ open, events, warnings, onEdit, onApply, onClose
       if (!ev) return;
       const relevant = (ws || []).filter(w => !isPartnerConflict(w.msg));
       if (relevant.length === 0) return;
-      rows.push({ event: ev, warnings: relevant });
+      rows.push({ id: String(eventId), hasRequired: ws.some(w => FIELD_FOR_FLAG[w.msg]) });
     });
-    // Sort: events with required-field flags first (most blocking)
-    rows.sort((a, b) => {
-      const aReq = a.warnings.some(w => FIELD_FOR_FLAG[w.msg]) ? 0 : 1;
-      const bReq = b.warnings.some(w => FIELD_FOR_FLAG[w.msg]) ? 0 : 1;
-      return aReq - bReq;
-    });
-    return rows;
-  }, [open, events, warnings]);
+    // Sort once: required-field flags first (most blocking)
+    rows.sort((a, b) => (a.hasRequired ? 0 : 1) - (b.hasRequired ? 0 : 1));
+    setQueueIds(rows.map(r => r.id));
+    // We intentionally don't depend on events/warnings — the queue is a
+    // snapshot of the flagged set at open-time. Live data (current event
+    // values, current warnings) is read fresh in render below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  // Live event lookup — built fresh each render from the current events
+  // array. O(1) per-event lookups via the Map.
+  const eventsById = useMemo(() => {
+    const m = new Map();
+    events.forEach(e => m.set(String(e.id), e));
+    return m;
+  }, [events]);
 
   // === Carousel state ===
   const [currentIdx, setCurrentIdx] = useState(0);
@@ -183,11 +245,11 @@ export function FixFlagsModal({ open, events, warnings, onEdit, onApply, onClose
         return next;
       });
       // Step back to the event that was undone so the user lands on it.
-      const idx = flaggedQueue.findIndex(r => String(r.event.id) === String(last.id));
+      const idx = queueIds.findIndex(id => String(id) === String(last.id));
       if (idx >= 0) setCurrentIdx(idx);
       return h.slice(0, -1);
     });
-  }, [flaggedQueue]);
+  }, [queueIds]);
 
   // Apply decisions to the parent and close. Approve = mark as vetted;
   // Delete = remove from pending. Events with no decision stay
@@ -201,10 +263,22 @@ export function FixFlagsModal({ open, events, warnings, onEdit, onApply, onClose
 
   // === Current event computations (computed ALWAYS — never inside an
   // early-return so the hook order stays stable) ===
-  const safeIdx = Math.min(currentIdx, Math.max(0, flaggedQueue.length - 1));
-  const currentRow = flaggedQueue[safeIdx];
-  const currentEvent = currentRow?.event;
-  const currentWarnings = currentRow?.warnings || [];
+  // Look up the current event from the LIVE events array via the
+  // stable queue ID. As the user edits, eventsById is fresh while
+  // queueIds stays frozen — the user stays on the same event.
+  const safeIdx = Math.min(currentIdx, Math.max(0, queueIds.length - 1));
+  const currentEventId = queueIds[safeIdx];
+  const currentEvent = currentEventId ? eventsById.get(String(currentEventId)) : null;
+  // Live warnings for the current event. Includes BOTH non-partner
+  // warnings (the ones Fix Flags is built to resolve) AND any newly-
+  // formed partner conflicts (if the user's edits accidentally
+  // created a DUPE/VENUE/MULTI). The non-partner ones drive the UI;
+  // partner ones surface as a "→ resolve in Sweep" hint.
+  const allWarningsForEvent = currentEvent ? (warnings[currentEvent.id] || []) : [];
+  const currentWarnings = allWarningsForEvent.filter(w => !isPartnerConflict(w.msg));
+  const newPartnerConflicts = allWarningsForEvent.filter(w => isPartnerConflict(w.msg));
+  const primaryFlag = pickPrimaryFlag(currentWarnings);
+  const otherFlags = currentWarnings.filter(w => w !== primaryFlag);
   const requiredFields = currentEvent ? fieldsNeedingFix(currentWarnings) : new Set();
   // ✓ enabled when every required field has a non-empty value. Soft-
   // warning-only events are always ✓-able.
@@ -213,7 +287,7 @@ export function FixFlagsModal({ open, events, warnings, onEdit, onApply, onClose
     : true;
   const hasOnlySoftWarnings = currentWarnings.length > 0 && currentWarnings.every(w => isSoftWarning(w.msg));
   const approveEnabled = currentEvent && (allRequiredFilled || hasOnlySoftWarnings);
-  const isLast = currentIdx >= flaggedQueue.length - 1;
+  const isLast = currentIdx >= queueIds.length - 1;
   const decidedCount = Object.keys(decisions).length;
   const deleteCount = Object.values(decisions).filter(a => a === "delete").length;
   const approveCount = Object.values(decisions).filter(a => a === "approve").length;
@@ -230,7 +304,7 @@ export function FixFlagsModal({ open, events, warnings, onEdit, onApply, onClose
     if (prev.idx !== currentIdx) return; // navigation — skip
     if (!prev.hasDecision && hasDecision) {
       const t = setTimeout(() => {
-        if (currentIdx < flaggedQueue.length - 1) {
+        if (currentIdx < queueIds.length - 1) {
           setCurrentIdx(i => i + 1);
         }
         // On the last event, do NOT auto-apply — leave the user on the
@@ -239,7 +313,7 @@ export function FixFlagsModal({ open, events, warnings, onEdit, onApply, onClose
       }, 450);
       return () => clearTimeout(t);
     }
-  }, [currentIdx, decisions, currentEvent, flaggedQueue.length]);
+  }, [currentIdx, decisions, currentEvent, queueIds.length]);
 
   // === Swipe handlers ===
   const SWIPE_THRESHOLD = 80;
@@ -285,7 +359,7 @@ export function FixFlagsModal({ open, events, warnings, onEdit, onApply, onClose
   // unconditionally on every render.
   if (!open) return null;
 
-  if (flaggedQueue.length === 0) {
+  if (queueIds.length === 0) {
     return createPortal(
       <div onClick={onClose} style={overlayStyle}>
         <div onClick={(e) => e.stopPropagation()} style={{ ...modalStyle, padding: 32 }}>
@@ -302,7 +376,8 @@ export function FixFlagsModal({ open, events, warnings, onEdit, onApply, onClose
     );
   }
 
-  // Empty event edge case — flaggedQueue out of bounds
+  // Empty event edge case — queueIds out of bounds (event was deleted
+  // externally, or queue is empty after all decisions applied)
   if (!currentEvent) {
     return createPortal(
       <div onClick={onClose} style={overlayStyle}>
@@ -333,47 +408,98 @@ export function FixFlagsModal({ open, events, warnings, onEdit, onApply, onClose
   return createPortal(
     <div style={overlayStyle}>
       <div onClick={(e) => e.stopPropagation()} style={modalStyle}>
-        {/* Header */}
-        <div style={{ padding: "14px 16px", borderBottom: "1px solid rgba(245,240,232,0.08)" }}>
-          <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.45)", letterSpacing: 1.5, textTransform: "uppercase", fontWeight: 700, fontFamily: "'Syne',sans-serif" }}>
-                Fix Flags · {currentIdx + 1} of {flaggedQueue.length}
-              </div>
-              <div style={{ fontSize: "0.85rem", fontFamily: "'Syne',sans-serif", fontWeight: 800, letterSpacing: 1, marginTop: 3, color: "#E5BC4F" }}>
-                {currentWarnings.length} flag{currentWarnings.length === 1 ? "" : "s"} on this event
-              </div>
+        {/* Header — big centered primary flag, profile-name style */}
+        <div style={{ padding: "12px 16px 16px", borderBottom: "1px solid rgba(245,240,232,0.08)" }}>
+          {/* Top row — tiny counter + close button */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+            <div style={{ flex: 1, fontSize: "0.55rem", color: "rgba(245,240,232,0.45)", letterSpacing: 1.5, textTransform: "uppercase", fontWeight: 700, fontFamily: "'Syne',sans-serif" }}>
+              Fix Flags · {currentIdx + 1} of {queueIds.length}
             </div>
             <button onClick={onClose} style={closeBtnStyle} title="Close (decisions discarded unless you Apply)">×</button>
           </div>
-          {/* Active flag chips — name what's wrong concisely */}
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 8 }}>
-            {currentWarnings.map((w, i) => {
-              const severity = w.type === "red" ? "#FB7185"
-                            : w.type === "yellow" ? "#E5BC4F"
-                            : "rgba(245,240,232,0.55)";
-              return (
-                <span key={i} style={{
-                  padding: "3px 7px",
-                  background: `${severity}15`,
-                  color: severity,
-                  border: `1px solid ${severity}55`,
-                  borderRadius: 3,
-                  fontSize: "0.55rem",
-                  fontWeight: 700,
-                  letterSpacing: 0.5,
-                  textTransform: "uppercase",
-                  fontFamily: "'Syne',sans-serif",
-                }}>{w.msg}</span>
-              );
-            })}
-          </div>
+          {/* PRIMARY FLAG — big, centered, color-coded by severity. This
+              is the "what am I looking at" hero of the card, so it reads
+              instantly on a quick mobile glance. */}
+          {primaryFlag && (
+            <>
+              <div style={{
+                textAlign: "center",
+                fontSize: "1.6rem",
+                fontFamily: "'Syne',sans-serif",
+                fontWeight: 900,
+                letterSpacing: 1.5,
+                lineHeight: 1.1,
+                color: primaryFlag.type === "red" ? "#FB7185"
+                     : primaryFlag.type === "yellow" ? "#E5BC4F"
+                     : "rgba(245,240,232,0.8)",
+                marginBottom: 6,
+              }}>
+                {primaryFlag.msg}
+              </div>
+              <div style={{
+                textAlign: "center",
+                fontSize: "0.75rem",
+                color: "rgba(245,240,232,0.65)",
+                lineHeight: 1.4,
+                marginBottom: otherFlags.length > 0 || newPartnerConflicts.length > 0 ? 10 : 0,
+              }}>
+                {describeFlag(primaryFlag.msg)}
+              </div>
+            </>
+          )}
+          {/* Secondary flag chips — when the event has >1 flag, the
+              extras render below as small pills (centered to match the
+              hero treatment above). The primary is excluded so it
+              doesn't duplicate. */}
+          {otherFlags.length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 4, justifyContent: "center", marginBottom: newPartnerConflicts.length > 0 ? 8 : 0 }}>
+              {otherFlags.map((w, i) => {
+                const severity = w.type === "red" ? "#FB7185"
+                              : w.type === "yellow" ? "#E5BC4F"
+                              : "rgba(245,240,232,0.55)";
+                return (
+                  <span key={i} style={{
+                    padding: "3px 7px",
+                    background: `${severity}15`,
+                    color: severity,
+                    border: `1px solid ${severity}55`,
+                    borderRadius: 3,
+                    fontSize: "0.55rem",
+                    fontWeight: 700,
+                    letterSpacing: 0.5,
+                    textTransform: "uppercase",
+                    fontFamily: "'Syne',sans-serif",
+                  }}>also: {w.msg}</span>
+                );
+              })}
+            </div>
+          )}
+          {/* New partner-conflict warning — fires when the user's edits
+              accidentally CREATE a DUPE/VENUE/MULTI with another event.
+              Shown as a distinct gray banner so they know the change
+              made things complicated. Resolving the new conflict is a
+              Sweep concern, not Fix Flags — hint clearly says so. */}
+          {newPartnerConflicts.length > 0 && (
+            <div style={{
+              marginTop: 6,
+              padding: "8px 10px",
+              background: "rgba(192,132,252,0.08)",
+              border: "1px dashed rgba(192,132,252,0.45)",
+              borderRadius: 4,
+              fontSize: "0.65rem",
+              color: "#C084FC",
+              textAlign: "center",
+              lineHeight: 1.4,
+            }}>
+              ⚠ Your edits created {newPartnerConflicts.length === 1 ? "a new conflict" : `${newPartnerConflicts.length} new conflicts`}: {newPartnerConflicts.map(w => w.msg).join(", ")} — resolve in ⚡ Sweep after.
+            </div>
+          )}
         </div>
 
         {/* Progress bar */}
         <div style={{ height: 3, background: "rgba(245,240,232,0.08)" }}>
           <div style={{
-            width: `${((decidedCount) / flaggedQueue.length) * 100}%`,
+            width: `${(decidedCount / Math.max(1, queueIds.length)) * 100}%`,
             height: "100%",
             background: "#E5BC4F",
             transition: "width 0.2s",
