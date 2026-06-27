@@ -9,6 +9,7 @@ import { UInput } from "../shared/inputs.jsx";
 import { ReviewSessionsModal } from "../shared/ReviewSessionsModal.jsx";
 import { ColumnMapperModal } from "../shared/ColumnMapperModal.jsx";
 import { ConflictSweepModal } from "../shared/ConflictSweepModal.jsx";
+import { saveExport } from "../shared/photoLibrary.js";
 import { rememberLastSession, getLastSession, forgetLastSession, loadSession } from "../shared/reviewSessions.js";
 
 // Flag glossary — shown in the collapsible cheat sheet. Order matters
@@ -336,6 +337,19 @@ export default function ReviewQueue() {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
+      // Archive the RAW imported file to the cloud library FIRST, before
+      // anything else. This preserves the original spreadsheet even after
+      // the user prunes conflicts/dupes during Review — they can always
+      // re-download the source from the library or via the workspace
+      // export. Fire-and-forget: a library write failure doesn't block
+      // the import itself.
+      saveExport(file, {
+        sourceTool: "review",
+        sourceMode: "raw-import",
+        name: file.name || "import.csv",
+        kind: "raw-import",
+      }).catch(err => console.warn("Raw import archive failed:", err));
+
       const buf = await file.arrayBuffer();
       const wb = XLSX.read(buf, { type: "array" });
       const sheet = wb.Sheets[wb.SheetNames[0]];
@@ -351,6 +365,44 @@ export default function ReviewQueue() {
       alert("Couldn't parse that file. Make sure it's CSV/XLSX with a header row.");
     }
     if (fileRef.current) fileRef.current.value = "";
+  };
+
+  // Export the FULL current pending list as CSV — captures everything
+  // that's still in Review (including flagged events the user hasn't
+  // resolved yet) BEFORE any Sweep-mode deletions or per-row removals
+  // refine it down. This is the "everything I imported" export — the
+  // main "Export CSV" in the top nav exports the refined events store.
+  const exportFullPendingCsv = () => {
+    if (pending.length === 0) {
+      alert("Pending list is empty.");
+      return;
+    }
+    const cols = ["date", "day", "time", "name", "venue", "area", "region", "type", "link", "igHandle", "featured", "emoji"];
+    const csvCell = (v) => {
+      const s = v == null ? "" : String(v);
+      return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const lines = [cols.join(",")];
+    for (const ev of pending) {
+      lines.push(cols.map(c => csvCell(ev[c])).join(","));
+    }
+    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const d = new Date();
+    const stamp = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+    const filename = `CGE_pending_full_${stamp}.csv`;
+    a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    // Also archive so it's recoverable from the cloud library later.
+    saveExport(blob, {
+      sourceTool: "review",
+      sourceMode: "pending-full-export",
+      name: filename,
+      kind: "archive",
+    }).catch(err => console.warn("Pending archive failed:", err));
   };
 
   // Column-mapper handoff — called by ColumnMapperModal when the user
@@ -659,6 +711,30 @@ export default function ReviewQueue() {
           <button onClick={() => fileRef.current?.click()} style={Bgold}>
             {pending.length === 0 ? "Upload sheet" : "+ Add sheet"}
           </button>
+          {/* Export the FULL pending list as CSV — captures everything
+              the user has imported (including conflicts not yet resolved)
+              BEFORE refinement. The raw uploaded file is also auto-saved
+              to the cloud library on import for ZIP-workspace recovery. */}
+          {pending.length > 0 && (
+            <button
+              onClick={exportFullPendingCsv}
+              title={`Export all ${pending.length} pending events as CSV — the unrefined import, including conflicts. The original uploaded file is also archived in the cloud library automatically on every import.`}
+              style={{
+                padding: "6px 12px",
+                background: "rgba(99,179,237,0.10)",
+                border: "1px solid rgba(99,179,237,0.35)",
+                borderRadius: "5px",
+                color: "#63B3ED",
+                fontSize: "0.6rem",
+                fontWeight: 700,
+                letterSpacing: "1.5px",
+                textTransform: "uppercase",
+                cursor: "pointer",
+                fontFamily: "'Syne',sans-serif",
+                whiteSpace: "nowrap",
+              }}
+            >📥 Export full import ({pending.length})</button>
+          )}
           {/* Sessions — named save points for the events + approvals.
               Replaces the deleted live-sync architecture. Click to open
               the picker (load existing) or use the "+ Save Current as New"
