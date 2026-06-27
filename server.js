@@ -553,21 +553,113 @@ async function openWeekendReviewSheet() {
 // Returns { events: [ { _row, _all_fields, APPROVED, ... } ] }
 // _row is the 1-indexed sheet row (header is row 1, first data is row 2).
 // Used by the client to address rows for subsequent updates.
+// IMPLEMENTATION NOTE — 2026-06-27 rewrite:
+// Previously this used sheet.getRows() from google-spreadsheet v5. That
+// API auto-detects the header row, and when detection fails (blank
+// header cells, duplicate header names, or even a single rogue cell
+// shape upstream) it SILENTLY returns []. The user reported "the tab
+// is not empty but the scraper says it is" because of exactly this
+// quirk — the data was there, getRows() just couldn't see it.
+//
+// Switched to a raw cell read via sheet.loadCells() + cell-by-cell
+// access. This mirrors what the Python scraper does (ws.get_all_values())
+// and gives us:
+//   · explicit visibility into what's in the sheet (no library magic)
+//   · no header-shape constraints
+//   · a /debug endpoint that returns row/col counts for diagnosability
+async function readWeekendReviewAsObjects() {
+  const sheet = await openWeekendReviewSheet();
+  await sheet.loadCells();
+  const rowCount = sheet.rowCount;
+  const colCount = sheet.columnCount;
+
+  // Read the header row, stopping at the first blank — past that point,
+  // we'd be reading the unused right-edge cells of the sheet's allocated
+  // grid (gspread allocates 1000+ cols by default).
+  const headers = [];
+  for (let c = 0; c < colCount; c++) {
+    const v = sheet.getCell(0, c).value;
+    if (v == null || String(v).trim() === "") break;
+    headers.push(String(v));
+  }
+  if (headers.length === 0) {
+    return { events: [], headers: [], rowCount, colCount, reason: "header row is empty" };
+  }
+
+  const events = [];
+  for (let r = 1; r < rowCount; r++) {
+    // Stop at the first fully-blank row — past that we'd be reading the
+    // unallocated tail of the sheet's grid.
+    let firstCol = sheet.getCell(r, 0).value;
+    if (firstCol == null || String(firstCol).trim() === "") {
+      // Also peek at col 1 in case col 0 is genuinely empty for this row
+      // (unlikely for scraper-staged rows — INSTAGRAM HANDLE is always set —
+      // but defensive).
+      const peek = sheet.getCell(r, 1).value;
+      if (peek == null || String(peek).trim() === "") break;
+    }
+    const obj = { _row: r + 1 };  // 1-indexed for human reference
+    for (let c = 0; c < headers.length; c++) {
+      const cellVal = sheet.getCell(r, c).value;
+      obj[headers[c]] = cellVal == null ? "" : String(cellVal);
+    }
+    events.push(obj);
+  }
+  return { events, headers, rowCount, colCount, reason: "ok" };
+}
+
 app.get("/api/weekend-review", async (_req, res) => {
   try {
-    const sheet = await openWeekendReviewSheet();
-    const rows = await sheet.getRows();
-    const events = rows.map((row, idx) => {
-      const obj = row.toObject();
-      // _row = 2 + idx because row 1 is the header
-      return { _row: 2 + idx, ...obj };
-    });
+    const { events, headers, rowCount, colCount, reason } = await readWeekendReviewAsObjects();
     res.json({
       events,
       total: events.length,
-      pending: events.filter((e) => !e.APPROVED).length,
+      pending:  events.filter((e) => !e.APPROVED).length,
       approved: events.filter((e) => String(e.APPROVED).toUpperCase() === "TRUE").length,
       rejected: events.filter((e) => String(e.APPROVED).toUpperCase() === "FALSE").length,
+      _debug: {
+        sheetRowCount: rowCount,
+        sheetColCount: colCount,
+        headerCount: headers.length,
+        readReason: reason,
+      },
+    });
+  } catch (e) {
+    res.status(500).json({ error: String(e?.message || e) });
+  }
+});
+
+// GET /api/weekend-review/debug
+// Returns just the metadata — useful when the events array is empty and
+// we need to know why. Curl this from the Replit shell or open in a
+// browser tab to see exactly what the server sees.
+app.get("/api/weekend-review/debug", async (_req, res) => {
+  try {
+    const sheet = await openWeekendReviewSheet();
+    await sheet.loadCells();
+    const headers = [];
+    for (let c = 0; c < sheet.columnCount; c++) {
+      const v = sheet.getCell(0, c).value;
+      if (v == null || String(v).trim() === "") break;
+      headers.push(String(v));
+    }
+    // Sample the first 3 data rows (rows 2, 3, 4 in 1-indexed terms)
+    const samples = [];
+    for (let r = 1; r <= 3 && r < sheet.rowCount; r++) {
+      const row = {};
+      for (let c = 0; c < Math.min(headers.length, 6); c++) {
+        row[headers[c] || `col${c}`] = sheet.getCell(r, c).value;
+      }
+      samples.push(row);
+    }
+    res.json({
+      sheetTitle: sheet.title,
+      sheetId: sheet.sheetId,
+      rowCount: sheet.rowCount,
+      columnCount: sheet.columnCount,
+      headerCount: headers.length,
+      headers: headers,
+      firstThreeDataRows: samples,
     });
   } catch (e) {
     res.status(500).json({ error: String(e?.message || e) });
@@ -576,9 +668,9 @@ app.get("/api/weekend-review", async (_req, res) => {
 
 // POST /api/weekend-review/update
 // Body: { post_id, fields }
-// Looks up the row by POST ID (matches the scraper's primary key), then
-// merges `fields` into it via row.set(). Records REVIEWED_AT
-// automatically if APPROVED is being set.
+// Looks up the row by POST ID (matches the scraper's primary key) using
+// the same raw-cell approach as the read path so we never hit the
+// getRows() quirk that ate the rows in the first place.
 app.post("/api/weekend-review/update", express.json({ limit: "1mb" }), async (req, res) => {
   try {
     const { post_id, fields } = req.body || {};
@@ -589,30 +681,60 @@ app.post("/api/weekend-review/update", express.json({ limit: "1mb" }), async (re
       return res.status(400).json({ error: "fields object required in body" });
     }
     const sheet = await openWeekendReviewSheet();
-    const rows = await sheet.getRows();
-    // POST ID matching is case-sensitive on the sheet but we strip
-    // whitespace defensively — the scraper writes uppercase numerics
-    // but the legacy Apify shortcodes can leak in.
+    await sheet.loadCells();
+
+    // Build header→column-index map from row 0.
+    const headerToCol = {};
+    for (let c = 0; c < sheet.columnCount; c++) {
+      const v = sheet.getCell(0, c).value;
+      if (v == null || String(v).trim() === "") break;
+      headerToCol[String(v)] = c;
+    }
+    const postIdCol = headerToCol["POST ID"];
+    if (postIdCol == null) {
+      return res.status(500).json({ error: "Weekend_Review has no 'POST ID' header column" });
+    }
+
+    // Find the row with the matching POST ID.
     const target = String(post_id).trim();
-    const row = rows.find((r) => String(r.get("POST ID") || "").trim() === target);
-    if (!row) {
+    let targetRow = -1;
+    for (let r = 1; r < sheet.rowCount; r++) {
+      const cellVal = sheet.getCell(r, postIdCol).value;
+      if (cellVal != null && String(cellVal).trim() === target) {
+        targetRow = r;
+        break;
+      }
+    }
+    if (targetRow === -1) {
       return res.status(404).json({
         error: `No row in Weekend_Review with POST ID '${target}'. ` +
-               `Either it's a stale ID or the staging tab was rebuilt.`
+               `Either it's a stale ID or the staging tab was rebuilt.`,
       });
     }
-    // Auto-stamp REVIEWED_AT whenever APPROVED is being touched. Lets
-    // the client send just { APPROVED: 'TRUE' } without remembering to
-    // also set the timestamp.
+
+    // Auto-stamp REVIEWED_AT when APPROVED is being touched.
     const out = { ...fields };
     if ("APPROVED" in out && !("REVIEWED_AT" in out)) {
       out.REVIEWED_AT = new Date().toISOString();
     }
+
+    // Write each field. Some headers (REVIEWED_AT, EDITED_FIELDS,
+    // PUSHED_AT) might not exist yet on legacy rows from an older
+    // staging — gracefully skip those.
+    const written = {};
+    const skipped = {};
     for (const [k, v] of Object.entries(out)) {
-      row.set(k, v == null ? "" : String(v));
+      const col = headerToCol[k];
+      if (col == null) {
+        skipped[k] = "no such header column";
+        continue;
+      }
+      const cell = sheet.getCell(targetRow, col);
+      cell.value = v == null ? "" : String(v);
+      written[k] = String(v == null ? "" : v);
     }
-    await row.save();
-    res.json({ ok: true, post_id: target, fields: out });
+    await sheet.saveUpdatedCells();
+    res.json({ ok: true, post_id: target, row: targetRow + 1, written, skipped });
   } catch (e) {
     res.status(500).json({ error: String(e?.message || e) });
   }
