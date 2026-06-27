@@ -200,6 +200,72 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
     });
   }, []);
 
+  // === Computed values (NOT hooks — safe to define after hooks but
+  //     must be defined BEFORE the useEffects below that consume them).
+  // All values use safe defaults when state isn't fully populated so
+  // they don't throw when the modal is closed (open=false) or pre-data. ===
+  const safeIdx = Math.min(currentIdx, Math.max(0, groups.length - 1));
+  const currentGroup = groups[safeIdx] || null;
+  const groupEvents = currentGroup
+    ? currentGroup.ids.map(id => eventsById.get(String(id))).filter(Boolean)
+    : [];
+  const fieldConflict = computeFieldConflict(groupEvents);
+  const anyConflictedFields = Object.values(fieldConflict).some(Boolean);
+  const allDecided = groupEvents.length > 0 && groupEvents.every(ev => decisions[ev.id]);
+  const isLast = currentIdx >= groups.length - 1;
+
+  // === All remaining hooks must be unconditional too — must run on
+  //     every render in the same order, no early returns above them.
+  //     They guard their work internally instead of relying on early
+  //     returns. (Rules of Hooks fix — previous version placed these
+  //     after `if (!open) return null` and the empty-group early
+  //     return, causing "Rendered more hooks than during the previous
+  //     render" crashes when the modal opened.) ===
+
+  // Defensive: if the current group's events have all disappeared from
+  // the parent's pending list (rare — could happen if user has multiple
+  // tabs open and deletes from elsewhere), auto-advance past it instead
+  // of getting stuck on a blank card section.
+  useEffect(() => {
+    if (!open || groups.length === 0) return;
+    if (currentGroup && groupEvents.length === 0) {
+      if (currentIdx < groups.length - 1) {
+        setCurrentIdx(i => i + 1);
+      } else {
+        onClose();
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, groupEvents.length, groups.length, currentIdx]);
+
+  // Clamp currentIdx if groups shrunk underneath us.
+  useEffect(() => {
+    if (!open) return;
+    if (groups.length > 0 && currentIdx >= groups.length) {
+      setCurrentIdx(groups.length - 1);
+    }
+  }, [open, groups.length, currentIdx]);
+
+  // Auto-advance: once every event in the current group is decided,
+  // jump to the next group after a brief beat. The pause lets the
+  // user's last decision register visually AND gives a window to hit
+  // Undo if they swiped wrong. Last group does NOT auto-apply — we
+  // require an explicit Apply tap so deletions aren't accidental.
+  // Skipped when the user just NAVIGATED to a previously-decided group
+  // (Back button) — we compare to the previous render's idx+allDecided.
+  useEffect(() => {
+    if (!open) return;
+    const prev = prevStateRef.current;
+    prevStateRef.current = { idx: currentIdx, allDecided };
+    if (prev.idx !== currentIdx) return;
+    if (!prev.allDecided && allDecided && !isLast) {
+      const t = setTimeout(() => setCurrentIdx(i => i + 1), 450);
+      return () => clearTimeout(t);
+    }
+  }, [open, allDecided, currentIdx, isLast]);
+
+  // === Early returns ALL go here (after every hook). === //
+
   if (!open) return null;
 
   if (groups.length === 0) {
@@ -219,15 +285,7 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
     );
   }
 
-  // Clamp currentIdx if groups shrunk (e.g., pending was modified
-  // externally and some groups dissolved). Prevents currentGroup from
-  // being undefined which used to render a blank dark overlay.
-  const safeIdx = Math.min(currentIdx, Math.max(0, groups.length - 1));
-  const currentGroup = groups[safeIdx];
   if (!currentGroup) {
-    // Out of bounds AND groups is non-empty (the earlier groups.length===0
-    // branch caught the truly-empty case). Render the same "no conflicts"
-    // confirmation as a safe fallback.
     return createPortal(
       <div onClick={onClose} style={overlayStyle}>
         <div onClick={(e) => e.stopPropagation()} style={{ ...modalStyle, padding: 32 }}>
@@ -243,16 +301,8 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
       document.body
     );
   }
-  // Use the O(1) Map lookup instead of events.find() — same result,
-  // much faster for large pending lists during swipe re-renders.
-  const groupEvents = currentGroup.ids
-    .map(id => eventsById.get(String(id)))
-    .filter(Boolean);
-  // Field-conflict map for this group — used to color-code each event's
-  // field values in its card. Replaces the old chip-row + "Stands alone"
-  // badge dual-render (too many places for the eye to travel).
-  const fieldConflict = computeFieldConflict(groupEvents);
-  const anyConflictedFields = Object.values(fieldConflict).some(Boolean);
+
+  // === Plain functions (not hooks) — safe here, after early returns. === //
 
   // Group-shortcut handlers — bulk-decide every event in the group.
   // Each one pushes one history entry per event so Undo can rewind
@@ -262,51 +312,6 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
   };
   const keepAll = () => groupEvents.forEach(ev => setDecisionWithHistory(ev.id, "keep"));
   const deleteAll = () => groupEvents.forEach(ev => setDecisionWithHistory(ev.id, "delete"));
-
-  const allDecided = groupEvents.length > 0 && groupEvents.every(ev => decisions[ev.id]);
-  const isLast = currentIdx >= groups.length - 1;
-
-  // Defensive: if the current group's events have all disappeared from
-  // the parent's pending list (rare — could happen if user has multiple
-  // tabs open and deletes from elsewhere), auto-advance past it instead
-  // of getting stuck on a blank card section.
-  useEffect(() => {
-    if (groups.length === 0) return;
-    if (currentGroup && groupEvents.length === 0) {
-      if (currentIdx < groups.length - 1) {
-        setCurrentIdx(i => i + 1);
-      } else {
-        onClose();
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groupEvents.length, groups.length, currentIdx]);
-
-  // Clamp currentIdx if groups shrunk underneath us.
-  useEffect(() => {
-    if (groups.length > 0 && currentIdx >= groups.length) {
-      setCurrentIdx(groups.length - 1);
-    }
-  }, [groups.length, currentIdx]);
-
-  // Auto-advance: once every event in the current group is decided,
-  // jump to the next group after a brief beat. The pause lets the
-  // user's last decision register visually AND gives a window to hit
-  // Undo if they swiped wrong. Last group does NOT auto-apply — we
-  // require an explicit Apply tap so deletions aren't accidental.
-  // Skipped when the user just NAVIGATED to a previously-decided group
-  // (Back button) — we compare to the previous render's idx+allDecided.
-  useEffect(() => {
-    const prev = prevStateRef.current;
-    prevStateRef.current = { idx: currentIdx, allDecided };
-    // Group changed via Back/Next — not a completion event, skip.
-    if (prev.idx !== currentIdx) return;
-    // Only fire on the transition from "not all decided" → "all decided".
-    if (!prev.allDecided && allDecided && !isLast) {
-      const t = setTimeout(() => setCurrentIdx(i => i + 1), 450);
-      return () => clearTimeout(t);
-    }
-  }, [allDecided, currentIdx, isLast]);
 
   const handleNext = () => {
     if (!allDecided) return;
