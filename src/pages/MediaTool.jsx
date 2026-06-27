@@ -2644,26 +2644,62 @@ export default function MediaTool() {
     if (next.length > 0) setItems(next);
   };
 
-  const render = useCallback(()=>{
+  // === Perf-tuned render ===
+  // Old setup: useCallback with ~100 dep references in the array. React
+  // had to compare every dep on every keystroke; the callback IDENTITY
+  // changed on every state change, which retriggered the watching
+  // useEffect, which cleared and re-armed setTimeout. Lots of churn
+  // per keystroke even with the 60ms debounce.
+  //
+  // New setup: stable render function reads the latest state from a ref
+  // (renderStateRef). The useEffect re-arms the timer on every render
+  // (cheap — clearTimeout + setTimeout are O(1)) but doesn't need to
+  // pass deps because render is stable. Canvas paint scheduled via
+  // requestAnimationFrame so it lands on a frame boundary instead of
+  // blocking input handling mid-tick.
+  const renderStateRef = useRef({});
+  renderStateRef.current = {
+    mode,photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,categoryTag,coverCtaButton,
+    items,bgKey,listTitle,listSubtitle,statNumber,statLabel,statSub,
+    textTitle,textTitleHL,textBody,pageNum,totalPages,textPhoto,textOpacity,
+    ctaKicker,ctaDate,ctaVenue,ctaUrl,featuresTitle,features,captionPhoto,caption,captionSecondary,captionAlign,
+    spotPhoto,spotName,spotNameHL,spotMeta,spotTime,spotPrice,spotCta,spotNumber,
+    countPhoto,countText,countEvent,countWhen,countCta,countOpacity,
+    savePhoto,saveKicker,saveDay,saveDateBig,saveEvent,saveVenue,saveCta,saveOpacity,
+    savesPhoto,savesHeader,savesItems,savesCta,savesOpacity,
+    vibePhotos,vibeHeadline,vibeLabels,
+    sceneBgPhoto,sceneHero,sceneLeft,sceneRight,sceneTopLabel,sceneTitle,sceneBigText,sceneLeftMeta,sceneRightMeta,sceneInfo,sceneAddress,sceneHalftone,sceneHeroScale,sceneSideScale,
+    posterPhoto,posterOpacity,posterTopLine,posterHosts,posterKicker,posterTitle,posterSubtitle,posterLeftList,posterRightList,posterDressCode,posterDateLine,posterTitleSize,posterTitleX,posterTitleY,posterTitleAlign,posterTitleColor,
+    pressPhoto,pressTopMeta,pressTitle,pressBadge,pressLineup,pressGenres,pressDateLine,pressGenreBg,pressGenreText,pressDateBg,pressDateText,pressBadgeBg,pressBadgeText,pressPhotoOpacity,
+  };
+  const render = () => {
     const cv=cvRef.current; if(!cv) return;
-    if(mode==="cover") renderCover(cv,{photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,categoryTag,coverCtaButton});
-    else if(mode==="list") renderList(cv,{items,accent,bgKey,dots,totalDots,listTitle,listSubtitle});
-    else if(mode==="stat") renderStat(cv,{statNumber,statLabel,statSub,accent,bgKey,dots,totalDots});
-    else if(mode==="text") renderText(cv,{textTitle,textTitleHighlights:textTitleHL,textBody,accent,bgKey,dots,totalDots,pageNum,totalPages,photo:textPhoto,textOpacity});
-    else if(mode==="cta") renderCTA(cv,{ctaKicker,ctaDate,ctaVenue,ctaUrl,photo:textPhoto,accent,bgKey,dots,totalDots,opacity:textOpacity});
-    else if(mode==="features") renderFeatures(cv,{featuresTitle,features,accent,bgKey,dots,totalDots,photo:textPhoto,opacity:textOpacity});
-    else if(mode==="photo") renderPhotoCaption(cv,{photo:captionPhoto,caption,captionSecondary,alignment:captionAlign,accent,bgKey,dots,totalDots});
-    else if(mode==="spotlight") renderSpotlight(cv,{photo:spotPhoto,spotName,spotNameHighlights:spotNameHL,spotMeta,spotTime,spotPrice,spotCta,spotNumber,accent,bgKey,dots,totalDots});
-    else if(mode==="countdown") renderCountdown(cv,{photo:countPhoto,countText,countEvent,countWhen,countCta,accent,bgKey,dots,totalDots,opacity:countOpacity});
-    else if(mode==="savedate") renderSaveDate(cv,{photo:savePhoto,saveKicker,saveDay,saveDateBig,saveEvent,saveVenue,saveCta,accent,bgKey,dots,totalDots,opacity:saveOpacity});
-    else if(mode==="savedates") renderSaveDates(cv,{photo:savesPhoto,savesHeader,savesItems,savesCta,accent,bgKey,dots,totalDots,opacity:savesOpacity});
-    else if(mode==="vibe") renderVibeBoard(cv,{vibePhotos,vibeHeadline,vibeLabels,accent,bgKey,dots,totalDots});
-    else if(mode==="scene") renderScene(cv,{bgPhoto:sceneBgPhoto,sceneHero,sceneLeft,sceneRight,sceneTopLabel,sceneTitle,sceneBigText,sceneLeftMeta,sceneRightMeta,sceneInfo,sceneAddress,sceneHalftone,sceneHeroScale,sceneSideScale,accent,bgKey,dots,totalDots});
-    else if(mode==="poster") renderPoster(cv,{photo:posterPhoto,opacity:posterOpacity,topLine:posterTopLine,hosts:posterHosts,kicker:posterKicker,title:posterTitle,subtitle:posterSubtitle,leftList:posterLeftList,rightList:posterRightList,dressCode:posterDressCode,dateLine:posterDateLine,titleSize:posterTitleSize,titleX:posterTitleX,titleY:posterTitleY,titleAlign:posterTitleAlign,titleColor:posterTitleColor,accent,bgKey,dots,totalDots});
-    else if(mode==="press") renderPress(cv,{photo:pressPhoto,topMeta:pressTopMeta,title:pressTitle,badge:pressBadge,lineup:pressLineup,genres:pressGenres,dateLine:pressDateLine,badgeBg:pressBadgeBg,badgeText:pressBadgeText,genreBg:pressGenreBg,genreText:pressGenreText,dateBg:pressDateBg,dateText:pressDateText,photoOpacity:pressPhotoOpacity,accent,bgKey,dots,totalDots});
-  },[mode,photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,categoryTag,items,bgKey,listTitle,listSubtitle,statNumber,statLabel,statSub,textTitle,textTitleHL,textBody,pageNum,totalPages,textPhoto,textOpacity,ctaKicker,ctaDate,ctaVenue,ctaUrl,featuresTitle,features,captionPhoto,caption,captionSecondary,captionAlign,spotPhoto,spotName,spotNameHL,spotMeta,spotTime,spotPrice,spotCta,countPhoto,countText,countEvent,countWhen,countCta,countOpacity,savePhoto,saveKicker,saveDay,saveDateBig,saveEvent,saveVenue,saveCta,saveOpacity,savesPhoto,savesHeader,savesItems,savesCta,savesOpacity,vibePhotos,vibeHeadline,vibeLabels,sceneBgPhoto,sceneHero,sceneLeft,sceneRight,sceneTopLabel,sceneTitle,sceneBigText,sceneLeftMeta,sceneRightMeta,sceneInfo,sceneAddress,sceneHalftone,sceneHeroScale,sceneSideScale,posterPhoto,posterOpacity,posterTopLine,posterHosts,posterKicker,posterTitle,posterSubtitle,posterLeftList,posterRightList,posterDressCode,posterDateLine,posterTitleSize,posterTitleX,posterTitleY,posterTitleAlign,posterTitleColor,pressPhoto,pressTopMeta,pressTitle,pressBadge,pressLineup,pressGenres,pressDateLine,pressGenreBg,pressGenreText,pressDateBg,pressDateText,pressBadgeBg,pressBadgeText,pressPhotoOpacity,watermark,fontTick]);
+    const s = renderStateRef.current;
+    if(s.mode==="cover") renderCover(cv,{photo:s.photo,headline:s.headline,highlights:s.highlights,accent:s.accent,dots:s.dots,totalDots:s.totalDots,subtitle:s.subtitle,opacity:s.opacity,ribbon:s.ribbon,categoryTag:s.categoryTag,coverCtaButton:s.coverCtaButton});
+    else if(s.mode==="list") renderList(cv,{items:s.items,accent:s.accent,bgKey:s.bgKey,dots:s.dots,totalDots:s.totalDots,listTitle:s.listTitle,listSubtitle:s.listSubtitle});
+    else if(s.mode==="stat") renderStat(cv,{statNumber:s.statNumber,statLabel:s.statLabel,statSub:s.statSub,accent:s.accent,bgKey:s.bgKey,dots:s.dots,totalDots:s.totalDots});
+    else if(s.mode==="text") renderText(cv,{textTitle:s.textTitle,textTitleHighlights:s.textTitleHL,textBody:s.textBody,accent:s.accent,bgKey:s.bgKey,dots:s.dots,totalDots:s.totalDots,pageNum:s.pageNum,totalPages:s.totalPages,photo:s.textPhoto,textOpacity:s.textOpacity});
+    else if(s.mode==="cta") renderCTA(cv,{ctaKicker:s.ctaKicker,ctaDate:s.ctaDate,ctaVenue:s.ctaVenue,ctaUrl:s.ctaUrl,photo:s.textPhoto,accent:s.accent,bgKey:s.bgKey,dots:s.dots,totalDots:s.totalDots,opacity:s.textOpacity});
+    else if(s.mode==="features") renderFeatures(cv,{featuresTitle:s.featuresTitle,features:s.features,accent:s.accent,bgKey:s.bgKey,dots:s.dots,totalDots:s.totalDots,photo:s.textPhoto,opacity:s.textOpacity});
+    else if(s.mode==="photo") renderPhotoCaption(cv,{photo:s.captionPhoto,caption:s.caption,captionSecondary:s.captionSecondary,alignment:s.captionAlign,accent:s.accent,bgKey:s.bgKey,dots:s.dots,totalDots:s.totalDots});
+    else if(s.mode==="spotlight") renderSpotlight(cv,{photo:s.spotPhoto,spotName:s.spotName,spotNameHighlights:s.spotNameHL,spotMeta:s.spotMeta,spotTime:s.spotTime,spotPrice:s.spotPrice,spotCta:s.spotCta,spotNumber:s.spotNumber,accent:s.accent,bgKey:s.bgKey,dots:s.dots,totalDots:s.totalDots});
+    else if(s.mode==="countdown") renderCountdown(cv,{photo:s.countPhoto,countText:s.countText,countEvent:s.countEvent,countWhen:s.countWhen,countCta:s.countCta,accent:s.accent,bgKey:s.bgKey,dots:s.dots,totalDots:s.totalDots,opacity:s.countOpacity});
+    else if(s.mode==="savedate") renderSaveDate(cv,{photo:s.savePhoto,saveKicker:s.saveKicker,saveDay:s.saveDay,saveDateBig:s.saveDateBig,saveEvent:s.saveEvent,saveVenue:s.saveVenue,saveCta:s.saveCta,accent:s.accent,bgKey:s.bgKey,dots:s.dots,totalDots:s.totalDots,opacity:s.saveOpacity});
+    else if(s.mode==="savedates") renderSaveDates(cv,{photo:s.savesPhoto,savesHeader:s.savesHeader,savesItems:s.savesItems,savesCta:s.savesCta,accent:s.accent,bgKey:s.bgKey,dots:s.dots,totalDots:s.totalDots,opacity:s.savesOpacity});
+    else if(s.mode==="vibe") renderVibeBoard(cv,{vibePhotos:s.vibePhotos,vibeHeadline:s.vibeHeadline,vibeLabels:s.vibeLabels,accent:s.accent,bgKey:s.bgKey,dots:s.dots,totalDots:s.totalDots});
+    else if(s.mode==="scene") renderScene(cv,{bgPhoto:s.sceneBgPhoto,sceneHero:s.sceneHero,sceneLeft:s.sceneLeft,sceneRight:s.sceneRight,sceneTopLabel:s.sceneTopLabel,sceneTitle:s.sceneTitle,sceneBigText:s.sceneBigText,sceneLeftMeta:s.sceneLeftMeta,sceneRightMeta:s.sceneRightMeta,sceneInfo:s.sceneInfo,sceneAddress:s.sceneAddress,sceneHalftone:s.sceneHalftone,sceneHeroScale:s.sceneHeroScale,sceneSideScale:s.sceneSideScale,accent:s.accent,bgKey:s.bgKey,dots:s.dots,totalDots:s.totalDots});
+    else if(s.mode==="poster") renderPoster(cv,{photo:s.posterPhoto,opacity:s.posterOpacity,topLine:s.posterTopLine,hosts:s.posterHosts,kicker:s.posterKicker,title:s.posterTitle,subtitle:s.posterSubtitle,leftList:s.posterLeftList,rightList:s.posterRightList,dressCode:s.posterDressCode,dateLine:s.posterDateLine,titleSize:s.posterTitleSize,titleX:s.posterTitleX,titleY:s.posterTitleY,titleAlign:s.posterTitleAlign,titleColor:s.posterTitleColor,accent:s.accent,bgKey:s.bgKey,dots:s.dots,totalDots:s.totalDots});
+    else if(s.mode==="press") renderPress(cv,{photo:s.pressPhoto,topMeta:s.pressTopMeta,title:s.pressTitle,badge:s.pressBadge,lineup:s.pressLineup,genres:s.pressGenres,dateLine:s.pressDateLine,badgeBg:s.pressBadgeBg,badgeText:s.pressBadgeText,genreBg:s.pressGenreBg,genreText:s.pressGenreText,dateBg:s.pressDateBg,dateText:s.pressDateText,photoOpacity:s.pressPhotoOpacity,accent:s.accent,bgKey:s.bgKey,dots:s.dots,totalDots:s.totalDots});
+  };
 
-  useEffect(()=>{const t=setTimeout(render,60);return()=>clearTimeout(t);},[render]);
+  // Schedule a canvas repaint 120ms after the last render. Multiple
+  // keystrokes during that window collapse into one paint. Wrapped in
+  // rAF so the actual canvas ops land on a frame boundary instead of
+  // mid-input-event (smoother typing).
+  useEffect(()=>{
+    const t=setTimeout(()=>requestAnimationFrame(render),120);
+    return ()=>clearTimeout(t);
+  });
 
   // Upload handlers auto-save into the photo library so the user can
   // re-pick from any tool later without re-hunting through their disk.
