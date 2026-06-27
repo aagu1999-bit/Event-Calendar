@@ -5,7 +5,7 @@ import { parseRows, DAYFUL, getEmoji } from "../shared/parseEvents";
 import { computeWarnings, findFlagPartners } from "../shared/validateEvents";
 import { detectRegulars } from "../shared/regulars";
 import { normalizeHandle } from "../shared/parseEvents";
-import { UInput } from "../shared/inputs.jsx";
+import { UInput, todaysFridayMD } from "../shared/inputs.jsx";
 import { ReviewSessionsModal } from "../shared/ReviewSessionsModal.jsx";
 import { ColumnMapperModal } from "../shared/ColumnMapperModal.jsx";
 import { ConflictSweepModal } from "../shared/ConflictSweepModal.jsx";
@@ -223,6 +223,12 @@ export default function ReviewQueue() {
   // triage. Button surfaces under .cge-mobile-only CSS so desktop users
   // keep the existing flag-pill workflow.
   const [sweepOpen, setSweepOpen] = useState(false);
+  // Weekend date anchor — same UX as CalendarBuilder. Type the upcoming
+  // Friday in M/D format; Saturday and Sunday derive automatically. Used
+  // to fill the `date` column on export AND to stamp pending events with
+  // a concrete date when they're committed to the store. Defaults to
+  // the next upcoming Friday (today if today is Friday).
+  const [friDate, setFriDate] = useState(() => todaysFridayMD());
   const [sortByTag, setSortByTag] = useState(null); // tag name to float to top (separate from filter)
   // Highlighted group captures the event IDs at click time so the sort/highlight
   // survives re-validation (group numbers renumber when events are deleted).
@@ -367,6 +373,27 @@ export default function ReviewQueue() {
     if (fileRef.current) fileRef.current.value = "";
   };
 
+  // Derive Sat + Sun M/D from the user-set Friday date. Mirrors the
+  // calcDates helper in CalendarBuilder. Wrap-around for end-of-month
+  // edge cases (e.g. Fri 5/30 → Sat 5/31 → Sun 6/1).
+  const weekendDates = useMemo(() => {
+    const parts = String(friDate || "").split("/");
+    if (parts.length !== 2) return { Fri: friDate || "", Sat: "", Sun: "" };
+    const m = parseInt(parts[0]), d = parseInt(parts[1]);
+    if (isNaN(m) || isNaN(d)) return { Fri: friDate || "", Sat: "", Sun: "" };
+    const daysInMonth = [0,31,29,31,30,31,30,31,31,30,31,30,31];
+    const max = daysInMonth[m] || 31;
+    const sat = d + 1 > max ? `${m+1}/1` : `${m}/${d+1}`;
+    const sun = d + 2 > max ? `${m+1}/${d+2-max}` : `${m}/${d+2}`;
+    return { Fri: friDate, Sat: sat, Sun: sun };
+  }, [friDate]);
+
+  // Resolve the date for a single event: prefer its own .date if it was
+  // populated at parse time (the sheet had a date column), else fall
+  // back to the weekend anchor mapped by day-of-week. Used for CSV
+  // export and for stamping events on commit.
+  const dateForEvent = (ev) => ev.date || weekendDates[ev.day] || "";
+
   // Export the FULL current pending list as CSV — captures everything
   // that's still in Review (including flagged events the user hasn't
   // resolved yet) BEFORE any Sweep-mode deletions or per-row removals
@@ -384,7 +411,13 @@ export default function ReviewQueue() {
     };
     const lines = [cols.join(",")];
     for (const ev of pending) {
-      lines.push(cols.map(c => csvCell(ev[c])).join(","));
+      lines.push(cols.map(c => {
+        // date column uses the weekend-anchor fallback when the event
+        // didn't come in with its own date — fixes the empty column
+        // issue for sheets imported without an explicit date col.
+        const v = c === "date" ? dateForEvent(ev) : ev[c];
+        return csvCell(v);
+      }).join(","));
     }
     const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -444,7 +477,10 @@ export default function ReviewQueue() {
   const addRowToCalendar = (id) => {
     const ev = pending.find(e => e.id === id);
     if (!ev) return;
-    const fresh = { ...ev, id: Date.now() + Math.random() * 1e5 };
+    // Stamp .date if missing — derive from weekend anchor + day-of-week.
+    // The store/CSV export depends on this; without it the date column
+    // would be empty for any sheet imported without a date column.
+    const fresh = { ...ev, date: ev.date || dateForEvent(ev), id: Date.now() + Math.random() * 1e5 };
     updateEvents(prev => [...prev, fresh]);
     setPending(p => p.filter(e => e.id !== id));
     setApprovals(a => { const next = { ...a }; delete next[id]; return next; });
@@ -456,7 +492,13 @@ export default function ReviewQueue() {
   const addSelectedToCalendar = () => {
     const sel = pending.filter(e => approvals[e.id]);
     if (sel.length === 0) return;
-    const fresh = sel.map(e => ({ ...e, id: Date.now() + Math.random() * 1e5 }));
+    const fresh = sel.map(e => ({
+      ...e,
+      // Same date-stamping rule as the single-row add — derive from
+      // friDate + day when the event didn't come in with its own date.
+      date: e.date || dateForEvent(e),
+      id: Date.now() + Math.random() * 1e5,
+    }));
     updateEvents(prev => [...prev, ...fresh]);
     const ids = new Set(sel.map(e => e.id));
     setPending(p => p.filter(e => !ids.has(e.id)));
@@ -711,6 +753,47 @@ export default function ReviewQueue() {
           <button onClick={() => fileRef.current?.click()} style={Bgold}>
             {pending.length === 0 ? "Upload sheet" : "+ Add sheet"}
           </button>
+          {/* Weekend Friday-date anchor — fills the date column on
+              export AND stamps event.date when committing to the store
+              (via + Add). Default = upcoming Friday. Sat/Sun derive
+              automatically. Hidden when no pending events (nothing to
+              date-stamp yet). */}
+          {pending.length > 0 && (
+            <div style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "5px",
+              padding: "4px 8px",
+              background: "rgba(229,188,79,0.06)",
+              border: "1px solid rgba(229,188,79,0.25)",
+              borderRadius: "5px",
+            }} title={`Sets the date column on export. Fri ${weekendDates.Fri} · Sat ${weekendDates.Sat} · Sun ${weekendDates.Sun}`}>
+              <span style={{ fontSize: "0.55rem", color: "#E5BC4F", letterSpacing: "1.2px", textTransform: "uppercase", fontWeight: 700, fontFamily: "'Syne',sans-serif" }}>
+                Fri Date
+              </span>
+              <input
+                value={friDate}
+                onChange={(e) => setFriDate(e.target.value)}
+                placeholder="6/27"
+                style={{
+                  width: "55px",
+                  padding: "4px 6px",
+                  background: "#111",
+                  color: "#F5F0E8",
+                  border: "1px solid rgba(245,240,232,0.08)",
+                  borderRadius: "3px",
+                  fontSize: "0.7rem",
+                  fontFamily: "inherit",
+                  outline: "none",
+                  textAlign: "center",
+                  fontWeight: 700,
+                }}
+              />
+              <span style={{ fontSize: "0.5rem", color: "rgba(245,240,232,0.4)", letterSpacing: "0.5px", whiteSpace: "nowrap" }}>
+                Sat {weekendDates.Sat} · Sun {weekendDates.Sun}
+              </span>
+            </div>
+          )}
           {/* Export the FULL pending list as CSV — captures everything
               the user has imported (including conflicts not yet resolved)
               BEFORE refinement. The raw uploaded file is also auto-saved
