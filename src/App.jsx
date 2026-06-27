@@ -9,6 +9,7 @@ import MediaTool from "./pages/MediaTool.jsx";
 import RecapPicker from "./pages/RecapPicker.jsx";
 import ReviewQueue from "./pages/ReviewQueue.jsx";
 import ReviewBeta from "./pages/ReviewBeta.jsx";
+import ScraperReview from "./pages/ScraperReview.jsx";
 import Regulars from "./pages/Regulars.jsx";
 import BrandKit from "./pages/BrandKit.jsx";
 import { useEventsStore } from "./store";
@@ -331,6 +332,7 @@ function Nav() {
       <NavLink to="/recap"      {...navLinkCommon}>Recap</NavLink>
       <NavLink to="/review"     {...navLinkCommon}>Review</NavLink>
       <NavLink to="/review-beta" {...navLinkCommon}>Review β</NavLink>
+      <NavLink to="/scraper"    {...navLinkCommon}>📥 Scraper</NavLink>
       <NavLink to="/regulars"   {...navLinkCommon}>Regulars</NavLink>
       <NavLink to="/brand"      {...navLinkCommon}>Brand</NavLink>
       <div className="cge-nav-spacer" style={{ flex: 1 }} />
@@ -522,6 +524,7 @@ export default function App() {
         <Route path="/recap" element={<RecapPicker />} />
         <Route path="/review" element={<ReviewQueue />} />
         <Route path="/review-beta" element={<ReviewBeta />} />
+        <Route path="/scraper" element={<ScraperReview />} />
         <Route path="/regulars" element={<Regulars />} />
         <Route path="/brand" element={<BrandKit />} />
         <Route path="*" element={<Navigate to="/calendar" replace />} />

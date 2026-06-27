@@ -488,11 +488,141 @@ app.delete("/api/review-sessions/:name", async (req, res) => {
   }
 });
 
+// === WEEKEND_REVIEW — bridge to the Insta-Scraper repo ===
+// The Insta-Scraper writes a Weekend_Review tab into the user's Google
+// Sheet (Instagram_Events_Master, see the scraper UI's "Stage Review"
+// screen). The endpoints below let this app read those rows, render
+// the review queue, and write approval/edit decisions back. The Sheet
+// is the queue — both apps share it, neither needs to know about the
+// other beyond that contract.
+//
+// Required env vars (Replit Secrets):
+//   GOOGLE_SHEET_ID                — the spreadsheet ID (e.g., 1Tll...JaoA)
+//   GOOGLE_SERVICE_ACCOUNT_EMAIL   — service account client_email
+//   GOOGLE_SERVICE_ACCOUNT_KEY     — service account private_key. Replit
+//                                    stores this as one line with \n
+//                                    escaped; we unescape below.
+//
+// The scraper's service account (vision-api-script@apt-mark-468506-u9.
+// iam.gserviceaccount.com) already has Editor on the sheet — same JSON
+// file can be split into the three env vars above and pasted into
+// Replit Secrets.
+
+import { GoogleSpreadsheet } from "google-spreadsheet";
+import { JWT } from "google-auth-library";
+
+const WEEKEND_REVIEW_TAB = "Weekend_Review";
+const SA_EMAIL = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || "";
+// Replace literal "\n" with real newlines — Replit env vars don't
+// preserve multi-line values, so the private key arrives as one long
+// string with escaped newlines.
+const SA_KEY   = (process.env.GOOGLE_SERVICE_ACCOUNT_KEY || "").replace(/\\n/g, "\n");
+const SHEET_ID = (process.env.GOOGLE_SHEET_ID || "").trim();
+
+async function openWeekendReviewSheet() {
+  if (!SA_EMAIL || !SA_KEY) {
+    throw new Error(
+      "GOOGLE_SERVICE_ACCOUNT_EMAIL and GOOGLE_SERVICE_ACCOUNT_KEY must be set " +
+      "in Replit Secrets (or local env) to access the Weekend_Review tab."
+    );
+  }
+  if (!SHEET_ID) {
+    throw new Error(
+      "GOOGLE_SHEET_ID must be set in Replit Secrets. Find it in your Google " +
+      "Sheets URL: docs.google.com/spreadsheets/d/<this part>/edit"
+    );
+  }
+  const auth = new JWT({
+    email: SA_EMAIL,
+    key: SA_KEY,
+    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+  });
+  const doc = new GoogleSpreadsheet(SHEET_ID, auth);
+  await doc.loadInfo();
+  const sheet = doc.sheetsByTitle[WEEKEND_REVIEW_TAB];
+  if (!sheet) {
+    throw new Error(
+      `'${WEEKEND_REVIEW_TAB}' tab not found in spreadsheet. Open the Insta-Scraper ` +
+      `UI → Stage Review → click 'Stage for Review' to create the tab first.`
+    );
+  }
+  return sheet;
+}
+
+// GET /api/weekend-review
+// Returns { events: [ { _row, _all_fields, APPROVED, ... } ] }
+// _row is the 1-indexed sheet row (header is row 1, first data is row 2).
+// Used by the client to address rows for subsequent updates.
+app.get("/api/weekend-review", async (_req, res) => {
+  try {
+    const sheet = await openWeekendReviewSheet();
+    const rows = await sheet.getRows();
+    const events = rows.map((row, idx) => {
+      const obj = row.toObject();
+      // _row = 2 + idx because row 1 is the header
+      return { _row: 2 + idx, ...obj };
+    });
+    res.json({
+      events,
+      total: events.length,
+      pending: events.filter((e) => !e.APPROVED).length,
+      approved: events.filter((e) => String(e.APPROVED).toUpperCase() === "TRUE").length,
+      rejected: events.filter((e) => String(e.APPROVED).toUpperCase() === "FALSE").length,
+    });
+  } catch (e) {
+    res.status(500).json({ error: String(e?.message || e) });
+  }
+});
+
+// POST /api/weekend-review/update
+// Body: { post_id, fields }
+// Looks up the row by POST ID (matches the scraper's primary key), then
+// merges `fields` into it via row.set(). Records REVIEWED_AT
+// automatically if APPROVED is being set.
+app.post("/api/weekend-review/update", express.json({ limit: "1mb" }), async (req, res) => {
+  try {
+    const { post_id, fields } = req.body || {};
+    if (!post_id) {
+      return res.status(400).json({ error: "post_id required in body" });
+    }
+    if (!fields || typeof fields !== "object") {
+      return res.status(400).json({ error: "fields object required in body" });
+    }
+    const sheet = await openWeekendReviewSheet();
+    const rows = await sheet.getRows();
+    // POST ID matching is case-sensitive on the sheet but we strip
+    // whitespace defensively — the scraper writes uppercase numerics
+    // but the legacy Apify shortcodes can leak in.
+    const target = String(post_id).trim();
+    const row = rows.find((r) => String(r.get("POST ID") || "").trim() === target);
+    if (!row) {
+      return res.status(404).json({
+        error: `No row in Weekend_Review with POST ID '${target}'. ` +
+               `Either it's a stale ID or the staging tab was rebuilt.`
+      });
+    }
+    // Auto-stamp REVIEWED_AT whenever APPROVED is being touched. Lets
+    // the client send just { APPROVED: 'TRUE' } without remembering to
+    // also set the timestamp.
+    const out = { ...fields };
+    if ("APPROVED" in out && !("REVIEWED_AT" in out)) {
+      out.REVIEWED_AT = new Date().toISOString();
+    }
+    for (const [k, v] of Object.entries(out)) {
+      row.set(k, v == null ? "" : String(v));
+    }
+    await row.save();
+    res.json({ ok: true, post_id: target, fields: out });
+  } catch (e) {
+    res.status(500).json({ error: String(e?.message || e) });
+  }
+});
+
 // Health check — the client pings this on boot to decide whether to show
 // the cloud buttons. Returns version so we can tell apart old servers if
 // the API ever changes.
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, api: "workspaces+library+reviewSessions", version: 4, env: NODE_ENV });
+  res.json({ ok: true, api: "workspaces+library+reviewSessions+weekendReview", version: 5, env: NODE_ENV });
 });
 
 // === VITE MIDDLEWARE / STATIC ===
