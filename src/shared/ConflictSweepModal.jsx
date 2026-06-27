@@ -108,6 +108,13 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
   const [swipeX, setSwipeX] = useState(0);
   const swipeStartRef = useRef({});
 
+  // === Auto-advance state ===
+  // Tracks previous (idx, allDecided) so we only auto-advance on the
+  // TRANSITION from "not all decided" → "all decided" within the same
+  // group. Navigating back to a previously-resolved group does NOT
+  // re-advance; undoing a decision while the timer is queued cancels it.
+  const prevStateRef = useRef({ idx: 0, allDecided: false });
+
   useEffect(() => {
     if (open) {
       setCurrentIdx(0);
@@ -115,6 +122,7 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
       setHistory([]);
       setSwipingId(null);
       setSwipeX(0);
+      prevStateRef.current = { idx: 0, allDecided: false };
     }
   }, [open]);
 
@@ -182,8 +190,27 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
   const keepAll = () => groupEvents.forEach(ev => setDecisionWithHistory(ev.id, "keep"));
   const deleteAll = () => groupEvents.forEach(ev => setDecisionWithHistory(ev.id, "delete"));
 
-  const allDecided = groupEvents.every(ev => decisions[ev.id]);
+  const allDecided = groupEvents.length > 0 && groupEvents.every(ev => decisions[ev.id]);
   const isLast = currentIdx >= groups.length - 1;
+
+  // Auto-advance: once every event in the current group is decided,
+  // jump to the next group after a brief beat. The pause lets the
+  // user's last decision register visually AND gives a window to hit
+  // Undo if they swiped wrong. Last group does NOT auto-apply — we
+  // require an explicit Apply tap so deletions aren't accidental.
+  // Skipped when the user just NAVIGATED to a previously-decided group
+  // (Back button) — we compare to the previous render's idx+allDecided.
+  useEffect(() => {
+    const prev = prevStateRef.current;
+    prevStateRef.current = { idx: currentIdx, allDecided };
+    // Group changed via Back/Next — not a completion event, skip.
+    if (prev.idx !== currentIdx) return;
+    // Only fire on the transition from "not all decided" → "all decided".
+    if (!prev.allDecided && allDecided && !isLast) {
+      const t = setTimeout(() => setCurrentIdx(i => i + 1), 450);
+      return () => clearTimeout(t);
+    }
+  }, [allDecided, currentIdx, isLast]);
 
   const handleNext = () => {
     if (!allDecided) return;
@@ -434,8 +461,13 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
             }}
           >↶ Undo</button>
           <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.5)", flex: 1, textAlign: "center", letterSpacing: 0.5 }}>
-            {decidedCount} decided
-            {deleteCount > 0 && <> · <span style={{ color: "#FB7185" }}>{deleteCount} delete</span></>}
+            {allDecided && !isLast
+              ? <span style={{ color: "#34D399" }}>↳ auto-advancing…</span>
+              : <>
+                  {decidedCount} decided
+                  {deleteCount > 0 && <> · <span style={{ color: "#FB7185" }}>{deleteCount} delete</span></>}
+                </>
+            }
           </div>
           <button
             onClick={handleNext}
