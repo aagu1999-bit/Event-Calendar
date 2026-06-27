@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 
 // Mobile Sweep Mode — one-conflict-group-at-a-time triage modal.
@@ -10,10 +10,14 @@ import { createPortal } from "react-dom";
 //   1. Open modal → extracts groups from warnings (only #N-tagged
 //      clusters: DUPE, VENUE, MULTI — these have partner events to
 //      compare against)
-//   2. Show ONE group at a time as a card stack
-//   3. User marks each event "Keep" or "Delete" — group shortcuts
-//      let them blanket-decide a group in one tap (Keep First / Keep All /
-//      Delete All)
+//   2. Show ONE group at a time as a card stack, with field-level
+//      analysis: chips showing which fields all events share + which
+//      differ; per-event badges call out "stands alone on X" outliers
+//   3. User marks each event "Keep" or "Delete" via:
+//      · Tap the ✓ / ✗ buttons
+//      · Swipe right (Keep) / left (Delete) — Tinder-style
+//      · Group shortcuts: Keep First / Keep All / Delete All
+//      · Undo to reverse the most recent decision
 //   4. Tap Next → advance to the next group
 //   5. Last group → tap "Apply N decisions" → modal closes and emits
 //      the IDs to delete via onApplyDeletions
@@ -26,9 +30,65 @@ import { createPortal } from "react-dom";
 //   onClose()            — modal dismissed
 //   onApplyDeletions(ids[]) — fires once with array of event IDs to delete
 
+// === Field analysis helpers ===
+// Pretty labels for the fields the analyzer inspects.
+const FIELD_LABEL = {
+  name:   "Name",
+  day:    "Day",
+  time:   "Time",
+  venue:  "Venue",
+  area:   "Area",
+  region: "Region",
+  type:   "Type",
+};
+const FIELDS_TO_ANALYZE = ["name", "day", "time", "venue", "area", "region", "type"];
+
+// Normalize a field value for comparison — lower-case, strip non-alphanumeric.
+// Matches the normalize() used by validateEvents so what we report as
+// "matching" actually matches the flagger's logic.
+function normField(v) {
+  return String(v ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+// For a group of events, return { matched, differs } — fields where all
+// events share the same value (matched) vs fields where at least one
+// differs. Empty fields are NOT counted as matches (would be misleading).
+function analyzeGroup(events) {
+  const matched = [], differs = [];
+  if (events.length < 2) return { matched, differs };
+  for (const field of FIELDS_TO_ANALYZE) {
+    const values = events.map(e => normField(e[field]));
+    const unique = new Set(values);
+    // If everything is empty, skip — no signal either way.
+    if (unique.size === 1 && [...unique][0] === "") continue;
+    if (unique.size === 1) matched.push(field);
+    else differs.push(field);
+  }
+  return { matched, differs };
+}
+
+// For one event in a group, find fields where THIS event's value is
+// unique (not shared by any other event in the group). Surfaces "this
+// is the odd one out" — useful when most of the group agrees but one
+// row stands alone.
+function findOutlierFields(event, allEvents) {
+  if (allEvents.length < 2) return [];
+  const outliers = [];
+  for (const field of FIELDS_TO_ANALYZE) {
+    const myVal = normField(event[field]);
+    if (!myVal) continue;
+    const othersWithSameVal = allEvents.filter(e => e.id !== event.id && normField(e[field]) === myVal);
+    if (othersWithSameVal.length === 0) {
+      // No one else shares this value → this event is alone on this field
+      const anyoneElseHasValue = allEvents.some(e => e.id !== event.id && normField(e[field]));
+      if (anyoneElseHasValue) outliers.push(field);
+    }
+  }
+  return outliers;
+}
+
 export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDeletions }) {
   // Extract conflict groups — only the #N-tagged kind have partners.
-  // groupKey = "DUPE-3" / "VENUE-1" / "MULTI-2"
   const groups = useMemo(() => {
     if (!open) return [];
     const groupMap = {};
@@ -45,9 +105,6 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
         }
       });
     });
-    // Filter to only groups with 2+ events (a "conflict" needs partners)
-    // Sort by severity (DUPE > MULTI > VENUE) so the user resolves the
-    // more impactful conflicts first.
     const ORDER = { DUPE: 0, MULTI: 1, VENUE: 2 };
     return Object.values(groupMap)
       .filter(g => g.ids.length >= 2)
@@ -56,22 +113,56 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
 
   const [currentIdx, setCurrentIdx] = useState(0);
   const [decisions, setDecisions] = useState({}); // eventId → "keep" | "delete"
+  // Stack of recent decision changes for Undo: { id, prev: "keep"|"delete"|null }
+  const [history, setHistory] = useState([]);
+
+  // === Swipe state ===
+  // Only one card may be actively swiping at a time. swipingId holds
+  // which event is in-drag; swipeX is the current horizontal delta.
+  // swipeStartRef.current maps eventId → original touch X so we can
+  // compute delta from any touchmove event.
+  const [swipingId, setSwipingId] = useState(null);
+  const [swipeX, setSwipeX] = useState(0);
+  const swipeStartRef = useRef({});
 
   useEffect(() => {
     if (open) {
       setCurrentIdx(0);
       setDecisions({});
+      setHistory([]);
+      setSwipingId(null);
+      setSwipeX(0);
     }
   }, [open]);
 
-  const setDecision = useCallback((eventId, action) => {
-    setDecisions(prev => ({ ...prev, [eventId]: action }));
+  // Record a decision AND push the previous value onto history so Undo
+  // can revert it. Used by ✓/✗ taps, swipes, AND the group shortcuts.
+  const setDecisionWithHistory = useCallback((eventId, action) => {
+    setDecisions(prev => {
+      const prevAction = prev[eventId] ?? null;
+      // No-op if the user already set this same decision
+      if (prevAction === action) return prev;
+      setHistory(h => [...h, { id: eventId, prev: prevAction }]);
+      return { ...prev, [eventId]: action };
+    });
+  }, []);
+
+  const undoLast = useCallback(() => {
+    setHistory(h => {
+      if (h.length === 0) return h;
+      const last = h[h.length - 1];
+      setDecisions(d => {
+        const next = { ...d };
+        if (last.prev === null) delete next[last.id];
+        else next[last.id] = last.prev;
+        return next;
+      });
+      return h.slice(0, -1);
+    });
   }, []);
 
   if (!open) return null;
 
-  // Edge case — opened with no conflicts to resolve. Show a brief
-  // confirmation screen so the user understands why nothing's there.
   if (groups.length === 0) {
     return createPortal(
       <div onClick={onClose} style={overlayStyle}>
@@ -93,28 +184,16 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
   const groupEvents = currentGroup.ids
     .map(id => events.find(e => String(e.id) === String(id)))
     .filter(Boolean);
+  const groupAnalysis = analyzeGroup(groupEvents);
 
+  // Group-shortcut handlers — bulk-decide every event in the group.
+  // Each one pushes one history entry per event so Undo can rewind
+  // the whole sweep one tap at a time.
   const keepFirstOnly = () => {
-    setDecisions(prev => {
-      const next = { ...prev };
-      groupEvents.forEach((ev, i) => { next[ev.id] = i === 0 ? "keep" : "delete"; });
-      return next;
-    });
+    groupEvents.forEach((ev, i) => setDecisionWithHistory(ev.id, i === 0 ? "keep" : "delete"));
   };
-  const keepAll = () => {
-    setDecisions(prev => {
-      const next = { ...prev };
-      groupEvents.forEach(ev => { next[ev.id] = "keep"; });
-      return next;
-    });
-  };
-  const deleteAll = () => {
-    setDecisions(prev => {
-      const next = { ...prev };
-      groupEvents.forEach(ev => { next[ev.id] = "delete"; });
-      return next;
-    });
-  };
+  const keepAll = () => groupEvents.forEach(ev => setDecisionWithHistory(ev.id, "keep"));
+  const deleteAll = () => groupEvents.forEach(ev => setDecisionWithHistory(ev.id, "delete"));
 
   const allDecided = groupEvents.every(ev => decisions[ev.id]);
   const isLast = currentIdx >= groups.length - 1;
@@ -132,38 +211,75 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
     }
   };
 
-  const handleBack = () => {
-    if (currentIdx > 0) setCurrentIdx(prev => prev - 1);
-  };
+  const handleBack = () => { if (currentIdx > 0) setCurrentIdx(prev => prev - 1); };
 
-  const decidedCount = Object.keys(decisions).length;
+  const decidedCount = Object.values(decisions).length;
   const deleteCount = Object.values(decisions).filter(a => a === "delete").length;
 
-  // Severity colors — DUPE = yellow (likely real dupe), MULTI = orange
-  // (might be both), VENUE = gray (just same place, different events)
   const severityColor = currentGroup.type === "DUPE" ? "#E5BC4F"
                       : currentGroup.type === "MULTI" ? "#FB923C"
                       : "rgba(245,240,232,0.45)";
+
+  // === Swipe handlers ===
+  const SWIPE_THRESHOLD = 80; // px — commit a decision past this delta
+  const onTouchStart = (id) => (e) => {
+    if (e.touches?.[0]) {
+      swipeStartRef.current[id] = e.touches[0].clientX;
+      setSwipingId(id);
+      setSwipeX(0);
+    }
+  };
+  const onTouchMove = (id) => (e) => {
+    if (swipingId !== id) return;
+    const startX = swipeStartRef.current[id];
+    if (startX == null || !e.touches?.[0]) return;
+    setSwipeX(e.touches[0].clientX - startX);
+  };
+  const onTouchEnd = (id) => () => {
+    if (swipingId !== id) return;
+    if (swipeX > SWIPE_THRESHOLD) setDecisionWithHistory(id, "keep");
+    else if (swipeX < -SWIPE_THRESHOLD) setDecisionWithHistory(id, "delete");
+    setSwipingId(null);
+    setSwipeX(0);
+  };
 
   return createPortal(
     <div style={overlayStyle}>
       <div onClick={(e) => e.stopPropagation()} style={modalStyle}>
         {/* Header */}
-        <div style={{ padding: "14px 16px", borderBottom: "1px solid rgba(245,240,232,0.08)", display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.45)", letterSpacing: 1.5, textTransform: "uppercase", fontWeight: 700, fontFamily: "'Syne',sans-serif" }}>
-              Sweep Conflicts · Group {currentIdx + 1} of {groups.length}
+        <div style={{ padding: "14px 16px", borderBottom: "1px solid rgba(245,240,232,0.08)" }}>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.45)", letterSpacing: 1.5, textTransform: "uppercase", fontWeight: 700, fontFamily: "'Syne',sans-serif" }}>
+                Sweep Conflicts · Group {currentIdx + 1} of {groups.length}
+              </div>
+              <div style={{ fontSize: "1rem", fontFamily: "'Syne',sans-serif", fontWeight: 800, letterSpacing: 1, marginTop: 3, color: severityColor }}>
+                {currentGroup.type} #{currentGroup.num}
+              </div>
+              <div style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.5)", marginTop: 2 }}>
+                {currentGroup.type === "DUPE" && "Same NAME + DAY — likely a true duplicate"}
+                {currentGroup.type === "VENUE" && "Same VENUE + DAY — different events at the same spot"}
+                {currentGroup.type === "MULTI" && "Same NAME + VENUE + TIME — listed twice across days"}
+              </div>
             </div>
-            <div style={{ fontSize: "1rem", fontFamily: "'Syne',sans-serif", fontWeight: 800, letterSpacing: 1, marginTop: 3, color: severityColor }}>
-              {currentGroup.type} #{currentGroup.num}
-            </div>
-            <div style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.5)", marginTop: 2 }}>
-              {currentGroup.type === "DUPE" && "Same NAME + DAY — likely a true duplicate"}
-              {currentGroup.type === "VENUE" && "Same VENUE + DAY — different events at the same spot"}
-              {currentGroup.type === "MULTI" && "Same NAME + VENUE + TIME — listed twice across days"}
-            </div>
+            <button onClick={onClose} style={closeBtnStyle} title="Close">×</button>
           </div>
-          <button onClick={onClose} style={closeBtnStyle} title="Close">×</button>
+
+          {/* Field-level analysis chips — green = all agree, red = differ */}
+          {(groupAnalysis.matched.length > 0 || groupAnalysis.differs.length > 0) && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 10 }}>
+              {groupAnalysis.matched.map(f => (
+                <span key={`m-${f}`} style={fieldChipStyle("matched")} title={`All ${groupEvents.length} events share the same ${FIELD_LABEL[f] || f}`}>
+                  ✓ {FIELD_LABEL[f] || f}
+                </span>
+              ))}
+              {groupAnalysis.differs.map(f => (
+                <span key={`d-${f}`} style={fieldChipStyle("differs")} title={`${FIELD_LABEL[f] || f} differs between these events`}>
+                  ≠ {FIELD_LABEL[f] || f}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Progress bar */}
@@ -178,71 +294,113 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
           <button onClick={deleteAll} style={shortcutBtnStyle("#FB7185")}>✗ Delete all</button>
         </div>
 
+        {/* Swipe hint — only shown on first group of the session */}
+        {currentIdx === 0 && (
+          <div style={{ padding: "8px 16px", fontSize: "0.6rem", color: "rgba(245,240,232,0.5)", textAlign: "center", borderBottom: "1px solid rgba(245,240,232,0.05)", letterSpacing: 0.5 }}>
+            💡 Tap ✓/✗ <strong style={{ color: "rgba(245,240,232,0.75)" }}>or swipe</strong> — right keeps · left deletes
+          </div>
+        )}
+
         {/* Event cards */}
         <div style={{ flex: 1, overflowY: "auto", padding: "12px 16px" }}>
           {groupEvents.map((ev, i) => {
             const decision = decisions[ev.id];
+            const outliers = findOutlierFields(ev, groupEvents);
+            const isSwiping = swipingId === ev.id;
+            const dx = isSwiping ? swipeX : 0;
+            const swipeRatio = Math.max(-1, Math.min(1, dx / SWIPE_THRESHOLD));
+            const swipeBgColor = dx > 0 ? `rgba(52,211,153,${0.06 + Math.abs(swipeRatio) * 0.12})`
+                              : dx < 0 ? `rgba(251,113,133,${0.06 + Math.abs(swipeRatio) * 0.12})`
+                              : null;
             return (
-              <div
-                key={ev.id}
-                style={{
-                  padding: 12,
-                  marginBottom: 10,
-                  background: decision === "delete" ? "rgba(251,113,133,0.06)"
-                            : decision === "keep" ? "rgba(52,211,153,0.06)"
-                            : "rgba(245,240,232,0.03)",
-                  border: "1.5px solid " + (decision === "delete" ? "rgba(251,113,133,0.45)"
-                                          : decision === "keep" ? "rgba(52,211,153,0.45)"
-                                          : "rgba(245,240,232,0.08)"),
-                  borderRadius: 6,
-                  opacity: decision === "delete" ? 0.65 : 1,
-                  transition: "all 0.15s",
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, marginBottom: 6 }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: 1, textTransform: "uppercase", marginBottom: 3, fontWeight: 600 }}>
-                      Event {i + 1}{i === 0 ? " · first" : ""}
+              <div key={ev.id} style={{ position: "relative", marginBottom: 10 }}>
+                {/* Swipe-direction backdrop hint — fades in as user drags */}
+                {isSwiping && Math.abs(dx) > 12 && (
+                  <div style={{
+                    position: "absolute", inset: 0, borderRadius: 6,
+                    display: "flex", alignItems: "center", justifyContent: dx > 0 ? "flex-start" : "flex-end",
+                    paddingLeft: dx > 0 ? 16 : 0, paddingRight: dx < 0 ? 16 : 0,
+                    fontSize: "1.4rem", fontFamily: "'Syne',sans-serif", fontWeight: 800,
+                    color: dx > 0 ? "#34D399" : "#FB7185",
+                    pointerEvents: "none",
+                  }}>
+                    {dx > 0 ? "✓ KEEP" : "✗ DELETE"}
+                  </div>
+                )}
+                <div
+                  onTouchStart={onTouchStart(ev.id)}
+                  onTouchMove={onTouchMove(ev.id)}
+                  onTouchEnd={onTouchEnd(ev.id)}
+                  onTouchCancel={onTouchEnd(ev.id)}
+                  style={{
+                    padding: 12,
+                    background: swipeBgColor
+                              ?? (decision === "delete" ? "rgba(251,113,133,0.06)"
+                              : decision === "keep" ? "rgba(52,211,153,0.06)"
+                              : "rgba(245,240,232,0.03)"),
+                    border: "1.5px solid " + (decision === "delete" ? "rgba(251,113,133,0.45)"
+                                            : decision === "keep" ? "rgba(52,211,153,0.45)"
+                                            : "rgba(245,240,232,0.08)"),
+                    borderRadius: 6,
+                    opacity: decision === "delete" ? 0.65 : 1,
+                    transform: isSwiping ? `translateX(${dx}px)` : "translateX(0)",
+                    transition: isSwiping ? "none" : "transform 0.22s, all 0.15s",
+                    touchAction: "pan-y",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, marginBottom: 6 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: 1, textTransform: "uppercase", marginBottom: 3, fontWeight: 600 }}>
+                        Event {i + 1}{i === 0 ? " · first" : ""}
+                      </div>
+                      <div style={{ fontSize: "0.95rem", fontFamily: "'Syne',sans-serif", fontWeight: 700, lineHeight: 1.2, color: "#F5F0E8" }}>
+                        {ev.name || "(no name)"}
+                      </div>
                     </div>
-                    <div style={{ fontSize: "0.95rem", fontFamily: "'Syne',sans-serif", fontWeight: 700, lineHeight: 1.2, color: "#F5F0E8" }}>
-                      {ev.name || "(no name)"}
+                    <div style={{ display: "flex", gap: 5 }}>
+                      <button
+                        onClick={() => setDecisionWithHistory(ev.id, "keep")}
+                        style={actionBtnStyle(decision === "keep", "#34D399")}
+                        title="Keep this event"
+                      >✓</button>
+                      <button
+                        onClick={() => setDecisionWithHistory(ev.id, "delete")}
+                        style={actionBtnStyle(decision === "delete", "#FB7185")}
+                        title="Delete this event"
+                      >✗</button>
                     </div>
                   </div>
-                  <div style={{ display: "flex", gap: 5 }}>
-                    <button
-                      onClick={() => setDecision(ev.id, "keep")}
-                      style={actionBtnStyle(decision === "keep", "#34D399")}
-                      title="Keep this event"
-                    >✓</button>
-                    <button
-                      onClick={() => setDecision(ev.id, "delete")}
-                      style={actionBtnStyle(decision === "delete", "#FB7185")}
-                      title="Delete this event"
-                    >✗</button>
+                  <div style={{ fontSize: "0.7rem", color: "rgba(245,240,232,0.65)", lineHeight: 1.5 }}>
+                    <div>{[ev.day, ev.time].filter(Boolean).join(" · ") || "no day/time"}</div>
+                    <div>{[ev.venue, ev.area, ev.region].filter(Boolean).join(" · ") || "no venue"}</div>
+                    {ev.type && <div style={{ marginTop: 3, color: "rgba(245,240,232,0.4)" }}>{ev.type}</div>}
                   </div>
-                </div>
-                <div style={{ fontSize: "0.7rem", color: "rgba(245,240,232,0.65)", lineHeight: 1.5 }}>
-                  <div>{[ev.day, ev.time].filter(Boolean).join(" · ") || "no day/time"}</div>
-                  <div>{[ev.venue, ev.area, ev.region].filter(Boolean).join(" · ") || "no venue"}</div>
-                  {ev.type && <div style={{ marginTop: 3, color: "rgba(245,240,232,0.4)" }}>{ev.type}</div>}
+                  {/* Outlier badge — this event has unique values on these
+                      fields while the rest of the group agrees. Surfaces
+                      "stands alone on Venue" when one row deviates. */}
+                  {outliers.length > 0 && (
+                    <div style={{ marginTop: 8, padding: "5px 8px", background: "rgba(251,146,60,0.10)", border: "1px solid rgba(251,146,60,0.35)", borderRadius: 4, fontSize: "0.6rem", color: "#FB923C", letterSpacing: 0.5 }}>
+                      ⚠ Stands alone on: {outliers.map(f => FIELD_LABEL[f] || f).join(", ")}
+                    </div>
+                  )}
                 </div>
               </div>
             );
           })}
         </div>
 
-        {/* Footer — back / next */}
-        <div style={{ padding: "12px 16px", borderTop: "1px solid rgba(245,240,232,0.08)", display: "flex", gap: 8, alignItems: "center" }}>
+        {/* Footer — back / undo / next */}
+        <div style={{ padding: "12px 16px", borderTop: "1px solid rgba(245,240,232,0.08)", display: "flex", gap: 6, alignItems: "center" }}>
           <button
             onClick={handleBack}
             disabled={currentIdx === 0}
             style={{
-              padding: "10px 14px",
+              padding: "10px 12px",
               background: "transparent",
               color: currentIdx === 0 ? "rgba(245,240,232,0.25)" : "rgba(245,240,232,0.7)",
               border: "1px solid rgba(245,240,232,0.12)",
               borderRadius: 4,
-              fontSize: "0.7rem",
+              fontSize: "0.65rem",
               fontWeight: 700,
               letterSpacing: 1,
               textTransform: "uppercase",
@@ -250,20 +408,38 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
               fontFamily: "'Syne',sans-serif",
             }}
           >← Back</button>
+          <button
+            onClick={undoLast}
+            disabled={history.length === 0}
+            title="Reverse the most recent Keep/Delete decision"
+            style={{
+              padding: "10px 12px",
+              background: history.length === 0 ? "transparent" : "rgba(192,132,252,0.08)",
+              color: history.length === 0 ? "rgba(245,240,232,0.25)" : "#C084FC",
+              border: "1px solid " + (history.length === 0 ? "rgba(245,240,232,0.12)" : "rgba(192,132,252,0.4)"),
+              borderRadius: 4,
+              fontSize: "0.65rem",
+              fontWeight: 700,
+              letterSpacing: 1,
+              textTransform: "uppercase",
+              cursor: history.length === 0 ? "not-allowed" : "pointer",
+              fontFamily: "'Syne',sans-serif",
+            }}
+          >↶ Undo</button>
           <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.5)", flex: 1, textAlign: "center", letterSpacing: 0.5 }}>
-            {decidedCount} / {Object.keys(decisions).length + groupEvents.filter(e => !decisions[e.id]).length} decided
-            {deleteCount > 0 && <> · <span style={{ color: "#FB7185" }}>{deleteCount} to delete</span></>}
+            {decidedCount} decided
+            {deleteCount > 0 && <> · <span style={{ color: "#FB7185" }}>{deleteCount} delete</span></>}
           </div>
           <button
             onClick={handleNext}
             disabled={!allDecided}
             style={{
-              padding: "10px 16px",
+              padding: "10px 14px",
               background: allDecided ? "#E5BC4F" : "rgba(229,188,79,0.25)",
               color: "#000",
               border: "none",
               borderRadius: 4,
-              fontSize: "0.72rem",
+              fontSize: "0.7rem",
               fontWeight: 800,
               letterSpacing: 1,
               textTransform: "uppercase",
@@ -271,7 +447,7 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
               fontFamily: "'Syne',sans-serif",
               opacity: allDecided ? 1 : 0.7,
             }}
-          >{isLast ? `Apply (${deleteCount} delete)` : "Next →"}</button>
+          >{isLast ? `Apply (${deleteCount})` : "Next →"}</button>
         </div>
       </div>
     </div>,
@@ -352,3 +528,20 @@ const actionBtnStyle = (active, color) => ({
   justifyContent: "center",
   padding: 0,
 });
+// Field-analysis chips: green for matched fields (the basis of the
+// conflict), orange for fields that differ between the events.
+const fieldChipStyle = (kind) => {
+  const color = kind === "matched" ? "#34D399" : "#FB923C";
+  return {
+    padding: "3px 7px",
+    background: `${color}15`,
+    color,
+    border: `1px solid ${color}55`,
+    borderRadius: 3,
+    fontSize: "0.55rem",
+    fontWeight: 700,
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+    fontFamily: "'Syne',sans-serif",
+  };
+};
