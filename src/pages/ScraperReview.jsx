@@ -47,6 +47,7 @@ export default function ScraperReview() {
   const [error, setError]       = useState("");
   const [events, setEvents]     = useState([]);
   const [counts, setCounts]     = useState({ total: 0, pending: 0, approved: 0, rejected: 0 });
+  const [debugInfo, setDebugInfo] = useState(null);  // _debug from API
   const [statusFilter, setStatusFilter] = useState("pending");
   const [busy, setBusy]         = useState({});  // post_id -> bool
   const [editingId, setEditingId] = useState(null);
@@ -64,8 +65,10 @@ export default function ScraperReview() {
         approved: data.approved || 0,
         rejected: data.rejected || 0,
       });
+      setDebugInfo(data._debug || null);
     } catch (e) {
       setError(String(e.message || e));
+      setDebugInfo(null);
     } finally {
       setLoading(false);
     }
@@ -149,6 +152,63 @@ export default function ScraperReview() {
     cancelEdit();
   }
 
+  // Top-of-page connection status strip. Three states:
+  //   · loading              → muted "connecting" pill
+  //   · error                → red "couldn't connect" with the actual cause
+  //   · connected (with data)→ green "Connected · N rows" with metadata
+  //   · connected (no data)  → amber "Connected but Weekend_Review is empty"
+  // Makes "is the bridge actually working" answerable in one glance,
+  // without having to curl /api/weekend-review/debug from the shell.
+  const statusStrip = (() => {
+    if (loading) {
+      return (
+        <div style={statusStripStyle("#6b7280")}>
+          <span style={dotStyle("#6b7280")} />
+          Connecting to Google Sheets…
+        </div>
+      );
+    }
+    if (error) {
+      return (
+        <div style={statusStripStyle("#dc2626")}>
+          <span style={dotStyle("#dc2626")} />
+          <span>
+            <b>Connection failed:</b> {error}
+          </span>
+        </div>
+      );
+    }
+    if (counts.total === 0) {
+      return (
+        <div style={statusStripStyle("#f59e0b")}>
+          <span style={dotStyle("#f59e0b")} />
+          <span>
+            <b>Connected to Google Sheets</b>, but the <code>Weekend_Review</code> tab is empty.
+            Open the Insta-Scraper UI → <b>Stage Review</b> → click <b>🎯 Stage for Review</b> to populate it.
+            {debugInfo && (
+              <span style={{ color: "#92400e", marginLeft: 8, fontSize: 12 }}>
+                (sheet has {debugInfo.sheetRowCount} rows, {debugInfo.headerCount} header columns detected)
+              </span>
+            )}
+          </span>
+        </div>
+      );
+    }
+    return (
+      <div style={statusStripStyle("#16a34a")}>
+        <span style={dotStyle("#16a34a")} />
+        <span>
+          <b>Connected</b> · Reading <code>Weekend_Review</code> · {counts.total} total row(s)
+          {debugInfo && (
+            <span style={{ color: "#15803d", marginLeft: 8, fontSize: 12 }}>
+              ({debugInfo.headerCount} columns)
+            </span>
+          )}
+        </span>
+      </div>
+    );
+  })();
+
   return (
     <div style={{ padding: 16, maxWidth: 1100, margin: "0 auto" }}>
       <div style={{ display: "flex", alignItems: "baseline", gap: 16, flexWrap: "wrap" }}>
@@ -158,6 +218,8 @@ export default function ScraperReview() {
           Approvals + edits write back to the same Sheet.
         </div>
       </div>
+
+      {statusStrip}
 
       {/* Summary + filter chips */}
       <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
@@ -416,6 +478,34 @@ export default function ScraperReview() {
       </div>
     </div>
   );
+}
+
+// Top-of-page status strip helpers — small left-border colored card
+// with a tiny status dot. Color comes from caller (red/amber/green/gray).
+function statusStripStyle(color) {
+  return {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    padding: "10px 12px",
+    marginTop: 12,
+    border: `1px solid ${color}33`,
+    borderLeft: `4px solid ${color}`,
+    background: `${color}0d`,
+    borderRadius: 6,
+    fontSize: 13,
+    color: "#1f2937",
+  };
+}
+function dotStyle(color) {
+  return {
+    display: "inline-block",
+    width: 10,
+    height: 10,
+    borderRadius: "50%",
+    background: color,
+    flexShrink: 0,
+  };
 }
 
 function btnStyle(color, outline = false) {
