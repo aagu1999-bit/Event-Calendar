@@ -129,7 +129,7 @@ const PILL_HIGHLIGHTED = {
   border: "1px solid #E5BC4F",
 };
 
-export default function ReviewQueue() {
+export default function ReviewQueue({ betaMode = false } = {}) {
   const events = useEventsStore(s => s.events);
   const updateEvents = useEventsStore(s => s.updateEvents);
   // Approvals lifted into the store (was useState here) so Review Sessions
@@ -721,14 +721,36 @@ export default function ReviewQueue() {
   return (
     <div style={{ minHeight: "calc(100vh - 60px)", background: "#080808", color: "#F5F0E8", fontFamily: "'DM Sans', sans-serif" }}>
       <div style={{ maxWidth: 1400, margin: "0 auto", padding: "1.5rem" }}>
-        <div style={{ display: "flex", alignItems: "baseline", gap: "1rem", marginBottom: "1rem" }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: "1rem", marginBottom: "1rem", flexWrap: "wrap" }}>
           <h1 style={{ fontFamily: "'Syne', sans-serif", fontSize: "1.2rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: "2px" }}>
-            Review Queue
+            Review Queue {betaMode && <span style={{ color: "#E5BC4F", letterSpacing: "1px" }}>Beta</span>}
           </h1>
           <span style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.5)", letterSpacing: "1.5px", textTransform: "uppercase" }}>
-            Augment your sheet — extra checks Excel can't do
+            {betaMode
+              ? "Sweep-first variant — testing focused conflict triage on any device"
+              : "Augment your sheet — extra checks Excel can't do"}
           </span>
         </div>
+        {/* Beta-mode banner — surfaces what's different about this
+            variant and points the user at the Sweep button. Lives just
+            above the regular toolbar so it's the first thing read. */}
+        {betaMode && (
+          <div style={{
+            marginBottom: "1rem",
+            padding: "10px 14px",
+            background: "rgba(229,188,79,0.06)",
+            border: "1px dashed rgba(229,188,79,0.4)",
+            borderRadius: "6px",
+            fontSize: "0.7rem",
+            color: "rgba(245,240,232,0.8)",
+            lineHeight: 1.5,
+          }}>
+            <strong style={{ color: "#E5BC4F", letterSpacing: "1.2px", textTransform: "uppercase", fontSize: "0.6rem", fontFamily: "'Syne',sans-serif" }}>🧪 Beta variant</strong>
+            <span style={{ marginLeft: 8 }}>
+              The <strong>⚡ Sweep</strong> button is always visible here (not mobile-only). Use this tab to test the focused one-group-at-a-time conflict triage flow. The regular Review tab remains the production flow.
+            </span>
+          </div>
+        )}
 
         {/* Upload bar */}
         <div style={{
@@ -962,33 +984,35 @@ export default function ReviewQueue() {
               </div>
             </details>
 
-            {/* Mobile-only Sweep Conflicts button — opens the
-                ConflictSweepModal, which walks the user through
-                DUPE/VENUE/MULTI groups one at a time. Hidden on desktop
-                via the cge-mobile-only CSS class — desktop users have
-                the flag pills + breakdown for the same job at scale. */}
+            {/* Sweep Conflicts button — opens the ConflictSweepModal,
+                which walks the user through DUPE/VENUE/MULTI groups
+                one at a time. In standard Review: mobile-only via the
+                cge-mobile-only class. In Beta: always visible AND
+                rendered larger/brighter so the user can stress-test
+                the Sweep flow on any device. */}
             {conflictGroupCount > 0 && (
               <button
-                className="cge-mobile-only"
+                className={betaMode ? "" : "cge-mobile-only"}
                 onClick={() => setSweepOpen(true)}
                 style={{
                   width: "100%",
-                  padding: "12px 16px",
+                  padding: betaMode ? "16px 18px" : "12px 16px",
                   marginBottom: "0.8rem",
-                  background: "rgba(229,188,79,0.12)",
-                  border: "1.5px solid rgba(229,188,79,0.45)",
+                  background: betaMode ? "rgba(229,188,79,0.18)" : "rgba(229,188,79,0.12)",
+                  border: betaMode ? "2px solid #E5BC4F" : "1.5px solid rgba(229,188,79,0.45)",
                   color: "#E5BC4F",
                   borderRadius: 6,
-                  fontSize: "0.8rem",
+                  fontSize: betaMode ? "0.95rem" : "0.8rem",
                   fontWeight: 800,
                   letterSpacing: 1,
                   textTransform: "uppercase",
                   cursor: "pointer",
                   fontFamily: "'Syne',sans-serif",
-                  display: "none", /* default; CSS overrides on mobile */
+                  display: betaMode ? "flex" : "none", /* beta: always shown; standard: CSS overrides on mobile */
                   alignItems: "center",
                   justifyContent: "center",
                   gap: 8,
+                  boxShadow: betaMode ? "0 0 16px rgba(229,188,79,0.20)" : "none",
                 }}
               >
                 ⚡ Sweep {conflictGroupCount} Conflict Group{conflictGroupCount === 1 ? "" : "s"}
