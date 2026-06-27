@@ -229,6 +229,13 @@ export default function ReviewQueue({ betaMode = false } = {}) {
   // a concrete date when they're committed to the store. Defaults to
   // the next upcoming Friday (today if today is Friday).
   const [friDate, setFriDate] = useState(() => todaysFridayMD());
+  // Pagination cap — rendering 200+ rich event rows up-front was the
+  // most likely cause of "Aw, Snap!" tab crashes on big imports. Show
+  // first N, button to load the rest. Resets whenever pending changes
+  // (new import) so the cap re-engages.
+  const ROW_RENDER_CAP = 100;
+  const [showAllRows, setShowAllRows] = useState(false);
+  useEffect(() => { setShowAllRows(false); }, [pending.length]);
   const [sortByTag, setSortByTag] = useState(null); // tag name to float to top (separate from filter)
   // Highlighted group captures the event IDs at click time so the sort/highlight
   // survives re-validation (group numbers renumber when events are deleted).
@@ -1231,7 +1238,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
                   No events match this filter.
                 </div>
               )}
-              {visible.map(ev => {
+              {(showAllRows ? visible : visible.slice(0, ROW_RENDER_CAP)).map(ev => {
                 const w = warnings[ev.id] || [];
                 const approved = approvals[ev.id];
                 const isApproved = approvedSet.has(ev.id);
@@ -1528,6 +1535,33 @@ export default function ReviewQueue({ betaMode = false } = {}) {
                   </Fragment>
                 );
               })}
+              {/* Show-all toggle — caps initial render at ROW_RENDER_CAP
+                  to prevent "Aw, Snap!" tab crashes on big imports.
+                  Reveals the rest on demand. Hidden when below the cap
+                  or when already expanded. */}
+              {!showAllRows && visible.length > ROW_RENDER_CAP && (
+                <button
+                  onClick={() => setShowAllRows(true)}
+                  style={{
+                    width: "100%",
+                    padding: "14px",
+                    marginTop: "8px",
+                    background: "rgba(192,132,252,0.08)",
+                    color: "#C084FC",
+                    border: "1px dashed rgba(192,132,252,0.4)",
+                    borderRadius: "6px",
+                    fontSize: "0.7rem",
+                    fontWeight: 700,
+                    letterSpacing: "1.5px",
+                    textTransform: "uppercase",
+                    cursor: "pointer",
+                    fontFamily: "'Syne', sans-serif",
+                  }}
+                  title={`Showing first ${ROW_RENDER_CAP} of ${visible.length}. Click to render the rest (slower).`}
+                >
+                  Show all {visible.length} events ({visible.length - ROW_RENDER_CAP} more)
+                </button>
+              )}
             </div>
           </>
         )}

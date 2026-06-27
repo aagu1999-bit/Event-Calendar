@@ -115,6 +115,14 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
   // re-advance; undoing a decision while the timer is queued cancels it.
   const prevStateRef = useRef({ idx: 0, allDecided: false });
 
+  // === Card render cap ===
+  // For pathological groups (a venue/day collision with 30+ events),
+  // rendering every card up-front is what was crashing mobile Safari
+  // during big imports. Initial render shows up to MAX_CARDS_INITIAL;
+  // a "Show N more" button reveals the rest. Resets on group change.
+  const MAX_CARDS_INITIAL = 10;
+  const [showAllCards, setShowAllCards] = useState(false);
+
   // === Performance refs ===
   // Throttle touchmove via requestAnimationFrame — touchmove can fire
   // 100+ times/sec on some devices, each setSwipeX triggered a whole
@@ -144,10 +152,13 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
 
   // Clean any pending RAF + swipe state when the group changes (auto-
   // advance or Back/Next). Without this, a stale swipingId could leave
-  // the next group's matching card stuck mid-translate.
+  // the next group's matching card stuck mid-translate. Also reset the
+  // card-cap toggle so each fresh group starts collapsed (next group
+  // might be small and not need it).
   useEffect(() => {
     setSwipingId(null);
     setSwipeX(0);
+    setShowAllCards(false);
     if (rafRef.current != null) {
       cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
@@ -413,9 +424,11 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
           </div>
         )}
 
-        {/* Event cards */}
+        {/* Event cards — capped at MAX_CARDS_INITIAL for huge groups
+            (a venue-collision group could have 30+ events; rendering all
+            at once was crashing mobile Safari). User can expand. */}
         <div style={{ flex: 1, overflowY: "auto", padding: "12px 16px" }}>
-          {groupEvents.map((ev, i) => {
+          {(showAllCards ? groupEvents : groupEvents.slice(0, MAX_CARDS_INITIAL)).map((ev, i) => {
             const decision = decisions[ev.id];
             const isSwiping = swipingId === ev.id;
             // Per-field color: green if everyone agrees on this field's
@@ -521,6 +534,31 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
               </div>
             );
           })}
+          {/* Show-more toggle — appears when group has > MAX_CARDS_INITIAL
+              events and we're rendering the capped subset. Lets the user
+              expand on demand without paying the render cost up-front. */}
+          {!showAllCards && groupEvents.length > MAX_CARDS_INITIAL && (
+            <button
+              onClick={() => setShowAllCards(true)}
+              style={{
+                width: "100%",
+                padding: "10px 14px",
+                background: "rgba(192,132,252,0.08)",
+                color: "#C084FC",
+                border: "1px dashed rgba(192,132,252,0.45)",
+                borderRadius: 6,
+                fontSize: "0.7rem",
+                fontWeight: 700,
+                letterSpacing: 1,
+                textTransform: "uppercase",
+                cursor: "pointer",
+                fontFamily: "'Syne',sans-serif",
+                marginTop: 4,
+              }}
+            >
+              Show {groupEvents.length - MAX_CARDS_INITIAL} more events in this group
+            </button>
+          )}
         </div>
 
         {/* Footer — back / undo / next */}
