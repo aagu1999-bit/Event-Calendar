@@ -335,10 +335,28 @@ export function parseRows(rows, defaultRegionOrOpts = "North", maybeOpts) {
           : "";
 
       let day = null;
-      if (hasDayCol) day = parseDay(get("day"));
-      if (!day && hasDateCol) {
-        const di = parseDateToDay(get("date"));
-        if (di) day = di.day;
+      let date = "";
+      // Date parsing: if the sheet has an explicit date column, capture
+      // both the day-of-week AND the M/D date string. Previously the
+      // date string was thrown away after extracting day — so the
+      // exported "date" column was always empty. Now: date is preserved
+      // on each event for downstream consumers (CSV export, calendar
+      // display, archives).
+      if (hasDateCol) {
+        const rawDate = get("date");
+        const di = parseDateToDay(rawDate);
+        if (di) {
+          day = di.day;
+          date = di.date; // "M/D" format
+        } else if (rawDate) {
+          // Couldn't parse it but the user supplied something —
+          // preserve as-is so it round-trips.
+          date = rawDate;
+        }
+      }
+      if (hasDayCol) {
+        const dayCol = parseDay(get("day"));
+        if (dayCol) day = dayCol;
       }
       if (!day) day = "Fri";
 
@@ -346,6 +364,7 @@ export function parseRows(rows, defaultRegionOrOpts = "North", maybeOpts) {
       return {
         id: Date.now() + Math.random() * 1e5,
         day,
+        date,
         time: formatTime(get("time")),
         name: get("name"),
         venue: get("venue"),
