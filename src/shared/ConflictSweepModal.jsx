@@ -473,7 +473,7 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
                   onTouchEnd={onTouchEnd(ev.id)}
                   onTouchCancel={onTouchEnd(ev.id)}
                   style={{
-                    padding: 12,
+                    padding: 18,
                     background: swipeBgColor
                               ?? (decision === "delete" ? "rgba(251,113,133,0.06)"
                               : decision === "keep" ? "rgba(52,211,153,0.06)"
@@ -481,42 +481,29 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
                     border: "1.5px solid " + (decision === "delete" ? "rgba(251,113,133,0.45)"
                                             : decision === "keep" ? "rgba(52,211,153,0.45)"
                                             : "rgba(245,240,232,0.08)"),
-                    borderRadius: 6,
+                    borderRadius: 8,
                     opacity: decision === "delete" ? 0.65 : 1,
                     transform: isSwiping ? `translateX(${dx}px)` : "translateX(0)",
                     transition: isSwiping ? "none" : "transform 0.22s, all 0.15s",
                     touchAction: "pan-y",
                   }}
                 >
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, marginBottom: 6 }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: 1, textTransform: "uppercase", marginBottom: 3, fontWeight: 600 }}>
-                        Event {i + 1}{i === 0 ? " · first" : ""}
-                      </div>
-                      {/* Name — color-coded: green if all events in
-                          group share this name, orange if it differs */}
-                      <div style={{ fontSize: "0.95rem", fontFamily: "'Syne',sans-serif", fontWeight: 700, lineHeight: 1.2, color: fieldColor("name") }}>
-                        {ev.name || "(no name)"}
-                      </div>
-                    </div>
-                    <div style={{ display: "flex", gap: 5 }}>
-                      <button
-                        onClick={() => setDecisionWithHistory(ev.id, "keep")}
-                        style={actionBtnStyle(decision === "keep", "#34D399")}
-                        title="Keep this event"
-                      >✓</button>
-                      <button
-                        onClick={() => setDecisionWithHistory(ev.id, "delete")}
-                        style={actionBtnStyle(decision === "delete", "#FB7185")}
-                        title="Delete this event"
-                      >✗</button>
-                    </div>
+                  {/* Event label — small caps tag */}
+                  <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: 1, textTransform: "uppercase", marginBottom: 6, fontWeight: 600 }}>
+                    Event {i + 1}{i === 0 ? " · first" : ""}
+                  </div>
+                  {/* Name — color-coded: green if all events in
+                      group share this name, orange if it differs.
+                      Bumped up to read as the card hero. */}
+                  <div style={{ fontSize: "1.15rem", fontFamily: "'Syne',sans-serif", fontWeight: 800, lineHeight: 1.2, color: fieldColor("name"), marginBottom: 12 }}>
+                    {ev.name || "(no name)"}
                   </div>
                   {/* Each field value inline-colored against group
                       consensus. Scan one card top-to-bottom — green
                       means "this matches the group", orange means
-                      "this is one of the differences". */}
-                  <div style={{ fontSize: "0.72rem", lineHeight: 1.55 }}>
+                      "this is one of the differences". Sized up so
+                      the comparison stays readable at arm's length. */}
+                  <div style={{ fontSize: "0.85rem", lineHeight: 1.7, marginBottom: 14 }}>
                     <div>
                       <span style={{ color: fieldColor("day") }}>{ev.day || "—"}</span>
                       {sep}
@@ -529,11 +516,29 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
                       {sep}
                       <span style={{ color: fieldColor("region") }}>{ev.region || "—"}</span>
                     </div>
-                    {(ev.type || ev.link || ev.igHandle) && (
-                      <div style={{ marginTop: 3, fontSize: "0.65rem" }}>
-                        {ev.type && <span style={{ color: fieldColor("type") }}>{ev.type}</span>}
+                    {ev.type && (
+                      <div style={{ marginTop: 4, fontSize: "0.75rem", color: fieldColor("type") }}>
+                        {ev.type}
                       </div>
                     )}
+                  </div>
+                  {/* Per-card decision row — full-width buttons at the
+                      bottom of the card so the thumb has a big target.
+                      Tinder-style: keep on the right (green), delete
+                      on the left (red). The earlier top-right corner
+                      buttons made decisions feel like a side-action;
+                      bottom-row puts them front and center. */}
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button
+                      onClick={() => setDecisionWithHistory(ev.id, "delete")}
+                      style={bottomActionBtnStyle(decision === "delete", "#FB7185")}
+                      title="Delete this event"
+                    >✗ Delete</button>
+                    <button
+                      onClick={() => setDecisionWithHistory(ev.id, "keep")}
+                      style={bottomActionBtnStyle(decision === "keep", "#34D399")}
+                      title="Keep this event"
+                    >✓ Keep</button>
                   </div>
                 </div>
               </div>
@@ -694,19 +699,21 @@ const shortcutBtnStyle = (color) => ({
   cursor: "pointer",
   fontFamily: "'Syne',sans-serif",
 });
-const actionBtnStyle = (active, color) => ({
-  width: 36,
-  height: 36,
-  borderRadius: 4,
-  border: "1.5px solid " + (active ? color : "rgba(245,240,232,0.15)"),
+// Full-width per-card action buttons (Tinder-style row at the bottom
+// of each event card). Big tap targets for thumb-driven mobile use.
+// Active state fills the button so the user's last decision is obvious
+// at a glance even before swipe ends.
+const bottomActionBtnStyle = (active, color) => ({
+  flex: 1,
+  padding: "12px 10px",
+  borderRadius: 6,
+  border: "1.5px solid " + (active ? color : `${color}55`),
   background: active ? `${color}22` : "transparent",
-  color: active ? color : "rgba(245,240,232,0.4)",
-  fontSize: "1.05rem",
+  color: active ? color : `${color}cc`,
+  fontSize: "0.78rem",
   fontWeight: 800,
+  letterSpacing: 1,
+  textTransform: "uppercase",
   cursor: "pointer",
-  fontFamily: "inherit",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  padding: 0,
+  fontFamily: "'Syne',sans-serif",
 });
