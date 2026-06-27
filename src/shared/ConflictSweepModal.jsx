@@ -50,41 +50,24 @@ function normField(v) {
   return String(v ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
-// For a group of events, return { matched, differs } — fields where all
-// events share the same value (matched) vs fields where at least one
-// differs. Empty fields are NOT counted as matches (would be misleading).
-function analyzeGroup(events) {
-  const matched = [], differs = [];
-  if (events.length < 2) return { matched, differs };
+// For each field in the group, is it "in conflict" (i.e., at least
+// one event has a different value from the others)? Returns a map
+// { fieldName: true|false }. Used to color-code field values in the
+// event cards: a value renders green if the field is consistent across
+// the whole group, orange if it differs. Empty values render dim.
+function computeFieldConflict(events) {
+  const status = {};
+  if (events.length < 2) return status;
   for (const field of FIELDS_TO_ANALYZE) {
     const values = events.map(e => normField(e[field]));
-    const unique = new Set(values);
-    // If everything is empty, skip — no signal either way.
-    if (unique.size === 1 && [...unique][0] === "") continue;
-    if (unique.size === 1) matched.push(field);
-    else differs.push(field);
+    const nonEmptyUnique = new Set(values.filter(Boolean));
+    // Treat as conflict if there's more than one distinct non-empty value
+    // OR if some events have a value and others don't.
+    const someEmpty = values.some(v => !v);
+    const someNonEmpty = values.some(v => v);
+    status[field] = (nonEmptyUnique.size > 1) || (someEmpty && someNonEmpty);
   }
-  return { matched, differs };
-}
-
-// For one event in a group, find fields where THIS event's value is
-// unique (not shared by any other event in the group). Surfaces "this
-// is the odd one out" — useful when most of the group agrees but one
-// row stands alone.
-function findOutlierFields(event, allEvents) {
-  if (allEvents.length < 2) return [];
-  const outliers = [];
-  for (const field of FIELDS_TO_ANALYZE) {
-    const myVal = normField(event[field]);
-    if (!myVal) continue;
-    const othersWithSameVal = allEvents.filter(e => e.id !== event.id && normField(e[field]) === myVal);
-    if (othersWithSameVal.length === 0) {
-      // No one else shares this value → this event is alone on this field
-      const anyoneElseHasValue = allEvents.some(e => e.id !== event.id && normField(e[field]));
-      if (anyoneElseHasValue) outliers.push(field);
-    }
-  }
-  return outliers;
+  return status;
 }
 
 export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDeletions }) {
@@ -184,7 +167,11 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
   const groupEvents = currentGroup.ids
     .map(id => events.find(e => String(e.id) === String(id)))
     .filter(Boolean);
-  const groupAnalysis = analyzeGroup(groupEvents);
+  // Field-conflict map for this group — used to color-code each event's
+  // field values in its card. Replaces the old chip-row + "Stands alone"
+  // badge dual-render (too many places for the eye to travel).
+  const fieldConflict = computeFieldConflict(groupEvents);
+  const anyConflictedFields = Object.values(fieldConflict).some(Boolean);
 
   // Group-shortcut handlers — bulk-decide every event in the group.
   // Each one pushes one history entry per event so Undo can rewind
@@ -265,19 +252,17 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
             <button onClick={onClose} style={closeBtnStyle} title="Close">×</button>
           </div>
 
-          {/* Field-level analysis chips — green = all agree, red = differ */}
-          {(groupAnalysis.matched.length > 0 || groupAnalysis.differs.length > 0) && (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 10 }}>
-              {groupAnalysis.matched.map(f => (
-                <span key={`m-${f}`} style={fieldChipStyle("matched")} title={`All ${groupEvents.length} events share the same ${FIELD_LABEL[f] || f}`}>
-                  ✓ {FIELD_LABEL[f] || f}
-                </span>
-              ))}
-              {groupAnalysis.differs.map(f => (
-                <span key={`d-${f}`} style={fieldChipStyle("differs")} title={`${FIELD_LABEL[f] || f} differs between these events`}>
-                  ≠ {FIELD_LABEL[f] || f}
-                </span>
-              ))}
+          {/* Tiny one-line color legend — replaces the old 7-chip row.
+              Each field value in the cards below is colored directly:
+              green = same across this group, orange = differs. The user
+              can scan one card and see the comparison without hopping
+              between header chips and card content. */}
+          {anyConflictedFields && (
+            <div style={{ marginTop: 8, fontSize: "0.55rem", color: "rgba(245,240,232,0.55)", letterSpacing: 0.5 }}>
+              <span style={{ color: "#34D399", fontWeight: 700 }}>● Same</span>
+              <span style={{ margin: "0 8px" }}>·</span>
+              <span style={{ color: "#FB923C", fontWeight: 700 }}>● Differs</span>
+              <span style={{ marginLeft: 8, opacity: 0.6 }}>(across these events)</span>
             </div>
           )}
         </div>
@@ -305,8 +290,18 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
         <div style={{ flex: 1, overflowY: "auto", padding: "12px 16px" }}>
           {groupEvents.map((ev, i) => {
             const decision = decisions[ev.id];
-            const outliers = findOutlierFields(ev, groupEvents);
             const isSwiping = swipingId === ev.id;
+            // Per-field color: green if everyone agrees on this field's
+            // value, orange if the group has differing values, dim if
+            // this event's value is empty. Replaces the separate
+            // "Stands alone on" badge — colors carry the same signal
+            // inline with less eye travel.
+            const fieldColor = (field) => {
+              const myVal = normField(ev[field]);
+              if (!myVal) return "rgba(245,240,232,0.30)";
+              return fieldConflict[field] ? "#FB923C" : "#34D399";
+            };
+            const sep = <span style={{ color: "rgba(245,240,232,0.25)" }}> · </span>;
             const dx = isSwiping ? swipeX : 0;
             const swipeRatio = Math.max(-1, Math.min(1, dx / SWIPE_THRESHOLD));
             const swipeBgColor = dx > 0 ? `rgba(52,211,153,${0.06 + Math.abs(swipeRatio) * 0.12})`
@@ -353,7 +348,9 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
                       <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: 1, textTransform: "uppercase", marginBottom: 3, fontWeight: 600 }}>
                         Event {i + 1}{i === 0 ? " · first" : ""}
                       </div>
-                      <div style={{ fontSize: "0.95rem", fontFamily: "'Syne',sans-serif", fontWeight: 700, lineHeight: 1.2, color: "#F5F0E8" }}>
+                      {/* Name — color-coded: green if all events in
+                          group share this name, orange if it differs */}
+                      <div style={{ fontSize: "0.95rem", fontFamily: "'Syne',sans-serif", fontWeight: 700, lineHeight: 1.2, color: fieldColor("name") }}>
                         {ev.name || "(no name)"}
                       </div>
                     </div>
@@ -370,19 +367,29 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
                       >✗</button>
                     </div>
                   </div>
-                  <div style={{ fontSize: "0.7rem", color: "rgba(245,240,232,0.65)", lineHeight: 1.5 }}>
-                    <div>{[ev.day, ev.time].filter(Boolean).join(" · ") || "no day/time"}</div>
-                    <div>{[ev.venue, ev.area, ev.region].filter(Boolean).join(" · ") || "no venue"}</div>
-                    {ev.type && <div style={{ marginTop: 3, color: "rgba(245,240,232,0.4)" }}>{ev.type}</div>}
-                  </div>
-                  {/* Outlier badge — this event has unique values on these
-                      fields while the rest of the group agrees. Surfaces
-                      "stands alone on Venue" when one row deviates. */}
-                  {outliers.length > 0 && (
-                    <div style={{ marginTop: 8, padding: "5px 8px", background: "rgba(251,146,60,0.10)", border: "1px solid rgba(251,146,60,0.35)", borderRadius: 4, fontSize: "0.6rem", color: "#FB923C", letterSpacing: 0.5 }}>
-                      ⚠ Stands alone on: {outliers.map(f => FIELD_LABEL[f] || f).join(", ")}
+                  {/* Each field value inline-colored against group
+                      consensus. Scan one card top-to-bottom — green
+                      means "this matches the group", orange means
+                      "this is one of the differences". */}
+                  <div style={{ fontSize: "0.72rem", lineHeight: 1.55 }}>
+                    <div>
+                      <span style={{ color: fieldColor("day") }}>{ev.day || "—"}</span>
+                      {sep}
+                      <span style={{ color: fieldColor("time") }}>{ev.time || "—"}</span>
                     </div>
-                  )}
+                    <div>
+                      <span style={{ color: fieldColor("venue") }}>{ev.venue || "—"}</span>
+                      {sep}
+                      <span style={{ color: fieldColor("area") }}>{ev.area || "—"}</span>
+                      {sep}
+                      <span style={{ color: fieldColor("region") }}>{ev.region || "—"}</span>
+                    </div>
+                    {(ev.type || ev.link || ev.igHandle) && (
+                      <div style={{ marginTop: 3, fontSize: "0.65rem" }}>
+                        {ev.type && <span style={{ color: fieldColor("type") }}>{ev.type}</span>}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             );
@@ -528,20 +535,3 @@ const actionBtnStyle = (active, color) => ({
   justifyContent: "center",
   padding: 0,
 });
-// Field-analysis chips: green for matched fields (the basis of the
-// conflict), orange for fields that differ between the events.
-const fieldChipStyle = (kind) => {
-  const color = kind === "matched" ? "#34D399" : "#FB923C";
-  return {
-    padding: "3px 7px",
-    background: `${color}15`,
-    color,
-    border: `1px solid ${color}55`,
-    borderRadius: 3,
-    fontSize: "0.55rem",
-    fontWeight: 700,
-    letterSpacing: 0.5,
-    textTransform: "uppercase",
-    fontFamily: "'Syne',sans-serif",
-  };
-};
