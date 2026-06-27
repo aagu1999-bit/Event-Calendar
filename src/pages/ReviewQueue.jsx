@@ -9,6 +9,7 @@ import { UInput, todaysFridayMD } from "../shared/inputs.jsx";
 import { ReviewSessionsModal } from "../shared/ReviewSessionsModal.jsx";
 import { ColumnMapperModal } from "../shared/ColumnMapperModal.jsx";
 import { ConflictSweepModal } from "../shared/ConflictSweepModal.jsx";
+import { FixFlagsModal } from "../shared/FixFlagsModal.jsx";
 import { saveExport } from "../shared/photoLibrary.js";
 import { rememberLastSession, getLastSession, forgetLastSession, loadSession } from "../shared/reviewSessions.js";
 
@@ -223,6 +224,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
   // triage. Button surfaces under .cge-mobile-only CSS so desktop users
   // keep the existing flag-pill workflow.
   const [sweepOpen, setSweepOpen] = useState(false);
+  const [fixFlagsOpen, setFixFlagsOpen] = useState(false);
   // Weekend date anchor — same UX as CalendarBuilder. Type the upcoming
   // Friday in M/D format; Saturday and Sunday derive automatically. Used
   // to fill the `date` column on export AND to stamp pending events with
@@ -335,6 +337,19 @@ export default function ReviewQueue({ betaMode = false } = {}) {
       });
     });
     return seen.size;
+  }, [warnings]);
+
+  // Count of events that have non-partner warnings (i.e., the queue
+  // for FixFlagsModal). DUPE/VENUE/MULTI are handled by Sweep — Fix
+  // Flags only counts events whose ONLY warnings are single-event
+  // (NO X / WRONG DAY? / REGION? / ALREADY IN STORE / etc.).
+  const singleFlagEventCount = useMemo(() => {
+    let n = 0;
+    Object.values(warnings || {}).forEach(ws => {
+      const hasNonPartner = (ws || []).some(w => !/^(DUPE|VENUE|MULTI)\s+#\d+/.test(String(w.msg || "")));
+      if (hasNonPartner) n++;
+    });
+    return n;
   }, [warnings]);
 
   // Helper — match a flag tag in summary to its event count for filter
@@ -1026,6 +1041,40 @@ export default function ReviewQueue({ betaMode = false } = {}) {
               </button>
             )}
 
+            {/* Fix Flags button — opens FixFlagsModal for single-event
+                triage (missing fields, soft warnings). Pairs with Sweep:
+                Sweep handles partner conflicts, Fix Flags handles
+                everything else. Same visibility rules: mobile-only in
+                standard Review, always visible in betaMode. */}
+            {singleFlagEventCount > 0 && (
+              <button
+                className={betaMode ? "" : "cge-mobile-only"}
+                onClick={() => setFixFlagsOpen(true)}
+                style={{
+                  width: "100%",
+                  padding: betaMode ? "16px 18px" : "12px 16px",
+                  marginBottom: "0.8rem",
+                  background: betaMode ? "rgba(251,113,133,0.16)" : "rgba(251,113,133,0.10)",
+                  border: betaMode ? "2px solid #FB7185" : "1.5px solid rgba(251,113,133,0.45)",
+                  color: "#FB7185",
+                  borderRadius: 6,
+                  fontSize: betaMode ? "0.95rem" : "0.8rem",
+                  fontWeight: 800,
+                  letterSpacing: 1,
+                  textTransform: "uppercase",
+                  cursor: "pointer",
+                  fontFamily: "'Syne',sans-serif",
+                  display: betaMode ? "flex" : "none",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 8,
+                  boxShadow: betaMode ? "0 0 16px rgba(251,113,133,0.18)" : "none",
+                }}
+              >
+                ⚠ Fix {singleFlagEventCount} Flagged Event{singleFlagEventCount === 1 ? "" : "s"}
+              </button>
+            )}
+
             {/* Flag-type summary — counts per tag, click to filter */}
             {flagSummary.length > 0 && (
               <details
@@ -1613,6 +1662,37 @@ export default function ReviewQueue({ betaMode = false } = {}) {
             return next;
           });
         }}
+      />
+      {/* Fix Flags — single-event triage modal. Edits commit live via
+          onEdit so warnings recompute and flags clear in real-time.
+          onApply batches the approve/delete decisions: approve marks
+          the event as vetted; delete removes it from pending. */}
+      <FixFlagsModal
+        open={fixFlagsOpen}
+        events={pending}
+        warnings={warnings}
+        onEdit={(eventId, patch) => {
+          setPending(p => p.map(e => String(e.id) === String(eventId) ? { ...e, ...patch } : e));
+        }}
+        onApply={({ approveIds, deleteIds }) => {
+          if (deleteIds && deleteIds.length > 0) {
+            const delSet = new Set(deleteIds.map(String));
+            setPending(p => p.filter(e => !delSet.has(String(e.id))));
+            setApprovals(a => {
+              const next = { ...a };
+              deleteIds.forEach(id => { delete next[id]; });
+              return next;
+            });
+          }
+          if (approveIds && approveIds.length > 0) {
+            setApprovedSet(s => {
+              const next = new Set(s);
+              approveIds.forEach(id => next.add(id));
+              return next;
+            });
+          }
+        }}
+        onClose={() => setFixFlagsOpen(false)}
       />
     </div>
   );
