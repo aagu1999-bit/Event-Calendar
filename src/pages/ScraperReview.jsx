@@ -184,6 +184,13 @@ export default function ScraperReview() {
   const ROW_RENDER_CAP = 50;
   const [showAllRows, setShowAllRows] = useState(false);
   useEffect(() => { setShowAllRows(false); }, [filter]);
+  // Toggle to override the "skip already-sent" behavior. When the
+  // user clears Review + the events store and wants to re-import the
+  // SAME scraper batch (e.g. starting fresh on the same weekend),
+  // the PUSHED_AT stamp on the sheet would otherwise lock those rows
+  // out forever. With this flag ON, sendable includes already-sent
+  // rows so they re-stage in Review. PUSHED_AT gets re-stamped on send.
+  const [includeAlreadySent, setIncludeAlreadySent] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -227,12 +234,14 @@ export default function ScraperReview() {
     });
   }, [events, filter]);
 
-  // The set the Send button will actually push — always "NJ + not yet pushed",
-  // regardless of which filter is currently shown. The button label uses
-  // this count, not the visible count, to avoid confusion.
+  // The set the Send button will actually push — "NJ + not yet pushed"
+  // by default. When includeAlreadySent is ON, already-sent rows ALSO
+  // qualify (useful for re-staging the same batch after a wipe).
+  // The button label reads this count so the user sees what they'll
+  // actually send.
   const sendable = useMemo(() => {
-    return events.filter((ev) => isNJEvent(ev) && !alreadyPushed(ev));
-  }, [events]);
+    return events.filter((ev) => isNJEvent(ev) && (includeAlreadySent || !alreadyPushed(ev)));
+  }, [events, includeAlreadySent]);
 
   async function sendToReview() {
     if (sendable.length === 0) return;
@@ -392,6 +401,35 @@ export default function ScraperReview() {
         >
           {loading ? "Loading…" : hasFetched ? "↻ Refresh from Sheet" : "↻ Load from Sheet"}
         </button>
+        {/* Include-already-sent toggle. Off by default (the common case
+            — only stage new events). Flip on to re-stage already-sent
+            rows when you've wiped Review + the events store and want
+            to work the same set again. */}
+        {hasFetched && counts.already_sent > 0 && (
+          <label
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "8px 12px",
+              background: includeAlreadySent ? "#fef3c7" : "#f9fafb",
+              border: `1px solid ${includeAlreadySent ? "#f59e0b" : "#e5e7eb"}`,
+              borderRadius: 6,
+              fontSize: 12,
+              color: includeAlreadySent ? "#92400e" : "#374151",
+              cursor: "pointer",
+              userSelect: "none",
+              fontWeight: includeAlreadySent ? 700 : 500,
+            }}
+            title="Re-stage already-sent events (useful after clearing Review + the events store to rebuild the same set)"
+          >
+            <input
+              type="checkbox"
+              checked={includeAlreadySent}
+              onChange={(e) => setIncludeAlreadySent(e.target.checked)}
+              style={{ margin: 0 }}
+            />
+            Include already-sent ({counts.already_sent})
+          </label>
+        )}
         <span style={{ color: "#6b7280", fontSize: 13, marginLeft: "auto" }}>
           Only rows whose CITY/SECTION explicitly names a non-NJ city
           (NYC, Philly, etc.) are skipped ({counts.non_nj}). Blank or

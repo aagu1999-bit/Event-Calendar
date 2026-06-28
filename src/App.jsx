@@ -1,4 +1,5 @@
 import { useRef, useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { BrowserRouter, Routes, Route, NavLink, Navigate, useNavigate, useLocation } from "react-router-dom";
 import JSZip from "jszip";
 import CalendarBuilder from "./pages/CalendarBuilder.jsx";
@@ -145,10 +146,12 @@ function ToolPicker() {
 }
 
 // Workspace menu — collapses Save/Load/Export/Import/Clear into a
-// single dropdown so the nav doesn't carry 5-7 button pills (especially
-// painful on mobile where the nav already has a tool dropdown + brand
-// + event counter). Click "⋯ Workspace" to open; click outside or
-// pick an action to close.
+// single dropdown so the nav doesn't carry 5-7 button pills. The
+// menu panel renders in a PORTAL with FIXED positioning anchored to
+// the trigger button's bounding rect. Earlier inline absolute
+// positioning was opening invisibly on mobile (clipped by sticky-nav
+// stacking context or hidden by some parent overflow). Portal +
+// fixed sidesteps every ancestor-style concern.
 function WorkspaceMenu({
   cloudOk, wsBusy, importBusy, eventCount,
   onCloudSave, onOpenCloudPicker, onExportWorkspace,
@@ -156,41 +159,66 @@ function WorkspaceMenu({
   onExportCsv, onClearAll,
 }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef(null);
+  const [anchorRect, setAnchorRect] = useState(null);
+  const btnRef = useRef(null);
+  const panelRef = useRef(null);
+
+  // Anchor the panel to the button each time we open. Also recompute
+  // on scroll/resize while open so the menu tracks the button if the
+  // user scrolls the page.
+  const recomputeAnchor = () => {
+    const el = btnRef.current;
+    if (!el) return;
+    setAnchorRect(el.getBoundingClientRect());
+  };
 
   useEffect(() => {
     if (!open) return;
-    const handler = (e) => {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    recomputeAnchor();
+    const onScrollOrResize = () => recomputeAnchor();
+    window.addEventListener("scroll", onScrollOrResize, true);
+    window.addEventListener("resize", onScrollOrResize);
+    // Close on outside click / Escape. Use pointerdown because it
+    // fires reliably on mobile touch + desktop mouse, before any
+    // synthetic click that might race.
+    const onPointer = (e) => {
+      if (btnRef.current?.contains(e.target)) return;     // toggle handled by button
+      if (panelRef.current?.contains(e.target)) return;   // inside the panel
+      setOpen(false);
     };
-    // Also close on Escape
-    const keyHandler = (e) => { if (e.key === "Escape") setOpen(false); };
-    document.addEventListener("mousedown", handler);
-    document.addEventListener("keydown", keyHandler);
+    const onKey = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("pointerdown", onPointer);
+    document.addEventListener("keydown", onKey);
     return () => {
-      document.removeEventListener("mousedown", handler);
-      document.removeEventListener("keydown", keyHandler);
+      window.removeEventListener("scroll", onScrollOrResize, true);
+      window.removeEventListener("resize", onScrollOrResize);
+      document.removeEventListener("pointerdown", onPointer);
+      document.removeEventListener("keydown", onKey);
     };
   }, [open]);
 
-  const fire = (fn) => () => { fn?.(); setOpen(false); };
+  const fire = (fn, isDisabled) => () => {
+    if (isDisabled) return;
+    fn?.();
+    setOpen(false);
+  };
 
-  // One menu item — color sets the accent (gold/blue/purple/red) so the
-  // dropdown visually groups by intent (cloud/workspace/import/destructive).
+  // Color sets the accent (gold/blue/purple/red) so the dropdown
+  // visually groups by intent (cloud / workspace / import / destructive).
   const item = (label, onClick, color, opts = {}) => (
     <button
-      onClick={fire(onClick)}
+      onClick={fire(onClick, opts.disabled)}
       disabled={opts.disabled}
       title={opts.title}
       style={{
         display: "block",
         width: "100%",
-        padding: "10px 14px",
+        padding: "12px 14px",
         background: "transparent",
-        color: opts.disabled ? "rgba(245,240,232,0.25)" : color,
+        color: opts.disabled ? "rgba(245,240,232,0.3)" : color,
         border: "none",
         borderTop: opts.divider ? "1px solid rgba(245,240,232,0.06)" : "none",
-        fontSize: "0.65rem",
+        fontSize: "0.7rem",
         fontWeight: 700,
         letterSpacing: "1px",
         textTransform: "uppercase",
@@ -198,21 +226,43 @@ function WorkspaceMenu({
         fontFamily: "inherit",
         textAlign: "left",
       }}
-      onMouseEnter={(e) => { if (!opts.disabled) e.currentTarget.style.background = "rgba(245,240,232,0.04)"; }}
-      onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
     >
       {label}
     </button>
   );
 
+  // Compute panel position from the anchor rect. Pin right edge to
+  // button right edge + 4px below the button. Clamp horizontally to
+  // stay within the viewport (8px padding).
+  const panelStyle = (() => {
+    if (!anchorRect) return null;
+    const MIN_WIDTH = 220;
+    const right = Math.max(8, window.innerWidth - anchorRect.right);
+    const top = anchorRect.bottom + 4;
+    return {
+      position: "fixed",
+      top,
+      right,
+      minWidth: MIN_WIDTH,
+      maxWidth: "calc(100vw - 16px)",
+      background: "#0a0a0a",
+      border: "1px solid rgba(245,240,232,0.18)",
+      borderRadius: 6,
+      boxShadow: "0 10px 30px rgba(0,0,0,0.55)",
+      zIndex: 9999,
+      overflow: "hidden",
+    };
+  })();
+
   return (
-    <div ref={ref} style={{ position: "relative" }}>
+    <>
       <button
+        ref={btnRef}
         onClick={() => setOpen(o => !o)}
         title="Workspace actions — save, load, import, export, clear"
         style={{
           padding: "4px 10px",
-          background: open ? "rgba(229,188,79,0.20)" : "rgba(229,188,79,0.08)",
+          background: open ? "rgba(229,188,79,0.22)" : "rgba(229,188,79,0.08)",
           border: "1px solid rgba(229,188,79,0.35)",
           borderRadius: "4px",
           color: "#E5BC4F",
@@ -224,30 +274,24 @@ function WorkspaceMenu({
           fontWeight: 700,
         }}
       >⋯ Workspace</button>
-      {open && (
-        <div style={{
-          position: "absolute",
-          top: "100%",
-          right: 0,
-          marginTop: 4,
-          minWidth: 200,
-          background: "#0a0a0a",
-          border: "1px solid rgba(245,240,232,0.12)",
-          borderRadius: 6,
-          boxShadow: "0 10px 30px rgba(0,0,0,0.45)",
-          zIndex: 200,
-          overflow: "hidden",
-        }}>
-          {cloudOk && item(`☁️ ${wsBusy ? "Saving…" : "Save to Repl"}`,    onCloudSave,                   "#63B3ED", { disabled: wsBusy })}
-          {cloudOk && item("Load from Repl",                                onOpenCloudPicker,             "#63B3ED", { disabled: wsBusy })}
-          {item(`📦 ${wsBusy ? "Exporting…" : "Export workspace"}`,         onExportWorkspace,             "#C084FC", { disabled: wsBusy, divider: cloudOk })}
-          {item("Import workspace…",                                        onTriggerImportWorkspace,      "#C084FC", { disabled: wsBusy })}
-          {item(`📥 ${importBusy ? "Reading…" : "Import PNG/ZIP from disk"}`, onTriggerImportFromDisk,     "#63B3ED", { disabled: importBusy, divider: true })}
-          {eventCount > 0 && item("Export CSV",                             onExportCsv,                   "#E5BC4F", { divider: true })}
-          {eventCount > 0 && item("Clear all events",                       onClearAll,                    "#FB7185", {})}
-        </div>
+      {open && panelStyle && createPortal(
+        <div ref={panelRef} style={panelStyle}>
+          {cloudOk && item(`☁️ ${wsBusy ? "Saving…" : "Save to Repl"}`,        onCloudSave,                   "#63B3ED", { disabled: wsBusy })}
+          {cloudOk && item("Load from Repl",                                    onOpenCloudPicker,             "#63B3ED", { disabled: wsBusy })}
+          {item(`📦 ${wsBusy ? "Exporting…" : "Export workspace"}`,             onExportWorkspace,             "#C084FC", { disabled: wsBusy, divider: cloudOk })}
+          {item("Import workspace…",                                            onTriggerImportWorkspace,      "#C084FC", { disabled: wsBusy })}
+          {item(`📥 ${importBusy ? "Reading…" : "Import PNG/ZIP from disk"}`,   onTriggerImportFromDisk,       "#63B3ED", { disabled: importBusy, divider: true })}
+          {/* Export CSV + Clear all are ALWAYS shown now (previously
+              hidden when eventCount=0). Clear is the "reset
+              everything" pressure-valve the user needs even right
+              after a fresh wipe — disabling when 0 events is fine
+              but it shouldn't disappear. */}
+          {item("Export CSV",                                                   onExportCsv,                   "#E5BC4F", { disabled: eventCount === 0, divider: true, title: eventCount === 0 ? "No events to export" : "Download all events as CSV" })}
+          {item("Clear all events",                                             onClearAll,                    "#FB7185", { disabled: eventCount === 0, title: eventCount === 0 ? "Nothing to clear" : "Wipe events from the store across all tools" })}
+        </div>,
+        document.body
       )}
-    </div>
+    </>
   );
 }
 
