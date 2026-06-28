@@ -2180,6 +2180,132 @@ function VoiceChip() {
   );
 }
 
+// Curated emoji set for event-themed cards. Grouped by category in the
+// list (Music → Drinks → Food → Party → Sports → Fitness → Outdoor →
+// Show/Game → Misc) so the visual sweep follows event semantics.
+const FEATURE_EMOJIS = [
+  // Music
+  "🎵","🎶","🎤","🎧","🎸","🥁","🎹","🎺","🪕",
+  // Drinks
+  "🍻","🥂","🍷","🍸","🍹","☕","🧉",
+  // Food
+  "🍕","🍔","🌮","🍣","🍰","🎂",
+  // Party
+  "🎉","🎊","🎈","🎁","✨","💃","🕺","🪩","🎀",
+  // Sports / movement
+  "🎾","🏀","⚽","🏈","🎳","🎯","🏊","🤸","🏃","🧘","💪","🏋",
+  // Outdoor
+  "🌳","🌅","🌊","🏖","🌺","☀","🌙",
+  // Show / Game
+  "🎮","🎲","🎬","🎭","🎨","🎪","🎟",
+  // Tech / Work
+  "💻","📱","🎙","📷","📚","🎓",
+  // Marks of feeling
+  "❤","🔥","⭐","🌟","💯","🥇","👀","🤝","💼",
+];
+
+// Emoji picker — small popover with a curated grid. Replaces the
+// free-text emoji input used in the Features card form. Click the
+// button to open the grid; click an emoji to set it and close.
+// Click "✗ clear" to unset.
+function EmojiPicker({ value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const onPointer = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    };
+    const onKey = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("pointerdown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+  return (
+    <div ref={ref} style={{ position: "relative", width: "100%" }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        title="Pick an emoji"
+        style={{
+          width: "100%",
+          padding: "4px",
+          background: "#111",
+          border: open ? "1.5px solid #E5BC4F" : "1px solid rgba(245,240,232,0.04)",
+          borderRadius: 4,
+          color: "#F5F0E8",
+          fontSize: "1.1rem",
+          cursor: "pointer",
+          textAlign: "center",
+          minHeight: 32,
+          fontFamily: "inherit",
+        }}
+      >{value || "🙂"}</button>
+      {open && (
+        <div
+          style={{
+            position: "absolute",
+            top: "100%",
+            left: 0,
+            marginTop: 4,
+            padding: 8,
+            background: "#0a0a0a",
+            border: "1px solid rgba(245,240,232,0.18)",
+            borderRadius: 6,
+            boxShadow: "0 10px 24px rgba(0,0,0,0.55)",
+            zIndex: 50,
+            display: "grid",
+            gridTemplateColumns: "repeat(7, 1fr)",
+            gap: 3,
+            minWidth: 240,
+            maxHeight: 240,
+            overflowY: "auto",
+          }}
+        >
+          {FEATURE_EMOJIS.map((e) => (
+            <button
+              key={e}
+              onClick={() => { onChange(e); setOpen(false); }}
+              title={e}
+              style={{
+                width: 28,
+                height: 28,
+                background: value === e ? "rgba(229,188,79,0.22)" : "transparent",
+                border: value === e ? "1px solid rgba(229,188,79,0.5)" : "1px solid transparent",
+                borderRadius: 4,
+                cursor: "pointer",
+                fontSize: "1.05rem",
+                padding: 0,
+                lineHeight: 1,
+              }}
+            >{e}</button>
+          ))}
+          <button
+            onClick={() => { onChange(""); setOpen(false); }}
+            title="Clear emoji"
+            style={{
+              gridColumn: "span 7",
+              padding: "5px",
+              marginTop: 4,
+              background: "transparent",
+              border: "1px solid rgba(251,113,133,0.3)",
+              borderRadius: 4,
+              color: "rgba(251,113,133,0.7)",
+              fontSize: "0.55rem",
+              letterSpacing: 1,
+              textTransform: "uppercase",
+              cursor: "pointer",
+              fontFamily: "'Syne',sans-serif",
+            }}
+          >✗ Clear</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // === MEDIA TOOL ===
 export default function MediaTool() {
   const events = useEventsStore(s => s.events);
@@ -5256,7 +5382,10 @@ export default function MediaTool() {
               <div style={{marginBottom:"0.5rem",fontSize:"0.5rem",color:"rgba(245,240,232,0.4)",letterSpacing:"1.5px",textTransform:"uppercase"}}>{features.length} Card{features.length===1?"":"s"} · {features.length===1?"full width":features.length===2?"2×1":features.length<=4?"2 cols":"2 cols, 3 rows"} · 1-6</div>
               {features.map((card,i)=>(
                 <div key={i} style={{display:"grid",gridTemplateColumns:"50px 1fr 1fr auto",gap:"0.3rem",marginBottom:"0.4rem",alignItems:"center"}}>
-                  <input value={card.emoji} onChange={e=>setFeatures(p=>p.map((c,j)=>j===i?{...c,emoji:e.target.value}:c))} style={{...I,textAlign:"center",fontSize:"1rem",padding:"4px"}} placeholder="🎾" maxLength={4}/>
+                  <EmojiPicker
+                    value={card.emoji}
+                    onChange={(v) => setFeatures(p => p.map((c, j) => j === i ? { ...c, emoji: v } : c))}
+                  />
                   <input value={card.headline} onChange={e=>setFeatures(p=>p.map((c,j)=>j===i?{...c,headline:e.target.value}:c))} style={{...I,fontSize:"0.6rem"}} placeholder="Headline"/>
                   <input value={card.sub} onChange={e=>setFeatures(p=>p.map((c,j)=>j===i?{...c,sub:e.target.value}:c))} style={{...I,fontSize:"0.6rem"}} placeholder="Sub copy"/>
                   {features.length>1&&<button onClick={()=>setFeatures(p=>p.filter((_,j)=>j!==i))} style={{...B,padding:"4px 6px",color:"rgba(251,113,133,0.6)"}} title="Remove this card">×</button>}
