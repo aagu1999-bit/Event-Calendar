@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect } from "react";
-import { BrowserRouter, Routes, Route, NavLink, Navigate, useNavigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, NavLink, Navigate, useNavigate, useLocation } from "react-router-dom";
 import JSZip from "jszip";
 import CalendarBuilder from "./pages/CalendarBuilder.jsx";
 import NewsletterBuilder from "./pages/NewsletterBuilder.jsx";
@@ -75,6 +75,68 @@ function exportEventsCsv(events) {
     name: filename,
     kind: "archive",
   }).catch(err => console.warn("CSV archive failed:", err));
+}
+
+// Tool list — single source of truth for the picker. Order is the
+// order they appear in the dropdown; current route is auto-derived
+// from useLocation so the select label always reflects where you are.
+const TOOLS = [
+  { path: "/calendar",    label: "Calendar" },
+  { path: "/newsletter",  label: "Newsletter" },
+  { path: "/reel",        label: "Reel" },
+  { path: "/flyer",       label: "Flyer" },
+  { path: "/media",       label: "Media" },
+  { path: "/recap",       label: "Recap" },
+  { path: "/review",      label: "Review" },
+  { path: "/review-beta", label: "Review β" },
+  { path: "/scraper",     label: "📥 Scraper" },
+  { path: "/regulars",    label: "Regulars" },
+  { path: "/brand",       label: "Brand" },
+];
+
+function ToolPicker() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  // Match exact path first, then prefix (handles /review-beta vs /review)
+  const matched = TOOLS.find(t => t.path === location.pathname)
+              || TOOLS.find(t => location.pathname.startsWith(t.path + "/"))
+              || TOOLS[0];
+  return (
+    <select
+      value={matched.path}
+      onChange={(e) => navigate(e.target.value)}
+      style={{
+        padding: "6px 26px 6px 10px",
+        background: "#111",
+        color: "#F5F0E8",
+        border: "1px solid rgba(245,240,232,0.12)",
+        borderRadius: 4,
+        fontSize: "0.72rem",
+        fontWeight: 700,
+        letterSpacing: "1.5px",
+        textTransform: "uppercase",
+        cursor: "pointer",
+        fontFamily: "'Syne',sans-serif",
+        minWidth: 130,
+        // Custom dropdown arrow (gold) so it's discoverable as
+        // interactive — the default browser arrow disappears in dark
+        // mode in some browsers.
+        appearance: "none",
+        WebkitAppearance: "none",
+        backgroundImage: "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path fill='%23E5BC4F' d='M4 6l4 4 4-4z'/></svg>\")",
+        backgroundRepeat: "no-repeat",
+        backgroundPosition: "right 6px center",
+        backgroundSize: "14px",
+      }}
+      title="Pick a tool"
+    >
+      {TOOLS.map(t => (
+        <option key={t.path} value={t.path} style={{ color: "#000", background: "#fff" }}>
+          {t.label}
+        </option>
+      ))}
+    </select>
+  );
 }
 
 function Nav() {
@@ -324,17 +386,12 @@ function Nav() {
       }}>
         CGE TOOLS
       </div>
-      <NavLink to="/calendar"   {...navLinkCommon}>Calendar</NavLink>
-      <NavLink to="/newsletter" {...navLinkCommon}>Newsletter</NavLink>
-      <NavLink to="/reel"       {...navLinkCommon}>Reel</NavLink>
-      <NavLink to="/flyer"      {...navLinkCommon}>Flyer</NavLink>
-      <NavLink to="/media"      {...navLinkCommon}>Media</NavLink>
-      <NavLink to="/recap"      {...navLinkCommon}>Recap</NavLink>
-      <NavLink to="/review"     {...navLinkCommon}>Review</NavLink>
-      <NavLink to="/review-beta" {...navLinkCommon}>Review β</NavLink>
-      <NavLink to="/scraper"    {...navLinkCommon}>📥 Scraper</NavLink>
-      <NavLink to="/regulars"   {...navLinkCommon}>Regulars</NavLink>
-      <NavLink to="/brand"      {...navLinkCommon}>Brand</NavLink>
+      {/* Tool picker — was 11 horizontally-scrolling NavLinks on mobile
+          (you had to swipe right just to find Brand or Scraper). One
+          dropdown shows the current tool and lets you jump anywhere
+          without scrolling. */}
+      <ToolPicker />
+
       <div className="cge-nav-spacer" style={{ flex: 1 }} />
       <div className="cge-nav-count" style={{
         fontSize: "0.6rem",
