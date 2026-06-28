@@ -166,7 +166,11 @@ export default function ScraperReview() {
   const navigate = useNavigate();
   const setIntake = useScraperIntakeStore((s) => s.setEvents);
 
-  const [loading, setLoading]   = useState(true);
+  // Idle = nothing fetched yet (user hasn't clicked Load). Distinct
+  // from "loading" so the empty-state messaging is correct on first
+  // visit ("click Load" instead of "connected but empty").
+  const [loading, setLoading]   = useState(false);
+  const [hasFetched, setHasFetched] = useState(false);
   const [sending, setSending]   = useState(false);
   const [error, setError]       = useState("");
   const [events, setEvents]     = useState([]);
@@ -193,9 +197,12 @@ export default function ScraperReview() {
       setDebugInfo(null);
     } finally {
       setLoading(false);
+      setHasFetched(true);
     }
   }
-  useEffect(() => { load(); }, []);
+  // No auto-load on mount. User taps "Load from Sheet" to fetch —
+  // avoids surprise network requests on every page visit and removes
+  // the auto-render of 100+ remote IG images that was OOMing tabs.
 
   // Derived counts. Each row falls into exactly one of {nj_ready, non_nj,
   // already_sent}, so the filter chip totals don't overlap.
@@ -277,6 +284,17 @@ export default function ScraperReview() {
 
   // Top status strip — same color-coded card pattern as before
   const statusStrip = (() => {
+    // Idle (first visit, nothing fetched yet) — instructs the user to
+    // tap Load. Distinct from "empty result" so the messaging is
+    // accurate when no API call has run.
+    if (!hasFetched && !loading && !error) {
+      return <div style={statusStripStyle("#2563eb")}>
+        <span style={dotStyle("#2563eb")} />
+        <span>
+          <b>Ready to pull from Weekend_Review.</b> Click <b>↻ Load from Sheet</b> to fetch the latest staged events.
+        </span>
+      </div>;
+    }
     if (loading) {
       return <div style={statusStripStyle("#6b7280")}>
         <span style={dotStyle("#6b7280")} /> Loading Weekend_Review…
@@ -363,15 +381,16 @@ export default function ScraperReview() {
           disabled={loading || sending}
           style={{
             padding: "10px 14px",
-            background: "white",
-            color: "#1f2937",
-            border: "1px solid #d1d5db",
+            background: !hasFetched && !loading ? "#2563eb" : "white",
+            color: !hasFetched && !loading ? "white" : "#1f2937",
+            border: !hasFetched && !loading ? "none" : "1px solid #d1d5db",
             borderRadius: 6,
             fontSize: 13,
+            fontWeight: !hasFetched && !loading ? 700 : 400,
             cursor: loading ? "wait" : "pointer",
           }}
         >
-          {loading ? "Loading…" : "↻ Refresh from Sheet"}
+          {loading ? "Loading…" : hasFetched ? "↻ Refresh from Sheet" : "↻ Load from Sheet"}
         </button>
         <span style={{ color: "#6b7280", fontSize: 13, marginLeft: "auto" }}>
           Only rows whose CITY/SECTION explicitly names a non-NJ city
