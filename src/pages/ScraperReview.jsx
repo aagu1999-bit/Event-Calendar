@@ -136,10 +136,14 @@ function dayOfWeek(date) {
 function rowToEvent(row) {
   const date = parseDate(row["DATE"]);
   const postId = String(row["POST ID"] || "").trim();
+  // M/D for the new `date` column on events. Without this, scraper-
+  // imported events would show blank in the date column on export.
+  const dateMD = date ? `${date.getMonth() + 1}/${date.getDate()}` : "";
   return {
     id: `scraper_${postId || Math.random().toString(36).slice(2)}`,
     name: row["EVENT NAME"] || "",
     day: dayOfWeek(date),
+    date: dateMD,
     time: row["START TIME"] || "",
     venue: row["VENUE NAME"] || "",
     area: row["CITY"] || "",
@@ -168,6 +172,14 @@ export default function ScraperReview() {
   const [events, setEvents]     = useState([]);
   const [debugInfo, setDebugInfo] = useState(null);
   const [filter, setFilter]     = useState("nj_ready");  // nj_ready | non_nj | already_sent | all
+  // Render cap — a Weekend_Review with 100+ rows was crashing both
+  // mobile Safari and desktop Chrome because every card was rendering
+  // a full-resolution Instagram CDN image up-front (100 fetches +
+  // 100 decoded bitmaps in memory). Cap initial render at 50; the
+  // "Show all" button expands on demand. Resets on filter change.
+  const ROW_RENDER_CAP = 50;
+  const [showAllRows, setShowAllRows] = useState(false);
+  useEffect(() => { setShowAllRows(false); }, [filter]);
 
   async function load() {
     setLoading(true);
@@ -405,9 +417,15 @@ export default function ScraperReview() {
       )}
 
       {/* Read-only preview cards. No buttons — sending is bulk only.
-          Edits happen later in /review. */}
+          Edits happen later in /review.
+
+          Capped at ROW_RENDER_CAP — beyond that the user gets a
+          "Show all" button. Each card has a remote Instagram image, so
+          rendering all 100+ cards at once means 100+ remote fetches and
+          100+ decoded bitmaps in memory: enough to OOM mobile Safari
+          and trigger Chrome's "Aw, Snap!" on desktop. */}
       <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
-        {visible.map((ev) => {
+        {(showAllRows ? visible : visible.slice(0, ROW_RENDER_CAP)).map((ev) => {
           const nj = isNJEvent(ev);
           const pushed = alreadyPushed(ev);
           const photo = ev["DISPLAY URL"] || "";
@@ -430,6 +448,8 @@ export default function ScraperReview() {
                 <img
                   src={photo}
                   alt=""
+                  loading="lazy"
+                  decoding="async"
                   style={{ width: 80, height: 80, objectFit: "cover", borderRadius: 4 }}
                   onError={(e) => { e.target.style.display = "none"; }}
                 />
@@ -488,6 +508,28 @@ export default function ScraperReview() {
             </div>
           );
         })}
+        {/* Show-all toggle — gates the rest of the cards (and their
+            remote Instagram images) behind an explicit user click so
+            big Weekend_Review batches don't crash the tab on load. */}
+        {!showAllRows && visible.length > ROW_RENDER_CAP && (
+          <button
+            onClick={() => setShowAllRows(true)}
+            style={{
+              padding: "14px",
+              marginTop: 4,
+              background: "#f3f4f6",
+              color: "#1f2937",
+              border: "1px dashed #d1d5db",
+              borderRadius: 6,
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+            title={`Showing first ${ROW_RENDER_CAP} of ${visible.length}. Click to render the rest (slower — loads more images).`}
+          >
+            Show all {visible.length} events ({visible.length - ROW_RENDER_CAP} more · slower)
+          </button>
+        )}
       </div>
     </div>
   );
