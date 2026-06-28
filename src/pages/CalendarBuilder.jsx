@@ -252,7 +252,12 @@ function calcDates(friDate) {
 
 // ==================== CANVAS RENDERER ====================
 function renderCal(canvas, events, cfg) {
-  const { colorKey, friDate, size, pageIdx, totalPages, dates, texture, isContinuation, watermark = true } = cfg;
+  const { colorKey, friDate, size, pageIdx, totalPages, dates, texture, isContinuation, watermark = true, prevPageEndRegion = null } = cfg;
+  // Normalized comparator — same region values might differ in case
+  // ("North" vs "north"). Lowercase + alnum-only matches the validator's
+  // logic so the same-region check is robust to data inconsistencies.
+  const _normRegion = (r) => String(r || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const _isContinuingRegion = (r) => prevPageEndRegion && _normRegion(r) === _normRegion(prevPageEndRegion);
   const co = COLORS[colorKey];
   const W = size.w, H = size.h;
   canvas.width = W; canvas.height = H;
@@ -420,8 +425,12 @@ function renderCal(canvas, events, cfg) {
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
 
-    // Region on continuation page (same treatment as full header)
-    if (!isMultiReg && events.length > 0) {
+    // Region on continuation page (same treatment as full header).
+    // BUT — when the previous page ended in THIS region, skip the
+    // header entirely (otherwise the user sees "NORTH" twice in a
+    // row across two pages, as if NORTH split into two sections).
+    // Events still render below; just no redundant title.
+    if (!isMultiReg && events.length > 0 && !_isContinuingRegion(events[0].region)) {
       const region = events[0].region || "North";
       ctx.font = `800 ${38 * s}px 'Syne',sans-serif`;
       ctx.fillStyle = pureHead;
@@ -434,6 +443,11 @@ function renderCal(canvas, events, cfg) {
       ctx.fillRect(px, miniH + 52 * s, W - px * 2, 1.5 * s);
 
       evTop = miniH + 60 * s;
+    } else if (!isMultiReg && events.length > 0) {
+      // Single-region page continuing the prev page's region — skip
+      // the header but reserve a small gap so events don't bump the
+      // mini bar.
+      evTop = miniH + 20 * s;
     } else {
       // Multi-region — dividers will render inline, start events right after mini header
       evTop = miniH + 10 * s;
@@ -531,7 +545,12 @@ function renderCal(canvas, events, cfg) {
   let curY = evTop;
 
   regGroups.forEach((rg, ri) => {
-    if (isMultiReg) {
+    // Suppress the inline divider for the FIRST group of this page
+    // when its region continues from the previous page's last region.
+    // (Otherwise the user sees e.g. "NORTH" header at the bottom of
+    // page 1 AND "NORTH" header at the top of page 2.)
+    const isContinuingFromPrev = ri === 0 && _isContinuingRegion(rg.region);
+    if (isMultiReg && !isContinuingFromPrev) {
       curY += (ri > 0 ? 10 : 2) * s;
       const regLabel = rg.region.toUpperCase();
       ctx.font = `800 ${38 * s}px 'Syne',sans-serif`;
@@ -544,6 +563,10 @@ function renderCal(canvas, events, cfg) {
       ctx.fillStyle = divColor;
       ctx.fillRect(px, curY + 50 * s, W - px * 2, 1.5 * s);
       curY += regDivH;
+    } else if (isMultiReg && isContinuingFromPrev) {
+      // Continuing region — no header, just a tiny pad so the first
+      // event doesn't slam into the mini header chrome.
+      curY += 6 * s;
     }
 
     rg.events.forEach(ev => {
@@ -682,7 +705,11 @@ function renderCal(canvas, events, cfg) {
 
 // ==================== PREVIEW RENDERER ====================
 function renderPreview(canvas, pageEvents, cfg) {
-  const { colorKey, friDate, size, dates, texture, bgImage, bgOpacity, pageDay, isContinuation, pageIdx, totalPages, watermark = true } = cfg;
+  const { colorKey, friDate, size, dates, texture, bgImage, bgOpacity, pageDay, isContinuation, pageIdx, totalPages, watermark = true, prevPageEndRegion = null } = cfg;
+  // Pre-seed lastRegion so the first event of a continuation page
+  // doesn't draw a duplicate divider for a region that was already
+  // rendered on the previous page. Same fix as renderCal.
+  const _normRegion = (r) => String(r || "").toLowerCase().replace(/[^a-z0-9]/g, "");
   const co = COLORS[colorKey];
   const W = size.w, H = size.h;
   canvas.width = W; canvas.height = H;
@@ -877,11 +904,16 @@ function renderPreview(canvas, pageEvents, cfg) {
 
   let leftY = evTop;
   let rightY = evTop;
-  let lastRegion = null;
+  // Seed lastRegion with the previous page's last region (normalized).
+  // The very first event of this page will hit the divider branch
+  // ONLY if its region differs from prevPageEndRegion — otherwise the
+  // duplicate-region header is suppressed (carry-over from prev page).
+  let lastRegion = prevPageEndRegion ? _normRegion(prevPageEndRegion) : null;
 
   pageEvents.forEach((ev, ei) => {
-    // Region divider for multi-region
-    if (isMultiReg && ev.region !== lastRegion) {
+    // Region divider for multi-region — normalize both sides so
+    // "north" vs "North" doesn't accidentally re-trigger a divider.
+    if (isMultiReg && _normRegion(ev.region) !== lastRegion) {
       const divY = Math.max(leftY, rightY) + 4 * s;
       leftY = divY;
       rightY = divY;
@@ -894,9 +926,9 @@ function renderPreview(canvas, pageEvents, cfg) {
       ctx.fillRect(px, divY + 32 * s, W - px * 2, 1 * s);
       leftY = divY + 40 * s;
       rightY = divY + 40 * s;
-      lastRegion = ev.region;
+      lastRegion = _normRegion(ev.region);
     }
-    if (!isMultiReg) lastRegion = ev.region;
+    if (!isMultiReg) lastRegion = _normRegion(ev.region);
 
     const isLeft = (isMultiReg) ? (leftY <= rightY) : (ei % 2 === 0);
     const colX = isLeft ? px : (px + colW + 24 * s);
@@ -1198,7 +1230,7 @@ export default function CalendarBuilder() {
   };
 
   const buildCalPages = () => {
-    if (sorted.length === 0) return [{ day: "Fri", events: [], isContinuation: false }];
+    if (sorted.length === 0) return [{ day: "Fri", events: [], isContinuation: false, prevPageEndRegion: null }];
     const dayGroups = {};
     sorted.forEach(ev => {
       if (!dayGroups[ev.day]) dayGroups[ev.day] = [];
@@ -1215,17 +1247,24 @@ export default function CalendarBuilder() {
       const contMax = maxCont;
       const adjustedFirst = preventOrphan(evts, firstMax);
       const firstSlice = evts.slice(0, adjustedFirst);
-      pageList.push({ day: d, events: firstSlice, isContinuation: false });
+      // prevPageEndRegion — what region did the previous page on THIS
+      // day end in? Used by the renderer to suppress a duplicate
+      // region header when the same region continues across a page
+      // break (the user's "two NORTH sections on Friday" bug).
+      // First page of a day always has null (no previous page within day).
+      pageList.push({ day: d, events: firstSlice, isContinuation: false, prevPageEndRegion: null });
       let offset = adjustedFirst;
+      let lastRegionOnPrev = firstSlice.length > 0 ? firstSlice[firstSlice.length - 1].region : null;
       while (offset < evts.length) {
         const end = Math.min(offset + contMax, evts.length);
         const adjustedEnd = preventOrphan(evts, end);
         const slice = evts.slice(offset, adjustedEnd);
-        pageList.push({ day: d, events: slice, isContinuation: true });
+        pageList.push({ day: d, events: slice, isContinuation: true, prevPageEndRegion: lastRegionOnPrev });
+        lastRegionOnPrev = slice.length > 0 ? slice[slice.length - 1].region : lastRegionOnPrev;
         offset = adjustedEnd;
       }
     });
-    return pageList.length > 0 ? pageList : [{ day: "Fri", events: [], isContinuation: false }];
+    return pageList.length > 0 ? pageList : [{ day: "Fri", events: [], isContinuation: false, prevPageEndRegion: null }];
   };
 
   // Preview page builder — two-column layout, per-day, ~20 first / ~24 continuation
@@ -1267,6 +1306,11 @@ export default function CalendarBuilder() {
   const safePg = Math.min(pg, pages - 1);
   const pgEvts = allPages[safePg]?.events || [];
   const pgDay = allPages[safePg]?.day || "Fri";
+  // Region the previous page on this day ended in — passed to the
+  // renderer so it can suppress a duplicate region header when a
+  // region continues across a page break (fixes "two NORTH on
+  // Friday" when a region's events span multiple pages).
+  const pgPrevRegion = allPages[safePg]?.prevPageEndRegion || null;
   const activeColor = dayColors[pgDay] || "purple";
   const previewColor = previewColorKey;
   const co = mode === "preview" ? COLORS[previewColor] : COLORS[activeColor];
@@ -1279,13 +1323,13 @@ export default function CalendarBuilder() {
     const positions = [];
     const rows = [];
     if (mode === "preview") {
-      renderPreview(cv, pgEvts, { colorKey: previewColor, friDate, size: SIZES[sz], dates, texture, watermark, bgImage, bgOpacity, pageDay: pgDay, isContinuation: pgIsCont, pageIdx: safePg, totalPages: pages, _emojiPositions: positions, _eventRows: rows });
+      renderPreview(cv, pgEvts, { colorKey: previewColor, friDate, size: SIZES[sz], dates, texture, watermark, bgImage, bgOpacity, pageDay: pgDay, isContinuation: pgIsCont, pageIdx: safePg, totalPages: pages, prevPageEndRegion: pgPrevRegion, _emojiPositions: positions, _eventRows: rows });
     } else {
-      renderCal(cv, pgEvts, { colorKey: activeColor, friDate, size: SIZES[sz], pageIdx: safePg, totalPages: pages, dates, texture, watermark, isContinuation: pgIsCont, _emojiPositions: positions, _eventRows: rows });
+      renderCal(cv, pgEvts, { colorKey: activeColor, friDate, size: SIZES[sz], pageIdx: safePg, totalPages: pages, dates, texture, watermark, isContinuation: pgIsCont, prevPageEndRegion: pgPrevRegion, _emojiPositions: positions, _eventRows: rows });
     }
     emojiPositionsRef.current = positions;
     eventRowsRef.current = rows;
-  }, [pgEvts, activeColor, previewColor, friDate, sz, safePg, pages, dates, texture, watermark, pgIsCont, mode, bgImage, bgOpacity, pgDay]);
+  }, [pgEvts, activeColor, previewColor, friDate, sz, safePg, pages, dates, texture, watermark, pgIsCont, mode, bgImage, bgOpacity, pgDay, pgPrevRegion]);
 
   useEffect(() => { const t = setTimeout(render, 60); return () => clearTimeout(t); }, [render]);
 
@@ -1470,10 +1514,10 @@ export default function CalendarBuilder() {
     const pd = allPages[pi];
     if (!pd) return;
     if (mode === "preview") {
-      renderPreview(cv, pd.events, { colorKey: previewColor, friDate, size: SIZES[sz], dates, texture, watermark, bgImage, bgOpacity, pageDay: pd.day, isContinuation: pd.isContinuation, pageIdx: pi, totalPages: pages });
+      renderPreview(cv, pd.events, { colorKey: previewColor, friDate, size: SIZES[sz], dates, texture, watermark, bgImage, bgOpacity, pageDay: pd.day, isContinuation: pd.isContinuation, pageIdx: pi, totalPages: pages, prevPageEndRegion: pd.prevPageEndRegion });
     } else {
       const dayColor = dayColors[pd.day] || "purple";
-      renderCal(cv, pd.events, { colorKey: dayColor, friDate, size: SIZES[sz], pageIdx: pi, totalPages: pages, dates, texture, watermark, isContinuation: pd.isContinuation });
+      renderCal(cv, pd.events, { colorKey: dayColor, friDate, size: SIZES[sz], pageIdx: pi, totalPages: pages, dates, texture, watermark, isContinuation: pd.isContinuation, prevPageEndRegion: pd.prevPageEndRegion });
     }
     cv.toBlob(async (blob) => {
       // Pre-generate id + tag the PNG so the downloaded copy carries
@@ -1520,10 +1564,10 @@ export default function CalendarBuilder() {
       const pd = allPages[i];
       if (!pd) continue;
       if (mode === "preview") {
-        renderPreview(cv, pd.events, { colorKey: previewColor, friDate, size: SIZES[sz], dates, texture, watermark, bgImage, bgOpacity, pageDay: pd.day, isContinuation: pd.isContinuation, pageIdx: i, totalPages: pages });
+        renderPreview(cv, pd.events, { colorKey: previewColor, friDate, size: SIZES[sz], dates, texture, watermark, bgImage, bgOpacity, pageDay: pd.day, isContinuation: pd.isContinuation, pageIdx: i, totalPages: pages, prevPageEndRegion: pd.prevPageEndRegion });
       } else {
         const dayColor = dayColors[pd.day] || "purple";
-        renderCal(cv, pd.events, { colorKey: dayColor, friDate, size: SIZES[sz], pageIdx: i, totalPages: pages, dates, texture, watermark, isContinuation: pd.isContinuation });
+        renderCal(cv, pd.events, { colorKey: dayColor, friDate, size: SIZES[sz], pageIdx: i, totalPages: pages, dates, texture, watermark, isContinuation: pd.isContinuation, prevPageEndRegion: pd.prevPageEndRegion });
       }
       let blob = await new Promise(res => cv.toBlob(res, "image/png"));
       // Tag each individual slide too — that way a single PNG pulled
