@@ -8,12 +8,15 @@
 // user does in /review anyway).
 //
 // On send:
-//   1. Filter to NJ events (SECTION OF NJ in {NORTH, CENTRAL, SOUTH})
-//      and not already pushed (PUSHED_AT empty)
-//   2. Map Weekend_Review rows → Event-Calendar event shape
-//   3. Stage in useScraperIntakeStore (consumed by ReviewQueue on mount)
-//   4. Stamp PUSHED_AT on the sheet rows so they don't re-send next time
-//   5. Navigate to /review
+//   1. Filter out rows whose CITY/SECTION explicitly names a major
+//      non-NJ city (NYC, Philadelphia, etc.) or out-of-state suffix
+//      (", NY", ", PA"). Everything else passes — blank/unclear
+//      location is no longer dropped. See isNJEvent below for details.
+//   2. Skip rows already pushed (PUSHED_AT not empty)
+//   3. Map Weekend_Review rows → Event-Calendar event shape
+//   4. Stage in useScraperIntakeStore (consumed by ReviewQueue on mount)
+//   5. Stamp PUSHED_AT on the sheet rows so they don't re-send next time
+//   6. Navigate to /review
 
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
@@ -28,14 +31,60 @@ async function api(path, opts) {
   return body;
 }
 
-// NJ check — relies on the scraper's SECTION OF NJ tagging. The scraper
-// runs every row through nj_municipalities.json (682 NJ cities) and
-// fills North/Central/South. If the column is anything else (blank,
-// "Out of state", etc.), we treat as non-NJ. Trust the scraper rather
-// than re-implement the lookup on this side.
-function isNJEvent(row) {
+// NJ check — default-include with an out-of-state blacklist.
+//
+// History: this used to be a strict whitelist (only allow when
+// SECTION OF NJ was explicitly NORTH/CENTRAL/SOUTH). That dropped a
+// lot of real NJ events whose SECTION OF NJ was blank because the
+// scraper's city → section lookup didn't match the extracted text.
+//
+// New rule:
+//   1. If SECTION OF NJ is explicitly NJ → include (trust the scraper).
+//   2. Otherwise look at CITY + SECTION for explicit non-NJ markers
+//      (NYC, Philly, "NY" as a state suffix, etc.). If present → drop.
+//   3. Everything else → include. Blank/unclear location no longer
+//      gets filtered out — the user will catch obvious non-events
+//      in /review anyway.
+const NON_NJ_CITY_PATTERNS = [
+  /\bnew york city\b/i, /\bnyc\b/i,
+  /\bmanhattan\b/i, /\bbrooklyn\b/i, /\bqueens\b/i, /\bbronx\b/i,
+  /\bstaten island\b/i, /\blong island\b/i,
+  /\byonkers\b/i, /\balbany\b/i, /\bbuffalo\b/i,
+  /\bphiladelphia\b/i, /\bphilly\b/i, /\bpittsburgh\b/i,
+  /\ballentown\b/i, /\bbethlehem\b/i,
+  /\bhartford\b/i, /\bnew haven\b/i, /\bstamford\b/i, /\bbridgeport\b/i,
+  /\bwilmington\b/i, /\bbaltimore\b/i, /\bboston\b/i,
+  /\bwashington,?\s*d\.?c\.?\b/i,
+];
+// State abbreviations only count when comma-prefixed (city, state form).
+// Avoids false positives on event names that happen to contain the letters.
+const NON_NJ_STATE_COMMA = /,\s*(NY|PA|CT|DE|MD|MA|DC)\b/i;
+const NON_NJ_STATE_FULL  = /\b(pennsylvania|connecticut|delaware|maryland|massachusetts)\b/i;
+
+function isExplicitlyNJ(row) {
   const r = String(row?.["SECTION OF NJ"] || "").toUpperCase().trim();
   return r === "NORTH" || r === "CENTRAL" || r === "SOUTH";
+}
+
+function isExplicitlyNonNJ(row) {
+  // Look at CITY + SECTION OF NJ only. VENUE NAME / EVENT NAME are too
+  // noisy ("New York Sports Club in Hoboken", "NYC-style pizza", etc.)
+  // and would cause false drops.
+  const city    = String(row?.["CITY"] || "");
+  const section = String(row?.["SECTION OF NJ"] || "");
+  const combined = `${city}, ${section}`;
+
+  for (const pat of NON_NJ_CITY_PATTERNS) {
+    if (pat.test(combined)) return true;
+  }
+  if (NON_NJ_STATE_COMMA.test(combined)) return true;
+  if (NON_NJ_STATE_FULL.test(combined))  return true;
+  return false;
+}
+
+function isNJEvent(row) {
+  if (isExplicitlyNJ(row))   return true;   // scraper tagged NJ → trust
+  return !isExplicitlyNonNJ(row);           // else default include
 }
 
 function alreadyPushed(row) {
@@ -294,8 +343,9 @@ export default function ScraperReview() {
           {loading ? "Loading…" : "↻ Refresh from Sheet"}
         </button>
         <span style={{ color: "#6b7280", fontSize: 13, marginLeft: "auto" }}>
-          Non-NJ events ({counts.non_nj}) are skipped automatically based on
-          the scraper's SECTION OF NJ tagging.
+          Only rows whose CITY/SECTION explicitly names a non-NJ city
+          (NYC, Philly, etc.) are skipped ({counts.non_nj}). Blank or
+          ambiguous locations pass through — you can drop them in /review.
         </span>
       </div>
 
