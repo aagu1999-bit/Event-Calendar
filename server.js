@@ -653,8 +653,17 @@ async function readWeekendReviewAsObjects() {
     }
     const obj = { _row: r + 1 };  // 1-indexed for human reference
     for (let c = 0; c < headers.length; c++) {
-      const cellVal = sheet.getCell(r, c).value;
-      obj[headers[c]] = cellVal == null ? "" : String(cellVal);
+      // Prefer formattedValue over value — the scraper writes dates with
+      // USER_ENTERED input mode, which Sheets converts to native date types
+      // (stored as serial numbers like 46207). `.value` gives back the
+      // number; `.formattedValue` gives back the display text the user sees
+      // in the Sheet ("7/4/2026"). Use formattedValue when present, fall
+      // back to value for cells with no display formatting (numbers, IDs).
+      const cell = sheet.getCell(r, c);
+      const display = cell.formattedValue;
+      const raw = cell.value;
+      const out = display != null ? display : raw;
+      obj[headers[c]] = out == null ? "" : String(out);
     }
     events.push(obj);
   }
@@ -830,11 +839,85 @@ app.post("/api/weekend-review/update", express.json({ limit: "1mb" }), async (re
   }
 });
 
+// POST /api/weekend-review/bulk-update
+// Body: { updates: [{ post_id, fields }, ...] }
+// Updates many rows in ONE Sheets batchUpdate call instead of one POST per row.
+// Used by ScraperReview's "Send to Review" button to stamp PUSHED_AT on 200+
+// events without burning 200 round-trips. saveUpdatedCells() collapses all
+// in-memory cell edits into a single API request.
+app.post("/api/weekend-review/bulk-update", express.json({ limit: "10mb" }), async (req, res) => {
+  try {
+    const { updates } = req.body || {};
+    if (!Array.isArray(updates) || updates.length === 0) {
+      return res.status(400).json({ error: "updates array required in body" });
+    }
+    const sheet = await openWeekendReviewSheet();
+    await sheet.loadCells();
+
+    // Build header→col map once
+    const headerToCol = {};
+    for (let c = 0; c < sheet.columnCount; c++) {
+      const v = sheet.getCell(0, c).value;
+      if (v == null || String(v).trim() === "") break;
+      headerToCol[String(v)] = c;
+    }
+    const postIdCol = headerToCol["POST ID"];
+    if (postIdCol == null) {
+      return res.status(500).json({ error: "Weekend_Review has no 'POST ID' header column" });
+    }
+    // Build POST ID → sheet row index map once for O(1) lookup
+    const postIdToRow = {};
+    for (let r = 1; r < sheet.rowCount; r++) {
+      const v = sheet.getCell(r, postIdCol).value;
+      if (v != null && String(v).trim() !== "") {
+        postIdToRow[String(v).trim()] = r;
+      }
+    }
+
+    const results = [];
+    for (const { post_id, fields } of updates) {
+      const target = String(post_id || "").trim();
+      const r = postIdToRow[target];
+      if (r == null) {
+        results.push({ post_id: target, ok: false, error: "not found" });
+        continue;
+      }
+      const out = { ...(fields || {}) };
+      if ("APPROVED" in out && !("REVIEWED_AT" in out)) {
+        out.REVIEWED_AT = new Date().toISOString();
+      }
+      if ("PUSHED_AT" in out && !out.PUSHED_AT) {
+        out.PUSHED_AT = new Date().toISOString();
+      }
+      const written = [];
+      const skipped = [];
+      for (const [k, v] of Object.entries(out)) {
+        const col = headerToCol[k];
+        if (col == null) { skipped.push(k); continue; }
+        sheet.getCell(r, col).value = v == null ? "" : String(v);
+        written.push(k);
+      }
+      results.push({ post_id: target, ok: true, row: r + 1, written, skipped });
+    }
+    // ONE Sheets API call for all edits
+    await sheet.saveUpdatedCells();
+    res.json({
+      ok: true,
+      total: updates.length,
+      succeeded: results.filter((r) => r.ok).length,
+      failed: results.filter((r) => !r.ok).length,
+      results,
+    });
+  } catch (e) {
+    res.status(500).json({ error: String(e?.message || e) });
+  }
+});
+
 // Health check — the client pings this on boot to decide whether to show
 // the cloud buttons. Returns version so we can tell apart old servers if
 // the API ever changes.
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, api: "workspaces+library+reviewSessions+weekendReview", version: 5, env: NODE_ENV });
+  res.json({ ok: true, api: "workspaces+library+reviewSessions+weekendReview", version: 6, env: NODE_ENV });
 });
 
 // === VITE MIDDLEWARE / STATIC ===

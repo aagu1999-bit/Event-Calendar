@@ -16,6 +16,25 @@ export const useRestoreStore = create((set, get) => ({
   },
 }));
 
+// Scraper → Review handoff. ScraperReview stages a batch of events here
+// before navigating to /review. ReviewQueue's mount effect calls
+// consumeIntake() — reads + clears — so a refresh on /review won't
+// re-import the same events twice. NOT persisted across page reloads
+// (same one-shot semantics as useRestoreStore above). Per-event mapping
+// from the Weekend_Review row shape to Event-Calendar's internal event
+// shape happens in ScraperReview; this store just shuttles the already-
+// mapped events between pages.
+export const useScraperIntakeStore = create((set, get) => ({
+  events: [],
+  setEvents: (events) => set({ events: Array.isArray(events) ? events : [] }),
+  consumeIntake: () => {
+    const e = get().events;
+    if (!e || e.length === 0) return [];
+    set({ events: [] });
+    return e;
+  },
+}));
+
 const dedupeKey = (e) =>
   [
     e.day || "",

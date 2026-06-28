@@ -1,6 +1,6 @@
 import { useState, useRef, useMemo, useEffect, Fragment } from "react";
 import * as XLSX from "xlsx";
-import { useEventsStore, useRegularsStore } from "../store";
+import { useEventsStore, useRegularsStore, useScraperIntakeStore } from "../store";
 import { parseRows, DAYFUL, getEmoji } from "../shared/parseEvents";
 import { computeWarnings, findFlagPartners } from "../shared/validateEvents";
 import { detectRegulars } from "../shared/regulars";
@@ -199,6 +199,28 @@ export default function ReviewQueue({ betaMode = false } = {}) {
   };
 
   const [pending, setPending] = useState([]); // parsed Event[]
+
+  // Scraper-intake handoff. ScraperReview stashes a batch of events into
+  // useScraperIntakeStore then navigates here. Consume once on mount —
+  // appends to whatever's already pending (so user doesn't lose
+  // in-progress Excel-paste work). consumeIntake() clears the store
+  // atomically so a refresh on /review can't re-import the same batch.
+  const consumeIntake = useScraperIntakeStore((s) => s.consumeIntake);
+  const [intakeBanner, setIntakeBanner] = useState(null);  // { count } | null
+  useEffect(() => {
+    const incoming = consumeIntake();
+    if (incoming && incoming.length > 0) {
+      setPending((prev) => {
+        // Dedup by id so re-imports of the same row don't pile up.
+        const seen = new Set(prev.map((e) => String(e.id)));
+        const fresh = incoming.filter((e) => !seen.has(String(e.id)));
+        return [...prev, ...fresh];
+      });
+      setIntakeBanner({ count: incoming.length });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Column-mapper state. After file upload, raw rows + filename are
   // stashed here while the user picks how columns map to event fields.
   // applyImport() consumes them and clears once import completes/cancels.
@@ -743,6 +765,44 @@ export default function ReviewQueue({ betaMode = false } = {}) {
   return (
     <div style={{ minHeight: "calc(100vh - 60px)", background: "#080808", color: "#F5F0E8", fontFamily: "'DM Sans', sans-serif" }}>
       <div style={{ maxWidth: 1400, margin: "0 auto", padding: "1.5rem" }}>
+        {/* Scraper-intake banner — surfaces when ScraperReview pushed a
+            batch of events into pending via the navigation handoff. One-shot
+            (the consumeIntake() in the useEffect already cleared the store);
+            this banner dismisses itself when the user clicks the ×. */}
+        {intakeBanner && (
+          <div style={{
+            padding: "10px 14px",
+            marginBottom: "1rem",
+            background: "rgba(52,211,153,0.1)",
+            border: "1px solid rgba(52,211,153,0.4)",
+            borderLeft: "4px solid #34D399",
+            borderRadius: 4,
+            fontSize: "0.85rem",
+            color: "#34D399",
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+          }}>
+            <span style={{ flex: 1 }}>
+              ✓ Imported <b>{intakeBanner.count}</b> event{intakeBanner.count === 1 ? "" : "s"} from
+              the Insta-Scraper. They're appended to your pending list below — refine + approve as usual.
+            </span>
+            <button
+              onClick={() => setIntakeBanner(null)}
+              style={{
+                background: "transparent",
+                border: "1px solid rgba(52,211,153,0.4)",
+                color: "#34D399",
+                borderRadius: 3,
+                padding: "2px 8px",
+                fontSize: "0.75rem",
+                cursor: "pointer",
+              }}
+            >
+              ×
+            </button>
+          </div>
+        )}
         <div style={{ display: "flex", alignItems: "baseline", gap: "1rem", marginBottom: "1rem", flexWrap: "wrap" }}>
           <h1 style={{ fontFamily: "'Syne', sans-serif", fontSize: "1.2rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: "2px" }}>
             Review Queue {betaMode && <span style={{ color: "#E5BC4F", letterSpacing: "1px" }}>Beta</span>}
