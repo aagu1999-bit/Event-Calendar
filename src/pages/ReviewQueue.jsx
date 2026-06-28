@@ -1174,8 +1174,9 @@ export default function ReviewQueue({ betaMode = false } = {}) {
               </details>
             )}
 
-            {/* Filter + sort */}
-            <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", marginBottom: "0.5rem", flexWrap: "wrap" }}>
+            {/* Filter + sort — wraps on desktop, single horizontal-scroll
+                row on mobile (cge-toolbar-row CSS in index.css). */}
+            <div className="cge-toolbar-row" style={{ display: "flex", gap: "0.4rem", alignItems: "center", marginBottom: "0.5rem", flexWrap: "wrap" }}>
               <span style={{ ...L, marginBottom: 0, marginRight: "4px" }}>Filter</span>
               {[["all", "All"], ["clean", "Clean"], ["flagged", "Flagged"], ["approved", "Approved"], ["unapproved", "Unselected"]].map(([k, lbl]) => (
                 <button
@@ -1191,7 +1192,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
                   title="Clear sort — events return to their original positions"
                 >× Sorting {sortByTag} to top</button>
               )}
-              <div style={{ flex: 1 }} />
+              <div className="cge-toolbar-spacer" style={{ flex: 1 }} />
               <button onClick={approveClean} style={B} title="Select all clean (no warnings) rows for bulk action">Select clean</button>
               <button onClick={approveAll} style={B} title="Select every row">Select all</button>
               <button onClick={rejectAll} style={B} title="Clear selection">Clear selection</button>

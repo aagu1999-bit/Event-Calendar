@@ -401,34 +401,51 @@ export default function ScraperReview() {
         >
           {loading ? "Loading…" : hasFetched ? "↻ Refresh from Sheet" : "↻ Load from Sheet"}
         </button>
-        {/* Include-already-sent toggle. Off by default (the common case
-            — only stage new events). Flip on to re-stage already-sent
-            rows when you've wiped Review + the events store and want
-            to work the same set again. */}
-        {hasFetched && counts.already_sent > 0 && (
-          <label
-            style={{
-              display: "flex", alignItems: "center", gap: 6,
-              padding: "8px 12px",
-              background: includeAlreadySent ? "#fef3c7" : "#f9fafb",
-              border: `1px solid ${includeAlreadySent ? "#f59e0b" : "#e5e7eb"}`,
-              borderRadius: 6,
-              fontSize: 12,
-              color: includeAlreadySent ? "#92400e" : "#374151",
-              cursor: "pointer",
-              userSelect: "none",
-              fontWeight: includeAlreadySent ? 700 : 500,
-            }}
-            title="Re-stage already-sent events (useful after clearing Review + the events store to rebuild the same set)"
-          >
-            <input
-              type="checkbox"
-              checked={includeAlreadySent}
-              onChange={(e) => setIncludeAlreadySent(e.target.checked)}
-              style={{ margin: 0 }}
-            />
-            Include already-sent ({counts.already_sent})
-          </label>
+        {/* Send-mode picker — two explicit choices. NJ ready only (the
+            common case — stage just new events) vs NJ ready + already-
+            sent (re-stage the entire NJ batch, useful after clearing
+            Review + the events store to rebuild the same set). Always
+            visible after fetch so the option is obvious; the "+sent"
+            button is dim when no already-sent rows exist. */}
+        {hasFetched && (
+          <div style={{
+            display: "flex",
+            gap: 0,
+            borderRadius: 6,
+            overflow: "hidden",
+            border: "1px solid #d1d5db",
+          }}>
+            <button
+              onClick={() => setIncludeAlreadySent(false)}
+              style={{
+                padding: "8px 12px",
+                background: !includeAlreadySent ? "#1f2937" : "#f9fafb",
+                color: !includeAlreadySent ? "white" : "#374151",
+                border: "none",
+                fontSize: 12,
+                fontWeight: !includeAlreadySent ? 700 : 500,
+                cursor: "pointer",
+              }}
+              title="Send only events that haven't been sent before (the common case)"
+            >NJ ready only</button>
+            <button
+              onClick={() => setIncludeAlreadySent(true)}
+              disabled={counts.already_sent === 0}
+              style={{
+                padding: "8px 12px",
+                background: includeAlreadySent ? "#92400e" : "#f9fafb",
+                color: counts.already_sent === 0 ? "#9ca3af" : (includeAlreadySent ? "white" : "#374151"),
+                border: "none",
+                borderLeft: "1px solid #d1d5db",
+                fontSize: 12,
+                fontWeight: includeAlreadySent ? 700 : 500,
+                cursor: counts.already_sent === 0 ? "not-allowed" : "pointer",
+              }}
+              title={counts.already_sent === 0
+                ? "No already-sent events on the sheet — nothing to re-stage"
+                : "Re-stage already-sent + new (useful after clearing Review to rebuild the same set)"}
+            >+ already-sent ({counts.already_sent})</button>
+          </div>
         )}
         <span style={{ color: "#6b7280", fontSize: 13, marginLeft: "auto" }}>
           Only rows whose CITY/SECTION explicitly names a non-NJ city

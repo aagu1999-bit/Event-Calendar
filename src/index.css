@@ -257,6 +257,61 @@ body {
     display: none !important;
   }
 
+  /* Hard cap horizontal overflow at the document level so no rogue
+     wide input/textarea/button can introduce a page-level horizontal
+     scroll. User explicitly wanted the entire UI to stay within
+     phone-screen margins. */
+  html, body {
+    overflow-x: hidden !important;
+    max-width: 100vw;
+  }
+  /* Generic safety net — any builder pane's form controls cap at the
+     parent width and break long words instead of pushing the layout. */
+  .cge-cal-page input,
+  .cge-cal-page textarea,
+  .cge-cal-page select,
+  .cge-cal-page button {
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+  .cge-cal-event-row {
+    overflow: hidden;
+  }
+  .cge-cal-event-row * {
+    max-width: 100%;
+    word-break: break-word;
+  }
+
+  /* Review toolbar rows — keep the filter + action chips on ONE row
+     (or one + scroll) instead of wrapping into 3 stacked rows. */
+  .cge-toolbar-row {
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    gap: 0.25rem !important;
+    padding-bottom: 4px; /* hint scrollbar exists */
+  }
+  .cge-toolbar-row button {
+    padding: 5px 9px !important;
+    font-size: 0.6rem !important;
+    letter-spacing: 0.5px !important;
+    white-space: nowrap !important;
+    flex-shrink: 0;
+  }
+  .cge-toolbar-row span,
+  .cge-toolbar-row label {
+    font-size: 0.55rem !important;
+    white-space: nowrap !important;
+    flex-shrink: 0;
+  }
+  /* Hide the cge-toolbar-spacer (flex: 1 gap) on mobile — desktop uses
+     it to right-align the action buttons, but on mobile we want all
+     chips to flow tightly left-to-right in the horizontal-scroll row. */
+  .cge-toolbar-spacer {
+    display: none !important;
+  }
+
   /* Preview wrapper — clips overflow so a 1080×1080 canvas or 1080×1350
      HTML mock doesn't cause horizontal page scroll. Children scale to
      viewport width. */
