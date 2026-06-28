@@ -103,6 +103,7 @@ function ToolPicker() {
               || TOOLS[0];
   return (
     <select
+      className="cge-mobile-only"
       value={matched.path}
       onChange={(e) => navigate(e.target.value)}
       style={{
@@ -118,6 +119,10 @@ function ToolPicker() {
         cursor: "pointer",
         fontFamily: "'Syne',sans-serif",
         minWidth: 130,
+        // Hidden on desktop (cge-mobile-only CSS override flips this
+        // to inline-flex below 768px so the dropdown only appears on
+        // narrow screens where horizontal NavLink scrolling would hurt).
+        display: "none",
         // Custom dropdown arrow (gold) so it's discoverable as
         // interactive — the default browser arrow disappears in dark
         // mode in some browsers.
@@ -386,10 +391,23 @@ function Nav() {
       }}>
         CGE TOOLS
       </div>
-      {/* Tool picker — was 11 horizontally-scrolling NavLinks on mobile
-          (you had to swipe right just to find Brand or Scraper). One
-          dropdown shows the current tool and lets you jump anywhere
-          without scrolling. */}
+      {/* Desktop: keep the horizontal NavLink row (active-tab highlight
+          + one-click access). Mobile: replaced by the ToolPicker
+          dropdown below — 11 tabs in a row required horizontal
+          swiping to reach Brand or Scraper. */}
+      <div className="cge-desktop-only" style={{ display: "contents" }}>
+        <NavLink to="/calendar"    {...navLinkCommon}>Calendar</NavLink>
+        <NavLink to="/newsletter"  {...navLinkCommon}>Newsletter</NavLink>
+        <NavLink to="/reel"        {...navLinkCommon}>Reel</NavLink>
+        <NavLink to="/flyer"       {...navLinkCommon}>Flyer</NavLink>
+        <NavLink to="/media"       {...navLinkCommon}>Media</NavLink>
+        <NavLink to="/recap"       {...navLinkCommon}>Recap</NavLink>
+        <NavLink to="/review"      {...navLinkCommon}>Review</NavLink>
+        <NavLink to="/review-beta" {...navLinkCommon}>Review β</NavLink>
+        <NavLink to="/scraper"     {...navLinkCommon}>📥 Scraper</NavLink>
+        <NavLink to="/regulars"    {...navLinkCommon}>Regulars</NavLink>
+        <NavLink to="/brand"       {...navLinkCommon}>Brand</NavLink>
+      </div>
       <ToolPicker />
 
       <div className="cge-nav-spacer" style={{ flex: 1 }} />

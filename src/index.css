@@ -250,6 +250,12 @@ body {
   .cge-mobile-only {
     display: inline-flex !important;
   }
+  /* Hide desktop-only controls on mobile (e.g. the horizontal tool
+     nav row — replaced by the .cge-mobile-only ToolPicker dropdown
+     on small screens). */
+  .cge-desktop-only {
+    display: none !important;
+  }
 
   /* Preview wrapper — clips overflow so a 1080×1080 canvas or 1080×1350
      HTML mock doesn't cause horizontal page scroll. Children scale to
