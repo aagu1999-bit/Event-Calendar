@@ -144,6 +144,113 @@ function ToolPicker() {
   );
 }
 
+// Workspace menu — collapses Save/Load/Export/Import/Clear into a
+// single dropdown so the nav doesn't carry 5-7 button pills (especially
+// painful on mobile where the nav already has a tool dropdown + brand
+// + event counter). Click "⋯ Workspace" to open; click outside or
+// pick an action to close.
+function WorkspaceMenu({
+  cloudOk, wsBusy, importBusy, eventCount,
+  onCloudSave, onOpenCloudPicker, onExportWorkspace,
+  onTriggerImportWorkspace, onTriggerImportFromDisk,
+  onExportCsv, onClearAll,
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    };
+    // Also close on Escape
+    const keyHandler = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", handler);
+    document.addEventListener("keydown", keyHandler);
+    return () => {
+      document.removeEventListener("mousedown", handler);
+      document.removeEventListener("keydown", keyHandler);
+    };
+  }, [open]);
+
+  const fire = (fn) => () => { fn?.(); setOpen(false); };
+
+  // One menu item — color sets the accent (gold/blue/purple/red) so the
+  // dropdown visually groups by intent (cloud/workspace/import/destructive).
+  const item = (label, onClick, color, opts = {}) => (
+    <button
+      onClick={fire(onClick)}
+      disabled={opts.disabled}
+      title={opts.title}
+      style={{
+        display: "block",
+        width: "100%",
+        padding: "10px 14px",
+        background: "transparent",
+        color: opts.disabled ? "rgba(245,240,232,0.25)" : color,
+        border: "none",
+        borderTop: opts.divider ? "1px solid rgba(245,240,232,0.06)" : "none",
+        fontSize: "0.65rem",
+        fontWeight: 700,
+        letterSpacing: "1px",
+        textTransform: "uppercase",
+        cursor: opts.disabled ? "not-allowed" : "pointer",
+        fontFamily: "inherit",
+        textAlign: "left",
+      }}
+      onMouseEnter={(e) => { if (!opts.disabled) e.currentTarget.style.background = "rgba(245,240,232,0.04)"; }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+    >
+      {label}
+    </button>
+  );
+
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        title="Workspace actions — save, load, import, export, clear"
+        style={{
+          padding: "4px 10px",
+          background: open ? "rgba(229,188,79,0.20)" : "rgba(229,188,79,0.08)",
+          border: "1px solid rgba(229,188,79,0.35)",
+          borderRadius: "4px",
+          color: "#E5BC4F",
+          fontSize: "0.6rem",
+          letterSpacing: "1px",
+          textTransform: "uppercase",
+          cursor: "pointer",
+          fontFamily: "inherit",
+          fontWeight: 700,
+        }}
+      >⋯ Workspace</button>
+      {open && (
+        <div style={{
+          position: "absolute",
+          top: "100%",
+          right: 0,
+          marginTop: 4,
+          minWidth: 200,
+          background: "#0a0a0a",
+          border: "1px solid rgba(245,240,232,0.12)",
+          borderRadius: 6,
+          boxShadow: "0 10px 30px rgba(0,0,0,0.45)",
+          zIndex: 200,
+          overflow: "hidden",
+        }}>
+          {cloudOk && item(`☁️ ${wsBusy ? "Saving…" : "Save to Repl"}`,    onCloudSave,                   "#63B3ED", { disabled: wsBusy })}
+          {cloudOk && item("Load from Repl",                                onOpenCloudPicker,             "#63B3ED", { disabled: wsBusy })}
+          {item(`📦 ${wsBusy ? "Exporting…" : "Export workspace"}`,         onExportWorkspace,             "#C084FC", { disabled: wsBusy, divider: cloudOk })}
+          {item("Import workspace…",                                        onTriggerImportWorkspace,      "#C084FC", { disabled: wsBusy })}
+          {item(`📥 ${importBusy ? "Reading…" : "Import PNG/ZIP from disk"}`, onTriggerImportFromDisk,     "#63B3ED", { disabled: importBusy, divider: true })}
+          {eventCount > 0 && item("Export CSV",                             onExportCsv,                   "#E5BC4F", { divider: true })}
+          {eventCount > 0 && item("Clear all events",                       onClearAll,                    "#FB7185", {})}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Nav() {
   const events = useEventsStore(s => s.events);
   const eventCount = events.length;
@@ -372,9 +479,6 @@ function Nav() {
     // ended up appearing behind the main builder content.
     <>
     <nav className="cge-nav" style={{
-      display: "flex",
-      alignItems: "center",
-      gap: "0.4rem",
       padding: "0.6rem 1rem",
       background: "#0a0a0a",
       borderBottom: "1px solid rgba(245,240,232,0.06)",
@@ -382,6 +486,16 @@ function Nav() {
       top: 0,
       zIndex: 100,
     }}>
+      {/* Inner wrapper — caps content width at 1200px to match the
+          Calendar page wrapper (cge-cal-page). Background bar stays
+          full-bleed; content aligns with the calendar preview below. */}
+      <div className="cge-nav-inner" style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "0.4rem",
+        maxWidth: 1200,
+        margin: "0 auto",
+      }}>
       <div className="cge-nav-brand" style={{
         fontSize: "0.7rem",
         fontWeight: 700,
@@ -419,87 +533,9 @@ function Nav() {
       }}>
         {eventCount} event{eventCount === 1 ? "" : "s"} loaded
       </div>
-      {/* Cloud sync (Repl-side persistence). Hidden when the static build
-          is served without the Express server. */}
-      {cloudOk && (
-        <>
-          <button
-            onClick={onCloudSave}
-            disabled={wsBusy}
-            title="Save the current workspace to a file on the Repl — teammates can load it from any browser."
-            style={{
-              padding: "4px 10px",
-              background: "rgba(99,179,237,0.12)",
-              border: "1px solid rgba(99,179,237,0.35)",
-              borderRadius: "4px",
-              color: "#63B3ED",
-              fontSize: "0.6rem",
-              letterSpacing: "1px",
-              textTransform: "uppercase",
-              cursor: wsBusy ? "wait" : "pointer",
-              opacity: wsBusy ? 0.6 : 1,
-              fontFamily: "inherit",
-            }}
-          >☁️ {wsBusy ? "…" : "Save to Repl"}</button>
-          <button
-            onClick={() => setCloudPickOpen(true)}
-            disabled={wsBusy}
-            title="Browse workspaces saved to this Repl and load one."
-            style={{
-              padding: "4px 10px",
-              background: "rgba(99,179,237,0.06)",
-              border: "1px solid rgba(99,179,237,0.25)",
-              borderRadius: "4px",
-              color: "#63B3ED",
-              fontSize: "0.6rem",
-              letterSpacing: "1px",
-              textTransform: "uppercase",
-              cursor: wsBusy ? "wait" : "pointer",
-              opacity: wsBusy ? 0.6 : 1,
-              fontFamily: "inherit",
-            }}
-          >Load from Repl</button>
-        </>
-      )}
-
-      {/* Workspace sync — always available so teammates can import even on
-          a fresh browser with zero events. */}
-      <button
-        onClick={onExportWorkspace}
-        disabled={wsBusy}
-        title="Download a single .cgework.zip with EVERYTHING — events, regulars, photos, exports. Share with teammates."
-        style={{
-          padding: "4px 10px",
-          background: "rgba(192,132,252,0.10)",
-          border: "1px solid rgba(192,132,252,0.3)",
-          borderRadius: "4px",
-          color: "#C084FC",
-          fontSize: "0.6rem",
-          letterSpacing: "1px",
-          textTransform: "uppercase",
-          cursor: wsBusy ? "wait" : "pointer",
-          opacity: wsBusy ? 0.6 : 1,
-          fontFamily: "inherit",
-        }}
-      >📦 {wsBusy ? "…" : "Export workspace"}</button>
-      <button
-        onClick={() => wsFileRef.current?.click()}
-        disabled={wsBusy}
-        title="Replace this browser's state with a teammate's .cgework.zip"
-        style={{
-          padding: "4px 10px",
-          background: "rgba(192,132,252,0.06)",
-          border: "1px solid rgba(192,132,252,0.25)",
-          borderRadius: "4px",
-          color: "#C084FC",
-          fontSize: "0.6rem",
-          letterSpacing: "1px",
-          textTransform: "uppercase",
-          cursor: wsBusy ? "wait" : "pointer",
-          opacity: wsBusy ? 0.6 : 1,
-          fontFamily: "inherit",
-        }}
-      >Import…</button>
+      {/* Hidden file inputs for workspace + disk import. Triggered by
+          the WorkspaceMenu items. Kept inside the nav DOM since the
+          handlers + refs live here. */}
       <input
         ref={wsFileRef}
         type="file"
@@ -507,9 +543,6 @@ function Nav() {
         onChange={onImportWorkspace}
         style={{ display: "none" }}
       />
-      {/* Import-from-disk — works any time, even with 0 events. Picks a
-          PNG (tEXt cgeExport tag) or ZIP (.cgeexport sidecar) and routes
-          back into the right tool. */}
       <input
         ref={importFileRef}
         type="file"
@@ -517,64 +550,23 @@ function Nav() {
         onChange={onImportFromDisk}
         style={{ display: "none" }}
       />
-      <button
-        onClick={() => importFileRef.current?.click()}
-        disabled={importBusy}
-        title="Import a PNG or ZIP previously exported from CGE Tools — restores the editable state in the right tool"
-        style={{
-          padding: "4px 10px",
-          background: "rgba(99,179,237,0.10)",
-          border: "1px solid rgba(99,179,237,0.3)",
-          borderRadius: "4px",
-          color: "#63B3ED",
-          fontSize: "0.6rem",
-          letterSpacing: "1px",
-          textTransform: "uppercase",
-          cursor: importBusy ? "wait" : "pointer",
-          fontFamily: "inherit",
-        }}
-      >
-        {importBusy ? "Reading…" : "📥 Import"}
-      </button>
-      {eventCount > 0 && (
-        <>
-          <button
-            onClick={() => exportEventsCsv(events)}
-            title="Download the current events list (all tools) as CSV"
-            style={{
-              padding: "4px 10px",
-              background: "rgba(229,188,79,0.10)",
-              border: "1px solid rgba(229,188,79,0.3)",
-              borderRadius: "4px",
-              color: "#E5BC4F",
-              fontSize: "0.6rem",
-              letterSpacing: "1px",
-              textTransform: "uppercase",
-              cursor: "pointer",
-              fontFamily: "inherit",
-            }}
-          >
-            Export CSV
-          </button>
-          <button
-            onClick={() => { if (confirm("Clear all events from all tools?")) clear(); }}
-            style={{
-              padding: "4px 10px",
-              background: "rgba(251,113,133,0.08)",
-              border: "1px solid rgba(251,113,133,0.2)",
-              borderRadius: "4px",
-              color: "#FB7185",
-              fontSize: "0.6rem",
-              letterSpacing: "1px",
-              textTransform: "uppercase",
-              cursor: "pointer",
-              fontFamily: "inherit",
-            }}
-          >
-            Clear all
-          </button>
-        </>
-      )}
+      {/* Workspace dropdown — collapses 5-7 action button pills into
+          one menu (Save to Repl / Load from Repl / Export workspace /
+          Import workspace / Import PNG-ZIP / Export CSV / Clear all). */}
+      <WorkspaceMenu
+        cloudOk={cloudOk}
+        wsBusy={wsBusy}
+        importBusy={importBusy}
+        eventCount={eventCount}
+        onCloudSave={onCloudSave}
+        onOpenCloudPicker={() => setCloudPickOpen(true)}
+        onExportWorkspace={onExportWorkspace}
+        onTriggerImportWorkspace={() => wsFileRef.current?.click()}
+        onTriggerImportFromDisk={() => importFileRef.current?.click()}
+        onExportCsv={() => exportEventsCsv(events)}
+        onClearAll={() => { if (confirm("Clear all events from all tools?")) clear(); }}
+      />
+      </div>
     </nav>
     <CloudWorkspaceModal
       open={cloudPickOpen}

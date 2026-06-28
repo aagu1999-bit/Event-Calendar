@@ -1655,22 +1655,30 @@ export default function CalendarBuilder() {
                 </>
               ) : (
                 <>
-                  <label style={L}>Color per day</label>
-                  <div style={{ display: "flex", gap: "0.75rem" }}>
-                    {WEEKDAYS.map(d => (
-                      <div key={d} style={{ flex: 1 }}>
-                        <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.3)", marginBottom: "3px", fontWeight: 600 }}>{dayFull[d]}</div>
-                        <div style={{ display: "flex", gap: "2px", flexWrap: "wrap" }}>
-                          {Object.entries(COLORS).map(([k, v]) => (
-                            <button key={k} onClick={() => { setDayColors(p => ({ ...p, [d]: k })); }} style={{
-                              width: 22, height: 22, borderRadius: "4px", cursor: "pointer",
-                              background: v.hex, border: dayColors[d] === k ? "2px solid #FFFFFF" : "2px solid transparent",
-                              boxShadow: dayColors[d] === k ? "0 0 6px rgba(255,255,255,0.3)" : "none",
-                            }} title={v.name} />
-                          ))}
-                        </div>
-                      </div>
-                    ))}
+                  {/* Single calendar color — applied to all days. The
+                      old per-day picker (Fri / Sat / Sun each with its
+                      own color) wasn't actually getting used; user
+                      always wanted one consistent color across the
+                      weekend. Internally we still set Fri/Sat/Sun on
+                      dayColors so the renderer doesn't need to change. */}
+                  <label style={L}>Calendar color</label>
+                  <div style={{ display: "flex", gap: "3px", alignItems: "center" }}>
+                    {Object.entries(COLORS).map(([k, v]) => {
+                      const selected = dayColors.Fri === k && dayColors.Sat === k && dayColors.Sun === k;
+                      return (
+                        <button
+                          key={k}
+                          onClick={() => setDayColors({ Fri: k, Sat: k, Sun: k })}
+                          style={{
+                            width: 28, height: 28, borderRadius: "5px", cursor: "pointer",
+                            background: v.hex,
+                            border: selected ? "2px solid #FFFFFF" : "2px solid transparent",
+                            boxShadow: selected ? "0 0 6px rgba(255,255,255,0.3)" : "none",
+                          }}
+                          title={v.name}
+                        />
+                      );
+                    })}
                   </div>
                 </>
               )}
