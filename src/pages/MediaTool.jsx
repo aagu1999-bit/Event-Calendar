@@ -4048,19 +4048,34 @@ export default function MediaTool() {
             no longer extend full-width past the preview. */}
         <div className="cge-main-grid" style={{display:"grid",gridTemplateColumns:"7fr 3fr",gap:"1.25rem",alignItems:"start"}}>
           <div>
-        {/* Legacy "Weekend Roundup / Client Event" auto-template dropdown
-            was removed — those flows are now covered by:
-              · Roundup Generator (Event Tools → Roundup tab) for events-driven
-              · ✨ AI Fill Template for topic-driven, any sequence
-              · 📐 From Template… for manual fill via a structural template
-            Captions / Vision / Voice chip controls relocated to a leaner row. */}
-        <div style={{
-          marginBottom: "1rem",
-          padding: "10px 14px",
-          background: "rgba(99,179,237,0.04)",
-          border: "1px solid rgba(99,179,237,0.18)",
-          borderRadius: "6px",
-        }}>
+        {/* Captions panel — collapsed by default to reduce visual noise
+            on the Media tab. Opens automatically once captions have
+            been generated so the picker view is visible without an
+            extra tap. Wraps both the generation controls AND the
+            tone-picker result block. */}
+        <details
+          open={captions.length > 0 || captionsError}
+          style={{
+            marginBottom: "1rem",
+            background: "rgba(99,179,237,0.04)",
+            border: "1px solid rgba(99,179,237,0.18)",
+            borderRadius: "6px",
+          }}
+        >
+          <summary style={{
+            padding: "10px 14px",
+            cursor: "pointer",
+            fontSize: "0.65rem",
+            color: "#63B3ED",
+            letterSpacing: "1.5px",
+            textTransform: "uppercase",
+            fontWeight: 700,
+            fontFamily: "'Syne',sans-serif",
+            listStyle: "none",
+          }}>
+            💬 Captions {captions.length > 0 ? `· ${captions.length} ready` : `· generate`}
+          </summary>
+        <div style={{ padding: "0 14px 14px" }}>
           <div style={{display:"flex",alignItems:"center",gap:"0.5rem",flexWrap:"wrap"}}>
             <div style={{ fontSize: "0.6rem", color: "#63B3ED", letterSpacing: "1.5px", textTransform: "uppercase", flexShrink: 0, fontWeight: 700 }}>
               Captions
@@ -4116,7 +4131,6 @@ export default function MediaTool() {
           <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", marginTop: "8px", lineHeight: 1.5 }}>
             Captions read the current carousel (or the active form if empty). Vision adds rendered images. Voice chip → Brand Kit.
           </div>
-        </div>
 
         {captionsError && (
           <div style={{marginBottom:"1rem",padding:"10px 14px",background:"rgba(251,113,133,0.08)",border:"1px solid rgba(251,113,133,0.3)",borderRadius:"6px",fontSize:"0.6rem",color:"rgba(251,113,133,0.9)"}}>
@@ -4183,6 +4197,8 @@ export default function MediaTool() {
             </div>
           );
         })()}
+        </div>
+        </details>
 
         {/* Template Queue banner — shown when the user is walking through
             a Carousel Template. The progress chip narrates which slot
