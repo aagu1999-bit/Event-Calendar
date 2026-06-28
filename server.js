@@ -519,6 +519,31 @@ const SA_EMAIL = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || "";
 const SA_KEY   = (process.env.GOOGLE_SERVICE_ACCOUNT_KEY || "").replace(/\\n/g, "\n");
 const SHEET_ID = (process.env.GOOGLE_SHEET_ID || "").trim();
 
+// Sanity-check the parsed private key without LOGGING any secret content.
+// Returns null on OK, or a user-actionable error string on detected issue.
+function _diagnosePrivateKey(key) {
+  if (!key || key.length === 0) return "GOOGLE_SERVICE_ACCOUNT_KEY is empty";
+  if (!key.includes("-----BEGIN PRIVATE KEY-----")) {
+    return "private key is missing the '-----BEGIN PRIVATE KEY-----' header. " +
+           "Make sure you pasted the FULL private_key value from the JSON, " +
+           "including the BEGIN/END marker lines.";
+  }
+  if (!key.includes("-----END PRIVATE KEY-----")) {
+    return "private key is missing the '-----END PRIVATE KEY-----' footer. " +
+           "Most likely cause: the paste was truncated. Re-copy the entire " +
+           "private_key value from the JSON file.";
+  }
+  // If it's all on one line with no \n and no real newlines, OpenSSL will
+  // reject it with the cryptic 1E08010C:DECODER error — what the user just saw.
+  if (!key.includes("\n") && !key.includes("\\n")) {
+    return "private key has no line breaks (no \\n escapes, no real newlines). " +
+           "PEM format requires linebreaks every 64 chars. Re-copy the " +
+           "'private_key' string from the JSON file — Replit Secrets accepts " +
+           "either escaped \\n or real multi-line content.";
+  }
+  return null;
+}
+
 async function openWeekendReviewSheet() {
   if (!SA_EMAIL || !SA_KEY) {
     throw new Error(
@@ -532,13 +557,41 @@ async function openWeekendReviewSheet() {
       "Sheets URL: docs.google.com/spreadsheets/d/<this part>/edit"
     );
   }
+  const keyDiag = _diagnosePrivateKey(SA_KEY);
+  if (keyDiag) {
+    throw new Error(`Private key looks malformed — ${keyDiag}`);
+  }
   const auth = new JWT({
     email: SA_EMAIL,
     key: SA_KEY,
     scopes: ["https://www.googleapis.com/auth/spreadsheets"],
   });
   const doc = new GoogleSpreadsheet(SHEET_ID, auth);
-  await doc.loadInfo();
+  try {
+    await doc.loadInfo();
+  } catch (e) {
+    const msg = String(e?.message || e);
+    // The classic OpenSSL DECODER error means the key didn't parse —
+    // give the user a clear remediation path instead of the raw cryptic code.
+    if (msg.includes("DECODER") || msg.includes("1E08010C") ||
+        msg.includes("ERR_OSSL") || msg.toLowerCase().includes("unsupported")) {
+      throw new Error(
+        "Google rejected the private key (OpenSSL DECODER error). The key in " +
+        "GOOGLE_SERVICE_ACCOUNT_KEY exists but Node can't parse it. Most likely: " +
+        "the \\n escapes got mangled when pasted into Replit Secrets. " +
+        "Try the /api/weekend-review/key-diagnostic endpoint to see what the " +
+        "server is reading (it only reveals the structure, never the secret)."
+      );
+    }
+    if (msg.toLowerCase().includes("invalid_grant") || msg.includes("ACCESS_DENIED")) {
+      throw new Error(
+        `Sheets API rejected the service account (${SA_EMAIL}). Make sure that ` +
+        `email is shared as Editor or Viewer on the spreadsheet ` +
+        `(docs.google.com/spreadsheets/d/${SHEET_ID}/edit → Share).`
+      );
+    }
+    throw e;
+  }
   const sheet = doc.sheetsByTitle[WEEKEND_REVIEW_TAB];
   if (!sheet) {
     throw new Error(
@@ -627,6 +680,43 @@ app.get("/api/weekend-review", async (_req, res) => {
   } catch (e) {
     res.status(500).json({ error: String(e?.message || e) });
   }
+});
+
+// GET /api/weekend-review/key-diagnostic
+// Returns SAFE metadata about the parsed private key — no secret content,
+// just shape + structure indicators. Use this when the auth-time error is
+// the cryptic OpenSSL DECODER one and you need to know WHICH thing about
+// the env var is wrong. Returns the same diagnostic _diagnosePrivateKey
+// would have flagged, plus structural checks (lengths, marker presence).
+app.get("/api/weekend-review/key-diagnostic", (_req, res) => {
+  const raw = process.env.GOOGLE_SERVICE_ACCOUNT_KEY || "";
+  const after = raw.replace(/\\n/g, "\n");
+  // Count occurrences of the key markers as a sanity check on truncation.
+  const beginCount = (after.match(/-----BEGIN PRIVATE KEY-----/g) || []).length;
+  const endCount   = (after.match(/-----END PRIVATE KEY-----/g) || []).length;
+  // Number of real newlines after the unescape (PEM-formatted keys have ~30).
+  const newlineCount = (after.match(/\n/g) || []).length;
+  // Number of escaped \n in the raw value (before unescape) — tells us
+  // whether the user pasted the escaped form (high count) or the
+  // multi-line form (zero count).
+  const escapedNewlineCount = (raw.match(/\\n/g) || []).length;
+  res.json({
+    google_sheet_id:               !!SHEET_ID,
+    google_service_account_email:  SA_EMAIL || null,
+    private_key_present:           raw.length > 0,
+    private_key_length:            raw.length,
+    private_key_length_unescaped:  after.length,
+    has_begin_marker:              after.includes("-----BEGIN PRIVATE KEY-----"),
+    has_end_marker:                after.includes("-----END PRIVATE KEY-----"),
+    begin_marker_count:            beginCount,
+    end_marker_count:              endCount,
+    real_newlines_after_unescape:  newlineCount,
+    escaped_newlines_in_raw:       escapedNewlineCount,
+    starts_with_begin:             after.startsWith("-----BEGIN PRIVATE KEY-----"),
+    ends_with_end_marker:          after.trim().endsWith("-----END PRIVATE KEY-----"),
+    likely_issue:                  _diagnosePrivateKey(after),
+    note: "All fields above are SAFE to share — no secret content is exposed.",
+  });
 });
 
 // GET /api/weekend-review/debug
