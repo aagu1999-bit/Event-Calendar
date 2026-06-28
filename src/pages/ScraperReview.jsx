@@ -223,17 +223,36 @@ export default function ScraperReview() {
       const mapped = sendable.map(rowToEvent);
       // 1. Stage in the intake store for ReviewQueue to consume on mount
       setIntake(mapped);
-      // 2. Stamp PUSHED_AT on the sheet so these rows don't re-send next time
+      // 2. Stamp PUSHED_AT on the sheet so these rows don't re-send next time.
+      //    Use _row (1-indexed sheet row) when present — POST IDs occasionally
+      //    differ between read and write paths (trailing whitespace, numeric
+      //    coercion, etc.), but _row is what the server itself assigned and is
+      //    always stable.
       const updates = sendable.map((ev) => ({
         post_id: String(ev["POST ID"] || "").trim(),
+        row:     ev._row,
         fields: { PUSHED_AT: new Date().toISOString() },
       }));
-      await api("/api/weekend-review/bulk-update", {
+      const resp = await api("/api/weekend-review/bulk-update", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ updates }),
       });
-      // 3. Navigate — ReviewQueue's mount effect picks up the intake
+      // 3. Verify the server actually stamped every row. If any failed
+      //    (POST ID not found, etc.), surface the failure instead of
+      //    silently navigating away — that's the cause of the "I sent
+      //    them but they keep coming back" confusion.
+      const failed = (resp?.results || []).filter((r) => !r.ok);
+      if (failed.length > 0) {
+        const sample = failed.slice(0, 5).map((f) => `${f.post_id} (${f.error})`).join(", ");
+        setError(
+          `Server reported ${failed.length}/${resp.total} rows could not be stamped. ` +
+          `These will reappear on next refresh. First few: ${sample}`
+        );
+        setIntake([]);
+        return;
+      }
+      // 4. Navigate — ReviewQueue's mount effect picks up the intake
       navigate("/review");
     } catch (e) {
       setError(`Send failed: ${e.message}`);

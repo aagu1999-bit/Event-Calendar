@@ -875,11 +875,18 @@ app.post("/api/weekend-review/bulk-update", express.json({ limit: "10mb" }), asy
     }
 
     const results = [];
-    for (const { post_id, fields } of updates) {
+    for (const { post_id, row: clientRow, fields } of updates) {
       const target = String(post_id || "").trim();
-      const r = postIdToRow[target];
+      // Try POST ID first, fall back to client-supplied _row. The fallback
+      // matters because the GET path emits _row directly from sheet state,
+      // so it's always addressable even if POST ID has whitespace/encoding
+      // drift that breaks the string-equality lookup.
+      let r = postIdToRow[target];
+      if (r == null && Number.isInteger(clientRow) && clientRow >= 2 && clientRow <= sheet.rowCount) {
+        r = clientRow - 1;  // client sends 1-indexed sheet row; internal is 0-indexed
+      }
       if (r == null) {
-        results.push({ post_id: target, ok: false, error: "not found" });
+        results.push({ post_id: target, ok: false, error: `POST ID not found in sheet${clientRow ? ` and row ${clientRow} also invalid` : ""}` });
         continue;
       }
       const out = { ...(fields || {}) };
