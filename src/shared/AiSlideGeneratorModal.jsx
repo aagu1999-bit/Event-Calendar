@@ -17,11 +17,16 @@ import { generateSlideContent } from "./aiContent.js";
 export function AiSlideGeneratorModal({ open, slotType, apiKey, initialTopic, onClose, onAccept }) {
   const voice = useBrandStore((s) => s.voice);
   const slotPrompts = useBrandStore((s) => s.slotPrompts);
+  const addExemplar = useBrandStore((s) => s.addExemplar);
 
   const [topic, setTopic] = useState(initialTopic || "");
   const [options, setOptions] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // Tracks which option indices have been harvested as exemplars this
+  // session. Lets the button flip to a "✓ Saved" state without needing
+  // to dedupe against the store.
+  const [savedIdx, setSavedIdx] = useState(new Set());
 
   // Reset state every time the modal opens for a new slot.
   useEffect(() => {
@@ -30,8 +35,38 @@ export function AiSlideGeneratorModal({ open, slotType, apiKey, initialTopic, on
       setOptions([]);
       setError("");
       setBusy(false);
+      setSavedIdx(new Set());
     }
   }, [open, slotType, initialTopic]);
+
+  // Render an option as a plain-text exemplar Gemini can model on
+  // future generations. Different slots produce different prose shapes:
+  // Cover → headline + subtitle. CTA → kicker · main · sub.
+  const optionToExemplarText = (opt) => {
+    if (slotType === "cover") {
+      const head = (opt.headline || "").trim();
+      const sub = (opt.subtitle || "").trim();
+      return [head, sub].filter(Boolean).join("\n\n");
+    }
+    if (slotType === "cta") {
+      const k = (opt.kicker || "").trim();
+      const m = (opt.mainLine || "").trim();
+      const s = (opt.subLine || "").trim();
+      return [k && k.toUpperCase(), m, s].filter(Boolean).join("\n");
+    }
+    return JSON.stringify(opt);
+  };
+
+  const handleSaveAsExemplar = (opt, idx) => {
+    const text = optionToExemplarText(opt).trim();
+    if (!text) return;
+    addExemplar(text);
+    setSavedIdx(prev => {
+      const next = new Set(prev);
+      next.add(idx);
+      return next;
+    });
+  };
 
   if (!open) return null;
 
@@ -162,12 +197,17 @@ export function AiSlideGeneratorModal({ open, slotType, apiKey, initialTopic, on
               Pick one to fill the form
             </div>
             {options.map((opt, i) => (
-              <button
+              <div
                 key={i}
+                role="button"
+                tabIndex={0}
                 onClick={() => handlePick(opt)}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handlePick(opt); } }}
                 style={{
+                  position: "relative",
                   textAlign: "left",
                   padding: 14,
+                  paddingRight: 48,
                   background: "rgba(229,188,79,0.04)",
                   border: "1px solid rgba(229,188,79,0.20)",
                   borderRadius: 6,
@@ -179,6 +219,29 @@ export function AiSlideGeneratorModal({ open, slotType, apiKey, initialTopic, on
                 onMouseEnter={(e) => e.currentTarget.style.background = "rgba(229,188,79,0.10)"}
                 onMouseLeave={(e) => e.currentTarget.style.background = "rgba(229,188,79,0.04)"}
               >
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleSaveAsExemplar(opt, i); }}
+                  disabled={savedIdx.has(i)}
+                  title={savedIdx.has(i) ? "Saved to Brand Voice exemplars" : "Save to Brand Voice — feeds future generations"}
+                  style={{
+                    position: "absolute",
+                    top: 8,
+                    right: 8,
+                    background: savedIdx.has(i) ? "rgba(52,211,153,0.15)" : "transparent",
+                    border: `1px solid ${savedIdx.has(i) ? "rgba(52,211,153,0.4)" : "rgba(229,188,79,0.25)"}`,
+                    color: savedIdx.has(i) ? "#34D399" : "rgba(229,188,79,0.8)",
+                    fontSize: "0.55rem",
+                    fontWeight: 700,
+                    letterSpacing: 0.8,
+                    textTransform: "uppercase",
+                    padding: "3px 7px",
+                    borderRadius: 3,
+                    cursor: savedIdx.has(i) ? "default" : "pointer",
+                    fontFamily: "'Syne',sans-serif",
+                  }}
+                >
+                  {savedIdx.has(i) ? "✓ Saved" : "🔖 Save"}
+                </button>
                 {slotType === "cover" ? (
                   <>
                     <div style={{ fontFamily: "'Syne',sans-serif", fontSize: "1.05rem", fontWeight: 800, lineHeight: 1.2, marginBottom: 6 }}>
@@ -212,7 +275,7 @@ export function AiSlideGeneratorModal({ open, slotType, apiKey, initialTopic, on
                     </div>
                   </>
                 )}
-              </button>
+              </div>
             ))}
           </div>
         )}

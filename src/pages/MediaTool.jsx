@@ -3821,6 +3821,27 @@ export default function MediaTool() {
         bgKey: "black",
       }};
     }
+    if (slot.type === "photo") {
+      // Photo slide carries AI-generated caption text; the user uploads
+      // the actual image later in the carousel composer.
+      return { type: "photo", snapshot: {
+        ...common,
+        photo: null,
+        caption: String(slot.caption || "").trim(),
+        captionSecondary: String(slot.captionSecondary || "").trim(),
+        captionAlign: "left",
+        bgKey: "black",
+      }};
+    }
+    if (slot.type === "stat") {
+      return { type: "stat", snapshot: {
+        ...common,
+        statNumber: String(slot.statNumber || "").trim(),
+        statLabel: String(slot.statLabel || "").trim(),
+        statSub: String(slot.statSub || "").trim(),
+        bgKey: "purple",
+      }};
+    }
     // Fallback — return null so caller can filter
     return null;
   };

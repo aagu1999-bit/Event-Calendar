@@ -17,6 +17,7 @@ import { generateTemplateFill, pickTemplate } from "./aiContent.js";
 export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, onAccept }) {
   const voice = useBrandStore((s) => s.voice);
   const slotPrompts = useBrandStore((s) => s.slotPrompts);
+  const addExemplar = useBrandStore((s) => s.addExemplar);
   const customs = useCarouselTemplatesStore((s) => s.customs);
   const allTemplates = [...BUILTIN_CAROUSEL_TEMPLATES, ...customs];
 
@@ -34,6 +35,11 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
   const [letAiPick, setLetAiPick] = useState(false);
   const [pickedTemplate, setPickedTemplate] = useState(null);
   const [pickReasoning, setPickReasoning] = useState("");
+  // Per-slide exemplar harvest state. Tracks slide indices the user
+  // saved. Cleared on new generation. Only certain slot types yield
+  // useful exemplars (cover/text/spotlight/cta) — other types are
+  // skipped in the slot→exemplar mapping.
+  const [savedIdx, setSavedIdx] = useState(new Set());
 
   useEffect(() => {
     if (open) {
@@ -43,6 +49,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
       setBusyLabel("");
       setPickedTemplate(null);
       setPickReasoning("");
+      setSavedIdx(new Set());
       if (initialTemplateId) setTemplateId(initialTemplateId);
     }
   }, [open, initialTemplateId]);
@@ -104,6 +111,51 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
   };
 
   // Small per-type preview renderer for the result cards.
+  // Render the generated slot as a plain-text exemplar so it can prime
+  // future Gemini calls via voice.exemplars. Returns "" for slots we
+  // can't meaningfully harvest (stat-only, photo-only without caption,
+  // etc.); button is hidden in that case.
+  const slotToExemplar = (slot) => {
+    if (!slot) return "";
+    if (slot.type === "cover") {
+      return [slot.headline, slot.subtitle].filter(s => s && s.trim()).join("\n\n");
+    }
+    if (slot.type === "text") {
+      const parts = [];
+      if (slot.textTitle) parts.push(String(slot.textTitle).trim());
+      if (slot.textBody) parts.push(String(slot.textBody).trim());
+      return parts.join("\n\n");
+    }
+    if (slot.type === "spotlight") {
+      const head = (slot.spotName || "").trim();
+      const meta = (slot.spotMeta || "").trim();
+      const detail = [slot.spotTime, slot.spotPrice, slot.spotCta].filter(Boolean).join(" · ");
+      return [head, meta, detail].filter(Boolean).join("\n");
+    }
+    if (slot.type === "cta") {
+      const k = (slot.kicker || "").trim();
+      const m = (slot.mainLine || "").trim();
+      const s = (slot.subLine || "").trim();
+      const directory = (slot.ctaDate || "").trim();
+      const directoryVenue = (slot.ctaVenue || "").trim();
+      // Directory-style CTA (multi-CTA template) uses ctaDate as headline
+      if (directory) return [directory, directoryVenue].filter(Boolean).join("\n");
+      return [k && k.toUpperCase(), m, s].filter(Boolean).join("\n");
+    }
+    return "";
+  };
+
+  const handleSaveSlideAsExemplar = (slot, idx) => {
+    const text = slotToExemplar(slot).trim();
+    if (!text) return;
+    addExemplar(text);
+    setSavedIdx(prev => {
+      const next = new Set(prev);
+      next.add(idx);
+      return next;
+    });
+  };
+
   const renderPreview = (slot, idx) => {
     const num = idx + 1;
     if (slot.type === "cover") {
@@ -182,6 +234,45 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
           {slot.ctaUrl && (
             <div style={{ fontSize: "0.6rem", color: "#E5BC4F", marginTop: 4 }}>
               {slot.ctaUrl}
+            </div>
+          )}
+        </div>
+      );
+    }
+    if (slot.type === "photo") {
+      return (
+        <div>
+          <div style={{ fontSize: "0.5rem", color: "#E5BC4F", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 4 }}>
+            Slide {num} · Photo (you upload the image)
+          </div>
+          <div style={{ fontFamily: "'Syne',sans-serif", fontSize: "0.95rem", fontWeight: 800, marginBottom: 4 }}>
+            {slot.caption}
+          </div>
+          {slot.captionSecondary && (
+            <div style={{ fontSize: "0.6rem", color: "rgba(229,188,79,0.7)", letterSpacing: 1.5, textTransform: "uppercase" }}>
+              {slot.captionSecondary}
+            </div>
+          )}
+        </div>
+      );
+    }
+    if (slot.type === "stat") {
+      return (
+        <div>
+          <div style={{ fontSize: "0.5rem", color: "#E5BC4F", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 4 }}>
+            Slide {num} · Stat
+          </div>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 4 }}>
+            <div style={{ fontFamily: "'Syne',sans-serif", fontSize: "1.4rem", fontWeight: 900, color: "#F5F0E8" }}>
+              {slot.statNumber}
+            </div>
+            <div style={{ fontFamily: "'Syne',sans-serif", fontSize: "0.75rem", fontWeight: 800, letterSpacing: 1.5, color: "rgba(245,240,232,0.85)" }}>
+              {slot.statLabel}
+            </div>
+          </div>
+          {slot.statSub && (
+            <div style={{ fontSize: "0.7rem", color: "rgba(245,240,232,0.6)" }}>
+              {slot.statSub}
             </div>
           )}
         </div>
@@ -415,19 +506,51 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
               Preview · {slides.length} slides
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
-              {slides.map((slot, idx) => (
-                <div
-                  key={idx}
-                  style={{
-                    padding: 12,
-                    background: "rgba(229,188,79,0.04)",
-                    border: "1px solid rgba(229,188,79,0.20)",
-                    borderRadius: 6,
-                  }}
-                >
-                  {renderPreview(slot, idx)}
-                </div>
-              ))}
+              {slides.map((slot, idx) => {
+                const exemplarText = slotToExemplar(slot);
+                const canSave = exemplarText && exemplarText.trim().length > 0;
+                const saved = savedIdx.has(idx);
+                return (
+                  <div
+                    key={idx}
+                    style={{
+                      position: "relative",
+                      padding: 12,
+                      paddingRight: canSave ? 80 : 12,
+                      background: "rgba(229,188,79,0.04)",
+                      border: "1px solid rgba(229,188,79,0.20)",
+                      borderRadius: 6,
+                    }}
+                  >
+                    {canSave && (
+                      <button
+                        onClick={() => handleSaveSlideAsExemplar(slot, idx)}
+                        disabled={saved}
+                        title={saved ? "Saved to Brand Voice exemplars" : "Save this slide's copy to Brand Voice — feeds future generations"}
+                        style={{
+                          position: "absolute",
+                          top: 8,
+                          right: 8,
+                          background: saved ? "rgba(52,211,153,0.15)" : "transparent",
+                          border: `1px solid ${saved ? "rgba(52,211,153,0.4)" : "rgba(229,188,79,0.25)"}`,
+                          color: saved ? "#34D399" : "rgba(229,188,79,0.8)",
+                          fontSize: "0.55rem",
+                          fontWeight: 700,
+                          letterSpacing: 0.8,
+                          textTransform: "uppercase",
+                          padding: "3px 7px",
+                          borderRadius: 3,
+                          cursor: saved ? "default" : "pointer",
+                          fontFamily: "'Syne',sans-serif",
+                        }}
+                      >
+                        {saved ? "✓ Saved" : "🔖 Save"}
+                      </button>
+                    )}
+                    {renderPreview(slot, idx)}
+                  </div>
+                );
+              })}
             </div>
 
             <button

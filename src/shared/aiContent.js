@@ -342,6 +342,8 @@ function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, tem
       if (t === "text")      return '{"type":"text","textTitle":"...","textBody":"..."}';
       if (t === "spotlight") return '{"type":"spotlight","spotName":"...","spotMeta":"...","spotTime":"","spotPrice":"","spotCta":""}';
       if (t === "cta")       return '{"type":"cta","ctaKicker":"","ctaDate":"...","ctaVenue":"...","ctaUrl":"..."}';
+      if (t === "photo")     return '{"type":"photo","caption":"...","captionSecondary":"..."}';
+      if (t === "stat")      return '{"type":"stat","statNumber":"...","statLabel":"...","statSub":"..."}';
       return `{"type":"${t}"}`;
     }).join(",")}]}`,
   ].join("\n");

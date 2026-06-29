@@ -613,6 +613,26 @@ export default function BrandKit() {
               />
               <SlotReferenceHint slot="spotlight" />
 
+              <Label>Photo caption prompt (Recap photo slides)</Label>
+              <textarea
+                rows={8}
+                value={slotPrompts?.photo || ""}
+                onChange={(e) => setSlotPrompt("photo", e.target.value)}
+                style={{ ...inputStyle, resize: "vertical", marginBottom: 6, fontFamily: "ui-monospace,Menlo,monospace", fontSize: "0.7rem", lineHeight: 1.5 }}
+                placeholder="Rules for AI-generated Photo captions..."
+              />
+              <SlotReferenceHint slot="photo" />
+
+              <Label>Stat slide prompt (Recap bragging beat)</Label>
+              <textarea
+                rows={8}
+                value={slotPrompts?.stat || ""}
+                onChange={(e) => setSlotPrompt("stat", e.target.value)}
+                style={{ ...inputStyle, resize: "vertical", marginBottom: 6, fontFamily: "ui-monospace,Menlo,monospace", fontSize: "0.7rem", lineHeight: 1.5 }}
+                placeholder="Rules for AI-generated Stat slides..."
+              />
+              <SlotReferenceHint slot="stat" />
+
               <Label>CTA prompt</Label>
               <textarea
                 rows={9}

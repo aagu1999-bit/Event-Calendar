@@ -181,6 +181,29 @@ Requirements:
 Return JSON ONLY in this exact shape:
 {"spotName":"...","spotMeta":"...","spotTime":"...","spotPrice":"...","spotCta":"..."}`,
 
+        photo: `Generate ONE caption + sub-caption pair for a CGE recap Photo slide.
+
+The photo itself shows the vibe — your caption NAMES the specific moment so the slide reads as documentation, not generic hype.
+
+Requirements:
+- caption: 4-10 word phrase naming ONE concrete moment. NOT a feeling word. ("The 9PM crowd before the rain" — not "amazing vibes")
+- captionSecondary: short uppercase location + time tag, or empty.
+- Past tense. The event already happened.
+- Match brand voice (specific, editorial, three-beat sentences welcome).
+
+Return JSON ONLY in this exact shape:
+{"caption":"...","captionSecondary":"..."}`,
+
+        stat: `Generate ONE quantitative bragging beat for a CGE recap Stat slide.
+
+Requirements:
+- statNumber: short — a number, count, or short string ("200+", "4", "$1.2K"). NO sentence.
+- statLabel: 2-4 word uppercase headline naming what the number measures. ("ROOFTOP HEADS", "COUNTIES REPPED")
+- statSub: ONE short sentence (8-15 words) grounding the number — geography, duration, context. Never sales.
+
+Return JSON ONLY in this exact shape:
+{"statNumber":"...","statLabel":"...","statSub":"..."}`,
+
         cta: `Generate editorial CTA copy for a CGE carousel CLOSER slide.
 
 Requirements:
@@ -310,6 +333,32 @@ export const SLOT_META = {
       "Don't repeat across Spotlights in the same carousel — each must cover a DIFFERENT angle.",
       "Avoid empty hype words: 'amazing', 'incredible', 'unforgettable'. Name the concrete thing instead.",
       "If spotTime/spotPrice/spotCta don't apply to this feature, leave them blank — don't pad with 'TBA'.",
+    ],
+  },
+  photo: {
+    audience: "Reader scrolling through a recap or photo-led carousel. The image shows the vibe; your caption NAMES the moment.",
+    examples: [
+      `{"caption":"The 9PM crowd, before the rain.","captionSecondary":"NEWARK · JUNE 14"}`,
+      `{"caption":"The bachata lesson, all four counts.","captionSecondary":"ROOFTOP · 8 PM"}`,
+      `{"caption":"Right when the horn section came in.","captionSecondary":""}`,
+    ],
+    antiPatterns: [
+      "Never write 'great night', 'amazing vibes', 'so much fun' — those are reactions, not moments.",
+      "Don't describe what's in the photo; name what the photo was OF (a moment, not a frame).",
+      "Sub-caption: location + time or context tag, never sales copy.",
+    ],
+  },
+  stat: {
+    audience: "Reader near the end of a recap — give them the bragging beat. ONE number, one short label, one grounding line.",
+    examples: [
+      `{"statNumber":"200+","statLabel":"ROOFTOP HEADS","statSub":"Newark · 6 hours · 0 spills."}`,
+      `{"statNumber":"4","statLabel":"COUNTIES REPPED","statSub":"Hudson, Essex, Union, Passaic — one rooftop."}`,
+      `{"statNumber":"$1.2K","statLabel":"RAISED FOR THE FUND","statSub":"Every door dollar went straight in."}`,
+    ],
+    antiPatterns: [
+      "Don't pick a generic stat — 'over 100 people' is not a beat, '127' is.",
+      "Label must be 2-4 words MAX, all caps, no filler.",
+      "Sub line is one sentence — grounding context, never marketing.",
     ],
   },
   cta: {
