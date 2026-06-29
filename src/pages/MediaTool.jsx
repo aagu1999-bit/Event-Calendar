@@ -2321,12 +2321,89 @@ function EmojiPicker({ value, onChange }) {
   );
 }
 
+// Focal point picker — click anywhere on a photo thumbnail to mark
+// "keep this part visible when cropping to non-1:1 ratios". Stored as
+// 0..1 normalized (focalX/focalY). The export pipeline (wrapForExport)
+// uses these to position the crop window around the user's focal point
+// instead of forcing a center crop on the original photo.
+//
+// Renders the photo at 240px wide max (preserves aspect) so the picker
+// fits the form column on mobile + desktop alike. The dot is a 22px
+// gold disc with a white ring — visible on any photo (light/dark/busy).
+function FocalPointPicker({ photo, focalX, focalY, onChange }) {
+  const ref = useRef(null);
+  if (!photo) return null;
+  const setFocal = (clientX, clientY) => {
+    if (!ref.current) return;
+    const rect = ref.current.getBoundingClientRect();
+    const x = (clientX - rect.left) / rect.width;
+    const y = (clientY - rect.top) / rect.height;
+    onChange(Math.max(0, Math.min(1, x)), Math.max(0, Math.min(1, y)));
+  };
+  const aspect = photo.height / photo.width;
+  const thumbW = 240;
+  const thumbH = Math.round(thumbW * aspect);
+  return (
+    <div style={{ marginBottom: "0.6rem" }}>
+      <label style={{ display: "block", fontSize: "0.5rem", letterSpacing: "1.5px", textTransform: "uppercase", color: "rgba(245,240,232,0.55)", marginBottom: 4 }}>
+        Focal point · tap to mark what stays visible at 4:5 / 9:16 / 3:4
+      </label>
+      <div
+        ref={ref}
+        onMouseDown={(e) => setFocal(e.clientX, e.clientY)}
+        onTouchStart={(e) => {
+          if (e.touches[0]) setFocal(e.touches[0].clientX, e.touches[0].clientY);
+        }}
+        onTouchMove={(e) => {
+          if (e.touches[0]) setFocal(e.touches[0].clientX, e.touches[0].clientY);
+        }}
+        style={{
+          position: "relative",
+          width: thumbW,
+          height: thumbH,
+          maxWidth: "100%",
+          backgroundImage: `url(${photo.src})`,
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+          border: "1px solid rgba(245,240,232,0.15)",
+          borderRadius: 4,
+          cursor: "crosshair",
+          touchAction: "none",
+          userSelect: "none",
+        }}
+      >
+        <div style={{
+          position: "absolute",
+          left: `${focalX * 100}%`,
+          top: `${focalY * 100}%`,
+          transform: "translate(-50%, -50%)",
+          width: 22,
+          height: 22,
+          borderRadius: "50%",
+          background: "rgba(229,188,79,0.9)",
+          border: "3px solid #fff",
+          boxShadow: "0 0 8px rgba(0,0,0,0.6)",
+          pointerEvents: "none",
+        }} />
+      </div>
+    </div>
+  );
+}
+
 // === MEDIA TOOL ===
 export default function MediaTool() {
   const events = useEventsStore(s => s.events);
 
   const [mode, setMode] = useState("cover");
   const [photo, setPhoto] = useState(null);
+  // Focal point for the Cover photo (0..1 normalized). When the user
+  // exports to a non-1:1 ratio (4:5 / 3:4 / 9:16), wrapForExport crops
+  // the bleed photo around this focal point instead of forcing a
+  // center crop. Default 0.5,0.5 (center) matches previous behavior.
+  // Reset to center whenever a new photo is loaded so the picker starts
+  // fresh on each upload.
+  const [coverFocalX, setCoverFocalX] = useState(0.5);
+  const [coverFocalY, setCoverFocalY] = useState(0.5);
   const [headline, setHeadline] = useState("This weekend in NJ has 47 events. Here's what you need to know");
   const [subtitle, setSubtitle] = useState("");
   const [highlights, setHighlights] = useState(new Set([1,6,10]));
@@ -2864,7 +2941,13 @@ export default function MediaTool() {
       .catch(err => console.warn("Photo library save failed:", err));
     e.target.value = "";
   };
-  const handlePhoto = makeUploadHandler(setPhoto, "cover");
+  // Reset focal point when a new cover photo is loaded so each upload
+  // starts with a center-anchored crop. User can re-pick a focal after.
+  const handlePhoto = makeUploadHandler((img) => {
+    setPhoto(img);
+    setCoverFocalX(0.5);
+    setCoverFocalY(0.5);
+  }, "cover");
   const handleTextPhoto = makeUploadHandler(setTextPhoto, mode); // text/cta/features all share this
   const handleCaptionPhoto = makeUploadHandler(setCaptionPhoto, "photo");
   const handleSpotPhoto = makeUploadHandler(setSpotPhoto, "spotlight");
@@ -2990,7 +3073,12 @@ export default function MediaTool() {
     else if(mode==="scene") renderScene(cv,{bgPhoto:sceneBgPhoto,sceneHero,sceneLeft,sceneRight,sceneTopLabel,sceneTitle,sceneBigText,sceneLeftMeta,sceneRightMeta,sceneInfo,sceneAddress,sceneHalftone,sceneHeroScale,sceneSideScale,accent,bgKey,dots,totalDots});
     else if(mode==="poster") renderPoster(cv,{photo:posterPhoto,opacity:posterOpacity,topLine:posterTopLine,hosts:posterHosts,kicker:posterKicker,title:posterTitle,subtitle:posterSubtitle,leftList:posterLeftList,rightList:posterRightList,dressCode:posterDressCode,dateLine:posterDateLine,titleSize:posterTitleSize,titleX:posterTitleX,titleY:posterTitleY,titleAlign:posterTitleAlign,titleColor:posterTitleColor,accent,bgKey,dots,totalDots});
     else if(mode==="press") renderPress(cv,{photo:pressPhoto,topMeta:pressTopMeta,title:pressTitle,badge:pressBadge,lineup:pressLineup,genres:pressGenres,dateLine:pressDateLine,badgeBg:pressBadgeBg,badgeText:pressBadgeText,genreBg:pressGenreBg,genreText:pressGenreText,dateBg:pressDateBg,dateText:pressDateText,photoOpacity:pressPhotoOpacity,accent,bgKey,dots,totalDots});
-    const exportCv = wrapForExport(cv, exportRatio, getModePrimaryPhoto());
+    // Pass the Cover focal point through. Other modes use center (the
+    // default in wrapForExport); only Cover has its own picker UI for
+    // now. When focal pickers are added to other modes, they'll thread
+    // their own values here.
+    const focalForMode = mode === "cover" ? { x: coverFocalX, y: coverFocalY } : null;
+    const exportCv = wrapForExport(cv, exportRatio, getModePrimaryPhoto(), focalForMode);
     exportCv.toBlob(async (blob) => {
       // Pre-generate the export id so the PNG tag and the cloud record
       // share it. Tag the blob FIRST so the downloaded file is the tagged
@@ -3157,7 +3245,7 @@ export default function MediaTool() {
   const makeSnapshot = () => {
     const common = { accent, accentKey, bgKey };
     switch (mode) {
-      case "cover": return { ...common, photo, headline, highlights, subtitle, opacity, ribbon, categoryTag, coverCtaButton };
+      case "cover": return { ...common, photo, headline, highlights, subtitle, opacity, ribbon, categoryTag, coverCtaButton, coverFocalX, coverFocalY };
       case "list": return { ...common, items: items.map(x=>({...x})), listTitle, listSubtitle };
       case "stat": return { ...common, statNumber, statLabel, statSub };
       case "text": return { ...common, textTitle, textTitleHL, textBody, photo: textPhoto, textOpacity, pageNum, totalPages };
@@ -3188,6 +3276,9 @@ export default function MediaTool() {
         setCategoryTag(snapshot.categoryTag || "");
         // coverCtaButton may be missing on older snapshots — empty default.
         setCoverCtaButton(snapshot.coverCtaButton || "");
+        // Cover focal point — defaults to center when missing (older snapshots).
+        setCoverFocalX(typeof snapshot.coverFocalX === "number" ? snapshot.coverFocalX : 0.5);
+        setCoverFocalY(typeof snapshot.coverFocalY === "number" ? snapshot.coverFocalY : 0.5);
         break;
       case "list":
         setItems(snapshot.items.map(x=>({...x})));
@@ -3915,11 +4006,18 @@ export default function MediaTool() {
     return snap.photo || null;
   };
 
-  const wrapForExport = (baseCanvas, ratio, sourcePhoto = null) => {
+  const wrapForExport = (baseCanvas, ratio, sourcePhoto = null, focal = null) => {
     const target = EXPORT_RATIOS[ratio] || EXPORT_RATIOS["1:1"];
     if (ratio === "1:1" || (target.w === baseCanvas.width && target.h === baseCanvas.height)) {
       return baseCanvas;
     }
+    // Focal point — 0..1 normalized, default center. Lets the user
+    // pick which part of the original photo stays visible when the
+    // export crops to a non-square aspect (4:5 / 3:4 / 9:16). PATH A
+    // applies it to the photo bleed crop. Defaults to center so
+    // existing callers without a focal pass unchanged behavior.
+    const fx = focal && typeof focal.x === "number" ? Math.max(0, Math.min(1, focal.x)) : 0.5;
+    const fy = focal && typeof focal.y === "number" ? Math.max(0, Math.min(1, focal.y)) : 0.5;
     const out = document.createElement("canvas");
     out.width = target.w;
     out.height = target.h;
@@ -3951,7 +4049,15 @@ export default function MediaTool() {
       const photoScale = Math.max(target.w / sourcePhoto.width, target.h / sourcePhoto.height);
       const pw = sourcePhoto.width * photoScale;
       const ph = sourcePhoto.height * photoScale;
-      ctx.drawImage(sourcePhoto, (target.w - pw) / 2, (target.h - ph) / 2, pw, ph);
+      // Focal-aware offset — anchor the photo's focal point at the
+      // CENTER of the target canvas. Clamp so we never expose
+      // background outside the photo (max shift = dimensions of the
+      // overhang we created when cover-scaling).
+      let dx = (target.w / 2) - (sourcePhoto.width * fx * photoScale);
+      let dy = (target.h / 2) - (sourcePhoto.height * fy * photoScale);
+      dx = Math.max(target.w - pw, Math.min(0, dx));
+      dy = Math.max(target.h - ph, Math.min(0, dy));
+      ctx.drawImage(sourcePhoto, dx, dy, pw, ph);
 
       // Dark wash to keep the bleed zones in the same brightness register
       // as the rendered slide's photo+overlay center. Without it the bars
@@ -3969,24 +4075,16 @@ export default function MediaTool() {
       return out;
     }
 
-    // PATH B — Blur bleed fallback (text-only / list / stat / vibe).
-    // No source photo, so synthesize the bleed by cover-stretching the
-    // rendered canvas itself with a heavy blur. For colored-background
-    // templates this just shows the same color smeared, reading as a
-    // soft vignette.
-    const coverScale = Math.max(target.w / baseCanvas.width, target.h / baseCanvas.height);
-    const coverW = baseCanvas.width * coverScale;
-    const coverH = baseCanvas.height * coverScale;
-    ctx.save();
-    ctx.filter = "blur(36px) brightness(0.85)";
-    ctx.drawImage(
-      baseCanvas,
-      (target.w - coverW) / 2,
-      (target.h - coverH) / 2,
-      coverW,
-      coverH
-    );
-    ctx.restore();
+    // PATH B — Solid bg fallback (text-only / list / stat / vibe).
+    // No source photo. The earlier blurred-cover-stretch read as a
+    // "soft vignette" the user disliked. Now: just fill the bleed
+    // zones with the slide's solid bg color. The rendered slide
+    // composites centered on top. Clean, no smear. The center area
+    // (the actual 1080×1080 render) IS the content; the bleed bars
+    // are extension, not duplicate.
+    const bgHex = (BG_COLORS[bgKey] && BG_COLORS[bgKey].hex) || "#000000";
+    ctx.fillStyle = bgHex;
+    ctx.fillRect(0, 0, target.w, target.h);
 
     const fitScale = Math.min(target.w / baseCanvas.width, target.h / baseCanvas.height);
     const dw = baseCanvas.width * fitScale;
@@ -4009,7 +4107,13 @@ export default function MediaTool() {
         // primary background from its snapshot rather than current React
         // state, so each slide bleeds its OWN photo even though they may
         // be different templates with different photo fields.
-        const exportCv = wrapForExport(cv, exportRatio, getSnapshotPrimaryPhoto(s.type, s.snapshot));
+        // Carry per-slide focal point through when the snapshot has one
+        // (Cover today; other modes will add their own pickers). Falls
+        // back to center for snapshots that pre-date the focal feature.
+        const snapFocal = (s.type === "cover" && typeof s.snapshot?.coverFocalX === "number")
+          ? { x: s.snapshot.coverFocalX, y: s.snapshot.coverFocalY ?? 0.5 }
+          : null;
+        const exportCv = wrapForExport(cv, exportRatio, getSnapshotPrimaryPhoto(s.type, s.snapshot), snapFocal);
         const blob = await new Promise(r => exportCv.toBlob(r, "image/png"));
         zip.file(`CGE_carousel_${String(i+1).padStart(2,"0")}_${s.type}_${exportRatio.replace(":","x")}.png`, blob);
       }
@@ -4655,6 +4759,15 @@ export default function MediaTool() {
                   <input ref={fileRef} type="file" accept="image/*" onChange={handlePhoto} style={{display:"none"}}/>
                 </div>
               </div>
+              {/* Focal-point picker — only appears when a photo is loaded.
+                  Click on the thumbnail to mark the part that should stay
+                  visible when the export crops to 4:5 / 3:4 / 9:16. */}
+              <FocalPointPicker
+                photo={photo}
+                focalX={coverFocalX}
+                focalY={coverFocalY}
+                onChange={(x, y) => { setCoverFocalX(x); setCoverFocalY(y); }}
+              />
               {/* Headline first — the hero of the slide. */}
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Headline</label><textarea value={headline} onChange={e=>setHeadline(e.target.value)} style={{...I,height:55,resize:"vertical"}} placeholder="Type headline..."/></div>
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Click words to highlight</label>
