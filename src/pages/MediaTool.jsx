@@ -2463,6 +2463,9 @@ export default function MediaTool() {
 
   // Spotlight — one-venue-per-slide body for roundup carousels.
   const [spotPhoto, setSpotPhoto] = useState(null);
+  // Focal point for spotlight venue photo (see Cover docs).
+  const [spotFocalX, setSpotFocalX] = useState(0.5);
+  const [spotFocalY, setSpotFocalY] = useState(0.5);
   // Optional Spotlight number — when set, renders a small circular badge
   // near the top of the slide (Feature Drop / listicle pattern). Empty
   // string keeps the badge off (default behavior — editorial spotlights
@@ -2490,6 +2493,9 @@ export default function MediaTool() {
 
   // Save the Date — single hero announcement.
   const [savePhoto, setSavePhoto] = useState(null);
+  // Focal point for Save Date photo.
+  const [saveFocalX, setSaveFocalX] = useState(0.5);
+  const [saveFocalY, setSaveFocalY] = useState(0.5);
   const [saveKicker, setSaveKicker] = useState("SAVE THE DATE");
   const [saveDay, setSaveDay] = useState("FRIDAY");
   const [saveDateBig, setSaveDateBig] = useState("JUNE 12");
@@ -2512,6 +2518,10 @@ export default function MediaTool() {
   // Scene Composer — slot-based party flyer. 4 photo slots + 7 text fields
   // + halftone toggle. Defaults seeded for a generic CGE party scene.
   const [sceneBgPhoto, setSceneBgPhoto] = useState(null);
+  // Focal point for Scene background photo. The hero/left/right
+  // cutouts get center-fit (they're cutout-style, focal less critical).
+  const [sceneFocalX, setSceneFocalX] = useState(0.5);
+  const [sceneFocalY, setSceneFocalY] = useState(0.5);
   const [sceneHero, setSceneHero] = useState(null);
   const [sceneLeft, setSceneLeft] = useState(null);
   const [sceneRight, setSceneRight] = useState(null);
@@ -2555,6 +2565,9 @@ export default function MediaTool() {
   // (genre strip, date bar, badge) per the spec, plus a configurable
   // photo darken so a busy crowd photo doesn't overwhelm the text.
   const [pressPhoto, setPressPhoto] = useState(null);
+  // Focal point for Press photo.
+  const [pressFocalX, setPressFocalX] = useState(0.5);
+  const [pressFocalY, setPressFocalY] = useState(0.5);
   const [pressTopMeta, setPressTopMeta] = useState([
     "CASA SAVANA\nRUA CAMERINO",
     "—\n162",
@@ -2950,17 +2963,28 @@ export default function MediaTool() {
   }, "cover");
   const handleTextPhoto = makeUploadHandler(setTextPhoto, mode); // text/cta/features all share this
   const handleCaptionPhoto = makeUploadHandler(setCaptionPhoto, "photo");
-  const handleSpotPhoto = makeUploadHandler(setSpotPhoto, "spotlight");
+  // Wrap each photo-having upload so a new picture resets its focal
+  // point to center — the previous photo's focal is meaningless on the
+  // new image, and the user shouldn't have to manually re-center.
+  const handleSpotPhoto = makeUploadHandler((img) => {
+    setSpotPhoto(img); setSpotFocalX(0.5); setSpotFocalY(0.5);
+  }, "spotlight");
   const handleCountPhoto = makeUploadHandler(setCountPhoto, "countdown");
-  const handleSavePhoto = makeUploadHandler(setSavePhoto, "savedate");
+  const handleSavePhoto = makeUploadHandler((img) => {
+    setSavePhoto(img); setSaveFocalX(0.5); setSaveFocalY(0.5);
+  }, "savedate");
   const handleSavesPhoto = makeUploadHandler(setSavesPhoto, "savedates");
   // Scene Composer — 4 image slots: bg + hero + left + right
-  const handleSceneBg    = makeUploadHandler(setSceneBgPhoto, "scene-bg");
+  const handleSceneBg    = makeUploadHandler((img) => {
+    setSceneBgPhoto(img); setSceneFocalX(0.5); setSceneFocalY(0.5);
+  }, "scene-bg");
   const handleSceneHero  = makeUploadHandler(setSceneHero,    "scene-hero");
   const handleSceneLeft  = makeUploadHandler(setSceneLeft,    "scene-left");
   const handleSceneRight = makeUploadHandler(setSceneRight,   "scene-right");
   const handlePosterPhoto = makeUploadHandler(setPosterPhoto, "poster");
-  const handlePressPhoto  = makeUploadHandler(setPressPhoto,  "press");
+  const handlePressPhoto  = makeUploadHandler((img) => {
+    setPressPhoto(img); setPressFocalX(0.5); setPressFocalY(0.5);
+  }, "press");
   // Vibe Board has 5 photo slots — one upload handler per slot.
   const handleVibePhoto = (idx) => (e) => {
     const f = e.target.files?.[0]; if (!f) return;
@@ -3073,12 +3097,7 @@ export default function MediaTool() {
     else if(mode==="scene") renderScene(cv,{bgPhoto:sceneBgPhoto,sceneHero,sceneLeft,sceneRight,sceneTopLabel,sceneTitle,sceneBigText,sceneLeftMeta,sceneRightMeta,sceneInfo,sceneAddress,sceneHalftone,sceneHeroScale,sceneSideScale,accent,bgKey,dots,totalDots});
     else if(mode==="poster") renderPoster(cv,{photo:posterPhoto,opacity:posterOpacity,topLine:posterTopLine,hosts:posterHosts,kicker:posterKicker,title:posterTitle,subtitle:posterSubtitle,leftList:posterLeftList,rightList:posterRightList,dressCode:posterDressCode,dateLine:posterDateLine,titleSize:posterTitleSize,titleX:posterTitleX,titleY:posterTitleY,titleAlign:posterTitleAlign,titleColor:posterTitleColor,accent,bgKey,dots,totalDots});
     else if(mode==="press") renderPress(cv,{photo:pressPhoto,topMeta:pressTopMeta,title:pressTitle,badge:pressBadge,lineup:pressLineup,genres:pressGenres,dateLine:pressDateLine,badgeBg:pressBadgeBg,badgeText:pressBadgeText,genreBg:pressGenreBg,genreText:pressGenreText,dateBg:pressDateBg,dateText:pressDateText,photoOpacity:pressPhotoOpacity,accent,bgKey,dots,totalDots});
-    // Pass the Cover focal point through. Other modes use center (the
-    // default in wrapForExport); only Cover has its own picker UI for
-    // now. When focal pickers are added to other modes, they'll thread
-    // their own values here.
-    const focalForMode = mode === "cover" ? { x: coverFocalX, y: coverFocalY } : null;
-    const exportCv = wrapForExport(cv, exportRatio, getModePrimaryPhoto(), focalForMode);
+    const exportCv = wrapForExport(cv, exportRatio, getModePrimaryPhoto(), getModeFocal());
     exportCv.toBlob(async (blob) => {
       // Pre-generate the export id so the PNG tag and the cloud record
       // share it. Tag the blob FIRST so the downloaded file is the tagged
@@ -3252,14 +3271,14 @@ export default function MediaTool() {
       case "cta": return { ...common, ctaKicker, ctaDate, ctaVenue, ctaUrl, photo: textPhoto, textOpacity };
       case "features": return { ...common, featuresTitle, features: features.map(f=>({...f})), photo: textPhoto, textOpacity };
       case "photo": return { ...common, photo: captionPhoto, caption, captionSecondary, captionAlign };
-      case "spotlight": return { ...common, photo: spotPhoto, spotName, spotNameHL, spotMeta, spotTime, spotPrice, spotCta, spotNumber };
+      case "spotlight": return { ...common, photo: spotPhoto, spotName, spotNameHL, spotMeta, spotTime, spotPrice, spotCta, spotNumber, spotFocalX, spotFocalY };
       case "countdown": return { ...common, photo: countPhoto, countText, countEvent, countWhen, countCta, countOpacity };
-      case "savedate":  return { ...common, photo: savePhoto, saveKicker, saveDay, saveDateBig, saveEvent, saveVenue, saveCta, saveOpacity };
+      case "savedate":  return { ...common, photo: savePhoto, saveKicker, saveDay, saveDateBig, saveEvent, saveVenue, saveCta, saveOpacity, saveFocalX, saveFocalY };
       case "savedates": return { ...common, photo: savesPhoto, savesHeader, savesItems: savesItems.map(x=>({...x})), savesCta, savesOpacity };
       case "vibe":      return { ...common, vibePhotos: [...vibePhotos], vibeHeadline, vibeLabels: [...vibeLabels] };
-      case "scene":     return { ...common, bgPhoto: sceneBgPhoto, sceneHero, sceneLeft, sceneRight, sceneTopLabel, sceneTitle, sceneBigText, sceneLeftMeta, sceneRightMeta, sceneInfo, sceneAddress, sceneHalftone, sceneHeroScale, sceneSideScale };
+      case "scene":     return { ...common, bgPhoto: sceneBgPhoto, sceneHero, sceneLeft, sceneRight, sceneTopLabel, sceneTitle, sceneBigText, sceneLeftMeta, sceneRightMeta, sceneInfo, sceneAddress, sceneHalftone, sceneHeroScale, sceneSideScale, sceneFocalX, sceneFocalY };
       case "poster":    return { ...common, photo: posterPhoto, posterOpacity, posterTopLine, posterHosts, posterKicker, posterTitle, posterSubtitle, posterLeftList, posterRightList, posterDressCode, posterDateLine, posterTitleSize, posterTitleX, posterTitleY, posterTitleAlign, posterTitleColor };
-      case "press":     return { ...common, photo: pressPhoto, pressTopMeta: [...pressTopMeta], pressTitle, pressBadge, pressLineup, pressGenres, pressDateLine, pressGenreBg, pressGenreText, pressDateBg, pressDateText, pressBadgeBg, pressBadgeText, pressPhotoOpacity };
+      case "press":     return { ...common, photo: pressPhoto, pressTopMeta: [...pressTopMeta], pressTitle, pressBadge, pressLineup, pressGenres, pressDateLine, pressGenreBg, pressGenreText, pressDateBg, pressDateText, pressBadgeBg, pressBadgeText, pressPhotoOpacity, pressFocalX, pressFocalY };
       default: return common;
     }
   };
@@ -3322,6 +3341,9 @@ export default function MediaTool() {
         setSpotNameHL(snapshot.spotNameHL instanceof Set ? snapshot.spotNameHL
                     : Array.isArray(snapshot.spotNameHL) ? new Set(snapshot.spotNameHL)
                     : new Set());
+        // Focal point — defaults to center on older snapshots.
+        setSpotFocalX(typeof snapshot.spotFocalX === "number" ? snapshot.spotFocalX : 0.5);
+        setSpotFocalY(typeof snapshot.spotFocalY === "number" ? snapshot.spotFocalY : 0.5);
         break;
       case "countdown":
         setCountPhoto(snapshot.photo);
@@ -3335,6 +3357,8 @@ export default function MediaTool() {
         setSaveDateBig(snapshot.saveDateBig || ""); setSaveEvent(snapshot.saveEvent || "");
         setSaveVenue(snapshot.saveVenue || ""); setSaveCta(snapshot.saveCta || "");
         if (typeof snapshot.saveOpacity === "number") setSaveOpacity(snapshot.saveOpacity);
+        setSaveFocalX(typeof snapshot.saveFocalX === "number" ? snapshot.saveFocalX : 0.5);
+        setSaveFocalY(typeof snapshot.saveFocalY === "number" ? snapshot.saveFocalY : 0.5);
         break;
       case "savedates":
         setSavesPhoto(snapshot.photo);
@@ -3381,6 +3405,8 @@ export default function MediaTool() {
         if (typeof snapshot.pressBadgeBg === "string")   setPressBadgeBg(snapshot.pressBadgeBg);
         if (typeof snapshot.pressBadgeText === "string") setPressBadgeText(snapshot.pressBadgeText);
         if (typeof snapshot.pressPhotoOpacity === "number") setPressPhotoOpacity(snapshot.pressPhotoOpacity);
+        setPressFocalX(typeof snapshot.pressFocalX === "number" ? snapshot.pressFocalX : 0.5);
+        setPressFocalY(typeof snapshot.pressFocalY === "number" ? snapshot.pressFocalY : 0.5);
         break;
       case "scene":
         setSceneBgPhoto(snapshot.bgPhoto);
@@ -3397,6 +3423,8 @@ export default function MediaTool() {
         if (typeof snapshot.sceneHalftone === "boolean") setSceneHalftone(snapshot.sceneHalftone);
         if (typeof snapshot.sceneHeroScale === "number") setSceneHeroScale(snapshot.sceneHeroScale);
         if (typeof snapshot.sceneSideScale === "number") setSceneSideScale(snapshot.sceneSideScale);
+        setSceneFocalX(typeof snapshot.sceneFocalX === "number" ? snapshot.sceneFocalX : 0.5);
+        setSceneFocalY(typeof snapshot.sceneFocalY === "number" ? snapshot.sceneFocalY : 0.5);
         break;
     }
   };
@@ -4006,6 +4034,41 @@ export default function MediaTool() {
     return snap.photo || null;
   };
 
+  // === FOCAL POINT HELPERS ===
+  // Return the focal point object {x, y} (0..1 normalized) for the
+  // active mode's primary photo. Used by the single-slide download
+  // path. Modes without their own picker return null → wrapForExport
+  // falls back to center crop.
+  const getModeFocal = () => {
+    switch (mode) {
+      case "cover":     return { x: coverFocalX, y: coverFocalY };
+      case "spotlight": return { x: spotFocalX,  y: spotFocalY };
+      case "savedate":  return { x: saveFocalX,  y: saveFocalY };
+      case "scene":     return { x: sceneFocalX, y: sceneFocalY };
+      case "press":     return { x: pressFocalX, y: pressFocalY };
+      default:          return null;
+    }
+  };
+  // Same lookup from a snapshot (carousel ZIP path). Each mode's
+  // snapshot maker stamps its focal under a mode-specific key
+  // (coverFocalX/Y, spotFocalX/Y, etc.).
+  const getSnapshotFocal = (type, snap) => {
+    if (!snap) return null;
+    const map = {
+      cover:     ["coverFocalX", "coverFocalY"],
+      spotlight: ["spotFocalX",  "spotFocalY"],
+      savedate:  ["saveFocalX",  "saveFocalY"],
+      scene:     ["sceneFocalX", "sceneFocalY"],
+      press:     ["pressFocalX", "pressFocalY"],
+    };
+    const keys = map[type];
+    if (!keys) return null;
+    const x = snap[keys[0]];
+    const y = snap[keys[1]];
+    if (typeof x !== "number" && typeof y !== "number") return null;
+    return { x: typeof x === "number" ? x : 0.5, y: typeof y === "number" ? y : 0.5 };
+  };
+
   const wrapForExport = (baseCanvas, ratio, sourcePhoto = null, focal = null) => {
     const target = EXPORT_RATIOS[ratio] || EXPORT_RATIOS["1:1"];
     if (ratio === "1:1" || (target.w === baseCanvas.width && target.h === baseCanvas.height)) {
@@ -4107,13 +4170,7 @@ export default function MediaTool() {
         // primary background from its snapshot rather than current React
         // state, so each slide bleeds its OWN photo even though they may
         // be different templates with different photo fields.
-        // Carry per-slide focal point through when the snapshot has one
-        // (Cover today; other modes will add their own pickers). Falls
-        // back to center for snapshots that pre-date the focal feature.
-        const snapFocal = (s.type === "cover" && typeof s.snapshot?.coverFocalX === "number")
-          ? { x: s.snapshot.coverFocalX, y: s.snapshot.coverFocalY ?? 0.5 }
-          : null;
-        const exportCv = wrapForExport(cv, exportRatio, getSnapshotPrimaryPhoto(s.type, s.snapshot), snapFocal);
+        const exportCv = wrapForExport(cv, exportRatio, getSnapshotPrimaryPhoto(s.type, s.snapshot), getSnapshotFocal(s.type, s.snapshot));
         const blob = await new Promise(r => exportCv.toBlob(r, "image/png"));
         zip.file(`CGE_carousel_${String(i+1).padStart(2,"0")}_${s.type}_${exportRatio.replace(":","x")}.png`, blob);
       }
@@ -5014,6 +5071,12 @@ export default function MediaTool() {
                   <input ref={spotFileRef} type="file" accept="image/*" onChange={handleSpotPhoto} style={{display:"none"}}/>
                 </div>
               </div>
+              <FocalPointPicker
+                photo={spotPhoto}
+                focalX={spotFocalX}
+                focalY={spotFocalY}
+                onChange={(x, y) => { setSpotFocalX(x); setSpotFocalY(y); }}
+              />
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Venue / event name (headline)</label>
                 <textarea value={spotName} onChange={e=>setSpotName(e.target.value)} style={{...I,height:55,resize:"vertical",fontFamily:"'Syne'"}} placeholder="e.g. ROOFTOP NIGHT AT THE STANDARD"/>
               </div>
@@ -5119,6 +5182,12 @@ export default function MediaTool() {
                   {savePhoto&&<button onClick={()=>setSavePhoto(null)} style={{...B,color:"rgba(251,113,133,0.5)"}}>×</button>}
                   <input ref={saveFileRef} type="file" accept="image/*" onChange={handleSavePhoto} style={{display:"none"}}/>
                 </div>
+                <FocalPointPicker
+                  photo={savePhoto}
+                  focalX={saveFocalX}
+                  focalY={saveFocalY}
+                  onChange={(x, y) => { setSaveFocalX(x); setSaveFocalY(y); }}
+                />
                 {savePhoto&&<div style={{marginTop:"6px"}}>
                   <div style={{fontSize:"0.5rem",color:"rgba(245,240,232,0.45)",letterSpacing:"1px",textTransform:"uppercase",marginBottom:"3px"}}>
                     Darken · {Math.round(saveOpacity*100)}%
@@ -5232,6 +5301,12 @@ export default function MediaTool() {
                 {sceneBgPhoto&&<button onClick={()=>setSceneBgPhoto(null)} style={{...B,padding:"4px 6px",color:"rgba(251,113,133,0.6)"}}>×</button>}
                 <input ref={sceneBgRef} type="file" accept="image/*" onChange={handleSceneBg} style={{display:"none"}}/>
               </div>
+              <FocalPointPicker
+                photo={sceneBgPhoto}
+                focalX={sceneFocalX}
+                focalY={sceneFocalY}
+                onChange={(x, y) => { setSceneFocalX(x); setSceneFocalY(y); }}
+              />
 
               <div style={{display:"grid",gridTemplateColumns:"60px 1fr auto auto auto",gap:"0.3rem",marginBottom:"0.3rem",alignItems:"center"}}>
                 <span style={{fontSize:"0.55rem",color:"rgba(245,240,232,0.55)",letterSpacing:"1px"}}>HERO</span>
@@ -5444,6 +5519,12 @@ export default function MediaTool() {
                   {pressPhoto&&<button onClick={()=>setPressPhoto(null)} style={{...B,color:"rgba(251,113,133,0.5)"}}>×</button>}
                   <input ref={pressFileRef} type="file" accept="image/*" onChange={handlePressPhoto} style={{display:"none"}}/>
                 </div>
+                <FocalPointPicker
+                  photo={pressPhoto}
+                  focalX={pressFocalX}
+                  focalY={pressFocalY}
+                  onChange={(x, y) => { setPressFocalX(x); setPressFocalY(y); }}
+                />
                 {pressPhoto&&<div style={{marginTop:"6px"}}>
                   <div style={{fontSize:"0.5rem",color:"rgba(245,240,232,0.45)",letterSpacing:"1px",textTransform:"uppercase",marginBottom:"3px"}}>
                     Photo darken · {Math.round(pressPhotoOpacity*100)}%
