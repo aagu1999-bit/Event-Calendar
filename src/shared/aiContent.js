@@ -15,8 +15,37 @@
 //
 // Returns 3 options per call so the user can choose.
 
+import { SLOT_META } from "../store.js";
+
 const MODEL = "gemini-2.5-flash";
 const URL_BASE = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
+
+// Render a slot's reference metadata (audience, examples, anti-patterns)
+// as a labeled prompt block. Concrete examples drive output style more
+// than prose rules; anti-patterns prevent the well-known failure modes.
+// Returns [] if the slot has no metadata (custom or unmapped slot type).
+function formatSlotReferenceBlock(slotType) {
+  const meta = SLOT_META[slotType];
+  if (!meta) return [];
+  const lines = [
+    `SLOT REFERENCE — ${slotType.toUpperCase()} — quality bar for this slot.`,
+    "",
+  ];
+  if (meta.audience) {
+    lines.push("Audience reading this slot:", meta.audience, "");
+  }
+  if (Array.isArray(meta.examples) && meta.examples.length) {
+    lines.push(`Examples of GOOD output for this slot (study shape + voice + concreteness):`, "");
+    meta.examples.forEach((ex, i) => lines.push(`Example ${i + 1}: ${ex}`));
+    lines.push("");
+  }
+  if (Array.isArray(meta.antiPatterns) && meta.antiPatterns.length) {
+    lines.push("ANTI-PATTERNS — NEVER write output that matches any of these:");
+    meta.antiPatterns.forEach(p => lines.push(`- ${p}`));
+    lines.push("");
+  }
+  return lines;
+}
 
 // Render a template's metadata as a labeled block for prompts. Built-in
 // templates carry rich fields (audience, tone, bestFor, notFor, keyMove,
@@ -259,8 +288,10 @@ function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, tem
 
   const slotInstructionBlock = sequence.map((slotType, idx) => {
     const rule = slotPrompts?.[slotType];
+    const refBlock = formatSlotReferenceBlock(slotType);
+    const refPrefix = refBlock.length ? refBlock.join("\n") + "\n" : "";
     if (!rule) {
-      return `SLIDE ${idx + 1} (${slotType.toUpperCase()}) — no rule defined; produce reasonable defaults matching brand voice.`;
+      return `SLIDE ${idx + 1} (${slotType.toUpperCase()}) — no rule defined; produce reasonable defaults matching brand voice.\n${refPrefix}`;
     }
     let extra = "";
     if (slotType === "spotlight" && spotlightCount > 1) {
@@ -276,7 +307,7 @@ function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, tem
       const ctaTotal = sequence.filter(t => t === "cta").length;
       extra = `\n\nThis is CTA ${ctaIdxAmong} of ${ctaTotal}. Each CTA is a DIRECTORY LISTING for ONE event. ctaKicker stays BLANK. ctaDate slot becomes the EVENT NAME (uppercased big-bold headline of the card). ctaVenue slot is "<venue> · <day> · <time>". ctaUrl is that event's URL or page link. Pick a DIFFERENT event from the context for each CTA — don't repeat. If context lists fewer events than CTAs, invent plausible ones grounded in the topic.`;
     }
-    return `SLIDE ${idx + 1} (${slotType.toUpperCase()}):\n${rule}${extra}`;
+    return `SLIDE ${idx + 1} (${slotType.toUpperCase()}):\n${refPrefix}${rule}${extra}`;
   }).join("\n\n─────────────────────────────\n\n");
 
   const purposeBlock = formatTemplatePurposeBlock(templateMeta);
@@ -339,12 +370,15 @@ function buildPrompt({ slotType, topic, voice, slotRule }) {
     "",
   ] : [];
 
+  const slotRefBlock = formatSlotReferenceBlock(slotType);
+
   return [
     ...voiceBlock,
     `You are generating content for a ${slotType.toUpperCase()} slide in a CGE social media carousel.`,
     "",
     `Topic: ${topic.trim()}`,
     "",
+    ...(slotRefBlock.length ? [...slotRefBlock, "─────────────────────────────", ""] : []),
     "Apply the rule below STRICTLY:",
     "",
     slotRule,

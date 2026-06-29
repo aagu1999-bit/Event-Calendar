@@ -1,5 +1,67 @@
 import { useState } from "react";
-import { useBrandStore } from "../store";
+import { useBrandStore, SLOT_META } from "../store";
+
+// Render a small "Reference layer" hint under each slot rule textarea
+// so the user understands WHO each slot is written for + can preview
+// the example outputs Gemini sees as the quality bar. Collapsed by
+// default to avoid drowning the rule editors.
+function SlotReferenceHint({ slot }) {
+  const [open, setOpen] = useState(false);
+  const meta = SLOT_META[slot];
+  if (!meta) return null;
+  return (
+    <div style={{ marginBottom: 14, marginTop: -8 }}>
+      <button
+        onClick={() => setOpen(!open)}
+        style={{
+          background: "transparent",
+          border: "none",
+          color: "rgba(229,188,79,0.75)",
+          fontSize: "0.6rem",
+          letterSpacing: 0.5,
+          textTransform: "uppercase",
+          fontWeight: 700,
+          cursor: "pointer",
+          padding: "2px 0",
+        }}
+      >
+        {open ? "▾" : "▸"} Reference layer Gemini sees (audience · examples · anti-patterns)
+      </button>
+      {open && (
+        <div style={{ marginTop: 6, padding: "8px 10px", background: "rgba(255,255,255,0.02)", borderLeft: "2px solid rgba(229,188,79,0.35)", fontSize: "0.65rem", lineHeight: 1.55, color: "rgba(245,240,232,0.7)" }}>
+          {meta.audience && (
+            <div style={{ marginBottom: 6 }}>
+              <strong style={{ color: "#E5BC4F" }}>Audience: </strong>{meta.audience}
+            </div>
+          )}
+          {Array.isArray(meta.examples) && meta.examples.length > 0 && (
+            <div style={{ marginBottom: 6 }}>
+              <strong style={{ color: "#E5BC4F" }}>Good output examples:</strong>
+              <div style={{ marginTop: 4, fontFamily: "ui-monospace,Menlo,monospace", fontSize: "0.6rem", color: "rgba(245,240,232,0.55)" }}>
+                {meta.examples.map((ex, i) => (
+                  <div key={i} style={{ marginBottom: 4, whiteSpace: "pre-wrap" }}>{ex}</div>
+                ))}
+              </div>
+            </div>
+          )}
+          {Array.isArray(meta.antiPatterns) && meta.antiPatterns.length > 0 && (
+            <div>
+              <strong style={{ color: "rgba(251,113,133,0.85)" }}>Anti-patterns:</strong>
+              <ul style={{ margin: "4px 0 0 18px", padding: 0 }}>
+                {meta.antiPatterns.map((p, i) => (
+                  <li key={i} style={{ marginBottom: 2 }}>{p}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <div style={{ marginTop: 6, fontSize: "0.55rem", color: "rgba(245,240,232,0.35)", fontStyle: "italic" }}>
+            This reference is baked in — your rule above is layered on top.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // FONT_PAIRS mirrors the constant in MediaTool.jsx — keep keys in sync.
 // Listed here as display names so the user picks by what they see, not
@@ -526,36 +588,40 @@ export default function BrandKit() {
                 rows={10}
                 value={slotPrompts?.cover || ""}
                 onChange={(e) => setSlotPrompt("cover", e.target.value)}
-                style={{ ...inputStyle, resize: "vertical", marginBottom: 14, fontFamily: "ui-monospace,Menlo,monospace", fontSize: "0.7rem", lineHeight: 1.5 }}
+                style={{ ...inputStyle, resize: "vertical", marginBottom: 6, fontFamily: "ui-monospace,Menlo,monospace", fontSize: "0.7rem", lineHeight: 1.5 }}
                 placeholder="Rules for AI-generated Cover headlines..."
               />
+              <SlotReferenceHint slot="cover" />
 
               <Label>Text prompt (manifesto / editorial paragraph)</Label>
               <textarea
                 rows={9}
                 value={slotPrompts?.text || ""}
                 onChange={(e) => setSlotPrompt("text", e.target.value)}
-                style={{ ...inputStyle, resize: "vertical", marginBottom: 14, fontFamily: "ui-monospace,Menlo,monospace", fontSize: "0.7rem", lineHeight: 1.5 }}
+                style={{ ...inputStyle, resize: "vertical", marginBottom: 6, fontFamily: "ui-monospace,Menlo,monospace", fontSize: "0.7rem", lineHeight: 1.5 }}
                 placeholder="Rules for AI-generated Text manifesto paragraphs..."
               />
+              <SlotReferenceHint slot="text" />
 
               <Label>Spotlight prompt (single venue or idea)</Label>
               <textarea
                 rows={10}
                 value={slotPrompts?.spotlight || ""}
                 onChange={(e) => setSlotPrompt("spotlight", e.target.value)}
-                style={{ ...inputStyle, resize: "vertical", marginBottom: 14, fontFamily: "ui-monospace,Menlo,monospace", fontSize: "0.7rem", lineHeight: 1.5 }}
+                style={{ ...inputStyle, resize: "vertical", marginBottom: 6, fontFamily: "ui-monospace,Menlo,monospace", fontSize: "0.7rem", lineHeight: 1.5 }}
                 placeholder="Rules for AI-generated Spotlight cards..."
               />
+              <SlotReferenceHint slot="spotlight" />
 
               <Label>CTA prompt</Label>
               <textarea
                 rows={9}
                 value={slotPrompts?.cta || ""}
                 onChange={(e) => setSlotPrompt("cta", e.target.value)}
-                style={{ ...inputStyle, resize: "vertical", marginBottom: 8, fontFamily: "ui-monospace,Menlo,monospace", fontSize: "0.7rem", lineHeight: 1.5 }}
+                style={{ ...inputStyle, resize: "vertical", marginBottom: 6, fontFamily: "ui-monospace,Menlo,monospace", fontSize: "0.7rem", lineHeight: 1.5 }}
                 placeholder="Rules for AI-generated CTA copy..."
               />
+              <SlotReferenceHint slot="cta" />
 
               <div style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.4)", marginTop: 4, fontStyle: "italic" }}>
                 All four prompts power both ✨ AI Generate (single slot) and ✨ AI Fill Template (whole carousel). Tune the prompt to tighten the editorial style — Gemini reads them verbatim.

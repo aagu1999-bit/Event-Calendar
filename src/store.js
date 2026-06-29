@@ -259,6 +259,74 @@ Return JSON ONLY in this exact shape (3 different variations):
 //   list-tour         — World Cup watch parties pattern (themed list of locations)
 //   single-beat       — Running club pattern (one-image partner spotlight)
 //   recap             — post-event recap (cover + photo captions + stat)
+// Per-slot reference metadata — augments the user-editable slotPrompts
+// strings with concrete examples + anti-patterns Gemini uses to model
+// good output. These are NOT user-editable (rules are); they're the
+// "this is what good looks like" reference layer.
+//
+// Shape:
+//   audience    — who reads THIS slot specifically (cover scrollers vs
+//                 CTA-clickers — different mindset, different copy)
+//   examples    — 2-3 sample outputs in the exact JSON shape, modeling
+//                 quality + voice. Drives output style harder than any
+//                 amount of "be editorial" prose.
+//   antiPatterns — explicit "never do this" beats. Each entry is a
+//                 short sentence Gemini can pattern-match against.
+export const SLOT_META = {
+  cover: {
+    audience: "Someone scrolling Instagram who sees the cover for 1.5 seconds. The headline either earns the tap or doesn't. Treat like a magazine cover line, not a flyer.",
+    examples: [
+      `{"headline":"GARDEN STATE, JUNETEENTH WEEKEND","subtitle":"Five ways to mark it across NJ — Newark to AC.","accentWord":"JUNETEENTH"}`,
+      `{"headline":"THE NEWARK ROOFTOP IS BACK","subtitle":"Standard Hotel opens Friday. Bachata 8, social 9, no cover.","accentWord":"ROOFTOP"}`,
+      `{"headline":"FIVE YEARS SINCE THIS SCENE EXISTED","subtitle":"Warehouse parties resurface in Newark, on the right side of the law.","accentWord":"WAREHOUSE"}`,
+    ],
+    antiPatterns: [
+      "Never write 'Join us!', 'Don't miss out!', 'You won't want to miss this' — flyer language, not editorial.",
+      "Don't open with the venue name — open with the news beat. Venue can land in the subtitle.",
+      "Avoid emojis in the headline. The accent color does the visual lift.",
+      "If the headline doesn't say something true even without the accent color, it's too weak.",
+    ],
+  },
+  text: {
+    audience: "The reader who tapped past the cover and now wants the thesis. They'll read 30 seconds max — make every line a beat.",
+    examples: [
+      `{"textTitle":"FIVE WAYS TO MARK IT","textBody":"Juneteenth doesn't need a flyer. It needs a frame.\\n\\nDates, times, venues. Pickleball. Bachata. A cookout in Branch Brook. Knowing about an event and feeling an event are two different things. This list is the second kind."}`,
+      `{"textTitle":"THE SCENE, RANKED","textBody":"Not every weekend gets a ranking. This one does.\\n\\nFive parties. Four counties. One reason to leave the apartment. The Garden State did the work; we wrote it down."}`,
+    ],
+    antiPatterns: [
+      "Don't summarize the carousel — set the thesis. Lists go in the CTAs/Spotlights.",
+      "Avoid 'In this carousel we will…' meta-talk. Write as if no carousel exists.",
+      "Single huge paragraphs are wrong — break into 2-4 short paragraphs.",
+    ],
+  },
+  spotlight: {
+    audience: "Someone weighing whether THIS specific feature/venue is worth caring about. Show, don't sell.",
+    examples: [
+      `{"spotName":"ROOFTOP NIGHT AT THE STANDARD","spotMeta":"9 Clinton St, Newark · cocktails + bachata under sky","spotTime":"Friday · 8 PM","spotPrice":"$30","spotCta":"tix in bio"}`,
+      `{"spotName":"LIVE 5-PIECE BAND","spotMeta":"No backing tracks. Real horns, real percussion, real heat.","spotTime":"","spotPrice":"","spotCta":""}`,
+      `{"spotName":"BACHATA DANCING","spotMeta":"Beginner-friendly. Lessons 8-9, social 9-late.","spotTime":"","spotPrice":"","spotCta":""}`,
+    ],
+    antiPatterns: [
+      "Don't repeat across Spotlights in the same carousel — each must cover a DIFFERENT angle.",
+      "Avoid empty hype words: 'amazing', 'incredible', 'unforgettable'. Name the concrete thing instead.",
+      "If spotTime/spotPrice/spotCta don't apply to this feature, leave them blank — don't pad with 'TBA'.",
+    ],
+  },
+  cta: {
+    audience: "Someone at the end of the carousel deciding whether to tap the link. Don't beg, just open the door.",
+    examples: [
+      `{"kicker":"LINK IN BIO","mainLine":"Full list, dates, RSVPs","subLine":"Pull up to the one that fits your weekend. We did the curating."}`,
+      `{"kicker":"FULL DIRECTORY","mainLine":"All five events, mapped","subLine":"Tap through, save the ones you want, share with the friend who needs it."}`,
+      `{"kicker":"","ctaDate":"AFROBEATS ROOFTOP","ctaVenue":"The Standard · Fri · 9PM","ctaUrl":"@thestandardnewark"}`,
+    ],
+    antiPatterns: [
+      "Never write 'RSVP NOW', 'DON'T MISS', 'LIMITED SPOTS' — that's flyer panic, not editorial closer.",
+      "Avoid generic 'see you there' — be specific about WHAT the reader does next.",
+      "When CTA is a directory listing (multi-CTA template), kicker must be empty — event name carries the slot.",
+    ],
+  },
+};
+
 export const BUILTIN_CAROUSEL_TEMPLATES = [
   {
     id: "editorial-roundup",
