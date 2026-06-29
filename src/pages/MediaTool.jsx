@@ -653,9 +653,13 @@ function renderPhotoCaption(canvas, cfg) {
 // never include. Big headline-style venue name uppercase, address-style detail
 // line, footer with day/time on the left and price + CTA in accent on the
 // right. Slide counter top-right when the carousel has >1 slide.
+// Ratio-aware. Pass targetW/targetH/focalX/focalY in cfg to render at
+// 4:5 / 3:4 / 9:16 dimensions with the full design (photo + gradient
+// + venue text + footer + logo + watermark) filling the target frame.
+// Defaults to 1080×1080 + center focal for backward compat.
 function renderSpotlight(canvas, cfg) {
-  const { photo, spotName, spotNameHighlights, spotMeta, spotTime, spotPrice, spotCta, spotNumber, accent, bgKey, dots, totalDots } = cfg;
-  const W = 1080, H = 1080;
+  const { photo, spotName, spotNameHighlights, spotMeta, spotTime, spotPrice, spotCta, spotNumber, accent, bgKey, dots, totalDots, targetW = 1080, targetH = 1080, focalX = 0.5, focalY = 0.5 } = cfg;
+  const W = targetW, H = targetH;
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext("2d");
 
@@ -665,11 +669,15 @@ function renderSpotlight(canvas, cfg) {
   const bg = BG_COLORS[bgKey] || BG_COLORS.black;
   const isLight = !photo && !!bg.isLight;
 
-  // Background — photo full-bleed or solid bg.
+  // Background — photo full-bleed (focal-aware) or solid bg.
   if (photo) {
     const s = Math.max(W / photo.width, H / photo.height);
     const dw = photo.width * s, dh = photo.height * s;
-    ctx.drawImage(photo, (W - dw) / 2, (H - dh) / 2, dw, dh);
+    let dx = (W / 2) - (photo.width * focalX * s);
+    let dy = (H / 2) - (photo.height * focalY * s);
+    dx = Math.max(W - dw, Math.min(0, dx));
+    dy = Math.max(H - dh, Math.min(0, dy));
+    ctx.drawImage(photo, dx, dy, dw, dh);
   } else {
     ctx.fillStyle = bg.hex; ctx.fillRect(0, 0, W, H);
     drawTexture(ctx, W, H, isLight ? "#000" : "#FFF", isLight ? 0.06 : 0.05);
@@ -948,12 +956,15 @@ function renderCountdown(canvas, cfg) {
 // + time, CTA. Differs from Countdown by leading with the actual date
 // (not a "T-minus" number) — meant for the formal announcement, not the
 // urgency ramp. Photo background optional.
+// Ratio-aware (Cover/Spotlight pattern). targetW/targetH/focalX/focalY
+// in cfg drive non-1:1 exports; defaults preserve square render.
 function renderSaveDate(canvas, cfg) {
   const {
     photo, saveKicker, saveDay, saveDateBig, saveEvent, saveVenue, saveCta,
     accent, bgKey, dots, totalDots, opacity,
+    targetW = 1080, targetH = 1080, focalX = 0.5, focalY = 0.5,
   } = cfg;
-  const W = 1080, H = 1080;
+  const W = targetW, H = targetH;
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext("2d");
 
@@ -963,7 +974,11 @@ function renderSaveDate(canvas, cfg) {
   if (photo) {
     const s = Math.max(W / photo.width, H / photo.height);
     const dw = photo.width * s, dh = photo.height * s;
-    ctx.drawImage(photo, (W - dw) / 2, (H - dh) / 2, dw, dh);
+    let dx = (W / 2) - (photo.width * focalX * s);
+    let dy = (H / 2) - (photo.height * focalY * s);
+    dx = Math.max(W - dw, Math.min(0, dx));
+    dy = Math.max(H - dh, Math.min(0, dy));
+    ctx.drawImage(photo, dx, dy, dw, dh);
     ctx.fillStyle = `rgba(0,0,0,${opacity || 0.80})`;
     ctx.fillRect(0, 0, W, H);
     drawTexture(ctx, W, H, "#FFF", 0.04);
@@ -1328,6 +1343,11 @@ function applyGrain(ctx, W, H, strength = 0.18) {
   ctx.restore();
 }
 
+// Ratio-aware (Cover pattern). targetW/targetH/focalX/focalY drive the
+// bg photo for non-1:1 exports. Cutout positions (hero/left/right) use
+// W/H relatively so they reflow with taller frames; text positions are
+// mostly mid/bottom-anchored so they scale with H. Defaults preserve
+// the square render.
 function renderScene(canvas, cfg) {
   const {
     bgPhoto, sceneHero, sceneLeft, sceneRight,
@@ -1335,16 +1355,21 @@ function renderScene(canvas, cfg) {
     sceneInfo, sceneAddress,
     sceneHalftone, sceneHeroScale, sceneSideScale,
     accent, bgKey, dots, totalDots,
+    targetW = 1080, targetH = 1080, focalX = 0.5, focalY = 0.5,
   } = cfg;
-  const W = 1080, H = 1080;
+  const W = targetW, H = targetH;
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext("2d");
 
-  // 1. BACKGROUND (photo OR solid color)
+  // 1. BACKGROUND (photo focal-aware, OR solid color)
   if (bgPhoto) {
     const s = Math.max(W / bgPhoto.width, H / bgPhoto.height);
     const dw = bgPhoto.width * s, dh = bgPhoto.height * s;
-    ctx.drawImage(bgPhoto, (W - dw) / 2, (H - dh) / 2, dw, dh);
+    let dx = (W / 2) - (bgPhoto.width * focalX * s);
+    let dy = (H / 2) - (bgPhoto.height * focalY * s);
+    dx = Math.max(W - dw, Math.min(0, dx));
+    dy = Math.max(H - dh, Math.min(0, dy));
+    ctx.drawImage(bgPhoto, dx, dy, dw, dh);
   } else {
     const bg = BG_COLORS[bgKey] || BG_COLORS.black;
     ctx.fillStyle = bg.hex;
@@ -1713,6 +1738,10 @@ function renderPoster(canvas, cfg) {
 //   3. The small badge next to the title
 // Each region has BG + TEXT picker so you can do dark-text-on-yellow,
 // white-text-on-red, anything. Badge auto-hides when its text is empty.
+// Ratio-aware (Cover pattern). targetW/targetH/focalX/focalY make
+// non-1:1 exports paint the whole press layout (photo wash + top meta
+// + title + lineup + genre marquee + date bar + footer) across the
+// full target frame. Defaults keep the square render unchanged.
 function renderPress(canvas, cfg) {
   const {
     photo,
@@ -1727,17 +1756,21 @@ function renderPress(canvas, cfg) {
     dateBg, dateText,
     photoOpacity,      // dark wash over photo for legibility (0..1)
     accent, bgKey, dots, totalDots,
+    targetW = 1080, targetH = 1080, focalX = 0.5, focalY = 0.5,
   } = cfg;
-  const W = 1080, H = 1080;
+  const W = targetW, H = targetH;
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext("2d");
 
-  // 1. BACKGROUND — photo full-bleed or solid fallback. Subtle wash so
-  // the text reads against busy crowd photos.
+  // 1. BACKGROUND — photo full-bleed (focal-aware) or solid fallback.
   if (photo) {
     const s = Math.max(W / photo.width, H / photo.height);
     const dw = photo.width * s, dh = photo.height * s;
-    ctx.drawImage(photo, (W - dw) / 2, (H - dh) / 2, dw, dh);
+    let dx = (W / 2) - (photo.width * focalX * s);
+    let dy = (H / 2) - (photo.height * focalY * s);
+    dx = Math.max(W - dw, Math.min(0, dx));
+    dy = Math.max(H - dh, Math.min(0, dy));
+    ctx.drawImage(photo, dx, dy, dw, dh);
     ctx.fillStyle = `rgba(0,0,0,${typeof photoOpacity === "number" ? photoOpacity : 0.30})`;
     ctx.fillRect(0, 0, W, H);
   } else {
@@ -3099,28 +3132,31 @@ export default function MediaTool() {
   };
 
   const dl=()=>{const cv=document.createElement("canvas");
-    // Ratio-aware modes render DIRECTLY at the export target dims
-    // (cover today; others coming). The whole design — photo, watermark
-    // grid, headline, footer — fills the target aspect, no more
-    // square-design-letterboxed-onto-tall-frame artifact.
+    // Ratio-aware modes render DIRECTLY at the export target dims —
+    // photo, watermark grid, headline, footer all fill the target
+    // aspect from the start. Today: cover, spotlight, savedate, press,
+    // scene. Other modes (text/cta/list/stat/etc.) still render at
+    // 1080×1080 and get wrapForExport-composited.
     const target = EXPORT_RATIOS[exportRatio] || EXPORT_RATIOS["1:1"];
     const focal = getModeFocal();
-    const isRatioAware = mode === "cover";
-    if(mode==="cover") renderCover(cv,{photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,categoryTag,coverCtaButton, targetW: target.w, targetH: target.h, focalX: focal?.x ?? 0.5, focalY: focal?.y ?? 0.5});
+    const RATIO_AWARE_MODES = new Set(["cover", "spotlight", "savedate", "press", "scene"]);
+    const isRatioAware = RATIO_AWARE_MODES.has(mode);
+    const targetCfg = isRatioAware ? { targetW: target.w, targetH: target.h, focalX: focal?.x ?? 0.5, focalY: focal?.y ?? 0.5 } : {};
+    if(mode==="cover") renderCover(cv,{photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,categoryTag,coverCtaButton, ...targetCfg});
     else if(mode==="list") renderList(cv,{items,accent,bgKey,dots,totalDots,listTitle,listSubtitle});
     else if(mode==="stat") renderStat(cv,{statNumber,statLabel,statSub,accent,bgKey,dots,totalDots});
     else if(mode==="text") renderText(cv,{textTitle,textTitleHighlights:textTitleHL,textBody,accent,bgKey,dots,totalDots,pageNum,totalPages,photo:textPhoto,textOpacity});
     else if(mode==="cta") renderCTA(cv,{ctaKicker,ctaDate,ctaVenue,ctaUrl,photo:textPhoto,accent,bgKey,dots,totalDots,opacity:textOpacity});
     else if(mode==="features") renderFeatures(cv,{featuresTitle,features,accent,bgKey,dots,totalDots,photo:textPhoto,opacity:textOpacity});
     else if(mode==="photo") renderPhotoCaption(cv,{photo:captionPhoto,caption,captionSecondary,alignment:captionAlign,accent,bgKey,dots,totalDots});
-    else if(mode==="spotlight") renderSpotlight(cv,{photo:spotPhoto,spotName,spotNameHighlights:spotNameHL,spotMeta,spotTime,spotPrice,spotCta,spotNumber,accent,bgKey,dots,totalDots});
+    else if(mode==="spotlight") renderSpotlight(cv,{photo:spotPhoto,spotName,spotNameHighlights:spotNameHL,spotMeta,spotTime,spotPrice,spotCta,spotNumber,accent,bgKey,dots,totalDots, ...targetCfg});
     else if(mode==="countdown") renderCountdown(cv,{photo:countPhoto,countText,countEvent,countWhen,countCta,accent,bgKey,dots,totalDots,opacity:countOpacity});
-    else if(mode==="savedate") renderSaveDate(cv,{photo:savePhoto,saveKicker,saveDay,saveDateBig,saveEvent,saveVenue,saveCta,accent,bgKey,dots,totalDots,opacity:saveOpacity});
+    else if(mode==="savedate") renderSaveDate(cv,{photo:savePhoto,saveKicker,saveDay,saveDateBig,saveEvent,saveVenue,saveCta,accent,bgKey,dots,totalDots,opacity:saveOpacity, ...targetCfg});
     else if(mode==="savedates") renderSaveDates(cv,{photo:savesPhoto,savesHeader,savesItems,savesCta,accent,bgKey,dots,totalDots,opacity:savesOpacity});
     else if(mode==="vibe") renderVibeBoard(cv,{vibePhotos,vibeHeadline,vibeLabels,accent,bgKey,dots,totalDots});
-    else if(mode==="scene") renderScene(cv,{bgPhoto:sceneBgPhoto,sceneHero,sceneLeft,sceneRight,sceneTopLabel,sceneTitle,sceneBigText,sceneLeftMeta,sceneRightMeta,sceneInfo,sceneAddress,sceneHalftone,sceneHeroScale,sceneSideScale,accent,bgKey,dots,totalDots});
+    else if(mode==="scene") renderScene(cv,{bgPhoto:sceneBgPhoto,sceneHero,sceneLeft,sceneRight,sceneTopLabel,sceneTitle,sceneBigText,sceneLeftMeta,sceneRightMeta,sceneInfo,sceneAddress,sceneHalftone,sceneHeroScale,sceneSideScale,accent,bgKey,dots,totalDots, ...targetCfg});
     else if(mode==="poster") renderPoster(cv,{photo:posterPhoto,opacity:posterOpacity,topLine:posterTopLine,hosts:posterHosts,kicker:posterKicker,title:posterTitle,subtitle:posterSubtitle,leftList:posterLeftList,rightList:posterRightList,dressCode:posterDressCode,dateLine:posterDateLine,titleSize:posterTitleSize,titleX:posterTitleX,titleY:posterTitleY,titleAlign:posterTitleAlign,titleColor:posterTitleColor,accent,bgKey,dots,totalDots});
-    else if(mode==="press") renderPress(cv,{photo:pressPhoto,topMeta:pressTopMeta,title:pressTitle,badge:pressBadge,lineup:pressLineup,genres:pressGenres,dateLine:pressDateLine,badgeBg:pressBadgeBg,badgeText:pressBadgeText,genreBg:pressGenreBg,genreText:pressGenreText,dateBg:pressDateBg,dateText:pressDateText,photoOpacity:pressPhotoOpacity,accent,bgKey,dots,totalDots});
+    else if(mode==="press") renderPress(cv,{photo:pressPhoto,topMeta:pressTopMeta,title:pressTitle,badge:pressBadge,lineup:pressLineup,genres:pressGenres,dateLine:pressDateLine,badgeBg:pressBadgeBg,badgeText:pressBadgeText,genreBg:pressGenreBg,genreText:pressGenreText,dateBg:pressDateBg,dateText:pressDateText,photoOpacity:pressPhotoOpacity,accent,bgKey,dots,totalDots, ...targetCfg});
     // Ratio-aware modes already rendered at target dims; skip the wrap
     // (which would re-composite onto another canvas). Other modes still
     // render at 1080×1080 and get center/focal-aware composited.
@@ -3229,19 +3265,34 @@ export default function MediaTool() {
       : s.bgKey;
     const common = { accent: s.accent, dots: dotsNum, totalDots: dotsTot };
     // exportTarget = { w, h } when the caller wants this slide rendered
-    // at non-1:1 dimensions (ZIP export at 4:5 / 9:16 / 3:4). Today only
-    // Cover is ratio-aware; other modes ignore and render at 1080×1080.
-    // The caller still wraps non-aware modes via wrapForExport.
-    const coverTargetCfg = (type === "cover" && exportTarget) ? {
-      targetW: exportTarget.w,
-      targetH: exportTarget.h,
-      focalX: typeof s.coverFocalX === "number" ? s.coverFocalX : 0.5,
-      focalY: typeof s.coverFocalY === "number" ? s.coverFocalY : 0.5,
-    } : {};
+    // at non-1:1 dimensions (ZIP export at 4:5 / 9:16 / 3:4). For the
+    // 5 ratio-aware modes (cover/spotlight/savedate/press/scene),
+    // forward target dims + focal from the snapshot to the renderer.
+    // Other modes ignore and render at 1080×1080; the caller wraps them
+    // via wrapForExport.
+    const RATIO_AWARE_ZIP_MODES = new Set(["cover", "spotlight", "savedate", "press", "scene"]);
+    const FOCAL_KEY_MAP = {
+      cover:     ["coverFocalX", "coverFocalY"],
+      spotlight: ["spotFocalX",  "spotFocalY"],
+      savedate:  ["saveFocalX",  "saveFocalY"],
+      press:     ["pressFocalX", "pressFocalY"],
+      scene:     ["sceneFocalX", "sceneFocalY"],
+    };
+    const buildTargetCfg = () => {
+      if (!exportTarget || !RATIO_AWARE_ZIP_MODES.has(type)) return {};
+      const keys = FOCAL_KEY_MAP[type] || [];
+      return {
+        targetW: exportTarget.w,
+        targetH: exportTarget.h,
+        focalX: typeof s[keys[0]] === "number" ? s[keys[0]] : 0.5,
+        focalY: typeof s[keys[1]] === "number" ? s[keys[1]] : 0.5,
+      };
+    };
+    const targetCfg = buildTargetCfg();
     if (type === "cover") renderCover(cv, { ...common, photo: s.photo, headline: s.headline,
       highlights: s.highlights instanceof Set ? s.highlights : new Set(s.highlights || []),
       subtitle: s.subtitle, opacity: s.opacity, ribbon: s.ribbon, categoryTag: s.categoryTag,
-      coverCtaButton: s.coverCtaButton, ...coverTargetCfg });
+      coverCtaButton: s.coverCtaButton, ...targetCfg });
     else if (type === "list") renderList(cv, { ...common, items: s.items, bgKey: effBgKey,
       listTitle: s.listTitle, listSubtitle: s.listSubtitle });
     else if (type === "stat") renderStat(cv, { ...common, statNumber: s.statNumber,
@@ -3260,14 +3311,14 @@ export default function MediaTool() {
     else if (type === "spotlight") renderSpotlight(cv, { ...common, photo: s.photo,
       spotName: s.spotName, spotNameHighlights: s.spotNameHL, spotMeta: s.spotMeta,
       spotTime: s.spotTime, spotPrice: s.spotPrice, spotCta: s.spotCta,
-      spotNumber: s.spotNumber, bgKey: effBgKey });
+      spotNumber: s.spotNumber, bgKey: effBgKey, ...targetCfg });
     else if (type === "countdown") renderCountdown(cv, { ...common, photo: s.photo,
       countText: s.countText, countEvent: s.countEvent, countWhen: s.countWhen,
       countCta: s.countCta, bgKey: effBgKey, opacity: s.countOpacity });
     else if (type === "savedate") renderSaveDate(cv, { ...common, photo: s.photo,
       saveKicker: s.saveKicker, saveDay: s.saveDay, saveDateBig: s.saveDateBig,
       saveEvent: s.saveEvent, saveVenue: s.saveVenue, saveCta: s.saveCta,
-      bgKey: effBgKey, opacity: s.saveOpacity });
+      bgKey: effBgKey, opacity: s.saveOpacity, ...targetCfg });
     else if (type === "savedates") renderSaveDates(cv, { ...common, photo: s.photo,
       savesHeader: s.savesHeader, savesItems: s.savesItems, savesCta: s.savesCta,
       bgKey: effBgKey, opacity: s.savesOpacity });
@@ -3279,7 +3330,7 @@ export default function MediaTool() {
       sceneLeftMeta: s.sceneLeftMeta, sceneRightMeta: s.sceneRightMeta,
       sceneInfo: s.sceneInfo, sceneAddress: s.sceneAddress,
       sceneHalftone: s.sceneHalftone, sceneHeroScale: s.sceneHeroScale, sceneSideScale: s.sceneSideScale,
-      bgKey: effBgKey });
+      bgKey: effBgKey, ...targetCfg });
     else if (type === "poster") renderPoster(cv, { ...common, photo: s.photo,
       opacity: s.posterOpacity,
       topLine: s.posterTopLine, hosts: s.posterHosts, kicker: s.posterKicker,
@@ -3295,7 +3346,7 @@ export default function MediaTool() {
       badgeBg: s.pressBadgeBg, badgeText: s.pressBadgeText,
       genreBg: s.pressGenreBg, genreText: s.pressGenreText,
       dateBg: s.pressDateBg, dateText: s.pressDateText,
-      photoOpacity: s.pressPhotoOpacity, bgKey: effBgKey });
+      photoOpacity: s.pressPhotoOpacity, bgKey: effBgKey, ...targetCfg });
   };
 
   const makeSnapshot = () => {
@@ -4203,12 +4254,14 @@ export default function MediaTool() {
         const s = carousel[i];
         const cv = document.createElement("canvas");
         // Pass target dims when this slide's mode is ratio-aware
-        // (currently only Cover). The renderer paints the whole design
-        // at the target aspect; we then SKIP wrapForExport below.
-        // Non-ratio-aware modes render at 1080×1080 and still get
-        // photo-bleed-composited via wrapForExport.
+        // (cover/spotlight/savedate/press/scene). The renderer paints
+        // the whole design at the target aspect; we then SKIP
+        // wrapForExport below. Non-ratio-aware modes render at
+        // 1080×1080 and still get photo-bleed-composited via
+        // wrapForExport.
         const slideTarget = EXPORT_RATIOS[exportRatio] || EXPORT_RATIOS["1:1"];
-        const isRatioAwareSlide = s.type === "cover";
+        const RATIO_AWARE_SLIDE_TYPES = new Set(["cover", "spotlight", "savedate", "press", "scene"]);
+        const isRatioAwareSlide = RATIO_AWARE_SLIDE_TYPES.has(s.type);
         renderSlide(cv, s.type, s.snapshot, i+1, carousel.length, i, isRatioAwareSlide ? slideTarget : null);
         const exportCv = isRatioAwareSlide
           ? cv
