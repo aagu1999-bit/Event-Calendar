@@ -573,8 +573,9 @@ function renderCTA(canvas, cfg) {
 
 // === PHOTO + CAPTION RENDERER ===
 function renderPhotoCaption(canvas, cfg) {
-  const { photo, caption, captionSecondary, alignment, accent, bgKey, dots, totalDots } = cfg;
-  const W=1080, H=1080; canvas.width=W; canvas.height=H;
+  const { photo, caption, captionSecondary, alignment, accent, bgKey, dots, totalDots,
+          targetW = 1080, targetH = 1080, focalX = 0.5, focalY = 0.5 } = cfg;
+  const W = targetW, H = targetH; canvas.width=W; canvas.height=H;
   const ctx = canvas.getContext("2d");
 
   const bg=BG_COLORS[bgKey]||BG_COLORS.black;
@@ -583,7 +584,11 @@ function renderPhotoCaption(canvas, cfg) {
   if (photo) {
     const s=Math.max(W/photo.width,H/photo.height);
     const dw=photo.width*s, dh=photo.height*s;
-    ctx.drawImage(photo,(W-dw)/2,(H-dh)/2,dw,dh);
+    let dx = (W/2) - (photo.width * focalX * s);
+    let dy = (H/2) - (photo.height * focalY * s);
+    dx = Math.max(W - dw, Math.min(0, dx));
+    dy = Math.max(H - dh, Math.min(0, dy));
+    ctx.drawImage(photo, dx, dy, dw, dh);
   } else {
     ctx.fillStyle=bg.hex; ctx.fillRect(0,0,W,H);
     drawTexture(ctx,W,H,isLight?"#000":"#FFF",isLight?0.06:0.05);
@@ -843,8 +848,9 @@ function renderCountdown(canvas, cfg) {
   const {
     photo, countText, countEvent, countWhen, countCta,
     accent, bgKey, dots, totalDots, opacity,
+    targetW = 1080, targetH = 1080, focalX = 0.5, focalY = 0.5,
   } = cfg;
-  const W = 1080, H = 1080;
+  const W = targetW, H = targetH;
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext("2d");
 
@@ -857,7 +863,11 @@ function renderCountdown(canvas, cfg) {
   if (photo) {
     const s = Math.max(W / photo.width, H / photo.height);
     const dw = photo.width * s, dh = photo.height * s;
-    ctx.drawImage(photo, (W - dw) / 2, (H - dh) / 2, dw, dh);
+    let dx = (W / 2) - (photo.width * focalX * s);
+    let dy = (H / 2) - (photo.height * focalY * s);
+    dx = Math.max(W - dw, Math.min(0, dx));
+    dy = Math.max(H - dh, Math.min(0, dy));
+    ctx.drawImage(photo, dx, dy, dw, dh);
     ctx.fillStyle = `rgba(0,0,0,${opacity || 0.78})`;
     ctx.fillRect(0, 0, W, H);
     drawTexture(ctx, W, H, "#FFF", 0.04);
@@ -1094,8 +1104,9 @@ function renderSaveDates(canvas, cfg) {
   const {
     photo, savesHeader, savesItems, savesCta,
     accent, bgKey, dots, totalDots, opacity,
+    targetW = 1080, targetH = 1080, focalX = 0.5, focalY = 0.5,
   } = cfg;
-  const W = 1080, H = 1080;
+  const W = targetW, H = targetH;
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext("2d");
 
@@ -1105,7 +1116,11 @@ function renderSaveDates(canvas, cfg) {
   if (photo) {
     const s = Math.max(W / photo.width, H / photo.height);
     const dw = photo.width * s, dh = photo.height * s;
-    ctx.drawImage(photo, (W - dw) / 2, (H - dh) / 2, dw, dh);
+    let dx = (W / 2) - (photo.width * focalX * s);
+    let dy = (H / 2) - (photo.height * focalY * s);
+    dx = Math.max(W - dw, Math.min(0, dx));
+    dy = Math.max(H - dh, Math.min(0, dy));
+    ctx.drawImage(photo, dx, dy, dw, dh);
     ctx.fillStyle = `rgba(0,0,0,${opacity || 0.85})`;
     ctx.fillRect(0, 0, W, H);
     drawTexture(ctx, W, H, "#FFF", 0.03);
@@ -1528,8 +1543,9 @@ function renderPoster(canvas, cfg) {
     leftList, rightList, dressCode, dateLine,
     titleSize, titleX, titleY, titleAlign, titleColor,
     accent, bgKey, dots, totalDots,
+    targetW = 1080, targetH = 1080, focalX = 0.5, focalY = 0.5,
   } = cfg;
-  const W = 1080, H = 1080;
+  const W = targetW, H = targetH;
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext("2d");
 
@@ -1537,7 +1553,11 @@ function renderPoster(canvas, cfg) {
   if (photo) {
     const s = Math.max(W / photo.width, H / photo.height);
     const dw = photo.width * s, dh = photo.height * s;
-    ctx.drawImage(photo, (W - dw) / 2, (H - dh) / 2, dw, dh);
+    let dx = (W / 2) - (photo.width * focalX * s);
+    let dy = (H / 2) - (photo.height * focalY * s);
+    dx = Math.max(W - dw, Math.min(0, dx));
+    dy = Math.max(H - dh, Math.min(0, dy));
+    ctx.drawImage(photo, dx, dy, dw, dh);
     // Light overall wash — keep the photo readable but not crushed. The
     // user can crank this up via the opacity slider for a darker mood.
     ctx.fillStyle = `rgba(0,0,0,${opacity != null ? opacity : 0.15})`;
@@ -2507,6 +2527,8 @@ export default function MediaTool() {
   ]);
 
   const [captionPhoto, setCaptionPhoto] = useState(null);
+  const [captionFocalX, setCaptionFocalX] = useState(0.5);
+  const [captionFocalY, setCaptionFocalY] = useState(0.5);
   const [caption, setCaption] = useState("When the music finds you.");
   const [captionSecondary, setCaptionSecondary] = useState("JERSEY CITY · APRIL 2026");
   const [captionAlign, setCaptionAlign] = useState("left");
@@ -2535,6 +2557,8 @@ export default function MediaTool() {
   // Countdown — T-minus anticipation card. Use as a series leading up
   // to a single big event (World Cup, NBA Finals, opening night, etc).
   const [countPhoto, setCountPhoto] = useState(null);
+  const [countFocalX, setCountFocalX] = useState(0.5);
+  const [countFocalY, setCountFocalY] = useState(0.5);
   const [countText, setCountText] = useState("3 WEEKS");
   const [countEvent, setCountEvent] = useState("WORLD CUP OPENING NIGHT");
   const [countWhen, setCountWhen] = useState("Friday, June 12 · The Standard");
@@ -2556,6 +2580,8 @@ export default function MediaTool() {
 
   // Save These Dates — multi-event announcement (2-4 items).
   const [savesPhoto, setSavesPhoto] = useState(null);
+  const [savesFocalX, setSavesFocalX] = useState(0.5);
+  const [savesFocalY, setSavesFocalY] = useState(0.5);
   const [savesHeader, setSavesHeader] = useState("SAVE THESE DATES");
   const [savesItems, setSavesItems] = useState([
     { date: "6/12", day: "FRIDAY",   name: "World Cup Opening Night", venue: "The Standard · Newark" },
@@ -2591,6 +2617,8 @@ export default function MediaTool() {
   // alongside the text fields so the user can push the title around the
   // canvas to dodge background photo content.
   const [posterPhoto, setPosterPhoto] = useState(null);
+  const [posterFocalX, setPosterFocalX] = useState(0.5);
+  const [posterFocalY, setPosterFocalY] = useState(0.5);
   const [posterOpacity, setPosterOpacity] = useState(0.15);
   const [posterTopLine, setPosterTopLine] = useState("PIER A PARK — HOBOKEN, NJ");
   const [posterHosts, setPosterHosts] = useState("jela &\nLIVE HIGHER");
@@ -2948,14 +2976,14 @@ export default function MediaTool() {
     mode,photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,categoryTag,coverCtaButton,
     items,bgKey,listTitle,listSubtitle,statNumber,statLabel,statSub,
     textTitle,textTitleHL,textBody,pageNum,totalPages,textPhoto,textOpacity,
-    ctaKicker,ctaDate,ctaVenue,ctaUrl,featuresTitle,features,captionPhoto,caption,captionSecondary,captionAlign,
+    ctaKicker,ctaDate,ctaVenue,ctaUrl,featuresTitle,features,captionPhoto,captionFocalX,captionFocalY,caption,captionSecondary,captionAlign,
     spotPhoto,spotName,spotNameHL,spotMeta,spotTime,spotPrice,spotCta,spotNumber,
-    countPhoto,countText,countEvent,countWhen,countCta,countOpacity,
+    countPhoto,countFocalX,countFocalY,countText,countEvent,countWhen,countCta,countOpacity,
     savePhoto,saveKicker,saveDay,saveDateBig,saveEvent,saveVenue,saveCta,saveOpacity,
-    savesPhoto,savesHeader,savesItems,savesCta,savesOpacity,
+    savesPhoto,savesFocalX,savesFocalY,savesHeader,savesItems,savesCta,savesOpacity,
     vibePhotos,vibeHeadline,vibeLabels,
     sceneBgPhoto,sceneHero,sceneLeft,sceneRight,sceneTopLabel,sceneTitle,sceneBigText,sceneLeftMeta,sceneRightMeta,sceneInfo,sceneAddress,sceneHalftone,sceneHeroScale,sceneSideScale,
-    posterPhoto,posterOpacity,posterTopLine,posterHosts,posterKicker,posterTitle,posterSubtitle,posterLeftList,posterRightList,posterDressCode,posterDateLine,posterTitleSize,posterTitleX,posterTitleY,posterTitleAlign,posterTitleColor,
+    posterPhoto,posterFocalX,posterFocalY,posterOpacity,posterTopLine,posterHosts,posterKicker,posterTitle,posterSubtitle,posterLeftList,posterRightList,posterDressCode,posterDateLine,posterTitleSize,posterTitleX,posterTitleY,posterTitleAlign,posterTitleColor,
     pressPhoto,pressTopMeta,pressTitle,pressBadge,pressLineup,pressGenres,pressDateLine,pressGenreBg,pressGenreText,pressDateBg,pressDateText,pressBadgeBg,pressBadgeText,pressPhotoOpacity,
   };
   const render = () => {
@@ -3012,18 +3040,24 @@ export default function MediaTool() {
     setCoverFocalY(0.5);
   }, "cover");
   const handleTextPhoto = makeUploadHandler(setTextPhoto, mode); // text/cta/features all share this
-  const handleCaptionPhoto = makeUploadHandler(setCaptionPhoto, "photo");
+  const handleCaptionPhoto = makeUploadHandler((img) => {
+    setCaptionPhoto(img); setCaptionFocalX(0.5); setCaptionFocalY(0.5);
+  }, "photo");
   // Wrap each photo-having upload so a new picture resets its focal
   // point to center — the previous photo's focal is meaningless on the
   // new image, and the user shouldn't have to manually re-center.
   const handleSpotPhoto = makeUploadHandler((img) => {
     setSpotPhoto(img); setSpotFocalX(0.5); setSpotFocalY(0.5);
   }, "spotlight");
-  const handleCountPhoto = makeUploadHandler(setCountPhoto, "countdown");
+  const handleCountPhoto = makeUploadHandler((img) => {
+    setCountPhoto(img); setCountFocalX(0.5); setCountFocalY(0.5);
+  }, "countdown");
   const handleSavePhoto = makeUploadHandler((img) => {
     setSavePhoto(img); setSaveFocalX(0.5); setSaveFocalY(0.5);
   }, "savedate");
-  const handleSavesPhoto = makeUploadHandler(setSavesPhoto, "savedates");
+  const handleSavesPhoto = makeUploadHandler((img) => {
+    setSavesPhoto(img); setSavesFocalX(0.5); setSavesFocalY(0.5);
+  }, "savedates");
   // Scene Composer — 4 image slots: bg + hero + left + right
   const handleSceneBg    = makeUploadHandler((img) => {
     setSceneBgPhoto(img); setSceneFocalX(0.5); setSceneFocalY(0.5);
@@ -3031,7 +3065,9 @@ export default function MediaTool() {
   const handleSceneHero  = makeUploadHandler(setSceneHero,    "scene-hero");
   const handleSceneLeft  = makeUploadHandler(setSceneLeft,    "scene-left");
   const handleSceneRight = makeUploadHandler(setSceneRight,   "scene-right");
-  const handlePosterPhoto = makeUploadHandler(setPosterPhoto, "poster");
+  const handlePosterPhoto = makeUploadHandler((img) => {
+    setPosterPhoto(img); setPosterFocalX(0.5); setPosterFocalY(0.5);
+  }, "poster");
   const handlePressPhoto  = makeUploadHandler((img) => {
     setPressPhoto(img); setPressFocalX(0.5); setPressFocalY(0.5);
   }, "press");
@@ -3113,11 +3149,11 @@ export default function MediaTool() {
       return;
     }
     if (pickTarget === "cover")          setPhoto(img);
-    else if (pickTarget === "photo")     setCaptionPhoto(img);
+    else if (pickTarget === "photo")     { setCaptionPhoto(img); setCaptionFocalX(0.5); setCaptionFocalY(0.5); }
     else if (pickTarget === "spotlight") setSpotPhoto(img);
-    else if (pickTarget === "countdown") setCountPhoto(img);
+    else if (pickTarget === "countdown") { setCountPhoto(img); setCountFocalX(0.5); setCountFocalY(0.5); }
     else if (pickTarget === "savedate")  setSavePhoto(img);
-    else if (pickTarget === "savedates") setSavesPhoto(img);
+    else if (pickTarget === "savedates") { setSavesPhoto(img); setSavesFocalX(0.5); setSavesFocalY(0.5); }
     else if (pickTarget && pickTarget.startsWith("vibe-")) {
       const idx = parseInt(pickTarget.split("-")[1], 10);
       setVibePhotos(prev => prev.map((p,i)=>i===idx?img:p));
@@ -3126,7 +3162,7 @@ export default function MediaTool() {
     else if (pickTarget === "scene-hero")  setSceneHero(img);
     else if (pickTarget === "scene-left")  setSceneLeft(img);
     else if (pickTarget === "scene-right") setSceneRight(img);
-    else if (pickTarget === "poster")      setPosterPhoto(img);
+    else if (pickTarget === "poster")      { setPosterPhoto(img); setPosterFocalX(0.5); setPosterFocalY(0.5); }
     else if (pickTarget === "press")       setPressPhoto(img);
     else                                  setTextPhoto(img); // text/cta/features share textPhoto
   };
@@ -3139,7 +3175,7 @@ export default function MediaTool() {
     // 1080×1080 and get wrapForExport-composited.
     const target = EXPORT_RATIOS[exportRatio] || EXPORT_RATIOS["1:1"];
     const focal = getModeFocal();
-    const RATIO_AWARE_MODES = new Set(["cover", "spotlight", "savedate", "press", "scene"]);
+    const RATIO_AWARE_MODES = new Set(["cover", "spotlight", "savedate", "press", "scene", "photo", "countdown", "savedates", "poster"]);
     const isRatioAware = RATIO_AWARE_MODES.has(mode);
     const targetCfg = isRatioAware ? { targetW: target.w, targetH: target.h, focalX: focal?.x ?? 0.5, focalY: focal?.y ?? 0.5 } : {};
     if(mode==="cover") renderCover(cv,{photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,categoryTag,coverCtaButton, ...targetCfg});
@@ -3148,14 +3184,14 @@ export default function MediaTool() {
     else if(mode==="text") renderText(cv,{textTitle,textTitleHighlights:textTitleHL,textBody,accent,bgKey,dots,totalDots,pageNum,totalPages,photo:textPhoto,textOpacity});
     else if(mode==="cta") renderCTA(cv,{ctaKicker,ctaDate,ctaVenue,ctaUrl,photo:textPhoto,accent,bgKey,dots,totalDots,opacity:textOpacity});
     else if(mode==="features") renderFeatures(cv,{featuresTitle,features,accent,bgKey,dots,totalDots,photo:textPhoto,opacity:textOpacity});
-    else if(mode==="photo") renderPhotoCaption(cv,{photo:captionPhoto,caption,captionSecondary,alignment:captionAlign,accent,bgKey,dots,totalDots});
+    else if(mode==="photo") renderPhotoCaption(cv,{photo:captionPhoto,caption,captionSecondary,alignment:captionAlign,accent,bgKey,dots,totalDots, ...targetCfg});
     else if(mode==="spotlight") renderSpotlight(cv,{photo:spotPhoto,spotName,spotNameHighlights:spotNameHL,spotMeta,spotTime,spotPrice,spotCta,spotNumber,accent,bgKey,dots,totalDots, ...targetCfg});
-    else if(mode==="countdown") renderCountdown(cv,{photo:countPhoto,countText,countEvent,countWhen,countCta,accent,bgKey,dots,totalDots,opacity:countOpacity});
+    else if(mode==="countdown") renderCountdown(cv,{photo:countPhoto,countText,countEvent,countWhen,countCta,accent,bgKey,dots,totalDots,opacity:countOpacity, ...targetCfg});
     else if(mode==="savedate") renderSaveDate(cv,{photo:savePhoto,saveKicker,saveDay,saveDateBig,saveEvent,saveVenue,saveCta,accent,bgKey,dots,totalDots,opacity:saveOpacity, ...targetCfg});
-    else if(mode==="savedates") renderSaveDates(cv,{photo:savesPhoto,savesHeader,savesItems,savesCta,accent,bgKey,dots,totalDots,opacity:savesOpacity});
+    else if(mode==="savedates") renderSaveDates(cv,{photo:savesPhoto,savesHeader,savesItems,savesCta,accent,bgKey,dots,totalDots,opacity:savesOpacity, ...targetCfg});
     else if(mode==="vibe") renderVibeBoard(cv,{vibePhotos,vibeHeadline,vibeLabels,accent,bgKey,dots,totalDots});
     else if(mode==="scene") renderScene(cv,{bgPhoto:sceneBgPhoto,sceneHero,sceneLeft,sceneRight,sceneTopLabel,sceneTitle,sceneBigText,sceneLeftMeta,sceneRightMeta,sceneInfo,sceneAddress,sceneHalftone,sceneHeroScale,sceneSideScale,accent,bgKey,dots,totalDots, ...targetCfg});
-    else if(mode==="poster") renderPoster(cv,{photo:posterPhoto,opacity:posterOpacity,topLine:posterTopLine,hosts:posterHosts,kicker:posterKicker,title:posterTitle,subtitle:posterSubtitle,leftList:posterLeftList,rightList:posterRightList,dressCode:posterDressCode,dateLine:posterDateLine,titleSize:posterTitleSize,titleX:posterTitleX,titleY:posterTitleY,titleAlign:posterTitleAlign,titleColor:posterTitleColor,accent,bgKey,dots,totalDots});
+    else if(mode==="poster") renderPoster(cv,{photo:posterPhoto,opacity:posterOpacity,topLine:posterTopLine,hosts:posterHosts,kicker:posterKicker,title:posterTitle,subtitle:posterSubtitle,leftList:posterLeftList,rightList:posterRightList,dressCode:posterDressCode,dateLine:posterDateLine,titleSize:posterTitleSize,titleX:posterTitleX,titleY:posterTitleY,titleAlign:posterTitleAlign,titleColor:posterTitleColor,accent,bgKey,dots,totalDots, ...targetCfg});
     else if(mode==="press") renderPress(cv,{photo:pressPhoto,topMeta:pressTopMeta,title:pressTitle,badge:pressBadge,lineup:pressLineup,genres:pressGenres,dateLine:pressDateLine,badgeBg:pressBadgeBg,badgeText:pressBadgeText,genreBg:pressGenreBg,genreText:pressGenreText,dateBg:pressDateBg,dateText:pressDateText,photoOpacity:pressPhotoOpacity,accent,bgKey,dots,totalDots, ...targetCfg});
     // Ratio-aware modes already rendered at target dims; skip the wrap
     // (which would re-composite onto another canvas). Other modes still
@@ -3270,13 +3306,17 @@ export default function MediaTool() {
     // forward target dims + focal from the snapshot to the renderer.
     // Other modes ignore and render at 1080×1080; the caller wraps them
     // via wrapForExport.
-    const RATIO_AWARE_ZIP_MODES = new Set(["cover", "spotlight", "savedate", "press", "scene"]);
+    const RATIO_AWARE_ZIP_MODES = new Set(["cover", "spotlight", "savedate", "press", "scene", "photo", "countdown", "savedates", "poster"]);
     const FOCAL_KEY_MAP = {
-      cover:     ["coverFocalX", "coverFocalY"],
-      spotlight: ["spotFocalX",  "spotFocalY"],
-      savedate:  ["saveFocalX",  "saveFocalY"],
-      press:     ["pressFocalX", "pressFocalY"],
-      scene:     ["sceneFocalX", "sceneFocalY"],
+      cover:     ["coverFocalX",   "coverFocalY"],
+      spotlight: ["spotFocalX",    "spotFocalY"],
+      savedate:  ["saveFocalX",    "saveFocalY"],
+      press:     ["pressFocalX",   "pressFocalY"],
+      scene:     ["sceneFocalX",   "sceneFocalY"],
+      photo:     ["captionFocalX", "captionFocalY"],
+      countdown: ["countFocalX",   "countFocalY"],
+      savedates: ["savesFocalX",   "savesFocalY"],
+      poster:    ["posterFocalX",  "posterFocalY"],
     };
     const buildTargetCfg = () => {
       if (!exportTarget || !RATIO_AWARE_ZIP_MODES.has(type)) return {};
@@ -3307,21 +3347,21 @@ export default function MediaTool() {
       features: s.features, bgKey: effBgKey, photo: s.photo, opacity: s.textOpacity });
     else if (type === "photo") renderPhotoCaption(cv, { ...common, photo: s.photo,
       caption: s.caption, captionSecondary: s.captionSecondary, alignment: s.captionAlign,
-      bgKey: effBgKey });
+      bgKey: effBgKey, ...targetCfg });
     else if (type === "spotlight") renderSpotlight(cv, { ...common, photo: s.photo,
       spotName: s.spotName, spotNameHighlights: s.spotNameHL, spotMeta: s.spotMeta,
       spotTime: s.spotTime, spotPrice: s.spotPrice, spotCta: s.spotCta,
       spotNumber: s.spotNumber, bgKey: effBgKey, ...targetCfg });
     else if (type === "countdown") renderCountdown(cv, { ...common, photo: s.photo,
       countText: s.countText, countEvent: s.countEvent, countWhen: s.countWhen,
-      countCta: s.countCta, bgKey: effBgKey, opacity: s.countOpacity });
+      countCta: s.countCta, bgKey: effBgKey, opacity: s.countOpacity, ...targetCfg });
     else if (type === "savedate") renderSaveDate(cv, { ...common, photo: s.photo,
       saveKicker: s.saveKicker, saveDay: s.saveDay, saveDateBig: s.saveDateBig,
       saveEvent: s.saveEvent, saveVenue: s.saveVenue, saveCta: s.saveCta,
       bgKey: effBgKey, opacity: s.saveOpacity, ...targetCfg });
     else if (type === "savedates") renderSaveDates(cv, { ...common, photo: s.photo,
       savesHeader: s.savesHeader, savesItems: s.savesItems, savesCta: s.savesCta,
-      bgKey: effBgKey, opacity: s.savesOpacity });
+      bgKey: effBgKey, opacity: s.savesOpacity, ...targetCfg });
     else if (type === "vibe") renderVibeBoard(cv, { ...common, vibePhotos: s.vibePhotos,
       vibeHeadline: s.vibeHeadline, vibeLabels: s.vibeLabels, bgKey: effBgKey });
     else if (type === "scene") renderScene(cv, { ...common, bgPhoto: s.bgPhoto,
@@ -3339,7 +3379,7 @@ export default function MediaTool() {
       dressCode: s.posterDressCode, dateLine: s.posterDateLine,
       titleSize: s.posterTitleSize, titleX: s.posterTitleX, titleY: s.posterTitleY,
       titleAlign: s.posterTitleAlign, titleColor: s.posterTitleColor,
-      bgKey: effBgKey });
+      bgKey: effBgKey, ...targetCfg });
     else if (type === "press") renderPress(cv, { ...common, photo: s.photo,
       topMeta: s.pressTopMeta, title: s.pressTitle, badge: s.pressBadge,
       lineup: s.pressLineup, genres: s.pressGenres, dateLine: s.pressDateLine,
@@ -3358,14 +3398,14 @@ export default function MediaTool() {
       case "text": return { ...common, textTitle, textTitleHL, textBody, photo: textPhoto, textOpacity, pageNum, totalPages };
       case "cta": return { ...common, ctaKicker, ctaDate, ctaVenue, ctaUrl, photo: textPhoto, textOpacity };
       case "features": return { ...common, featuresTitle, features: features.map(f=>({...f})), photo: textPhoto, textOpacity };
-      case "photo": return { ...common, photo: captionPhoto, caption, captionSecondary, captionAlign };
+      case "photo": return { ...common, photo: captionPhoto, caption, captionSecondary, captionAlign, captionFocalX, captionFocalY };
       case "spotlight": return { ...common, photo: spotPhoto, spotName, spotNameHL, spotMeta, spotTime, spotPrice, spotCta, spotNumber, spotFocalX, spotFocalY };
-      case "countdown": return { ...common, photo: countPhoto, countText, countEvent, countWhen, countCta, countOpacity };
+      case "countdown": return { ...common, photo: countPhoto, countText, countEvent, countWhen, countCta, countOpacity, countFocalX, countFocalY };
       case "savedate":  return { ...common, photo: savePhoto, saveKicker, saveDay, saveDateBig, saveEvent, saveVenue, saveCta, saveOpacity, saveFocalX, saveFocalY };
-      case "savedates": return { ...common, photo: savesPhoto, savesHeader, savesItems: savesItems.map(x=>({...x})), savesCta, savesOpacity };
+      case "savedates": return { ...common, photo: savesPhoto, savesHeader, savesItems: savesItems.map(x=>({...x})), savesCta, savesOpacity, savesFocalX, savesFocalY };
       case "vibe":      return { ...common, vibePhotos: [...vibePhotos], vibeHeadline, vibeLabels: [...vibeLabels] };
       case "scene":     return { ...common, bgPhoto: sceneBgPhoto, sceneHero, sceneLeft, sceneRight, sceneTopLabel, sceneTitle, sceneBigText, sceneLeftMeta, sceneRightMeta, sceneInfo, sceneAddress, sceneHalftone, sceneHeroScale, sceneSideScale, sceneFocalX, sceneFocalY };
-      case "poster":    return { ...common, photo: posterPhoto, posterOpacity, posterTopLine, posterHosts, posterKicker, posterTitle, posterSubtitle, posterLeftList, posterRightList, posterDressCode, posterDateLine, posterTitleSize, posterTitleX, posterTitleY, posterTitleAlign, posterTitleColor };
+      case "poster":    return { ...common, photo: posterPhoto, posterOpacity, posterTopLine, posterHosts, posterKicker, posterTitle, posterSubtitle, posterLeftList, posterRightList, posterDressCode, posterDateLine, posterTitleSize, posterTitleX, posterTitleY, posterTitleAlign, posterTitleColor, posterFocalX, posterFocalY };
       case "press":     return { ...common, photo: pressPhoto, pressTopMeta: [...pressTopMeta], pressTitle, pressBadge, pressLineup, pressGenres, pressDateLine, pressGenreBg, pressGenreText, pressDateBg, pressDateText, pressBadgeBg, pressBadgeText, pressPhotoOpacity, pressFocalX, pressFocalY };
       default: return common;
     }
@@ -3413,6 +3453,8 @@ export default function MediaTool() {
       case "photo":
         setCaptionPhoto(snapshot.photo); setCaption(snapshot.caption);
         setCaptionSecondary(snapshot.captionSecondary); setCaptionAlign(snapshot.captionAlign);
+        setCaptionFocalX(typeof snapshot.captionFocalX === "number" ? snapshot.captionFocalX : 0.5);
+        setCaptionFocalY(typeof snapshot.captionFocalY === "number" ? snapshot.captionFocalY : 0.5);
         break;
       case "spotlight":
         setSpotPhoto(snapshot.photo);
@@ -3438,6 +3480,8 @@ export default function MediaTool() {
         setCountText(snapshot.countText || ""); setCountEvent(snapshot.countEvent || "");
         setCountWhen(snapshot.countWhen || ""); setCountCta(snapshot.countCta || "");
         if (typeof snapshot.countOpacity === "number") setCountOpacity(snapshot.countOpacity);
+        setCountFocalX(typeof snapshot.countFocalX === "number" ? snapshot.countFocalX : 0.5);
+        setCountFocalY(typeof snapshot.countFocalY === "number" ? snapshot.countFocalY : 0.5);
         break;
       case "savedate":
         setSavePhoto(snapshot.photo);
@@ -3454,6 +3498,8 @@ export default function MediaTool() {
         if (Array.isArray(snapshot.savesItems)) setSavesItems(snapshot.savesItems.map(x=>({...x})));
         setSavesCta(snapshot.savesCta || "");
         if (typeof snapshot.savesOpacity === "number") setSavesOpacity(snapshot.savesOpacity);
+        setSavesFocalX(typeof snapshot.savesFocalX === "number" ? snapshot.savesFocalX : 0.5);
+        setSavesFocalY(typeof snapshot.savesFocalY === "number" ? snapshot.savesFocalY : 0.5);
         break;
       case "vibe":
         if (Array.isArray(snapshot.vibePhotos)) setVibePhotos([...snapshot.vibePhotos]);
@@ -3477,6 +3523,8 @@ export default function MediaTool() {
         if (typeof snapshot.posterTitleY === "number")    setPosterTitleY(snapshot.posterTitleY);
         if (typeof snapshot.posterTitleAlign === "string") setPosterTitleAlign(snapshot.posterTitleAlign);
         if (typeof snapshot.posterTitleColor === "string") setPosterTitleColor(snapshot.posterTitleColor);
+        setPosterFocalX(typeof snapshot.posterFocalX === "number" ? snapshot.posterFocalX : 0.5);
+        setPosterFocalY(typeof snapshot.posterFocalY === "number" ? snapshot.posterFocalY : 0.5);
         break;
       case "press":
         setPressPhoto(snapshot.photo);
@@ -4129,11 +4177,15 @@ export default function MediaTool() {
   // falls back to center crop.
   const getModeFocal = () => {
     switch (mode) {
-      case "cover":     return { x: coverFocalX, y: coverFocalY };
-      case "spotlight": return { x: spotFocalX,  y: spotFocalY };
-      case "savedate":  return { x: saveFocalX,  y: saveFocalY };
-      case "scene":     return { x: sceneFocalX, y: sceneFocalY };
-      case "press":     return { x: pressFocalX, y: pressFocalY };
+      case "cover":     return { x: coverFocalX,   y: coverFocalY };
+      case "spotlight": return { x: spotFocalX,    y: spotFocalY };
+      case "savedate":  return { x: saveFocalX,    y: saveFocalY };
+      case "scene":     return { x: sceneFocalX,   y: sceneFocalY };
+      case "press":     return { x: pressFocalX,   y: pressFocalY };
+      case "photo":     return { x: captionFocalX, y: captionFocalY };
+      case "countdown": return { x: countFocalX,   y: countFocalY };
+      case "savedates": return { x: savesFocalX,   y: savesFocalY };
+      case "poster":    return { x: posterFocalX,  y: posterFocalY };
       default:          return null;
     }
   };
@@ -4143,11 +4195,15 @@ export default function MediaTool() {
   const getSnapshotFocal = (type, snap) => {
     if (!snap) return null;
     const map = {
-      cover:     ["coverFocalX", "coverFocalY"],
-      spotlight: ["spotFocalX",  "spotFocalY"],
-      savedate:  ["saveFocalX",  "saveFocalY"],
-      scene:     ["sceneFocalX", "sceneFocalY"],
-      press:     ["pressFocalX", "pressFocalY"],
+      cover:     ["coverFocalX",   "coverFocalY"],
+      spotlight: ["spotFocalX",    "spotFocalY"],
+      savedate:  ["saveFocalX",    "saveFocalY"],
+      scene:     ["sceneFocalX",   "sceneFocalY"],
+      press:     ["pressFocalX",   "pressFocalY"],
+      photo:     ["captionFocalX", "captionFocalY"],
+      countdown: ["countFocalX",   "countFocalY"],
+      savedates: ["savesFocalX",   "savesFocalY"],
+      poster:    ["posterFocalX",  "posterFocalY"],
     };
     const keys = map[type];
     if (!keys) return null;
@@ -4260,7 +4316,7 @@ export default function MediaTool() {
         // 1080×1080 and still get photo-bleed-composited via
         // wrapForExport.
         const slideTarget = EXPORT_RATIOS[exportRatio] || EXPORT_RATIOS["1:1"];
-        const RATIO_AWARE_SLIDE_TYPES = new Set(["cover", "spotlight", "savedate", "press", "scene"]);
+        const RATIO_AWARE_SLIDE_TYPES = new Set(["cover", "spotlight", "savedate", "press", "scene", "photo", "countdown", "savedates", "poster"]);
         const isRatioAwareSlide = RATIO_AWARE_SLIDE_TYPES.has(s.type);
         renderSlide(cv, s.type, s.snapshot, i+1, carousel.length, i, isRatioAwareSlide ? slideTarget : null);
         const exportCv = isRatioAwareSlide
@@ -5137,6 +5193,12 @@ export default function MediaTool() {
                   <input ref={captionFileRef} type="file" accept="image/*" onChange={handleCaptionPhoto} style={{display:"none"}}/>
                 </div>
               </div>
+              <FocalPointPicker
+                photo={captionPhoto}
+                focalX={captionFocalX}
+                focalY={captionFocalY}
+                onChange={(x, y) => { setCaptionFocalX(x); setCaptionFocalY(y); }}
+              />
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Caption (primary)</label>
                 <textarea value={caption} onChange={e=>setCaption(e.target.value)} style={{...I,height:55,resize:"vertical"}} placeholder="e.g. When the music finds you."/></div>
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Sub-caption (small, optional)</label>
@@ -5246,6 +5308,12 @@ export default function MediaTool() {
                   </div>
                 </div>}
               </div>
+              <FocalPointPicker
+                photo={countPhoto}
+                focalX={countFocalX}
+                focalY={countFocalY}
+                onChange={(x, y) => { setCountFocalX(x); setCountFocalY(y); }}
+              />
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Countdown text (the big number)</label>
                 <input value={countText} onChange={e=>setCountText(e.target.value)} style={I} placeholder="3 WEEKS / 1 WEEK / TOMORROW / TONIGHT"/>
                 <p style={{fontSize:"0.5rem",color:"rgba(245,240,232,0.4)",marginTop:"3px"}}>Auto-scales; "TOMORROW" and "3 WEEKS OUT" both fit.</p>
@@ -5325,6 +5393,12 @@ export default function MediaTool() {
                   <input ref={savesFileRef} type="file" accept="image/*" onChange={handleSavesPhoto} style={{display:"none"}}/>
                 </div>
               </div>
+              <FocalPointPicker
+                photo={savesPhoto}
+                focalX={savesFocalX}
+                focalY={savesFocalY}
+                onChange={(x, y) => { setSavesFocalX(x); setSavesFocalY(y); }}
+              />
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Header</label>
                 <input value={savesHeader} onChange={e=>setSavesHeader(e.target.value)} style={I} placeholder="SAVE THESE DATES / SUMMER LINEUP"/>
               </div>
@@ -5501,6 +5575,12 @@ export default function MediaTool() {
                   <input type="range" min="0" max="0.7" step="0.01" value={posterOpacity} onChange={e=>setPosterOpacity(parseFloat(e.target.value))} style={{width:"100%",accentColor:accent}}/>
                 </div>}
               </div>
+              <FocalPointPicker
+                photo={posterPhoto}
+                focalX={posterFocalX}
+                focalY={posterFocalY}
+                onChange={(x, y) => { setPosterFocalX(x); setPosterFocalY(y); }}
+              />
 
               <div style={{fontSize:"0.55rem",color:"rgba(245,240,232,0.45)",letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:"6px",fontWeight:700,marginTop:"4px"}}>1 · Title controls (the big stacked text)</div>
 
