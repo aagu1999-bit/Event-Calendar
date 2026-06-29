@@ -168,12 +168,29 @@ function drawPageNum(ctx, W, H, current, total, accent, isLight = false) {
 }
 
 // === COVER RENDERER ===
+// Ratio-aware: pass targetW/targetH in cfg to render at non-1:1 aspects
+// (4:5, 3:4, 9:16). Photo, watermark grid, logo, footer, and headline
+// all extend to fill the full target canvas — no more "design baked at
+// 1080×1080 letterboxed onto a taller frame." Defaults to 1080×1080
+// + center focal so callers that don't pass these get the original
+// square render unchanged.
 function renderCover(canvas, cfg) {
-  const { photo, headline, highlights, accent, dots, totalDots, subtitle, opacity, ribbon, categoryTag, coverCtaButton } = cfg;
-  const W=1080, H=1080; canvas.width=W; canvas.height=H;
+  const { photo, headline, highlights, accent, dots, totalDots, subtitle, opacity, ribbon, categoryTag, coverCtaButton, targetW = 1080, targetH = 1080, focalX = 0.5, focalY = 0.5 } = cfg;
+  const W = targetW, H = targetH;
+  canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext("2d");
-  if (photo) { const s=Math.max(W/photo.width,H/photo.height); const dw=photo.width*s,dh=photo.height*s; ctx.drawImage(photo,(W-dw)/2,(H-dh)/2,dw,dh); }
-  else { ctx.fillStyle="#111"; ctx.fillRect(0,0,W,H); }
+  if (photo) {
+    // Cover-fit + focal-aware anchor — same math as wrapForExport's
+    // PATH A but applied at render time so the photo fills the full
+    // target aspect with the user's focal point centered.
+    const s = Math.max(W / photo.width, H / photo.height);
+    const dw = photo.width * s, dh = photo.height * s;
+    let dx = (W / 2) - (photo.width * focalX * s);
+    let dy = (H / 2) - (photo.height * focalY * s);
+    dx = Math.max(W - dw, Math.min(0, dx));
+    dy = Math.max(H - dh, Math.min(0, dy));
+    ctx.drawImage(photo, dx, dy, dw, dh);
+  } else { ctx.fillStyle="#111"; ctx.fillRect(0,0,W,H); }
   const grd=ctx.createLinearGradient(0,H*0.25,0,H); grd.addColorStop(0,"transparent"); grd.addColorStop(0.3,`rgba(0,0,0,${opacity*0.6})`); grd.addColorStop(0.55,`rgba(0,0,0,${opacity*0.88})`); grd.addColorStop(1,`rgba(0,0,0,${opacity})`); ctx.fillStyle=grd; ctx.fillRect(0,0,W,H);
   drawTexture(ctx,W,H,"#FFF",0.04);
   drawLogo(ctx,accent,W); drawDots(ctx,W,dots,totalDots,accent);
@@ -3082,7 +3099,14 @@ export default function MediaTool() {
   };
 
   const dl=()=>{const cv=document.createElement("canvas");
-    if(mode==="cover") renderCover(cv,{photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,categoryTag,coverCtaButton});
+    // Ratio-aware modes render DIRECTLY at the export target dims
+    // (cover today; others coming). The whole design — photo, watermark
+    // grid, headline, footer — fills the target aspect, no more
+    // square-design-letterboxed-onto-tall-frame artifact.
+    const target = EXPORT_RATIOS[exportRatio] || EXPORT_RATIOS["1:1"];
+    const focal = getModeFocal();
+    const isRatioAware = mode === "cover";
+    if(mode==="cover") renderCover(cv,{photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,categoryTag,coverCtaButton, targetW: target.w, targetH: target.h, focalX: focal?.x ?? 0.5, focalY: focal?.y ?? 0.5});
     else if(mode==="list") renderList(cv,{items,accent,bgKey,dots,totalDots,listTitle,listSubtitle});
     else if(mode==="stat") renderStat(cv,{statNumber,statLabel,statSub,accent,bgKey,dots,totalDots});
     else if(mode==="text") renderText(cv,{textTitle,textTitleHighlights:textTitleHL,textBody,accent,bgKey,dots,totalDots,pageNum,totalPages,photo:textPhoto,textOpacity});
@@ -3097,7 +3121,10 @@ export default function MediaTool() {
     else if(mode==="scene") renderScene(cv,{bgPhoto:sceneBgPhoto,sceneHero,sceneLeft,sceneRight,sceneTopLabel,sceneTitle,sceneBigText,sceneLeftMeta,sceneRightMeta,sceneInfo,sceneAddress,sceneHalftone,sceneHeroScale,sceneSideScale,accent,bgKey,dots,totalDots});
     else if(mode==="poster") renderPoster(cv,{photo:posterPhoto,opacity:posterOpacity,topLine:posterTopLine,hosts:posterHosts,kicker:posterKicker,title:posterTitle,subtitle:posterSubtitle,leftList:posterLeftList,rightList:posterRightList,dressCode:posterDressCode,dateLine:posterDateLine,titleSize:posterTitleSize,titleX:posterTitleX,titleY:posterTitleY,titleAlign:posterTitleAlign,titleColor:posterTitleColor,accent,bgKey,dots,totalDots});
     else if(mode==="press") renderPress(cv,{photo:pressPhoto,topMeta:pressTopMeta,title:pressTitle,badge:pressBadge,lineup:pressLineup,genres:pressGenres,dateLine:pressDateLine,badgeBg:pressBadgeBg,badgeText:pressBadgeText,genreBg:pressGenreBg,genreText:pressGenreText,dateBg:pressDateBg,dateText:pressDateText,photoOpacity:pressPhotoOpacity,accent,bgKey,dots,totalDots});
-    const exportCv = wrapForExport(cv, exportRatio, getModePrimaryPhoto(), getModeFocal());
+    // Ratio-aware modes already rendered at target dims; skip the wrap
+    // (which would re-composite onto another canvas). Other modes still
+    // render at 1080×1080 and get center/focal-aware composited.
+    const exportCv = isRatioAware ? cv : wrapForExport(cv, exportRatio, getModePrimaryPhoto(), focal);
     exportCv.toBlob(async (blob) => {
       // Pre-generate the export id so the PNG tag and the cloud record
       // share it. Tag the blob FIRST so the downloaded file is the tagged
@@ -3193,7 +3220,7 @@ export default function MediaTool() {
   const [isAutoGen, setIsAutoGen] = useState(false);
 
   // === CAROUSEL COMPOSER ===
-  const renderSlide = (cv, type, s, dotsNum, dotsTot, slideIdx = 0) => {
+  const renderSlide = (cv, type, s, dotsNum, dotsTot, slideIdx = 0, exportTarget = null) => {
     // Effective bgKey — apply Brand Kit's alternateColors swap on odd
     // carousel slides. Live previews call with idx=0 so they aren't
     // affected; thumbnails + export pass the real index.
@@ -3201,10 +3228,20 @@ export default function MediaTool() {
       ? alternateBgKey
       : s.bgKey;
     const common = { accent: s.accent, dots: dotsNum, totalDots: dotsTot };
+    // exportTarget = { w, h } when the caller wants this slide rendered
+    // at non-1:1 dimensions (ZIP export at 4:5 / 9:16 / 3:4). Today only
+    // Cover is ratio-aware; other modes ignore and render at 1080×1080.
+    // The caller still wraps non-aware modes via wrapForExport.
+    const coverTargetCfg = (type === "cover" && exportTarget) ? {
+      targetW: exportTarget.w,
+      targetH: exportTarget.h,
+      focalX: typeof s.coverFocalX === "number" ? s.coverFocalX : 0.5,
+      focalY: typeof s.coverFocalY === "number" ? s.coverFocalY : 0.5,
+    } : {};
     if (type === "cover") renderCover(cv, { ...common, photo: s.photo, headline: s.headline,
       highlights: s.highlights instanceof Set ? s.highlights : new Set(s.highlights || []),
       subtitle: s.subtitle, opacity: s.opacity, ribbon: s.ribbon, categoryTag: s.categoryTag,
-      coverCtaButton: s.coverCtaButton });
+      coverCtaButton: s.coverCtaButton, ...coverTargetCfg });
     else if (type === "list") renderList(cv, { ...common, items: s.items, bgKey: effBgKey,
       listTitle: s.listTitle, listSubtitle: s.listSubtitle });
     else if (type === "stat") renderStat(cv, { ...common, statNumber: s.statNumber,
@@ -4165,12 +4202,17 @@ export default function MediaTool() {
       for (let i = 0; i < carousel.length; i++) {
         const s = carousel[i];
         const cv = document.createElement("canvas");
-        renderSlide(cv, s.type, s.snapshot, i+1, carousel.length, i);
-        // Per-slide photo bleed at 4:5 / 9:16 — looks up that slide's
-        // primary background from its snapshot rather than current React
-        // state, so each slide bleeds its OWN photo even though they may
-        // be different templates with different photo fields.
-        const exportCv = wrapForExport(cv, exportRatio, getSnapshotPrimaryPhoto(s.type, s.snapshot), getSnapshotFocal(s.type, s.snapshot));
+        // Pass target dims when this slide's mode is ratio-aware
+        // (currently only Cover). The renderer paints the whole design
+        // at the target aspect; we then SKIP wrapForExport below.
+        // Non-ratio-aware modes render at 1080×1080 and still get
+        // photo-bleed-composited via wrapForExport.
+        const slideTarget = EXPORT_RATIOS[exportRatio] || EXPORT_RATIOS["1:1"];
+        const isRatioAwareSlide = s.type === "cover";
+        renderSlide(cv, s.type, s.snapshot, i+1, carousel.length, i, isRatioAwareSlide ? slideTarget : null);
+        const exportCv = isRatioAwareSlide
+          ? cv
+          : wrapForExport(cv, exportRatio, getSnapshotPrimaryPhoto(s.type, s.snapshot), getSnapshotFocal(s.type, s.snapshot));
         const blob = await new Promise(r => exportCv.toBlob(r, "image/png"));
         zip.file(`CGE_carousel_${String(i+1).padStart(2,"0")}_${s.type}_${exportRatio.replace(":","x")}.png`, blob);
       }
