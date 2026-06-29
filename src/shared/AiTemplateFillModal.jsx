@@ -86,6 +86,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
         context,
         voice,
         slotPrompts,
+        templateMeta: useTemplate,
       });
       setSlides(result);
     } catch (err) {
@@ -288,8 +289,22 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
               )}
             </select>
             {template && !letAiPick && (
-              <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.45)", marginTop: 4, letterSpacing: 0.5 }}>
-                {template.sequence.join(" → ")}
+              <div style={{ marginTop: 4 }}>
+                <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.45)", letterSpacing: 0.5 }}>
+                  {template.sequence.join(" → ")}
+                </div>
+                {template.bestFor && (
+                  <div style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.55)", marginTop: 6, lineHeight: 1.4 }}>
+                    <span style={{ color: "rgba(250,204,21,0.85)", fontWeight: 700, letterSpacing: 0.5 }}>Best for: </span>
+                    {template.bestFor}
+                  </div>
+                )}
+                {template.notFor && (
+                  <div style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.40)", marginTop: 3, lineHeight: 1.4 }}>
+                    <span style={{ color: "rgba(251,113,133,0.65)", fontWeight: 700, letterSpacing: 0.5 }}>Not for: </span>
+                    {template.notFor}
+                  </div>
+                )}
               </div>
             )}
           </div>

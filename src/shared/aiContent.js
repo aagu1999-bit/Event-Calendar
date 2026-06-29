@@ -18,6 +18,43 @@
 const MODEL = "gemini-2.5-flash";
 const URL_BASE = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 
+// Render a template's metadata as a labeled block for prompts. Built-in
+// templates carry rich fields (audience, tone, bestFor, notFor, keyMove,
+// example). Custom user templates only have name + sequence, so we
+// degrade gracefully.
+function formatTemplateForPicker(t) {
+  const lines = [
+    `id: ${t.id}`,
+    `name: ${t.name}`,
+    `sequence: ${t.sequence.join(" → ")} (${t.sequence.length} slides)`,
+  ];
+  if (t.audience)  lines.push(`audience: ${t.audience}`);
+  if (t.tone)      lines.push(`tone: ${t.tone}`);
+  if (t.bestFor)   lines.push(`best for: ${t.bestFor}`);
+  if (t.notFor)    lines.push(`NOT for: ${t.notFor}`);
+  if (t.keyMove)   lines.push(`key move: ${t.keyMove}`);
+  if (!t.audience && !t.bestFor && t.intent) lines.push(`intent: ${t.intent}`);
+  if (!t.audience && t.custom) lines.push("intent: user-saved custom sequence (no metadata)");
+  return lines.join("\n");
+}
+
+// Render a template's metadata as the "TEMPLATE PURPOSE" block at the
+// top of the fill prompt. Tells Gemini what this WHOLE carousel is
+// trying to do before it sees the per-slot rules.
+function formatTemplatePurposeBlock(meta) {
+  if (!meta) return [];
+  const lines = ["TEMPLATE PURPOSE — this is the frame around every slide. Honor it.", ""];
+  if (meta.name)     lines.push(`Template: ${meta.name}`);
+  if (meta.audience) lines.push(`Audience: ${meta.audience}`);
+  if (meta.tone)     lines.push(`Tone: ${meta.tone}`);
+  if (meta.bestFor)  lines.push(`Best for: ${meta.bestFor}`);
+  if (meta.notFor)   lines.push(`NOT for: ${meta.notFor}`);
+  if (meta.keyMove)  lines.push(`Key structural move: ${meta.keyMove}`);
+  if (meta.example)  lines.push("", `Concrete example of what good output looks like:`, meta.example);
+  lines.push("", "─────────────────────────────", "");
+  return lines;
+}
+
 export async function generateSlideContent({ apiKey, slotType, topic, voice, slotPrompts }) {
   if (!apiKey) throw new Error("Missing Gemini API key");
   if (!slotType) throw new Error("Missing slotType");
@@ -72,13 +109,15 @@ export async function pickTemplate({ apiKey, topic, context, candidates }) {
   if (!Array.isArray(candidates) || candidates.length === 0) throw new Error("No candidate templates");
   if (!topic || !topic.trim()) throw new Error("Missing topic");
 
-  const list = candidates.map(t => {
-    const intent = t.intent || (t.custom ? "User-saved sequence." : "");
-    return `- id: ${t.id}\n  name: ${t.name}\n  sequence: ${t.sequence.join(" → ")} (${t.sequence.length} slides)\n  best for: ${intent}`;
-  }).join("\n\n");
+  // Built-in templates carry rich metadata (audience/tone/bestFor/notFor/
+  // keyMove). Custom user templates only have name + sequence. Format
+  // both into a uniform block so Gemini can compare like-with-like.
+  const list = candidates.map(t => formatTemplateForPicker(t)).join("\n\n─────\n\n");
 
   const prompt = [
     "You are picking the best carousel template for a CGE Instagram post.",
+    "CGE = Central Group Events, an NJ news-media outlet that covers nightlife,",
+    "events, and culture across the Garden State.",
     "",
     `Topic: ${topic.trim()}`,
     "",
@@ -87,19 +126,15 @@ export async function pickTemplate({ apiKey, topic, context, candidates }) {
       context.trim(),
       "",
     ] : []),
-    "Available templates:",
+    "Available templates (with audience, tone, and when each fits):",
     "",
     list,
     "",
-    "Pick the ONE template whose structure best fits the topic + context. Consider:",
-    "- Editorial Roundup (cover + text + cta×N) fits roundups of multiple distinct events",
-    "- Feature Drop (cover + spotlight×N + cta) fits ONE event broken into selling-points",
-    "- List Tour (poster + spotlight×N + cta) fits curated lists of places/venues",
-    "- Single Beat (cover only) fits one-image scene reports or partner spotlights",
-    "- Recap (cover + photo×N + stat + cta) fits post-event content",
+    "Pick the ONE template whose audience + bestFor + keyMove best fits the topic + context.",
+    "Pay attention to the 'NOT for' line on each — that's the disqualifier.",
     "",
     "Return JSON ONLY:",
-    `{"templateId":"<one of the ids above>","reasoning":"<1 sentence explaining the pick>"}`,
+    `{"templateId":"<one of the ids above>","reasoning":"<1 sentence explaining the pick, citing the matching audience/bestFor/keyMove>"}`,
   ].join("\n");
 
   const res = await fetch(`${URL_BASE}?key=${encodeURIComponent(apiKey)}`, {
@@ -156,12 +191,12 @@ export async function pickTemplate({ apiKey, topic, context, candidates }) {
 //
 // Output: { slides: [{ type, ...slot-fields }, ...] }
 
-export async function generateTemplateFill({ apiKey, sequence, topic, context, voice, slotPrompts }) {
+export async function generateTemplateFill({ apiKey, sequence, topic, context, voice, slotPrompts, templateMeta }) {
   if (!apiKey) throw new Error("Missing Gemini API key");
   if (!Array.isArray(sequence) || !sequence.length) throw new Error("Missing template sequence");
   if (!topic || !topic.trim()) throw new Error("Missing topic");
 
-  const prompt = buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts });
+  const prompt = buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, templateMeta });
 
   const res = await fetch(`${URL_BASE}?key=${encodeURIComponent(apiKey)}`, {
     method: "POST",
@@ -195,7 +230,7 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   return slides;
 }
 
-function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts }) {
+function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, templateMeta }) {
   const hasVoiceDesc = voice && typeof voice.description === "string" && voice.description.trim();
   const exemplars = Array.isArray(voice?.exemplars) ? voice.exemplars.filter(e => e && e.trim()) : [];
   const hasExemplars = exemplars.length > 0;
@@ -244,8 +279,11 @@ function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts }) {
     return `SLIDE ${idx + 1} (${slotType.toUpperCase()}):\n${rule}${extra}`;
   }).join("\n\n─────────────────────────────\n\n");
 
+  const purposeBlock = formatTemplatePurposeBlock(templateMeta);
+
   return [
     ...voiceBlock,
+    ...purposeBlock,
     "You are generating an ENTIRE editorial Instagram carousel for CGE. The slides will be exported in order — write them as ONE coherent story, not isolated cards.",
     "",
     `Carousel topic: ${topic.trim()}`,
