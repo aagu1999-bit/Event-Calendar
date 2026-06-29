@@ -613,6 +613,46 @@ export default function BrandKit() {
               />
               <SlotReferenceHint slot="spotlight" />
 
+              <Label>Countdown prompt (T-minus urgency slide)</Label>
+              <textarea
+                rows={8}
+                value={slotPrompts?.countdown || ""}
+                onChange={(e) => setSlotPrompt("countdown", e.target.value)}
+                style={{ ...inputStyle, resize: "vertical", marginBottom: 6, fontFamily: "ui-monospace,Menlo,monospace", fontSize: "0.7rem", lineHeight: 1.5 }}
+                placeholder="Rules for AI-generated Countdown slides..."
+              />
+              <SlotReferenceHint slot="countdown" />
+
+              <Label>Poster prompt (magazine-cover flyer)</Label>
+              <textarea
+                rows={10}
+                value={slotPrompts?.poster || ""}
+                onChange={(e) => setSlotPrompt("poster", e.target.value)}
+                style={{ ...inputStyle, resize: "vertical", marginBottom: 6, fontFamily: "ui-monospace,Menlo,monospace", fontSize: "0.7rem", lineHeight: 1.5 }}
+                placeholder="Rules for AI-generated Poster slides..."
+              />
+              <SlotReferenceHint slot="poster" />
+
+              <Label>Press prompt (Afrogroove-style event flyer)</Label>
+              <textarea
+                rows={10}
+                value={slotPrompts?.press || ""}
+                onChange={(e) => setSlotPrompt("press", e.target.value)}
+                style={{ ...inputStyle, resize: "vertical", marginBottom: 6, fontFamily: "ui-monospace,Menlo,monospace", fontSize: "0.7rem", lineHeight: 1.5 }}
+                placeholder="Rules for AI-generated Press flyer slides..."
+              />
+              <SlotReferenceHint slot="press" />
+
+              <Label>Features prompt (emoji + headline list)</Label>
+              <textarea
+                rows={9}
+                value={slotPrompts?.features || ""}
+                onChange={(e) => setSlotPrompt("features", e.target.value)}
+                style={{ ...inputStyle, resize: "vertical", marginBottom: 6, fontFamily: "ui-monospace,Menlo,monospace", fontSize: "0.7rem", lineHeight: 1.5 }}
+                placeholder="Rules for AI-generated Features slides..."
+              />
+              <SlotReferenceHint slot="features" />
+
               <Label>Photo caption prompt (Recap photo slides)</Label>
               <textarea
                 rows={8}

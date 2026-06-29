@@ -3842,6 +3842,85 @@ export default function MediaTool() {
         bgKey: "purple",
       }};
     }
+    if (slot.type === "countdown") {
+      return { type: "countdown", snapshot: {
+        ...common,
+        photo: null,
+        countText: String(slot.countText || "").trim(),
+        countEvent: String(slot.countEvent || "").trim(),
+        countWhen: String(slot.countWhen || "").trim(),
+        countCta: String(slot.countCta || "").trim(),
+        countOpacity: 0.78,
+        bgKey: "black",
+      }};
+    }
+    if (slot.type === "poster") {
+      // Carries the magazine-flyer text; user uploads the background
+      // photo in the carousel composer. Title-position controls keep
+      // their defaults (centered, size 1.0).
+      return { type: "poster", snapshot: {
+        ...common,
+        photo: null,
+        posterOpacity: 0.15,
+        posterTopLine: String(slot.topLine || "").trim(),
+        posterHosts: String(slot.hosts || "").trim(),
+        posterKicker: String(slot.kicker || "").trim(),
+        posterTitle: String(slot.title || "").trim(),
+        posterSubtitle: String(slot.subtitle || "").trim(),
+        posterLeftList: String(slot.leftList || "").trim(),
+        posterRightList: String(slot.rightList || "").trim(),
+        posterDressCode: String(slot.dressCode || "").trim(),
+        posterDateLine: String(slot.dateLine || "").trim(),
+        posterTitleSize: 1.0,
+        posterTitleX: 0,
+        posterTitleY: 0,
+        posterTitleAlign: "center",
+        posterTitleColor: "#FB7185",
+        bgKey: "black",
+      }};
+    }
+    if (slot.type === "press") {
+      // pressTopMeta must be exactly 4 entries — pad with empties if AI
+      // returned fewer, truncate if more, so the renderer never crashes.
+      const meta = Array.isArray(slot.pressTopMeta) ? slot.pressTopMeta.slice(0, 4) : [];
+      while (meta.length < 4) meta.push("");
+      return { type: "press", snapshot: {
+        ...common,
+        photo: null,
+        pressTopMeta: meta.map(x => String(x || "")),
+        pressTitle: String(slot.pressTitle || "").trim(),
+        pressBadge: String(slot.pressBadge || "").trim(),
+        pressLineup: String(slot.pressLineup || "").trim(),
+        pressGenres: String(slot.pressGenres || "").trim(),
+        pressDateLine: String(slot.pressDateLine || "").trim(),
+        pressGenreBg: "#3A8B5F", pressGenreText: "#F2C94C",
+        pressDateBg: "#E55F2B", pressDateText: "#0a0a0a",
+        pressBadgeBg: "#D43F2F", pressBadgeText: "#FFFFFF",
+        pressPhotoOpacity: 0.30,
+        bgKey: "black",
+      }};
+    }
+    if (slot.type === "features") {
+      // Features expects an array of {emoji, headline, sub}. Defend
+      // against missing items / wrong shapes — accept 3-5 entries.
+      const raw = Array.isArray(slot.features) ? slot.features : [];
+      const features = raw
+        .filter(f => f && (f.headline || f.emoji))
+        .slice(0, 5)
+        .map(f => ({
+          emoji: String(f.emoji || "✨").trim(),
+          headline: String(f.headline || "").trim(),
+          sub: String(f.sub || "").trim(),
+        }));
+      return { type: "features", snapshot: {
+        ...common,
+        photo: null,
+        featuresTitle: String(slot.featuresTitle || "").trim(),
+        features,
+        textOpacity: 0.85,
+        bgKey: "black",
+      }};
+    }
     // Fallback — return null so caller can filter
     return null;
   };

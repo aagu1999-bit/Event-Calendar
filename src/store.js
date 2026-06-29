@@ -181,6 +181,67 @@ Requirements:
 Return JSON ONLY in this exact shape:
 {"spotName":"...","spotMeta":"...","spotTime":"...","spotPrice":"...","spotCta":"..."}`,
 
+        countdown: `Generate ONE T-minus Countdown slide for a CGE carousel.
+
+The Countdown is an urgency dial pointing at ONE specific upcoming event. You're the news telling the clock — confident, time-anchored.
+
+Requirements:
+- countText: the TIME beat, all caps. Examples: "3 WEEKS", "1 WEEK", "TOMORROW", "TONIGHT", "T-MINUS 3 DAYS". NEVER "soon", "coming up", or hype words.
+- countEvent: the event NAME, all caps. Single noun phrase ("AFROBEATS ROOFTOP", "WORLD CUP OPENING NIGHT") — NEVER a subtitle.
+- countWhen: one line, day + time + venue ("Friday · 8 PM · The Standard").
+- countCta: short call ("tix in bio", "RSVP in bio", "walk-ups welcome").
+- Match brand voice (editorial, NJ-first when relevant).
+
+Return JSON ONLY in this exact shape:
+{"countText":"...","countEvent":"...","countWhen":"...","countCta":"..."}`,
+
+        poster: `Generate ONE magazine-cover-style Poster slide for a CGE event flyer.
+
+The Poster is the most visually loud template — a stacked TITLE does most of the persuasion. Treat the layout like an editorial cover, not a flyer.
+
+Requirements:
+- topLine: small mono caps — location/venue + city ("PIER A PARK — HOBOKEN, NJ").
+- hosts: 1-2 short lines naming who's running it. Italic-ish (e.g. "jela &\\nLIVE HIGHER").
+- kicker: small italic lowercase editorial tag ("wellness morning edition", "summer rooftop edition").
+- title: STACKED — one word per line, 2-4 lines total ("PILATES\\nON THE\\nPIER").
+- subtitle: 2-4 word standalone descriptor ("girls only.", "dress for the heat.").
+- leftList: vertical menu — one item per line, ALL CAPS, includes-style items.
+- rightList: vertical menu starting with a header ("RECOVERY ZONE:" then items below).
+- dressCode: short imperative ("wear pink / orange / red!", "no athletic wear").
+- dateLine: ALL CAPS date + time ("JUNE 20: 9:00 AM – 12:00 PM").
+
+Return JSON ONLY in this exact shape:
+{"topLine":"...","hosts":"...","kicker":"...","title":"...","subtitle":"...","leftList":"...","rightList":"...","dressCode":"...","dateLine":"..."}`,
+
+        press: `Generate ONE editorial Press flyer slide (Afrogroove-style) for a CGE event.
+
+The Press template is for music/nightlife — heavy on typography and lineup credibility. Title is the night's BRAND (one word), lineup is the proof.
+
+Requirements:
+- pressTopMeta: ALWAYS exactly 4 entries, each a 2-line string. Pattern: [venue+street, separator/issue#, city+region, month+year].
+- pressTitle: ONE word — the night's brand, ALL CAPS ("AFROGROOVE", "NIGHTRISE", "RIPTIDE"). Never a phrase.
+- pressBadge: 1-3 word side label ALL CAPS ("RIO DE JANEIRO", "SUMMER SERIES").
+- pressLineup: 1-3 lines of names separated by ' · ' within a line, '\\n' between rows.
+- pressGenres: comma-separated music tags ALL CAPS ("AMAPIANO, AFROHOUSE, AFROBEATS").
+- pressDateLine: short ALL CAPS date + time with '★' or '·' separator, NO year.
+
+Return JSON ONLY in this exact shape:
+{"pressTopMeta":["...","...","...","..."],"pressTitle":"...","pressBadge":"...","pressLineup":"...","pressGenres":"...","pressDateLine":"..."}`,
+
+        features: `Generate ONE Features slide for a CGE carousel — emoji + headline + sub for 3-5 features.
+
+Each feature is a CONCRETE promise (not a generic perk). Read like a checklist of what's actually there.
+
+Requirements:
+- featuresTitle: short ALL CAPS header (3-5 words). Examples: "WHAT TO EXPECT", "THE NIGHT INCLUDES", "PROGRAMME".
+- features: array of 3-5 items, each { emoji, headline, sub }.
+- emoji: ONE concrete noun-emoji (🎵 music, 💃 dance, 🍹 drinks, 🎁 prize, 🍽️ food). Avoid ✨🔥 (too flyer-ish).
+- headline: 2-4 words, title case ("Live 5-Piece Band", "Bachata Lessons").
+- sub: ONE short specific line, 4-12 words. Names a real detail, never hype.
+
+Return JSON ONLY in this exact shape:
+{"featuresTitle":"...","features":[{"emoji":"...","headline":"...","sub":"..."},{"emoji":"...","headline":"...","sub":"..."},{"emoji":"...","headline":"...","sub":"..."}]}`,
+
         photo: `Generate ONE caption + sub-caption pair for a CGE recap Photo slide.
 
 The photo itself shows the vibe — your caption NAMES the specific moment so the slide reads as documentation, not generic hype.
@@ -359,6 +420,59 @@ export const SLOT_META = {
       "Don't pick a generic stat — 'over 100 people' is not a beat, '127' is.",
       "Label must be 2-4 words MAX, all caps, no filler.",
       "Sub line is one sentence — grounding context, never marketing.",
+    ],
+  },
+  countdown: {
+    audience: "Follower being primed for a specific upcoming event. The countdown is the urgency dial — you're the news telling them the clock.",
+    examples: [
+      `{"countText":"3 WEEKS","countEvent":"WORLD CUP OPENING NIGHT","countWhen":"Friday, June 12 · The Standard","countCta":"tix in bio"}`,
+      `{"countText":"TOMORROW","countEvent":"AFROBEATS ROOFTOP","countWhen":"Saturday · 9PM · Newark","countCta":"RSVP in bio"}`,
+      `{"countText":"TONIGHT","countEvent":"BACHATA NIGHT AT BAR LOFT","countWhen":"Friday · 9PM · Jersey City","countCta":"walk-ups welcome"}`,
+    ],
+    antiPatterns: [
+      "Don't write 'soon' or 'coming up' — be a clock. T-3 weeks. Tomorrow. Tonight. Not 'in a little while'.",
+      "countText must be a TIME beat, not a hype word — never 'GET READY' or 'BIG NEWS'.",
+      "countEvent is the event NAME, never a subtitle ('OPENING NIGHT — A NIGHT TO REMEMBER' is wrong; 'WORLD CUP OPENING NIGHT' is right).",
+      "Avoid '!!!' and emoji — the typography is the urgency.",
+    ],
+  },
+  poster: {
+    audience: "Scroller who sees a magazine-cover-style flyer — they decide in 1.5 seconds if it's their kind of event. The TITLE does most of the persuasion.",
+    examples: [
+      `{"topLine":"PIER A PARK — HOBOKEN, NJ","hosts":"jela &\\nLIVE HIGHER","kicker":"wellness morning edition","title":"PILATES\\nON THE\\nPIER","subtitle":"girls only.","leftList":"LIVE DJ\\nREFRESHMENTS\\n45 MIN MAT PILATES\\nSWEETGREEN SALADS","rightList":"RECOVERY ZONE:\\nCOMPRESSION\\nRED LIGHT THERAPY\\nMASSAGES\\nICE BATHS","dressCode":"wear pink / orange / red!","dateLine":"JUNE 20: 9:00 AM – 12:00 PM"}`,
+      `{"topLine":"THE STANDARD ROOFTOP — NEWARK","hosts":"CGE x BARMINI","kicker":"summer rooftop edition","title":"AFRO\\nBEATS\\nNIGHT","subtitle":"dress for the heat.","leftList":"LIVE 5-PIECE BAND\\nDJ SETS UNTIL 2AM\\nBACHATA LESSONS 8-9\\nOPEN ROOFTOP","rightList":"BAR MENU:\\nWELCOME COCKTAIL\\nSMALL PLATES\\nHOOKAH AVAILABLE","dressCode":"no athletic wear","dateLine":"JULY 12: 8:00 PM – 2:00 AM"}`,
+    ],
+    antiPatterns: [
+      "Title is stacked — ONE word per line, 2-4 lines total. Never one long phrase.",
+      "Don't put the date in the title — date has its own line at bottom.",
+      "leftList and rightList are vertical menus (one item per line, all caps), NOT prose paragraphs.",
+      "kicker is lowercase italic editorial tag (e.g. 'wellness morning edition'). Not promo copy.",
+    ],
+  },
+  press: {
+    audience: "Music/nightlife followers scanning for a lineup. The TITLE is the brand of the night, the LINEUP is the credibility.",
+    examples: [
+      `{"pressTopMeta":["CASA SAVANA\\nRUA CAMERINO","—\\n162","RIO DE\\nBRASIL","JANEIRO\\n2026"],"pressTitle":"AFROGROOVE","pressBadge":"RIO DE JANEIRO","pressLineup":"CABANECO · DJ TALIE · NAIRO PUMA\\nCRAZY JEFFS · YURE IDD","pressGenres":"AMAPIANO, AFROHOUSE, AFROBEATS","pressDateLine":"21 DE JUNHO ★ 22H"}`,
+      `{"pressTopMeta":["THE STANDARD\\nROOFTOP","—\\nNWK","NEWARK\\nNJ","JULY\\n2026"],"pressTitle":"NIGHTRISE","pressBadge":"SUMMER SERIES","pressLineup":"DJ KAMAL · LIVE BAND\\nGUESTS TBA","pressGenres":"AFROBEATS, AMAPIANO, DEEP HOUSE","pressDateLine":"JULY 12 ★ 8PM"}`,
+    ],
+    antiPatterns: [
+      "pressTopMeta is exactly 4 entries — venue, separator/number, city, month/year. Don't change shape.",
+      "pressTitle is ONE word — the night's brand. Never a sentence ('SUMMER ROOFTOP NIGHTS' is too long; 'NIGHTRISE' is right).",
+      "pressLineup uses '·' between names within a line and '\\n' between rows — typography matters.",
+      "pressDateLine uses '★' or '·' as separator, day/month + time, no year (year is in pressTopMeta).",
+    ],
+  },
+  features: {
+    audience: "Scroller deciding whether a multi-faceted event is worth their night. Each feature must read as a concrete promise, not a generic perk.",
+    examples: [
+      `{"featuresTitle":"WHAT TO EXPECT","features":[{"emoji":"🎵","headline":"Live 5-Piece Band","sub":"Real horns. Real percussion. No backing tracks."},{"emoji":"💃","headline":"Bachata Lessons","sub":"Beginner friendly · 8-9PM"},{"emoji":"🍹","headline":"Welcome Cocktail","sub":"First drink on the house, with RSVP"},{"emoji":"🎁","headline":"Door Prizes","sub":"$200 in giveaways across the night"}]}`,
+      `{"featuresTitle":"THE NIGHT INCLUDES","features":[{"emoji":"🍽️","headline":"3-Course Dinner","sub":"Chef's tasting menu, paired with wine"},{"emoji":"🎤","headline":"Live Comedy","sub":"Two sets, headliner at 9:30"},{"emoji":"🪩","headline":"Late-Night DJ","sub":"Doors open after dinner, 11PM-2AM"}]}`,
+    ],
+    antiPatterns: [
+      "Each feature headline = 2-4 words, title case. Never sentence-case or punctuation.",
+      "Each feature sub = one specific concrete line, 4-12 words. Never 'and so much more!' or generic hype.",
+      "Pick emojis that name the noun (🎵 for music, 💃 for dance, 🍹 for drinks). Avoid abstract emoji (✨, 🔥) — they read as flyer.",
+      "featuresTitle is short uppercase header (3-5 words). Examples: 'WHAT TO EXPECT', 'THE NIGHT INCLUDES', 'PROGRAMME'.",
     ],
   },
   cta: {

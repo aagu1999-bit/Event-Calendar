@@ -142,6 +142,24 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
       if (directory) return [directory, directoryVenue].filter(Boolean).join("\n");
       return [k && k.toUpperCase(), m, s].filter(Boolean).join("\n");
     }
+    if (slot.type === "countdown") {
+      return [slot.countText, slot.countEvent, slot.countWhen, slot.countCta]
+        .map(s => (s || "").trim()).filter(Boolean).join("\n");
+    }
+    if (slot.type === "poster") {
+      return [slot.kicker, slot.title, slot.subtitle, slot.dateLine]
+        .map(s => (s || "").trim()).filter(Boolean).join("\n");
+    }
+    if (slot.type === "press") {
+      return [slot.pressTitle, slot.pressLineup, slot.pressGenres, slot.pressDateLine]
+        .map(s => (s || "").trim()).filter(Boolean).join("\n");
+    }
+    if (slot.type === "features") {
+      const items = Array.isArray(slot.features) ? slot.features : [];
+      const head = (slot.featuresTitle || "").trim();
+      const body = items.map(f => `${f.emoji || ""} ${f.headline || ""} — ${f.sub || ""}`.trim()).join("\n");
+      return [head, body].filter(Boolean).join("\n");
+    }
     return "";
   };
 
@@ -253,6 +271,112 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
               {slot.captionSecondary}
             </div>
           )}
+        </div>
+      );
+    }
+    if (slot.type === "countdown") {
+      return (
+        <div>
+          <div style={{ fontSize: "0.5rem", color: "#E5BC4F", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 4 }}>
+            Slide {num} · Countdown
+          </div>
+          <div style={{ fontFamily: "'Syne',sans-serif", fontSize: "1.2rem", fontWeight: 900, color: "#E5BC4F", letterSpacing: 1, marginBottom: 4 }}>
+            {slot.countText}
+          </div>
+          <div style={{ fontFamily: "'Syne',sans-serif", fontSize: "0.85rem", fontWeight: 800, marginBottom: 4 }}>
+            {slot.countEvent}
+          </div>
+          {slot.countWhen && (
+            <div style={{ fontSize: "0.65rem", color: "rgba(245,240,232,0.75)" }}>{slot.countWhen}</div>
+          )}
+          {slot.countCta && (
+            <div style={{ fontSize: "0.6rem", color: "#E5BC4F", marginTop: 4 }}>{slot.countCta}</div>
+          )}
+        </div>
+      );
+    }
+    if (slot.type === "poster") {
+      return (
+        <div>
+          <div style={{ fontSize: "0.5rem", color: "#E5BC4F", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 4 }}>
+            Slide {num} · Poster
+          </div>
+          {slot.topLine && (
+            <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.7)", letterSpacing: 2, marginBottom: 6, fontFamily: "ui-monospace,Menlo,monospace" }}>
+              {slot.topLine}
+            </div>
+          )}
+          <div style={{ fontFamily: "'Syne',sans-serif", fontSize: "1.05rem", fontWeight: 900, lineHeight: 1.1, whiteSpace: "pre-wrap", marginBottom: 4 }}>
+            {slot.title}
+          </div>
+          {slot.subtitle && (
+            <div style={{ fontSize: "0.65rem", color: "rgba(245,240,232,0.7)", fontStyle: "italic", marginBottom: 6 }}>
+              {slot.subtitle}
+            </div>
+          )}
+          {slot.dateLine && (
+            <div style={{ fontSize: "0.6rem", color: "rgba(229,188,79,0.85)", letterSpacing: 1, fontWeight: 700 }}>
+              {slot.dateLine}
+            </div>
+          )}
+        </div>
+      );
+    }
+    if (slot.type === "press") {
+      return (
+        <div>
+          <div style={{ fontSize: "0.5rem", color: "#E5BC4F", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 4 }}>
+            Slide {num} · Press
+          </div>
+          <div style={{ fontFamily: "'Syne',sans-serif", fontSize: "1.4rem", fontWeight: 900, letterSpacing: 1, marginBottom: 4 }}>
+            {slot.pressTitle}
+          </div>
+          {slot.pressBadge && (
+            <div style={{ display: "inline-block", padding: "2px 6px", background: "rgba(212,63,47,0.85)", color: "#FFF", fontSize: "0.5rem", fontWeight: 800, letterSpacing: 1, marginBottom: 6, borderRadius: 2 }}>
+              {slot.pressBadge}
+            </div>
+          )}
+          {slot.pressLineup && (
+            <div style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.75)", whiteSpace: "pre-wrap", marginBottom: 4, lineHeight: 1.4 }}>
+              {slot.pressLineup}
+            </div>
+          )}
+          {slot.pressGenres && (
+            <div style={{ fontSize: "0.55rem", color: "rgba(242,201,76,0.85)", letterSpacing: 1.2, marginBottom: 4 }}>
+              {slot.pressGenres}
+            </div>
+          )}
+          {slot.pressDateLine && (
+            <div style={{ fontSize: "0.6rem", color: "rgba(229,188,79,0.85)", letterSpacing: 1, fontWeight: 700 }}>
+              {slot.pressDateLine}
+            </div>
+          )}
+        </div>
+      );
+    }
+    if (slot.type === "features") {
+      const items = Array.isArray(slot.features) ? slot.features : [];
+      return (
+        <div>
+          <div style={{ fontSize: "0.5rem", color: "#E5BC4F", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 4 }}>
+            Slide {num} · Features
+          </div>
+          {slot.featuresTitle && (
+            <div style={{ fontFamily: "'Syne',sans-serif", fontSize: "0.85rem", fontWeight: 800, letterSpacing: 1, marginBottom: 6 }}>
+              {slot.featuresTitle}
+            </div>
+          )}
+          <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
+            {items.map((f, i) => (
+              <li key={i} style={{ display: "flex", gap: 8, marginBottom: 4 }}>
+                <span style={{ fontSize: "0.9rem" }}>{f.emoji}</span>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: "0.75rem" }}>{f.headline}</div>
+                  {f.sub && <div style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.65)" }}>{f.sub}</div>}
+                </div>
+              </li>
+            ))}
+          </ul>
         </div>
       );
     }
