@@ -4651,6 +4651,7 @@ export default function MediaTool() {
                   marginBottom:"0.8rem",
                 }}
               >✨ AI Generate Cover</button>
+              {/* === PRIMARY FIELDS (always visible) === */}
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Background Photo</label>
                 <div style={{display:"flex",gap:"0.3rem"}}>
                   <button onClick={()=>fileRef.current?.click()} style={{...B,flex:1}}>{photo?"✓ Photo loaded — change":"Upload Photo"}</button>
@@ -4659,44 +4660,56 @@ export default function MediaTool() {
                   <input ref={fileRef} type="file" accept="image/*" onChange={handlePhoto} style={{display:"none"}}/>
                 </div>
               </div>
-              {/* Category tag — new in news-editorial refinement. Sits at
-                  the top of the canvas as a small letterspaced section
-                  label, like a magazine category header. Hides when empty. */}
-              <div style={{marginBottom:"0.6rem"}}><label style={L}>Category tag · top section label · optional</label><input value={categoryTag} onChange={e=>setCategoryTag(e.target.value)} style={I} placeholder="e.g. WEEKEND GUIDE · JUNETEENTH 2026 · WORLD CUP WATCH"/></div>
-              {/* Tagline / region line — was previously labeled "Subtitle"
-                  generically. Same state + same render, just clearer about
-                  what this field is FOR in news-editorial usage: the small
-                  accent line beneath the headline naming where/when. */}
-              <div style={{marginBottom:"0.6rem"}}><label style={L}>Tagline / where line · region · scope · presenter · optional</label><input value={subtitle} onChange={e=>setSubtitle(e.target.value)} style={I} placeholder="e.g. NEWARK · NEW BRUNSWICK · JERSEY CITY + MORE"/></div>
-              <div style={{marginBottom:"0.6rem"}}><label style={L}>Ribbon (optional · short kicker)</label><input value={ribbon} onChange={e=>setRibbon(e.target.value)} style={I} placeholder="e.g. ANNOUNCING / EXCLUSIVE / BREAKING"/></div>
+              {/* Headline first — the hero of the slide. */}
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Headline</label><textarea value={headline} onChange={e=>setHeadline(e.target.value)} style={{...I,height:55,resize:"vertical"}} placeholder="Type headline..."/></div>
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Click words to highlight</label>
                 <div style={{display:"flex",flexWrap:"wrap",gap:"3px",padding:"6px",background:"#111",borderRadius:"6px",border:"1px solid rgba(245,240,232,0.04)"}}>
                   {words.map((w,i)=><button key={i} onClick={()=>toggleHL(i)} style={{padding:"3px 7px",borderRadius:"4px",cursor:"pointer",fontSize:"0.65rem",fontWeight:700,fontFamily:"'Syne'",textTransform:"uppercase",background:highlights.has(i)?`${accent}22`:"rgba(245,240,232,0.04)",color:highlights.has(i)?accent:"rgba(245,240,232,0.30)",border:highlights.has(i)?`2px solid ${accent}55`:"2px solid transparent"}}>{w}</button>)}
                 </div></div>
-              <div style={{marginBottom:"0.6rem"}}>
-                <label style={L}>
-                  Darken overlay · {Math.round(opacity*100)}% {opacity >= 0.85 ? "(photo mostly hidden)" : opacity >= 0.55 ? "(photo subtle backdrop)" : "(photo more visible)"}
-                </label>
-                <div style={{display:"flex",alignItems:"center",gap:"6px"}}>
-                  <span style={{fontSize:"0.45rem",color:"rgba(245,240,232,0.3)"}}>20%</span>
-                  <input type="range" min="0.20" max="1.0" step="0.01" value={opacity} onChange={e=>setOpacity(parseFloat(e.target.value))} style={{flex:1,accentColor:accent}}/>
-                  <span style={{fontSize:"0.45rem",color:"rgba(245,240,232,0.3)"}}>100%</span>
+              {/* Category tag + Tagline — both used frequently for the
+                  editorial register. Stacked side-by-side on desktop to
+                  save vertical space; wraps to two rows on narrow phones. */}
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0.5rem",marginBottom:"0.6rem"}}>
+                <div><label style={L}>Category tag · optional</label><input value={categoryTag} onChange={e=>setCategoryTag(e.target.value)} style={I} placeholder="e.g. WEEKEND GUIDE"/></div>
+                <div><label style={L}>Tagline / where line · optional</label><input value={subtitle} onChange={e=>setSubtitle(e.target.value)} style={I} placeholder="e.g. NEWARK + MORE"/></div>
+              </div>
+
+              {/* === ADVANCED FIELDS (collapsed by default) ===
+                  Ribbon + darken overlay + CTA pill button are
+                  "set-and-forget" or one-off touches. Hidden behind
+                  a details summary so the form isn't tall by default,
+                  but a single click reveals them when needed. */}
+              <details style={{marginBottom:"0.6rem",background:"rgba(245,240,232,0.02)",border:"1px solid rgba(245,240,232,0.06)",borderRadius:"6px"}}>
+                <summary style={{padding:"8px 12px",cursor:"pointer",fontSize:"0.6rem",color:"rgba(245,240,232,0.5)",letterSpacing:"1.5px",textTransform:"uppercase",fontWeight:700,fontFamily:"'Syne',sans-serif",listStyle:"none"}}>
+                  ▸ Advanced · ribbon · darken · CTA pill
+                </summary>
+                <div style={{padding:"0 12px 12px"}}>
+                  <div style={{marginBottom:"0.6rem"}}><label style={L}>Ribbon · short kicker · optional</label><input value={ribbon} onChange={e=>setRibbon(e.target.value)} style={I} placeholder="e.g. ANNOUNCING / EXCLUSIVE / BREAKING"/></div>
+                  <div style={{marginBottom:"0.6rem"}}>
+                    <label style={L}>
+                      Darken overlay · {Math.round(opacity*100)}% {opacity >= 0.85 ? "(photo mostly hidden)" : opacity >= 0.55 ? "(photo subtle backdrop)" : "(photo more visible)"}
+                    </label>
+                    <div style={{display:"flex",alignItems:"center",gap:"6px"}}>
+                      <span style={{fontSize:"0.45rem",color:"rgba(245,240,232,0.3)"}}>20%</span>
+                      <input type="range" min="0.20" max="1.0" step="0.01" value={opacity} onChange={e=>setOpacity(parseFloat(e.target.value))} style={{flex:1,accentColor:accent}}/>
+                      <span style={{fontSize:"0.45rem",color:"rgba(245,240,232,0.3)"}}>100%</span>
+                    </div>
+                  </div>
+                  {/* Optional pill button below the headline — for promo
+                      Covers (the "Tap the link in bio" treatment). Empty
+                      = no pill (default; editorial Covers stay clean). */}
+                  <div>
+                    <label style={L}>CTA pill button · optional · renders below headline</label>
+                    <input
+                      value={coverCtaButton}
+                      onChange={e=>setCoverCtaButton(e.target.value.slice(0,28))}
+                      style={I}
+                      placeholder='e.g. TAP THE LINK · RSVP IN BIO · SEE THE LINEUP'
+                      maxLength={28}
+                    />
+                  </div>
                 </div>
-              </div>
-              {/* Optional pill button below the headline — for promo Covers
-                  (the "Tap the link in bio" / "See the lineup" treatment).
-                  Empty = no pill (default; editorial Covers stay clean). */}
-              <div style={{marginBottom:"0.6rem"}}>
-                <label style={L}>CTA pill button · optional · renders below headline</label>
-                <input
-                  value={coverCtaButton}
-                  onChange={e=>setCoverCtaButton(e.target.value.slice(0,28))}
-                  style={I}
-                  placeholder='e.g. TAP THE LINK · RSVP IN BIO · SEE THE LINEUP'
-                  maxLength={28}
-                />
-              </div>
+              </details>
             </>}
 
             {mode==="list"&&<>
