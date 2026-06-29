@@ -44,15 +44,38 @@ export function AiSlideGeneratorModal({ open, slotType, apiKey, initialTopic, on
   // Cover → headline + subtitle. CTA → kicker · main · sub.
   const optionToExemplarText = (opt) => {
     if (slotType === "cover") {
-      const head = (opt.headline || "").trim();
-      const sub = (opt.subtitle || "").trim();
-      return [head, sub].filter(Boolean).join("\n\n");
+      return [opt.headline, opt.subtitle].map(s => (s || "").trim()).filter(Boolean).join("\n\n");
     }
     if (slotType === "cta") {
       const k = (opt.kicker || "").trim();
-      const m = (opt.mainLine || "").trim();
-      const s = (opt.subLine || "").trim();
-      return [k && k.toUpperCase(), m, s].filter(Boolean).join("\n");
+      return [k && k.toUpperCase(), opt.mainLine, opt.subLine].map(s => (s || "").trim()).filter(Boolean).join("\n");
+    }
+    if (slotType === "text") {
+      return [opt.textTitle, opt.textBody].map(s => (s || "").trim()).filter(Boolean).join("\n\n");
+    }
+    if (slotType === "spotlight") {
+      const detail = [opt.spotTime, opt.spotPrice, opt.spotCta].filter(Boolean).join(" · ");
+      return [opt.spotName, opt.spotMeta, detail].map(s => (s || "").trim()).filter(Boolean).join("\n");
+    }
+    if (slotType === "photo") {
+      return [opt.caption, opt.captionSecondary].map(s => (s || "").trim()).filter(Boolean).join("\n");
+    }
+    if (slotType === "stat") {
+      return `${opt.statNumber || ""} ${opt.statLabel || ""}\n${opt.statSub || ""}`.trim();
+    }
+    if (slotType === "countdown") {
+      return [opt.countText, opt.countEvent, opt.countWhen, opt.countCta].map(s => (s || "").trim()).filter(Boolean).join("\n");
+    }
+    if (slotType === "poster") {
+      return [opt.kicker, opt.title, opt.subtitle, opt.dateLine].map(s => (s || "").trim()).filter(Boolean).join("\n");
+    }
+    if (slotType === "press") {
+      return [opt.pressTitle, opt.pressLineup, opt.pressGenres, opt.pressDateLine].map(s => (s || "").trim()).filter(Boolean).join("\n");
+    }
+    if (slotType === "features") {
+      const items = Array.isArray(opt.features) ? opt.features : [];
+      const body = items.map(f => `${f.emoji || ""} ${f.headline || ""} — ${f.sub || ""}`.trim()).join("\n");
+      return [opt.featuresTitle, body].filter(Boolean).join("\n");
     }
     return JSON.stringify(opt);
   };
@@ -70,7 +93,12 @@ export function AiSlideGeneratorModal({ open, slotType, apiKey, initialTopic, on
 
   if (!open) return null;
 
-  const slotLabel = slotType === "cover" ? "Cover" : slotType === "cta" ? "CTA" : slotType;
+  const SLOT_LABELS = {
+    cover: "Cover", text: "Text", spotlight: "Spotlight", cta: "CTA",
+    photo: "Photo Caption", stat: "Stat", countdown: "Countdown",
+    poster: "Poster", press: "Press", features: "Features",
+  };
+  const slotLabel = SLOT_LABELS[slotType] || slotType;
 
   const handleGenerate = async () => {
     if (!apiKey) { setError("Paste your Gemini API key in the MediaTool toolbar first."); return; }
@@ -242,39 +270,7 @@ export function AiSlideGeneratorModal({ open, slotType, apiKey, initialTopic, on
                 >
                   {savedIdx.has(i) ? "✓ Saved" : "🔖 Save"}
                 </button>
-                {slotType === "cover" ? (
-                  <>
-                    <div style={{ fontFamily: "'Syne',sans-serif", fontSize: "1.05rem", fontWeight: 800, lineHeight: 1.2, marginBottom: 6 }}>
-                      {(opt.headline || "").split(/\s+/).map((w, wi) => (
-                        <span key={wi} style={{ color: opt.accentWord && w.toLowerCase() === String(opt.accentWord).toLowerCase() ? "#E5BC4F" : "inherit" }}>
-                          {w}{" "}
-                        </span>
-                      ))}
-                    </div>
-                    <div style={{ fontSize: "0.75rem", color: "rgba(245,240,232,0.7)", marginBottom: 4 }}>
-                      {opt.subtitle}
-                    </div>
-                    {opt.accentWord && (
-                      <div style={{ fontSize: "0.55rem", color: "rgba(229,188,79,0.7)", letterSpacing: 1, textTransform: "uppercase", marginTop: 6 }}>
-                        Accent word: <strong>{opt.accentWord}</strong>
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <>
-                    {opt.kicker && (
-                      <div style={{ display: "inline-block", padding: "2px 8px", background: "#E5BC4F", color: "#000", fontSize: "0.55rem", fontWeight: 800, letterSpacing: 1.5, marginBottom: 8, borderRadius: 3, fontFamily: "'Syne',sans-serif" }}>
-                        {opt.kicker.toUpperCase()}
-                      </div>
-                    )}
-                    <div style={{ fontFamily: "'Syne',sans-serif", fontSize: "1.05rem", fontWeight: 800, lineHeight: 1.2, marginBottom: 6 }}>
-                      {opt.mainLine}
-                    </div>
-                    <div style={{ fontSize: "0.75rem", color: "rgba(245,240,232,0.7)" }}>
-                      {opt.subLine}
-                    </div>
-                  </>
-                )}
+                {renderOptionPreview(slotType, opt)}
               </div>
             ))}
           </div>
@@ -283,4 +279,154 @@ export function AiSlideGeneratorModal({ open, slotType, apiKey, initialTopic, on
     </div>,
     document.body
   );
+}
+
+// Per-slot option preview renderer. Each slot type knows how to render
+// ONE option as a compact preview card inside the modal. Mirrors the
+// shape of AiTemplateFillModal.renderPreview but flattened — no "Slide
+// N · X" header since each card here is one option, not one slide.
+function renderOptionPreview(slotType, opt) {
+  if (slotType === "cover") {
+    return (
+      <>
+        <div style={{ fontFamily: "'Syne',sans-serif", fontSize: "1.05rem", fontWeight: 800, lineHeight: 1.2, marginBottom: 6 }}>
+          {(opt.headline || "").split(/\s+/).map((w, wi) => (
+            <span key={wi} style={{ color: opt.accentWord && w.toLowerCase() === String(opt.accentWord).toLowerCase() ? "#E5BC4F" : "inherit" }}>
+              {w}{" "}
+            </span>
+          ))}
+        </div>
+        <div style={{ fontSize: "0.75rem", color: "rgba(245,240,232,0.7)", marginBottom: 4 }}>{opt.subtitle}</div>
+        {opt.accentWord && (
+          <div style={{ fontSize: "0.55rem", color: "rgba(229,188,79,0.7)", letterSpacing: 1, textTransform: "uppercase", marginTop: 6 }}>
+            Accent word: <strong>{opt.accentWord}</strong>
+          </div>
+        )}
+      </>
+    );
+  }
+  if (slotType === "cta") {
+    return (
+      <>
+        {opt.kicker && (
+          <div style={{ display: "inline-block", padding: "2px 8px", background: "#E5BC4F", color: "#000", fontSize: "0.55rem", fontWeight: 800, letterSpacing: 1.5, marginBottom: 8, borderRadius: 3, fontFamily: "'Syne',sans-serif" }}>
+            {opt.kicker.toUpperCase()}
+          </div>
+        )}
+        <div style={{ fontFamily: "'Syne',sans-serif", fontSize: "1.05rem", fontWeight: 800, lineHeight: 1.2, marginBottom: 6 }}>{opt.mainLine}</div>
+        <div style={{ fontSize: "0.75rem", color: "rgba(245,240,232,0.7)" }}>{opt.subLine}</div>
+      </>
+    );
+  }
+  if (slotType === "text") {
+    return (
+      <>
+        {opt.textTitle && (
+          <div style={{ fontFamily: "'Syne',sans-serif", fontSize: "0.95rem", fontWeight: 800, letterSpacing: 0.5, marginBottom: 6 }}>{opt.textTitle}</div>
+        )}
+        <div style={{ fontSize: "0.7rem", color: "rgba(245,240,232,0.75)", whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{opt.textBody}</div>
+      </>
+    );
+  }
+  if (slotType === "spotlight") {
+    return (
+      <>
+        <div style={{ fontFamily: "'Syne',sans-serif", fontSize: "1rem", fontWeight: 800, marginBottom: 4 }}>{opt.spotName}</div>
+        <div style={{ fontSize: "0.7rem", color: "rgba(245,240,232,0.7)" }}>{opt.spotMeta}</div>
+        {(opt.spotTime || opt.spotPrice || opt.spotCta) && (
+          <div style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.5)", marginTop: 4 }}>
+            {[opt.spotTime, opt.spotPrice, opt.spotCta].filter(Boolean).join(" · ")}
+          </div>
+        )}
+      </>
+    );
+  }
+  if (slotType === "photo") {
+    return (
+      <>
+        <div style={{ fontFamily: "'Syne',sans-serif", fontSize: "1rem", fontWeight: 800, marginBottom: 4 }}>{opt.caption}</div>
+        {opt.captionSecondary && (
+          <div style={{ fontSize: "0.6rem", color: "rgba(229,188,79,0.75)", letterSpacing: 1.5, textTransform: "uppercase" }}>{opt.captionSecondary}</div>
+        )}
+      </>
+    );
+  }
+  if (slotType === "stat") {
+    return (
+      <>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 4 }}>
+          <div style={{ fontFamily: "'Syne',sans-serif", fontSize: "1.6rem", fontWeight: 900, color: "#F5F0E8" }}>{opt.statNumber}</div>
+          <div style={{ fontFamily: "'Syne',sans-serif", fontSize: "0.8rem", fontWeight: 800, letterSpacing: 1.5 }}>{opt.statLabel}</div>
+        </div>
+        {opt.statSub && <div style={{ fontSize: "0.7rem", color: "rgba(245,240,232,0.6)" }}>{opt.statSub}</div>}
+      </>
+    );
+  }
+  if (slotType === "countdown") {
+    return (
+      <>
+        <div style={{ fontFamily: "'Syne',sans-serif", fontSize: "1.2rem", fontWeight: 900, color: "#E5BC4F", letterSpacing: 1, marginBottom: 4 }}>{opt.countText}</div>
+        <div style={{ fontFamily: "'Syne',sans-serif", fontSize: "0.9rem", fontWeight: 800, marginBottom: 4 }}>{opt.countEvent}</div>
+        {opt.countWhen && <div style={{ fontSize: "0.65rem", color: "rgba(245,240,232,0.75)" }}>{opt.countWhen}</div>}
+        {opt.countCta && <div style={{ fontSize: "0.6rem", color: "#E5BC4F", marginTop: 4 }}>{opt.countCta}</div>}
+      </>
+    );
+  }
+  if (slotType === "poster") {
+    return (
+      <>
+        {opt.topLine && (
+          <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.7)", letterSpacing: 2, marginBottom: 6, fontFamily: "ui-monospace,Menlo,monospace" }}>{opt.topLine}</div>
+        )}
+        <div style={{ fontFamily: "'Syne',sans-serif", fontSize: "1.05rem", fontWeight: 900, lineHeight: 1.1, whiteSpace: "pre-wrap", marginBottom: 4 }}>{opt.title}</div>
+        {opt.subtitle && <div style={{ fontSize: "0.65rem", color: "rgba(245,240,232,0.7)", fontStyle: "italic", marginBottom: 6 }}>{opt.subtitle}</div>}
+        {opt.dateLine && (
+          <div style={{ fontSize: "0.6rem", color: "rgba(229,188,79,0.85)", letterSpacing: 1, fontWeight: 700 }}>{opt.dateLine}</div>
+        )}
+      </>
+    );
+  }
+  if (slotType === "press") {
+    return (
+      <>
+        <div style={{ fontFamily: "'Syne',sans-serif", fontSize: "1.4rem", fontWeight: 900, letterSpacing: 1, marginBottom: 4 }}>{opt.pressTitle}</div>
+        {opt.pressBadge && (
+          <div style={{ display: "inline-block", padding: "2px 6px", background: "rgba(212,63,47,0.85)", color: "#FFF", fontSize: "0.5rem", fontWeight: 800, letterSpacing: 1, marginBottom: 6, borderRadius: 2 }}>
+            {opt.pressBadge}
+          </div>
+        )}
+        {opt.pressLineup && (
+          <div style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.75)", whiteSpace: "pre-wrap", marginBottom: 4, lineHeight: 1.4 }}>{opt.pressLineup}</div>
+        )}
+        {opt.pressGenres && (
+          <div style={{ fontSize: "0.55rem", color: "rgba(242,201,76,0.85)", letterSpacing: 1.2, marginBottom: 4 }}>{opt.pressGenres}</div>
+        )}
+        {opt.pressDateLine && (
+          <div style={{ fontSize: "0.6rem", color: "rgba(229,188,79,0.85)", letterSpacing: 1, fontWeight: 700 }}>{opt.pressDateLine}</div>
+        )}
+      </>
+    );
+  }
+  if (slotType === "features") {
+    const items = Array.isArray(opt.features) ? opt.features : [];
+    return (
+      <>
+        {opt.featuresTitle && (
+          <div style={{ fontFamily: "'Syne',sans-serif", fontSize: "0.85rem", fontWeight: 800, letterSpacing: 1, marginBottom: 6 }}>{opt.featuresTitle}</div>
+        )}
+        <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
+          {items.map((f, i) => (
+            <li key={i} style={{ display: "flex", gap: 8, marginBottom: 4 }}>
+              <span style={{ fontSize: "0.9rem" }}>{f.emoji}</span>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: "0.75rem" }}>{f.headline}</div>
+                {f.sub && <div style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.65)" }}>{f.sub}</div>}
+              </div>
+            </li>
+          ))}
+        </ul>
+      </>
+    );
+  }
+  return <div style={{ fontSize: "0.7rem", color: "rgba(245,240,232,0.55)" }}>{JSON.stringify(opt)}</div>;
 }

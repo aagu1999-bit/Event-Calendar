@@ -343,6 +343,27 @@ Return JSON ONLY in this exact shape (3 different variations):
 //   list-tour         — World Cup watch parties pattern (themed list of locations)
 //   single-beat       — Running club pattern (one-image partner spotlight)
 //   recap             — post-event recap (cover + photo captions + stat)
+// Per-slot JSON output shape — used by single-slot ✨ AI Generate to
+// wrap each slot's content in an {options:[...]} 3-variation array,
+// regardless of what schema the user's editable slot rule embeds.
+// The output shape stays canonical here; the rule text can drift.
+//
+// Adding a new AI-enabled slot type? Add its output shape here AND
+// add it to SLOT_META below AND the slotPrompts default in
+// useBrandStore AND aiSlotToSnapshot in MediaTool.
+export const SLOT_OUTPUT_SHAPES = {
+  cover:     '{"headline":"...","subtitle":"...","accentWord":"..."}',
+  text:      '{"textTitle":"...","textBody":"..."}',
+  spotlight: '{"spotName":"...","spotMeta":"...","spotTime":"","spotPrice":"","spotCta":""}',
+  cta:       '{"kicker":"","mainLine":"...","subLine":"..."}',
+  photo:     '{"caption":"...","captionSecondary":"..."}',
+  stat:      '{"statNumber":"...","statLabel":"...","statSub":"..."}',
+  countdown: '{"countText":"...","countEvent":"...","countWhen":"...","countCta":"..."}',
+  poster:    '{"topLine":"...","hosts":"...","kicker":"...","title":"...","subtitle":"...","leftList":"...","rightList":"...","dressCode":"...","dateLine":"..."}',
+  press:     '{"pressTopMeta":["...","...","...","..."],"pressTitle":"...","pressBadge":"...","pressLineup":"...","pressGenres":"...","pressDateLine":"..."}',
+  features:  '{"featuresTitle":"...","features":[{"emoji":"...","headline":"...","sub":"..."}]}',
+};
+
 // Per-slot reference metadata — augments the user-editable slotPrompts
 // strings with concrete examples + anti-patterns Gemini uses to model
 // good output. These are NOT user-editable (rules are); they're the

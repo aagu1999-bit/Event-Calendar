@@ -15,7 +15,7 @@
 //
 // Returns 3 options per call so the user can choose.
 
-import { SLOT_META } from "../store.js";
+import { SLOT_META, SLOT_OUTPUT_SHAPES } from "../store.js";
 
 const MODEL = "gemini-2.5-flash";
 const URL_BASE = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
@@ -378,6 +378,18 @@ function buildPrompt({ slotType, topic, voice, slotRule }) {
 
   const slotRefBlock = formatSlotReferenceBlock(slotType);
 
+  // Wrap the canonical per-slot shape in {options:[3 of these]} so
+  // single-slot ✨ AI Generate always returns 3 variations regardless
+  // of what schema the user's editable rule embeds. Falls back to {}
+  // for unknown slot types (rule must self-describe).
+  const shape = SLOT_OUTPUT_SHAPES[slotType];
+  const schemaOverride = shape ? [
+    "FINAL OUTPUT SCHEMA — IGNORE any schema mentioned in the rule above; use ONLY this shape:",
+    `{"options":[${shape},${shape},${shape}]}`,
+    "",
+    "Return exactly 3 distinct variations in the options array.",
+  ] : ["Output ONLY the JSON, no prose, no markdown fences."];
+
   return [
     ...voiceBlock,
     `You are generating content for a ${slotType.toUpperCase()} slide in a CGE social media carousel.`,
@@ -389,6 +401,6 @@ function buildPrompt({ slotType, topic, voice, slotRule }) {
     "",
     slotRule,
     "",
-    "Output ONLY the JSON, no prose, no markdown fences.",
+    ...schemaOverride,
   ].join("\n");
 }

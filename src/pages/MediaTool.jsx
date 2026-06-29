@@ -2460,6 +2460,33 @@ function FocalPointPicker({ photo, focalX, focalY, onChange }) {
   );
 }
 
+// Small reusable button at the top of each builder form's mode panel.
+// onClick gets called with the slot string so the parent can flip the
+// AiSlideGeneratorModal open + targeted at the right slot type.
+function AiSlotBtn({ slot, label, onClick }) {
+  return (
+    <button
+      onClick={() => onClick(slot)}
+      title={`Generate 3 ${label} options with AI (uses Brand Kit voice + ${label} content rule)`}
+      style={{
+        width: "100%",
+        padding: "8px 12px",
+        background: "rgba(229,188,79,0.10)",
+        border: "1px dashed rgba(229,188,79,0.45)",
+        color: "#E5BC4F",
+        borderRadius: 4,
+        fontSize: "0.65rem",
+        fontWeight: 700,
+        letterSpacing: "1.5px",
+        textTransform: "uppercase",
+        cursor: "pointer",
+        fontFamily: "'Syne',sans-serif",
+        marginBottom: "0.8rem",
+      }}
+    >✨ AI Generate {label}</button>
+  );
+}
+
 // === MEDIA TOOL ===
 export default function MediaTool() {
   const events = useEventsStore(s => s.events);
@@ -3925,6 +3952,129 @@ export default function MediaTool() {
     return null;
   };
 
+  // Best "initial topic" to seed the ✨ AI Generate modal per mode —
+  // grabs the most-likely-meaningful field currently in that mode's
+  // form. Falls back to "" so the user can type their own topic.
+  const getAiInitialTopicFor = (mode) => {
+    switch (mode) {
+      case "cover":     return categoryTag || subtitle || headline || "";
+      case "cta":       return ctaKicker || ctaDate || "";
+      case "text":      return textTitle || "";
+      case "spotlight": return spotName || "";
+      case "photo":     return caption || "";
+      case "stat":      return statLabel || statSub || "";
+      case "countdown": return countEvent || countText || "";
+      case "poster":    return posterTitle || posterKicker || "";
+      case "press":     return pressTitle || pressBadge || "";
+      case "features":  return featuresTitle || "";
+      default:          return "";
+    }
+  };
+
+  // Apply a single AI-generated option (from ✨ AI Generate modal) to
+  // the current mode's form. Each mode has its own set of setters so
+  // this fans out per type. Per-field guards keep null/undefined from
+  // clobbering existing user input.
+  const applyAiOptionToMode = (mode, opt) => {
+    if (!opt) return;
+    const setIf = (setter, val) => {
+      if (val != null && String(val).trim() !== "") setter(String(val).trim());
+    };
+    if (mode === "cover") {
+      const newHeadline = String(opt.headline || "").trim();
+      setHeadline(newHeadline);
+      if (opt.subtitle) setSubtitle(String(opt.subtitle).trim());
+      if (opt.accentWord && newHeadline) {
+        const words = newHeadline.toUpperCase().split(/\s+/).filter(Boolean);
+        const target = String(opt.accentWord).toUpperCase().trim();
+        const idx = words.findIndex(w => w.replace(/[^A-Z0-9]/g, "") === target.replace(/[^A-Z0-9]/g, ""));
+        setHighlights(idx >= 0 ? new Set([idx]) : new Set());
+      } else {
+        setHighlights(new Set());
+      }
+      return;
+    }
+    if (mode === "cta") {
+      if (opt.kicker != null) setCtaKicker(String(opt.kicker).trim());
+      if (opt.mainLine != null) setCtaDate(String(opt.mainLine).trim());
+      if (opt.subLine != null) setCtaVenue(String(opt.subLine).trim());
+      return;
+    }
+    if (mode === "text") {
+      setIf(setTextTitle, opt.textTitle);
+      setIf(setTextBody, opt.textBody);
+      setTextTitleHL(new Set());
+      return;
+    }
+    if (mode === "spotlight") {
+      setIf(setSpotName, opt.spotName);
+      setIf(setSpotMeta, opt.spotMeta);
+      setIf(setSpotTime, opt.spotTime);
+      setIf(setSpotPrice, opt.spotPrice);
+      setIf(setSpotCta, opt.spotCta);
+      setSpotNameHL(new Set());
+      return;
+    }
+    if (mode === "photo") {
+      setIf(setCaption, opt.caption);
+      setIf(setCaptionSecondary, opt.captionSecondary);
+      return;
+    }
+    if (mode === "stat") {
+      setIf(setStatNumber, opt.statNumber);
+      setIf(setStatLabel, opt.statLabel);
+      setIf(setStatSub, opt.statSub);
+      return;
+    }
+    if (mode === "countdown") {
+      setIf(setCountText, opt.countText);
+      setIf(setCountEvent, opt.countEvent);
+      setIf(setCountWhen, opt.countWhen);
+      setIf(setCountCta, opt.countCta);
+      return;
+    }
+    if (mode === "poster") {
+      setIf(setPosterTopLine, opt.topLine);
+      setIf(setPosterHosts, opt.hosts);
+      setIf(setPosterKicker, opt.kicker);
+      setIf(setPosterTitle, opt.title);
+      setIf(setPosterSubtitle, opt.subtitle);
+      setIf(setPosterLeftList, opt.leftList);
+      setIf(setPosterRightList, opt.rightList);
+      setIf(setPosterDressCode, opt.dressCode);
+      setIf(setPosterDateLine, opt.dateLine);
+      return;
+    }
+    if (mode === "press") {
+      if (Array.isArray(opt.pressTopMeta)) {
+        const meta = opt.pressTopMeta.slice(0, 4);
+        while (meta.length < 4) meta.push("");
+        setPressTopMeta(meta.map(x => String(x || "")));
+      }
+      setIf(setPressTitle, opt.pressTitle);
+      setIf(setPressBadge, opt.pressBadge);
+      setIf(setPressLineup, opt.pressLineup);
+      setIf(setPressGenres, opt.pressGenres);
+      setIf(setPressDateLine, opt.pressDateLine);
+      return;
+    }
+    if (mode === "features") {
+      setIf(setFeaturesTitle, opt.featuresTitle);
+      if (Array.isArray(opt.features)) {
+        const arr = opt.features
+          .filter(f => f && (f.headline || f.emoji))
+          .slice(0, 5)
+          .map(f => ({
+            emoji: String(f.emoji || "✨").trim(),
+            headline: String(f.headline || "").trim(),
+            sub: String(f.sub || "").trim(),
+          }));
+        if (arr.length) setFeatures(arr);
+      }
+      return;
+    }
+  };
+
   // Accept the AI-generated slides and push to carousel. Auto-numbers
   // Spotlights if there are 2+ of them (Feature Drop / listicle behavior).
   const onAiTemplateAccept = (slides /*, template */) => {
@@ -3951,7 +4101,9 @@ export default function MediaTool() {
   // a reusable custom template. The user names it; it shows up in the
   // picker dropdown alongside the built-ins for next time.
   const saveCarouselAsTemplate = () => {
-    if (carousel.length < 2) return;
+    // Allow saving even 1-slide carousels so users can build templates
+    // around a single Poster / Press / Cover for AI Fill to populate.
+    if (carousel.length < 1) return;
     const seq = carousel.map((s) => s.type);
     const name = prompt(
       `Save this ${seq.length}-slide sequence as a reusable template.\n\n` +
@@ -5036,28 +5188,7 @@ export default function MediaTool() {
         <div className="cge-builder-layout" style={{display:"block"}}>
           <div>
             {mode==="cover"&&<>
-              {/* ✨ AI Generate Cover — calls Gemini with the Cover slot
-                  prompt + brand voice + a topic. Returns 3 headlines; user
-                  picks → fills headline, subtitle, and accent highlight. */}
-              <button
-                onClick={()=>setAiSlotOpen("cover")}
-                title="Generate 3 editorial headline options with AI (uses Brand Kit voice + Cover content rule)"
-                style={{
-                  width:"100%",
-                  padding:"8px 12px",
-                  background:"rgba(229,188,79,0.10)",
-                  border:"1px dashed rgba(229,188,79,0.45)",
-                  color:"#E5BC4F",
-                  borderRadius:4,
-                  fontSize:"0.65rem",
-                  fontWeight:700,
-                  letterSpacing:"1.5px",
-                  textTransform:"uppercase",
-                  cursor:"pointer",
-                  fontFamily:"'Syne',sans-serif",
-                  marginBottom:"0.8rem",
-                }}
-              >✨ AI Generate Cover</button>
+              <AiSlotBtn slot="cover" label="Cover" onClick={setAiSlotOpen} />
               {/* === PRIMARY FIELDS (always visible) === */}
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Background Photo</label>
                 <div style={{display:"flex",gap:"0.3rem"}}>
@@ -5171,6 +5302,7 @@ export default function MediaTool() {
             </>}
 
             {mode==="stat"&&<>
+              <AiSlotBtn slot="stat" label="Stat" onClick={setAiSlotOpen} />
               <div style={{display:"grid",gridTemplateColumns:"120px 1fr",gap:"0.4rem",marginBottom:"0.6rem"}}>
                 <div><label style={L}>Number</label><input value={statNumber} onChange={e=>setStatNumber(e.target.value)} style={{...I,fontSize:"1.2rem",fontWeight:800,textAlign:"center",fontFamily:"'Syne'"}}/></div>
                 <div><label style={L}>Label</label><input value={statLabel} onChange={e=>setStatLabel(e.target.value)} style={I}/></div>
@@ -5181,6 +5313,7 @@ export default function MediaTool() {
             </>}
 
             {mode==="text"&&<>
+              <AiSlotBtn slot="text" label="Text" onClick={setAiSlotOpen} />
               {/* PRIMARY: title + body — the content of the manifesto slide. */}
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Title</label><input value={textTitle} onChange={e=>setTextTitle(e.target.value)} style={I}/></div>
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Click words to highlight</label>
@@ -5224,28 +5357,7 @@ export default function MediaTool() {
             </>}
 
             {mode==="cta"&&<>
-              {/* ✨ AI Generate CTA — same modal as Cover, different slot
-                  prompt. Returns 3 CTA copy options; user picks → fills
-                  ctaKicker, ctaDate (big-bold mainLine), ctaVenue (subLine). */}
-              <button
-                onClick={()=>setAiSlotOpen("cta")}
-                title="Generate 3 editorial CTA options with AI (uses Brand Kit voice + CTA content rule)"
-                style={{
-                  width:"100%",
-                  padding:"8px 12px",
-                  background:"rgba(229,188,79,0.10)",
-                  border:"1px dashed rgba(229,188,79,0.45)",
-                  color:"#E5BC4F",
-                  borderRadius:4,
-                  fontSize:"0.65rem",
-                  fontWeight:700,
-                  letterSpacing:"1.5px",
-                  textTransform:"uppercase",
-                  cursor:"pointer",
-                  fontFamily:"'Syne',sans-serif",
-                  marginBottom:"0.8rem",
-                }}
-              >✨ AI Generate CTA</button>
+              <AiSlotBtn slot="cta" label="CTA" onClick={setAiSlotOpen} />
               {/* PRIMARY: kicker · date · venue · url — the four fields
                   that drive a CTA card. Background photo + overlay + bg
                   color → Advanced (set-and-forget styling). */}
@@ -5285,6 +5397,7 @@ export default function MediaTool() {
             </>}
 
             {mode==="photo"&&<>
+              <AiSlotBtn slot="photo" label="Photo Caption" onClick={setAiSlotOpen} />
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Photo</label>
                 <div style={{display:"flex",gap:"0.3rem"}}>
                   <button onClick={()=>captionFileRef.current?.click()} style={{...B,flex:1}}>{captionPhoto?"✓ Photo loaded — change":"Upload Photo"}</button>
@@ -5317,6 +5430,7 @@ export default function MediaTool() {
                 of these between a Cover and a CTA slide for a "5 spots this
                 weekend" / "12 happy hours" / "8 brunches" carousel. */}
             {mode==="spotlight"&&<>
+              <AiSlotBtn slot="spotlight" label="Spotlight" onClick={setAiSlotOpen} />
               {/* PRIMARY: photo · name · detail · day/time — the four
                   fields that define an event spotlight. Highlights tag
                   in-line with the name (only when name has words). */}
@@ -5390,6 +5504,7 @@ export default function MediaTool() {
                 Cup, NBA Finals, opening night, app launch). Each new post
                 you just change countText and re-export. */}
             {mode==="countdown"&&<>
+              <AiSlotBtn slot="countdown" label="Countdown" onClick={setAiSlotOpen} />
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Background Photo (optional)</label>
                 <div style={{display:"flex",gap:"0.3rem",alignItems:"center"}}>
                   <button onClick={()=>countFileRef.current?.click()} style={{...B,flex:1}}>{countPhoto?"✓ Photo loaded — change":"Upload Photo"}</button>
@@ -5661,6 +5776,7 @@ export default function MediaTool() {
                 parties, mixers, vendor pop-ups — anything that benefits
                 from a photo+huge-title layout. */}
             {mode==="poster"&&<>
+              <AiSlotBtn slot="poster" label="Poster" onClick={setAiSlotOpen} />
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Background Photo</label>
                 <div style={{display:"flex",gap:"0.3rem",alignItems:"center"}}>
                   <button onClick={()=>posterFileRef.current?.click()} style={{...B,flex:1}}>{posterPhoto?"✓ Photo loaded — change":"Upload Photo"}</button>
@@ -5787,6 +5903,7 @@ export default function MediaTool() {
                 marquee-style genre strip, big date bar. Three color
                 regions (genre + date + badge) are user-pickable. */}
             {mode==="press"&&<>
+              <AiSlotBtn slot="press" label="Press" onClick={setAiSlotOpen} />
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Background Photo</label>
                 <div style={{display:"flex",gap:"0.3rem",alignItems:"center"}}>
                   <button onClick={()=>pressFileRef.current?.click()} style={{...B,flex:1}}>{pressPhoto?"✓ Photo loaded — change":"Upload Photo"}</button>
@@ -5879,6 +5996,7 @@ export default function MediaTool() {
             </>}
 
             {mode==="features"&&<>
+              <AiSlotBtn slot="features" label="Features" onClick={setAiSlotOpen} />
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Background Photo (optional · shares Text-mode photo)</label>
                 <div style={{display:"flex",gap:"0.3rem",alignItems:"center"}}>
                   <button onClick={()=>textFileRef.current?.click()} style={{...B,flex:1}}>{textPhoto?"✓ Photo loaded — change":"Upload Photo"}</button>
@@ -5960,36 +6078,9 @@ export default function MediaTool() {
         open={!!aiSlotOpen}
         slotType={aiSlotOpen || "cover"}
         apiKey={geminiKey}
-        initialTopic={
-          aiSlotOpen === "cover"
-            ? (categoryTag || subtitle || headline || "")
-            : (ctaKicker || ctaDate || "")
-        }
+        initialTopic={getAiInitialTopicFor(aiSlotOpen)}
         onClose={() => setAiSlotOpen(null)}
-        onAccept={(opt) => {
-          if (aiSlotOpen === "cover") {
-            // Fill Cover form: headline, subtitle, accent-word highlight.
-            const newHeadline = String(opt.headline || "").trim();
-            setHeadline(newHeadline);
-            if (opt.subtitle) setSubtitle(String(opt.subtitle).trim());
-            // Highlight the accent word — Cover renders highlights as a
-            // Set of word indices (uppercased word match).
-            if (opt.accentWord && newHeadline) {
-              const words = newHeadline.toUpperCase().split(/\s+/).filter(Boolean);
-              const target = String(opt.accentWord).toUpperCase().trim();
-              const idx = words.findIndex(w => w.replace(/[^A-Z0-9]/g, "") === target.replace(/[^A-Z0-9]/g, ""));
-              setHighlights(idx >= 0 ? new Set([idx]) : new Set());
-            } else {
-              setHighlights(new Set());
-            }
-          } else if (aiSlotOpen === "cta") {
-            // Fill CTA form: kicker pill, big-bold mainLine (ctaDate slot),
-            // sub-line (ctaVenue slot). URL stays user-controlled.
-            if (opt.kicker != null) setCtaKicker(String(opt.kicker).trim());
-            if (opt.mainLine != null) setCtaDate(String(opt.mainLine).trim());
-            if (opt.subLine != null) setCtaVenue(String(opt.subLine).trim());
-          }
-        }}
+        onAccept={(opt) => applyAiOptionToMode(aiSlotOpen, opt)}
       />
       {/* AI Template Fill modal — whole-carousel generation. Generates
           slot content for every slide in a selected template's sequence
