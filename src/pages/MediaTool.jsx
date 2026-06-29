@@ -214,13 +214,18 @@ function renderCover(canvas, cfg) {
     ctx.restore();
   }
 
-  if (subtitle?.trim()) { ctx.font=ff("700 24px 'DM Sans',sans-serif"); ctx.fillStyle=accent; ctx.textBaseline="top"; ctx.letterSpacing="3px"; }
   if (!headline?.trim()) { drawFooter(ctx,W,H); return; }
   // px=110 keeps content inside IG's 4:5 cover-preview safe zone when
   // exporting at 1:1 (864×1080 centered crop = 108px per side).
+  // letterSpacing reset is LOAD-BEARING — subtitle render later sets 3px,
+  // but headline measurement + render must use 0px to keep word widths
+  // and cursor advance in sync. Previously a stale 3px leaked in here,
+  // inflating measured word widths and leaving visible gaps after each
+  // word at draw time (since the actual fillText ran at 0px).
+  ctx.letterSpacing = "0px";
   const words=headline.split(/\s+/).filter(w=>w), px=110, maxW=W-px*2;
   let fs=72; ctx.font=ff(`800 ${fs}px 'Syne',sans-serif`);
-  const wrap=(f)=>{ ctx.font=ff(`800 ${f}px 'Syne',sans-serif`); const r=[]; let cl=[],cw=0; const sw=ctx.measureText(" ").width;
+  const wrap=(f)=>{ ctx.font=ff(`800 ${f}px 'Syne',sans-serif`); ctx.letterSpacing="0px"; const r=[]; let cl=[],cw=0; const sw=ctx.measureText(" ").width;
     for(let i=0;i<words.length;i++){const t=words[i].toUpperCase(),ww=ctx.measureText(t).width;if(cl.length>0&&cw+sw+ww>maxW){r.push(cl);cl=[{text:t,idx:i,width:ww}];cw=ww;}else{cw+=(cl.length>0?sw:0)+ww;cl.push({text:t,idx:i,width:ww});}}if(cl.length)r.push(cl);return r;};
   let lines=wrap(fs); while(lines.length*(fs*1.05)>H*0.55&&fs>36){fs-=2;lines=wrap(fs);}
   // Bottom margin 130 (was 50) so the title sits inside Instagram's 4:5
@@ -239,7 +244,7 @@ function renderCover(canvas, cfg) {
     ctx.letterSpacing="0px"; ctx.textBaseline="top";
   }
   if(subtitle?.trim()){ctx.font=ff("700 24px 'DM Sans',sans-serif");ctx.fillStyle=accent;ctx.textBaseline="bottom";ctx.letterSpacing="3px";ctx.fillText(subtitle.toUpperCase(),px,startY-12);ctx.letterSpacing="0px";}
-  ctx.font=ff(`800 ${fs}px 'Syne',sans-serif`); ctx.textBaseline="top"; const sw=ctx.measureText(" ").width;
+  ctx.font=ff(`800 ${fs}px 'Syne',sans-serif`); ctx.textBaseline="top"; ctx.letterSpacing="0px"; const sw=ctx.measureText(" ").width;
   lines.forEach((lw,li)=>{let x=px;const y=startY+li*lh;lw.forEach(w=>{ctx.fillStyle=highlights.has(w.idx)?accent:"#FFF";ctx.fillText(w.text,x,y);x+=w.width+sw;});});
 
   // Optional CTA pill button — sits below the headline, above the footer.
