@@ -545,6 +545,39 @@ export function FixFlagsModal({ open, events, warnings, onEdit, onApply, onClose
             </div>
           )}
 
+          {/* Source link — open the event's IG post / profile in a new
+              tab so the user can verify the source before approving /
+              deleting. Hidden when no link or handle is available. */}
+          {(() => {
+            const url = (currentEvent.link && currentEvent.link.trim())
+                     || (currentEvent.igHandle && `https://instagram.com/${String(currentEvent.igHandle).replace(/^@+/, "").trim()}`)
+                     || "";
+            if (!url) return null;
+            return (
+              <a
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  display: "inline-block",
+                  marginBottom: 12,
+                  padding: "6px 10px",
+                  background: "rgba(99,179,237,0.08)",
+                  color: "#63B3ED",
+                  border: "1px solid rgba(99,179,237,0.4)",
+                  borderRadius: 4,
+                  fontSize: "0.6rem",
+                  fontWeight: 700,
+                  letterSpacing: 1,
+                  textTransform: "uppercase",
+                  textDecoration: "none",
+                  fontFamily: "'Syne',sans-serif",
+                }}
+                title="Open the source post / IG profile in a new tab"
+              >↗ Source</a>
+            );
+          })()}
+
           {/* Field stack — flagged fields first (highlighted), then
               context fields below */}
           {ALL_FIELDS.map(field => {

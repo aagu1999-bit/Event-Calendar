@@ -312,6 +312,23 @@ body {
     display: none !important;
   }
 
+  /* Generic wrappable flex row — apply to any container that mixes
+     long text + buttons. On desktop the row stays single-line; on
+     mobile it wraps so the buttons drop to their own line below the
+     description instead of getting crushed into a 20px-wide column
+     that renders text one letter per row. Used by the Review upload
+     bar, Calendar toolbar row, etc. */
+  .cge-row-wrap-mobile {
+    flex-wrap: wrap !important;
+  }
+  /* Defensive: any button inside a wrappable row keeps its text on
+     one line — even if a parent flex container squeezes it, the
+     button stays nowrap and the row wraps instead. */
+  .cge-row-wrap-mobile button,
+  .cge-row-wrap-mobile a {
+    white-space: nowrap !important;
+  }
+
   /* Preview wrapper — clips overflow so a 1080×1080 canvas or 1080×1350
      HTML mock doesn't cause horizontal page scroll. Children scale to
      viewport width. */

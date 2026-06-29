@@ -70,6 +70,18 @@ function computeFieldConflict(events) {
   return status;
 }
 
+// Derive a clickable source URL for an event. Prefers the explicit
+// IG post link (set by the scraper when staging from Weekend_Review),
+// falls back to the IG handle's profile URL. Returns "" when neither
+// exists so the caller can hide the link button.
+function linkForEvent(ev) {
+  const link = String(ev?.link || "").trim();
+  if (link) return link;
+  const ig = String(ev?.igHandle || "").trim().replace(/^@+/, "");
+  if (ig) return `https://instagram.com/${ig}`;
+  return "";
+}
+
 export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDeletions }) {
   // Extract conflict groups — only the #N-tagged kind have partners.
   const groups = useMemo(() => {
@@ -528,7 +540,7 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
                       on the left (red). The earlier top-right corner
                       buttons made decisions feel like a side-action;
                       bottom-row puts them front and center. */}
-                  <div style={{ display: "flex", gap: 8 }}>
+                  <div style={{ display: "flex", gap: 8, alignItems: "stretch" }}>
                     <button
                       onClick={() => setDecisionWithHistory(ev.id, "delete")}
                       style={bottomActionBtnStyle(decision === "delete", "#FB7185")}
@@ -539,6 +551,34 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
                       style={bottomActionBtnStyle(decision === "keep", "#34D399")}
                       title="Keep this event"
                     >✓ Keep</button>
+                    {/* IG / source link — opens the event's original
+                        post (or IG profile) in a new tab so the user
+                        can verify what they're keeping/deleting. */}
+                    {linkForEvent(ev) && (
+                      <a
+                        href={linkForEvent(ev)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        title="Open the source post / IG profile in a new tab"
+                        style={{
+                          padding: "0 12px",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          background: "transparent",
+                          color: "#63B3ED",
+                          border: "1.5px solid rgba(99,179,237,0.4)",
+                          borderRadius: 6,
+                          fontSize: "0.75rem",
+                          fontWeight: 800,
+                          letterSpacing: 0.5,
+                          textTransform: "uppercase",
+                          textDecoration: "none",
+                          fontFamily: "'Syne',sans-serif",
+                        }}
+                      >↗</a>
+                    )}
                   </div>
                 </div>
               </div>
@@ -636,6 +676,47 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
             }}
           >{isLast ? `Apply (${deleteCount})` : "Next →"}</button>
         </div>
+        {/* Early-apply bar — only renders mid-queue when the user has
+            decided at least one event. Lets them commit partial work
+            and bail without walking through every remaining group.
+            On the LAST group the main Apply button covers this; no
+            need to duplicate. */}
+        {decidedCount > 0 && !isLast && (
+          <div style={{
+            padding: "10px 16px",
+            borderTop: "1px solid rgba(245,240,232,0.05)",
+            display: "flex", alignItems: "center", gap: 8,
+            background: "#0a0a0a",
+          }}>
+            <div style={{ flex: 1, fontSize: "0.6rem", color: "rgba(245,240,232,0.55)", letterSpacing: 0.5 }}>
+              {decidedCount} decided
+              {deleteCount > 0 && <> · <span style={{ color: "#FB7185" }}>{deleteCount} delete</span></>}
+              <span style={{ marginLeft: 6, opacity: 0.5 }}>· apply and exit early?</span>
+            </div>
+            <button
+              onClick={() => {
+                const toDelete = Object.entries(decisions)
+                  .filter(([, action]) => action === "delete")
+                  .map(([id]) => id);
+                onApplyDeletions(toDelete);
+                onClose();
+              }}
+              style={{
+                padding: "8px 14px",
+                background: "#E5BC4F",
+                color: "#000",
+                border: "none",
+                borderRadius: 4,
+                fontSize: "0.65rem",
+                fontWeight: 800,
+                letterSpacing: 1,
+                textTransform: "uppercase",
+                cursor: "pointer",
+                fontFamily: "'Syne',sans-serif",
+              }}
+            >Apply now ({deleteCount})</button>
+          </div>
+        )}
       </div>
     </div>,
     document.body

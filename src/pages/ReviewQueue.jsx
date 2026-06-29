@@ -104,7 +104,7 @@ function augmentEvents(newEvents, existingEvents) {
 
 const L = { display: "block", fontSize: "0.6rem", letterSpacing: "1.5px", textTransform: "uppercase", color: "rgba(245,240,232,0.55)", marginBottom: "6px" };
 const B = { padding: "8px 14px", background: "rgba(245,240,232,0.04)", border: "1px solid rgba(245,240,232,0.1)", borderRadius: "4px", color: "#F5F0E8", fontFamily: "inherit", fontSize: "0.7rem", cursor: "pointer", letterSpacing: "1px", textTransform: "uppercase" };
-const Bgold = { ...B, background: "#E5BC4F", color: "#000", border: "none", fontWeight: 700 };
+const Bgold = { ...B, background: "#E5BC4F", color: "#000", border: "none", fontWeight: 700, whiteSpace: "nowrap" };
 const editInputStyle = {
   padding: "6px 8px",
   background: "rgba(0,0,0,0.35)",
@@ -834,8 +834,10 @@ export default function ReviewQueue({ betaMode = false } = {}) {
           </div>
         )}
 
-        {/* Upload bar */}
-        <div style={{
+        {/* Upload bar — wraps to columns on mobile (cge-row-wrap-mobile)
+            so the buttons don't get crushed and render text per-character
+            when the long description hogs the row width. */}
+        <div className="cge-row-wrap-mobile" style={{
           display: "flex", alignItems: "center", gap: "1rem",
           padding: "12px 16px", marginBottom: "1rem",
           background: "rgba(229,188,79,0.06)",

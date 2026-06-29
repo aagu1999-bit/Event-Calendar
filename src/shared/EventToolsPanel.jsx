@@ -43,10 +43,13 @@ export function EventToolsPanel({
   // a loaded HTMLImageElement or null if the user skipped that one.
   onGenerateRoundup,
 }) {
-  // Open by default on first mount so users discover the feature.
-  // (Was collapsed by default which hid Apply behind a click users
-  // didn't know they needed to make.)
-  const [open, setOpen] = useState(true);
+  // Collapsed by default. User feedback: open-by-default was making
+  // the Media tab feel chunky — Event Tools is large, not always
+  // needed on first visit. The collapsed bar's text now hints at
+  // what's inside ("fill once · push to templates · generate
+  // roundup carousels") so discoverability is preserved without the
+  // panel taking up screen space on every visit.
+  const [open, setOpen] = useState(false);
   const [tab, setTab] = useState("single"); // "single" | "roundup"
 
   return (

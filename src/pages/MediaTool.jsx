@@ -2144,39 +2144,48 @@ function renderFeatures(canvas, cfg) {
   drawFooter(ctx, W, H, isLight);
 }
 
-// Voice fingerprint indicator — small chip next to the Captions button.
-// Reads useBrandStore.voice. Green when ON (description OR exemplars set),
-// dim when off. Click-through to /brand for live editing.
-function VoiceChip() {
+// Voice fingerprint toggle — green when ON (voice priming sent to
+// Gemini), dim when OFF (raw captions, no brand voice prepended).
+// Default ON. NOT a link to /brand anymore — user reported the nav
+// jump was unwanted. Edit voice in /brand directly via the nav menu.
+// Props: voiceEnabled, setVoiceEnabled — owned by MediaTool so the
+// state can be passed down to the Captions handler.
+function VoiceChip({ voiceEnabled, setVoiceEnabled }) {
   const voice = useBrandStore((s) => s.voice);
   const hasDesc = !!(voice?.description && voice.description.trim());
   const exemplarCount = Array.isArray(voice?.exemplars) ? voice.exemplars.filter(e => e && e.trim()).length : 0;
-  const isOn = hasDesc || exemplarCount > 0;
+  const hasContent = hasDesc || exemplarCount > 0;
+  const isOn = voiceEnabled && hasContent;
   const label = isOn
     ? `🎙 Voice: ON${exemplarCount > 0 ? ` · ${exemplarCount} ex` : ""}`
-    : "🎙 Voice: off";
-  const tooltip = isOn
-    ? `Brand Kit voice is primed into the next captions call.${hasDesc ? " Voice description ✓." : ""}${exemplarCount > 0 ? ` ${exemplarCount} example caption${exemplarCount === 1 ? "" : "s"} ✓.` : ""} Click to edit.`
-    : "No voice fingerprint set. Click to add a voice description and past captions in the Brand Kit.";
+    : !hasContent
+      ? "🎙 Voice: empty"
+      : "🎙 Voice: off";
+  const tooltip = !hasContent
+    ? "Brand Kit voice is empty. Go to /brand to add a description and example captions, then this toggle activates."
+    : isOn
+      ? `Voice priming is ON. The next Captions call will include your Brand Kit voice (description${hasDesc ? " ✓" : ""}${exemplarCount > 0 ? `, ${exemplarCount} examples` : ""}). Click to turn OFF for this session.`
+      : "Voice priming OFF. Click to turn back ON (default).";
   return (
-    <Link
-      to="/brand"
+    <button
+      onClick={() => hasContent && setVoiceEnabled((v) => !v)}
+      disabled={!hasContent}
       title={tooltip}
       style={{
         padding: "6px 10px",
         background: isOn ? "rgba(52,211,153,0.10)" : "rgba(245,240,232,0.04)",
         border: "1px solid " + (isOn ? "rgba(52,211,153,0.35)" : "rgba(245,240,232,0.10)"),
         borderRadius: 4,
-        color: isOn ? "#34D399" : "rgba(245,240,232,0.45)",
+        color: isOn ? "#34D399" : (hasContent ? "rgba(245,240,232,0.45)" : "rgba(245,240,232,0.3)"),
         fontSize: "0.6rem",
         letterSpacing: "1px",
         textTransform: "uppercase",
-        textDecoration: "none",
         whiteSpace: "nowrap",
         fontFamily: "'Syne', sans-serif",
         fontWeight: 700,
+        cursor: hasContent ? "pointer" : "not-allowed",
       }}
-    >{label}</Link>
+    >{label}</button>
   );
 }
 
@@ -2574,6 +2583,9 @@ export default function MediaTool() {
   const [showKey, setShowKey] = useState(false);
   const [isGenCaptions, setIsGenCaptions] = useState(false);
   const [captions, setCaptions] = useState([]);
+  // Voice priming session toggle. Default ON. Can be flipped via the
+  // VoiceChip if the user wants a one-off generic captions run.
+  const [voiceEnabled, setVoiceEnabled] = useState(true);
   // Which caption is currently visible in the picker view. Reset to 0
   // whenever a fresh batch comes back from Gemini so the user lands on
   // the first variant by default and can flip through with the dropdown.
@@ -2706,7 +2718,9 @@ export default function MediaTool() {
       // Voice fingerprint from Brand Kit — prepended to the Gemini prompt
       // when description or exemplars are set. Read fresh at call time
       // so newly-added exemplars take effect immediately without re-mount.
-      const brandVoice = useBrandStore.getState().voice;
+      // Respect the in-session voice toggle. When off, send no voice
+      // priming — Gemini falls back to its default writing register.
+      const brandVoice = voiceEnabled ? useBrandStore.getState().voice : null;
       const results = await generateCaptions(geminiKey, ctx, images, { voice: brandVoice });
       if (!results.length) throw new Error("Got 0 captions back");
       setCaptions(results);
@@ -4229,7 +4243,7 @@ export default function MediaTool() {
             {/* Voice fingerprint indicator — shows whether the next Captions
                 call will be primed with the Brand Kit voice. Clickable chip
                 routes to /brand so the user can add more exemplars on the fly. */}
-            <VoiceChip />
+            <VoiceChip voiceEnabled={voiceEnabled} setVoiceEnabled={setVoiceEnabled} />
 
             <button
               onClick={()=>setUseVision(v=>!v)}
