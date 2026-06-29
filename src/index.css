@@ -329,6 +329,25 @@ body {
     white-space: nowrap !important;
   }
 
+  /* Brand Kit page — the 1.4fr / 1fr 2-column grid (identity+palette
+     on left, defaults+voice on right) was clipping the right column on
+     mobile because the right side ran past the viewport. Single-column
+     stack on phones so everything is reachable. */
+  .cge-brand-grid {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+
+  /* Flyer preview container — 30px padding each side was eating half the
+     mobile viewport. Trim to 10px so the scaled preview has room to
+     breathe. Combined with the auto-fit initial scale in FlyerBuilder
+     (sets scale based on innerWidth on first mount), the preview shows
+     at first paint instead of being hidden off-screen. */
+  .cge-flyer-preview {
+    padding: 10px !important;
+    overflow-x: auto !important;
+  }
+
   /* Preview wrapper — clips overflow so a 1080×1080 canvas or 1080×1350
      HTML mock doesn't cause horizontal page scroll. Children scale to
      viewport width. */

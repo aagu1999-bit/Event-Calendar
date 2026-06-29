@@ -197,6 +197,10 @@ function SingleEventForm({ currentMode, onApplyToTemplate }) {
       </div>
 
       <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+        {/* Apply button — solid border (was 2px dashed which read like
+            a drop zone). Disabled-state text shortened so it no longer
+            looks like an empty placeholder. The "fill name first" hint
+            now lives in the title tooltip instead of the button face. */}
         <button
           onClick={apply}
           disabled={!data.name.trim() || !APPLY_MODES.includes(currentMode)}
@@ -208,9 +212,9 @@ function SingleEventForm({ currentMode, onApplyToTemplate }) {
           style={{
             flex: 1,
             padding: "12px 16px",
-            background: (data.name.trim() && APPLY_MODES.includes(currentMode)) ? "#E5BC4F" : "rgba(229,188,79,0.15)",
-            color: (data.name.trim() && APPLY_MODES.includes(currentMode)) ? "#000" : "rgba(245,240,232,0.4)",
-            border: `2px dashed ${(data.name.trim() && APPLY_MODES.includes(currentMode)) ? "transparent" : "rgba(229,188,79,0.4)"}`,
+            background: (data.name.trim() && APPLY_MODES.includes(currentMode)) ? "#E5BC4F" : "rgba(229,188,79,0.08)",
+            color: (data.name.trim() && APPLY_MODES.includes(currentMode)) ? "#000" : "rgba(245,240,232,0.35)",
+            border: `1px solid ${(data.name.trim() && APPLY_MODES.includes(currentMode)) ? "transparent" : "rgba(229,188,79,0.25)"}`,
             borderRadius: 4,
             fontSize: "0.75rem", fontWeight: 800, letterSpacing: "1.5px",
             textTransform: "uppercase",
@@ -218,9 +222,7 @@ function SingleEventForm({ currentMode, onApplyToTemplate }) {
             fontFamily: "'Syne', sans-serif",
           }}
         >
-          {!data.name.trim() ? `↑ Fill in Event Name first` :
-           !APPLY_MODES.includes(currentMode) ? `No mapping for ${currentMode} — switch templates` :
-           `→ Apply to ${currentMode}`}
+          {APPLY_MODES.includes(currentMode) ? `→ Apply to ${currentMode}` : `→ Apply (switch templates)`}
         </button>
       </div>
 

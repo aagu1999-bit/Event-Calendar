@@ -2156,6 +2156,12 @@ function VoiceChip({ voiceEnabled, setVoiceEnabled }) {
   const exemplarCount = Array.isArray(voice?.exemplars) ? voice.exemplars.filter(e => e && e.trim()).length : 0;
   const hasContent = hasDesc || exemplarCount > 0;
   const isOn = voiceEnabled && hasContent;
+  // Render nothing in the happy default (voice on + brand voice set).
+  // The chip only surfaces when there's something the user might want
+  // to fix: voice is OFF, or Brand Kit voice is empty. User feedback:
+  // "moving forward it should default always be on" — so when it IS
+  // on and working, get out of the way.
+  if (isOn) return null;
   const label = isOn
     ? `🎙 Voice: ON${exemplarCount > 0 ? ` · ${exemplarCount} ex` : ""}`
     : !hasContent
@@ -4128,12 +4134,17 @@ export default function MediaTool() {
               >{k}</button>
             ))}
           </div>
+          {/* Save Draft — restyled as a flat action button. The earlier
+              2px purple border was reading as a mode toggle next to the
+              ratio chips. Now matches the workspace-dropdown treatment
+              (subtle bg, no border) so it visually groups with "actions"
+              not "modes". */}
           <button
             onClick={saveDraft}
             disabled={isDrafting}
             title="Save the current state as a draft you can come back to. Lives in Library → Exports with a DRAFT badge."
-            style={{padding:"6px 12px",borderRadius:"5px",fontSize:"0.6rem",fontWeight:700,cursor:isDrafting?"wait":"pointer",border:"2px solid rgba(192,132,252,0.4)",background:"rgba(192,132,252,0.12)",color:"#C084FC",fontFamily:"'Syne',sans-serif",letterSpacing:"1.5px",textTransform:"uppercase",opacity:isDrafting?0.6:1}}
-          >💾 {isDrafting ? "…" : "Save Draft"}</button>
+            style={{padding:"6px 12px",borderRadius:"4px",fontSize:"0.6rem",fontWeight:700,cursor:isDrafting?"wait":"pointer",border:"1px solid rgba(192,132,252,0.25)",background:"rgba(192,132,252,0.08)",color:"#C084FC",fontFamily:"inherit",letterSpacing:"1px",textTransform:"uppercase",opacity:isDrafting?0.6:1,whiteSpace:"nowrap"}}
+          >💾 {isDrafting ? "Saving…" : "Save draft"}</button>
           <button
             onClick={()=>setWatermark(v=>!v)}
             title="Toggle CGE logo + footer text on/off"
@@ -4188,34 +4199,19 @@ export default function MediaTool() {
             no longer extend full-width past the preview. */}
         <div className="cge-main-grid" style={{display:"grid",gridTemplateColumns:"7fr 3fr",gap:"1.25rem",alignItems:"start"}}>
           <div>
-        {/* Captions panel — collapsed by default to reduce visual noise
-            on the Media tab. Opens automatically once captions have
-            been generated so the picker view is visible without an
-            extra tap. Wraps both the generation controls AND the
-            tone-picker result block. */}
-        <details
-          open={captions.length > 0 || captionsError}
-          style={{
-            marginBottom: "1rem",
-            background: "rgba(99,179,237,0.04)",
-            border: "1px solid rgba(99,179,237,0.18)",
-            borderRadius: "6px",
-          }}
-        >
-          <summary style={{
-            padding: "10px 14px",
-            cursor: "pointer",
-            fontSize: "0.65rem",
-            color: "#63B3ED",
-            letterSpacing: "1.5px",
-            textTransform: "uppercase",
-            fontWeight: 700,
-            fontFamily: "'Syne',sans-serif",
-            listStyle: "none",
-          }}>
-            💬 Captions {captions.length > 0 ? `· ${captions.length} ready` : `· generate`}
-          </summary>
-        <div style={{ padding: "0 14px 14px" }}>
+        {/* Captions panel — flat layout. User pushed back on collapse:
+            wants Generate one tap away always. Vision toggle inline.
+            Voice chip only renders when there's something to NOTICE
+            (off, or no brand voice yet) — when everything's fine
+            (voice ON + has content), the chip is silent. Result
+            picker shows inline when captions exist. */}
+        <div style={{
+          marginBottom: "1rem",
+          padding: "10px 14px",
+          background: "rgba(99,179,237,0.04)",
+          border: "1px solid rgba(99,179,237,0.18)",
+          borderRadius: "6px",
+        }}>
           <div style={{display:"flex",alignItems:"center",gap:"0.5rem",flexWrap:"wrap"}}>
             <div style={{ fontSize: "0.6rem", color: "#63B3ED", letterSpacing: "1.5px", textTransform: "uppercase", flexShrink: 0, fontWeight: 700 }}>
               Captions
@@ -4338,7 +4334,6 @@ export default function MediaTool() {
           );
         })()}
         </div>
-        </details>
 
         {/* Template Queue banner — shown when the user is walking through
             a Carousel Template. The progress chip narrates which slot
@@ -4666,12 +4661,16 @@ export default function MediaTool() {
                 <div style={{display:"flex",flexWrap:"wrap",gap:"3px",padding:"6px",background:"#111",borderRadius:"6px",border:"1px solid rgba(245,240,232,0.04)"}}>
                   {words.map((w,i)=><button key={i} onClick={()=>toggleHL(i)} style={{padding:"3px 7px",borderRadius:"4px",cursor:"pointer",fontSize:"0.65rem",fontWeight:700,fontFamily:"'Syne'",textTransform:"uppercase",background:highlights.has(i)?`${accent}22`:"rgba(245,240,232,0.04)",color:highlights.has(i)?accent:"rgba(245,240,232,0.30)",border:highlights.has(i)?`2px solid ${accent}55`:"2px solid transparent"}}>{w}</button>)}
                 </div></div>
-              {/* Category tag + Tagline — both used frequently for the
-                  editorial register. Stacked side-by-side on desktop to
-                  save vertical space; wraps to two rows on narrow phones. */}
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0.5rem",marginBottom:"0.6rem"}}>
-                <div><label style={L}>Category tag · optional</label><input value={categoryTag} onChange={e=>setCategoryTag(e.target.value)} style={I} placeholder="e.g. WEEKEND GUIDE"/></div>
-                <div><label style={L}>Tagline / where line · optional</label><input value={subtitle} onChange={e=>setSubtitle(e.target.value)} style={I} placeholder="e.g. NEWARK + MORE"/></div>
+              {/* Category tag — short label (kept compact on its own row).
+                  Tagline below — often long ("NEWARK · NEW BRUNSWICK ·
+                  JERSEY CITY + MORE") so it gets the full row width. */}
+              <div style={{marginBottom:"0.6rem"}}>
+                <label style={L}>Category tag · optional</label>
+                <input value={categoryTag} onChange={e=>setCategoryTag(e.target.value)} style={I} placeholder="e.g. WEEKEND GUIDE · JUNETEENTH 2026"/>
+              </div>
+              <div style={{marginBottom:"0.6rem"}}>
+                <label style={L}>Tagline / where line · optional</label>
+                <input value={subtitle} onChange={e=>setSubtitle(e.target.value)} style={I} placeholder="e.g. NEWARK · NEW BRUNSWICK · JERSEY CITY + MORE"/>
               </div>
 
               {/* === ADVANCED FIELDS (collapsed by default) ===

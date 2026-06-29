@@ -160,7 +160,7 @@ export default function BrandKit() {
           Set your brand identity once. Watermarks, accent colors, font pair, and creator info on every Media / Flyer / Newsletter slide pull from these values — overrides are still allowed per slide, this is the starting point.
         </p>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 20 }}>
+        <div className="cge-brand-grid" style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 20 }}>
           {/* LEFT COLUMN — Identity + Palette + Typography */}
           <div>
             {/* Identity */}

@@ -1539,7 +1539,20 @@ export default function FlyerBuilder() {
   const [photoMode, setPhotoMode] = useState("card");
   const [photoUrl, setPhotoUrl] = useState(null);
   const [bgOpacity, setBgOpacity] = useState(0.65);
-  const [scale, setScale] = useState(0.55);
+  // Initial scale — desktop default 0.55. On mobile auto-fit to
+  // viewport width (templates are 1080px wide, phones are ~375px) so
+  // the preview is visible at first paint instead of overflowing and
+  // hiding behind the form sidebar. User can still tweak via slider.
+  const [scale, setScale] = useState(() => {
+    if (typeof window === "undefined") return 0.55;
+    if (window.innerWidth < 768) {
+      // Subtract 80px to account for the preview container's 30px
+      // padding each side + small buffer. Otherwise the scaled preview
+      // overflows horizontally and hides behind the page edge on phones.
+      return Math.max(0.18, Math.min(0.55, (window.innerWidth - 80) / 1080));
+    }
+    return 0.55;
+  });
   const [titleFont, setTitleFont] = useState("Syne Black");
   const [bodyFont, setBodyFont] = useState("Syne Black");
   const [bgSize, setBgSize] = useState("regular");
@@ -2134,7 +2147,7 @@ export default function FlyerBuilder() {
       </div>
 
       {/* PREVIEW */}
-      <div className="cge-builder-preview" style={{
+      <div className="cge-builder-preview cge-flyer-preview" style={{
         background: "#1a1a1a",
         padding: "30px",
         display: "flex", alignItems: "flex-start", justifyContent: "center",
