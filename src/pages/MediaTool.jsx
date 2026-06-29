@@ -278,8 +278,9 @@ function renderCover(canvas, cfg) {
 
 // === LIST RENDERER ===
 function renderList(canvas, cfg) {
-  const { items, accent, bgKey, dots, totalDots, listTitle, listSubtitle } = cfg;
-  const W=1080,H=1080; canvas.width=W; canvas.height=H;
+  const { items, accent, bgKey, dots, totalDots, listTitle, listSubtitle,
+          targetW = 1080, targetH = 1080 } = cfg;
+  const W = targetW, H = targetH; canvas.width=W; canvas.height=H;
   const ctx=canvas.getContext("2d");
   const bg=BG_COLORS[bgKey]||BG_COLORS.black;
   const isLight = !!bg.isLight;
@@ -327,8 +328,9 @@ function renderList(canvas, cfg) {
 
 // === STAT RENDERER ===
 function renderStat(canvas, cfg) {
-  const { statNumber, statLabel, statSub, accent, bgKey, dots, totalDots } = cfg;
-  const W=1080,H=1080; canvas.width=W; canvas.height=H;
+  const { statNumber, statLabel, statSub, accent, bgKey, dots, totalDots,
+          targetW = 1080, targetH = 1080 } = cfg;
+  const W = targetW, H = targetH; canvas.width=W; canvas.height=H;
   const ctx=canvas.getContext("2d");
   const bg=BG_COLORS[bgKey]||BG_COLORS.purple;
   const isLight = !!bg.isLight;
@@ -367,8 +369,9 @@ function renderStat(canvas, cfg) {
 
 // === TEXT RENDERER ===
 function renderText(canvas, cfg) {
-  const { textTitle, textTitleHighlights, textBody, accent, bgKey, dots, totalDots, pageNum, totalPages, photo, textOpacity } = cfg;
-  const W=1080,H=1080; canvas.width=W; canvas.height=H;
+  const { textTitle, textTitleHighlights, textBody, accent, bgKey, dots, totalDots, pageNum, totalPages, photo, textOpacity,
+          targetW = 1080, targetH = 1080, focalX = 0.5, focalY = 0.5 } = cfg;
+  const W = targetW, H = targetH; canvas.width=W; canvas.height=H;
   const ctx=canvas.getContext("2d");
 
   const bg=BG_COLORS[bgKey]||BG_COLORS.black;
@@ -376,7 +379,11 @@ function renderText(canvas, cfg) {
 
   if (photo) {
     const s=Math.max(W/photo.width,H/photo.height); const dw=photo.width*s,dh=photo.height*s;
-    ctx.drawImage(photo,(W-dw)/2,(H-dh)/2,dw,dh);
+    let dx = (W/2) - (photo.width * focalX * s);
+    let dy = (H/2) - (photo.height * focalY * s);
+    dx = Math.max(W - dw, Math.min(0, dx));
+    dy = Math.max(H - dh, Math.min(0, dy));
+    ctx.drawImage(photo, dx, dy, dw, dh);
     ctx.fillStyle=`rgba(0,0,0,${textOpacity||0.85})`; ctx.fillRect(0,0,W,H);
     drawTexture(ctx,W,H,"#FFF",0.03);
   } else {
@@ -486,8 +493,9 @@ function renderText(canvas, cfg) {
 
 // === CTA RENDERER ===
 function renderCTA(canvas, cfg) {
-  const { ctaKicker, ctaDate, ctaVenue, ctaUrl, photo, accent, bgKey, dots, totalDots, opacity } = cfg;
-  const W=1080, H=1080; canvas.width=W; canvas.height=H;
+  const { ctaKicker, ctaDate, ctaVenue, ctaUrl, photo, accent, bgKey, dots, totalDots, opacity,
+          targetW = 1080, targetH = 1080, focalX = 0.5, focalY = 0.5 } = cfg;
+  const W = targetW, H = targetH; canvas.width=W; canvas.height=H;
   const ctx = canvas.getContext("2d");
 
   const bg = BG_COLORS[bgKey]||BG_COLORS.black;
@@ -496,7 +504,11 @@ function renderCTA(canvas, cfg) {
   if (photo) {
     const s=Math.max(W/photo.width,H/photo.height);
     const dw=photo.width*s, dh=photo.height*s;
-    ctx.drawImage(photo,(W-dw)/2,(H-dh)/2,dw,dh);
+    let dx = (W/2) - (photo.width * focalX * s);
+    let dy = (H/2) - (photo.height * focalY * s);
+    dx = Math.max(W - dw, Math.min(0, dx));
+    dy = Math.max(H - dh, Math.min(0, dy));
+    ctx.drawImage(photo, dx, dy, dw, dh);
     ctx.fillStyle=`rgba(0,0,0,${opacity||0.88})`; ctx.fillRect(0,0,W,H);
     drawTexture(ctx,W,H,"#FFF",0.03);
   } else {
@@ -1957,8 +1969,9 @@ function renderPress(canvas, cfg) {
 // season, vibe, etc) and works as the non-event content engine you
 // don't have yet.
 function renderVibeBoard(canvas, cfg) {
-  const { vibePhotos, vibeHeadline, vibeLabels, accent, bgKey, dots, totalDots } = cfg;
-  const W = 1080, H = 1080;
+  const { vibePhotos, vibeHeadline, vibeLabels, accent, bgKey, dots, totalDots,
+          targetW = 1080, targetH = 1080 } = cfg;
+  const W = targetW, H = targetH;
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext("2d");
 
@@ -2094,8 +2107,9 @@ function renderVibeBoard(canvas, cfg) {
 
 // === FEATURES RENDERER (2x2 emoji-card grid) ===
 function renderFeatures(canvas, cfg) {
-  const { featuresTitle, features, accent, bgKey, dots, totalDots, photo, opacity } = cfg;
-  const W=1080, H=1080; canvas.width=W; canvas.height=H;
+  const { featuresTitle, features, accent, bgKey, dots, totalDots, photo, opacity,
+          targetW = 1080, targetH = 1080, focalX = 0.5, focalY = 0.5 } = cfg;
+  const W = targetW, H = targetH; canvas.width=W; canvas.height=H;
   const ctx = canvas.getContext("2d");
 
   const bg=BG_COLORS[bgKey]||BG_COLORS.black;
@@ -2104,7 +2118,11 @@ function renderFeatures(canvas, cfg) {
   if (photo) {
     const s=Math.max(W/photo.width,H/photo.height);
     const dw=photo.width*s, dh=photo.height*s;
-    ctx.drawImage(photo,(W-dw)/2,(H-dh)/2,dw,dh);
+    let dx = (W/2) - (photo.width * focalX * s);
+    let dy = (H/2) - (photo.height * focalY * s);
+    dx = Math.max(W - dw, Math.min(0, dx));
+    dy = Math.max(H - dh, Math.min(0, dy));
+    ctx.drawImage(photo, dx, dy, dw, dh);
     ctx.fillStyle=`rgba(0,0,0,${opacity||0.88})`; ctx.fillRect(0,0,W,H);
     drawTexture(ctx,W,H,"#FFF",0.03);
   } else {
@@ -3207,21 +3225,24 @@ export default function MediaTool() {
     // 1080×1080 and get wrapForExport-composited.
     const target = EXPORT_RATIOS[exportRatio] || EXPORT_RATIOS["1:1"];
     const focal = getModeFocal();
-    const RATIO_AWARE_MODES = new Set(["cover", "spotlight", "savedate", "press", "scene", "photo", "countdown", "savedates", "poster"]);
+    // ALL slot types are now ratio-aware — renderers accept targetW/H
+     // and paint the whole design (incl. background + footer + watermark)
+     // at the target frame so nothing letterboxes on 4:5 / 3:4 / 9:16.
+     const RATIO_AWARE_MODES = new Set(["cover", "spotlight", "savedate", "press", "scene", "photo", "countdown", "savedates", "poster", "text", "cta", "features", "list", "stat", "vibe"]);
     const isRatioAware = RATIO_AWARE_MODES.has(mode);
     const targetCfg = isRatioAware ? { targetW: target.w, targetH: target.h, focalX: focal?.x ?? 0.5, focalY: focal?.y ?? 0.5 } : {};
     if(mode==="cover") renderCover(cv,{photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,categoryTag,coverCtaButton, ...targetCfg});
-    else if(mode==="list") renderList(cv,{items,accent,bgKey,dots,totalDots,listTitle,listSubtitle});
-    else if(mode==="stat") renderStat(cv,{statNumber,statLabel,statSub,accent,bgKey,dots,totalDots});
-    else if(mode==="text") renderText(cv,{textTitle,textTitleHighlights:textTitleHL,textBody,accent,bgKey,dots,totalDots,pageNum,totalPages,photo:textPhoto,textOpacity});
-    else if(mode==="cta") renderCTA(cv,{ctaKicker,ctaDate,ctaVenue,ctaUrl,photo:textPhoto,accent,bgKey,dots,totalDots,opacity:textOpacity});
-    else if(mode==="features") renderFeatures(cv,{featuresTitle,features,accent,bgKey,dots,totalDots,photo:textPhoto,opacity:textOpacity});
+    else if(mode==="list") renderList(cv,{items,accent,bgKey,dots,totalDots,listTitle,listSubtitle, ...targetCfg});
+    else if(mode==="stat") renderStat(cv,{statNumber,statLabel,statSub,accent,bgKey,dots,totalDots, ...targetCfg});
+    else if(mode==="text") renderText(cv,{textTitle,textTitleHighlights:textTitleHL,textBody,accent,bgKey,dots,totalDots,pageNum,totalPages,photo:textPhoto,textOpacity, ...targetCfg});
+    else if(mode==="cta") renderCTA(cv,{ctaKicker,ctaDate,ctaVenue,ctaUrl,photo:textPhoto,accent,bgKey,dots,totalDots,opacity:textOpacity, ...targetCfg});
+    else if(mode==="features") renderFeatures(cv,{featuresTitle,features,accent,bgKey,dots,totalDots,photo:textPhoto,opacity:textOpacity, ...targetCfg});
     else if(mode==="photo") renderPhotoCaption(cv,{photo:captionPhoto,caption,captionSecondary,alignment:captionAlign,accent,bgKey,dots,totalDots, ...targetCfg});
     else if(mode==="spotlight") renderSpotlight(cv,{photo:spotPhoto,spotName,spotNameHighlights:spotNameHL,spotMeta,spotTime,spotPrice,spotCta,spotNumber,accent,bgKey,dots,totalDots, ...targetCfg});
     else if(mode==="countdown") renderCountdown(cv,{photo:countPhoto,countText,countEvent,countWhen,countCta,accent,bgKey,dots,totalDots,opacity:countOpacity, ...targetCfg});
     else if(mode==="savedate") renderSaveDate(cv,{photo:savePhoto,saveKicker,saveDay,saveDateBig,saveEvent,saveVenue,saveCta,accent,bgKey,dots,totalDots,opacity:saveOpacity, ...targetCfg});
     else if(mode==="savedates") renderSaveDates(cv,{photo:savesPhoto,savesHeader,savesItems,savesCta,accent,bgKey,dots,totalDots,opacity:savesOpacity, ...targetCfg});
-    else if(mode==="vibe") renderVibeBoard(cv,{vibePhotos,vibeHeadline,vibeLabels,accent,bgKey,dots,totalDots});
+    else if(mode==="vibe") renderVibeBoard(cv,{vibePhotos,vibeHeadline,vibeLabels,accent,bgKey,dots,totalDots, ...targetCfg});
     else if(mode==="scene") renderScene(cv,{bgPhoto:sceneBgPhoto,sceneHero,sceneLeft,sceneRight,sceneTopLabel,sceneTitle,sceneBigText,sceneLeftMeta,sceneRightMeta,sceneInfo,sceneAddress,sceneHalftone,sceneHeroScale,sceneSideScale,accent,bgKey,dots,totalDots, ...targetCfg});
     else if(mode==="poster") renderPoster(cv,{photo:posterPhoto,opacity:posterOpacity,topLine:posterTopLine,hosts:posterHosts,kicker:posterKicker,title:posterTitle,subtitle:posterSubtitle,leftList:posterLeftList,rightList:posterRightList,dressCode:posterDressCode,dateLine:posterDateLine,titleSize:posterTitleSize,titleX:posterTitleX,titleY:posterTitleY,titleAlign:posterTitleAlign,titleColor:posterTitleColor,accent,bgKey,dots,totalDots, ...targetCfg});
     else if(mode==="press") renderPress(cv,{photo:pressPhoto,topMeta:pressTopMeta,title:pressTitle,badge:pressBadge,lineup:pressLineup,genres:pressGenres,dateLine:pressDateLine,badgeBg:pressBadgeBg,badgeText:pressBadgeText,genreBg:pressGenreBg,genreText:pressGenreText,dateBg:pressDateBg,dateText:pressDateText,photoOpacity:pressPhotoOpacity,accent,bgKey,dots,totalDots, ...targetCfg});
@@ -3338,7 +3359,7 @@ export default function MediaTool() {
     // forward target dims + focal from the snapshot to the renderer.
     // Other modes ignore and render at 1080×1080; the caller wraps them
     // via wrapForExport.
-    const RATIO_AWARE_ZIP_MODES = new Set(["cover", "spotlight", "savedate", "press", "scene", "photo", "countdown", "savedates", "poster"]);
+    const RATIO_AWARE_ZIP_MODES = new Set(["cover", "spotlight", "savedate", "press", "scene", "photo", "countdown", "savedates", "poster", "text", "cta", "features", "list", "stat", "vibe"]);
     const FOCAL_KEY_MAP = {
       cover:     ["coverFocalX",   "coverFocalY"],
       spotlight: ["spotFocalX",    "spotFocalY"],
@@ -3366,17 +3387,17 @@ export default function MediaTool() {
       subtitle: s.subtitle, opacity: s.opacity, ribbon: s.ribbon, categoryTag: s.categoryTag,
       coverCtaButton: s.coverCtaButton, ...targetCfg });
     else if (type === "list") renderList(cv, { ...common, items: s.items, bgKey: effBgKey,
-      listTitle: s.listTitle, listSubtitle: s.listSubtitle });
+      listTitle: s.listTitle, listSubtitle: s.listSubtitle, ...targetCfg });
     else if (type === "stat") renderStat(cv, { ...common, statNumber: s.statNumber,
-      statLabel: s.statLabel, statSub: s.statSub, bgKey: effBgKey });
+      statLabel: s.statLabel, statSub: s.statSub, bgKey: effBgKey, ...targetCfg });
     else if (type === "text") renderText(cv, { ...common, textTitle: s.textTitle,
       textTitleHighlights: s.textTitleHL instanceof Set ? s.textTitleHL : new Set(s.textTitleHL || []),
       textBody: s.textBody, bgKey: effBgKey, pageNum: s.pageNum, totalPages: s.totalPages,
-      photo: s.photo, textOpacity: s.textOpacity });
+      photo: s.photo, textOpacity: s.textOpacity, ...targetCfg });
     else if (type === "cta") renderCTA(cv, { ...common, ctaKicker: s.ctaKicker, ctaDate: s.ctaDate,
-      ctaVenue: s.ctaVenue, ctaUrl: s.ctaUrl, photo: s.photo, bgKey: effBgKey, opacity: s.textOpacity });
+      ctaVenue: s.ctaVenue, ctaUrl: s.ctaUrl, photo: s.photo, bgKey: effBgKey, opacity: s.textOpacity, ...targetCfg });
     else if (type === "features") renderFeatures(cv, { ...common, featuresTitle: s.featuresTitle,
-      features: s.features, bgKey: effBgKey, photo: s.photo, opacity: s.textOpacity });
+      features: s.features, bgKey: effBgKey, photo: s.photo, opacity: s.textOpacity, ...targetCfg });
     else if (type === "photo") renderPhotoCaption(cv, { ...common, photo: s.photo,
       caption: s.caption, captionSecondary: s.captionSecondary, alignment: s.captionAlign,
       bgKey: effBgKey, ...targetCfg });
@@ -3395,7 +3416,7 @@ export default function MediaTool() {
       savesHeader: s.savesHeader, savesItems: s.savesItems, savesCta: s.savesCta,
       bgKey: effBgKey, opacity: s.savesOpacity, ...targetCfg });
     else if (type === "vibe") renderVibeBoard(cv, { ...common, vibePhotos: s.vibePhotos,
-      vibeHeadline: s.vibeHeadline, vibeLabels: s.vibeLabels, bgKey: effBgKey });
+      vibeHeadline: s.vibeHeadline, vibeLabels: s.vibeLabels, bgKey: effBgKey, ...targetCfg });
     else if (type === "scene") renderScene(cv, { ...common, bgPhoto: s.bgPhoto,
       sceneHero: s.sceneHero, sceneLeft: s.sceneLeft, sceneRight: s.sceneRight,
       sceneTopLabel: s.sceneTopLabel, sceneTitle: s.sceneTitle, sceneBigText: s.sceneBigText,
@@ -4573,7 +4594,8 @@ export default function MediaTool() {
         // 1080×1080 and still get photo-bleed-composited via
         // wrapForExport.
         const slideTarget = EXPORT_RATIOS[exportRatio] || EXPORT_RATIOS["1:1"];
-        const RATIO_AWARE_SLIDE_TYPES = new Set(["cover", "spotlight", "savedate", "press", "scene", "photo", "countdown", "savedates", "poster"]);
+        // Carousel ZIP: every slot type is ratio-aware now.
+        const RATIO_AWARE_SLIDE_TYPES = new Set(["cover", "spotlight", "savedate", "press", "scene", "photo", "countdown", "savedates", "poster", "text", "cta", "features", "list", "stat", "vibe"]);
         const isRatioAwareSlide = RATIO_AWARE_SLIDE_TYPES.has(s.type);
         renderSlide(cv, s.type, s.snapshot, i+1, carousel.length, i, isRatioAwareSlide ? slideTarget : null);
         const exportCv = isRatioAwareSlide
