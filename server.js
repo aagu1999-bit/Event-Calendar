@@ -488,6 +488,62 @@ app.delete("/api/review-sessions/:name", async (req, res) => {
   }
 });
 
+// === BRAND KIT — Repl-side persistence for the centralized brand
+// identity (palette, typography, creator info, defaults, voice
+// fingerprint, slot prompts). Previously lived ONLY in browser
+// localStorage, so brand voice didn't follow the user across browsers /
+// accounts / devices. With this endpoint, any browser hitting the
+// same Repl URL gets the same brand kit on mount.
+//
+// Single file (data/brand-kit.json) — last write wins. The client-side
+// brand store still keeps a localStorage copy as a write-through cache
+// so empty-fetch on first load doesn't blank the UI, and offline edits
+// still persist visibly until the next successful PUT.
+const BRAND_KIT_FILE = path.resolve(__dirname, "data/brand-kit.json");
+
+app.get("/api/brand-kit", async (_req, res) => {
+  try {
+    if (!existsSync(BRAND_KIT_FILE)) {
+      // No server-side brand kit yet — client should fall back to its
+      // own defaults / localStorage copy. 200 with empty body so the
+      // client knows the server is reachable (vs a 404 which might
+      // get interpreted as a network error).
+      return res.json(null);
+    }
+    const data = JSON.parse(await fs.readFile(BRAND_KIT_FILE, "utf8"));
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put("/api/brand-kit", express.json({ limit: "1mb" }), async (req, res) => {
+  try {
+    const body = req.body || {};
+    // Validate the shape minimally — don't trust the client. Drops
+    // unknown top-level keys; ensures the structure matches what the
+    // brand store expects on read.
+    const data = {
+      palette: body.palette && typeof body.palette === "object" ? body.palette : {},
+      alternateColors: !!body.alternateColors,
+      alternateBgKey: typeof body.alternateBgKey === "string" ? body.alternateBgKey : "purple",
+      fontPairKey: typeof body.fontPairKey === "string" ? body.fontPairKey : "default",
+      creator: body.creator && typeof body.creator === "object" ? body.creator : {},
+      defaults: body.defaults && typeof body.defaults === "object" ? body.defaults : {},
+      voice: body.voice && typeof body.voice === "object"
+        ? { description: String(body.voice.description || ""), exemplars: Array.isArray(body.voice.exemplars) ? body.voice.exemplars.filter(e => typeof e === "string") : [] }
+        : { description: "", exemplars: [] },
+      slotPrompts: body.slotPrompts && typeof body.slotPrompts === "object" ? body.slotPrompts : {},
+      savedAt: Date.now(),
+    };
+    await fs.mkdir(path.dirname(BRAND_KIT_FILE), { recursive: true });
+    await fs.writeFile(BRAND_KIT_FILE, JSON.stringify(data, null, 2));
+    res.json({ ok: true, savedAt: data.savedAt });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // === WEEKEND_REVIEW — bridge to the Insta-Scraper repo ===
 // The Insta-Scraper writes a Weekend_Review tab into the user's Google
 // Sheet (Instagram_Events_Master, see the scraper UI's "Stage Review"

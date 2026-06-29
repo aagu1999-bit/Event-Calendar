@@ -18,6 +18,7 @@ import { exportWorkspace, previewWorkspace, importWorkspace, workspaceFilename }
 import { checkCloudAvailable, cloudSave, cloudLoad } from "./shared/cloudSync.js";
 import { CloudWorkspaceModal } from "./shared/CloudWorkspaceModal.jsx";
 import { saveExport, loadExportRecord, savePhotoAndNotify } from "./shared/photoLibrary.js";
+import { useBrandSync } from "./shared/brandSync.js";
 import { readCgeExportTag } from "./shared/pngMetadata.js";
 import { useRestoreStore } from "./store";
 
@@ -622,6 +623,10 @@ function Nav() {
 }
 
 export default function App() {
+  // Bootstrap brand kit from server on mount + sync changes back.
+  // Lives at the top so every page benefits (any tab can READ the
+  // server brand state; edits on /brand auto-PUT to the server).
+  useBrandSync();
   return (
     <BrowserRouter>
       <Nav />

@@ -4760,36 +4760,46 @@ export default function MediaTool() {
             </>}
 
             {mode==="text"&&<>
-              <div style={{marginBottom:"0.6rem"}}><label style={L}>Background Photo (optional)</label>
-                <div style={{display:"flex",gap:"0.3rem",alignItems:"center"}}>
-                  <button onClick={()=>textFileRef.current?.click()} style={{...B,flex:1}}>{textPhoto?"✓ Photo loaded — change":"Upload Photo"}</button>
-                  <button onClick={()=>openLibrary("text")} style={{...B,padding:"5px 10px"}} title="Pick a photo from the library">📚</button>
-                  {textPhoto&&<button onClick={()=>setTextPhoto(null)} style={{...B,color:"rgba(251,113,133,0.5)"}}>×</button>}
-                  <input ref={textFileRef} type="file" accept="image/*" onChange={handleTextPhoto} style={{display:"none"}}/>
-                </div>
-                {textPhoto&&<div style={{marginTop:"6px"}}>
-                  <div style={{fontSize:"0.5rem",color:"rgba(245,240,232,0.45)",letterSpacing:"1px",textTransform:"uppercase",marginBottom:"3px"}}>
-                    Darken overlay · {Math.round(textOpacity*100)}% {textOpacity >= 0.85 ? "(photo mostly hidden)" : textOpacity >= 0.55 ? "(photo subtle backdrop)" : "(photo more visible)"}
-                  </div>
-                  <div style={{display:"flex",alignItems:"center",gap:"6px"}}>
-                    <span style={{fontSize:"0.45rem",color:"rgba(245,240,232,0.3)"}}>20%</span>
-                    <input type="range" min="0.20" max="1.0" step="0.01" value={textOpacity} onChange={e=>setTextOpacity(parseFloat(e.target.value))} style={{flex:1,accentColor:accent}}/>
-                    <span style={{fontSize:"0.45rem",color:"rgba(245,240,232,0.3)"}}>100%</span>
-                  </div>
-                </div>}
-              </div>
+              {/* PRIMARY: title + body — the content of the manifesto slide. */}
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Title</label><input value={textTitle} onChange={e=>setTextTitle(e.target.value)} style={I}/></div>
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Click words to highlight</label>
                 <div style={{display:"flex",flexWrap:"wrap",gap:"3px",padding:"6px",background:"#111",borderRadius:"6px",border:"1px solid rgba(245,240,232,0.04)"}}>
                   {textWords.map((w,i)=><button key={i} onClick={()=>toggleTextHL(i)} style={{padding:"3px 7px",borderRadius:"4px",cursor:"pointer",fontSize:"0.65rem",fontWeight:700,fontFamily:"'Syne'",textTransform:"uppercase",background:textTitleHL.has(i)?`${accent}22`:"rgba(245,240,232,0.04)",color:textTitleHL.has(i)?accent:"rgba(245,240,232,0.30)",border:textTitleHL.has(i)?`2px solid ${accent}55`:"2px solid transparent"}}>{w}</button>)}
                 </div></div>
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Body (wrap *text* in asterisks to bold)</label><textarea value={textBody} onChange={e=>setTextBody(e.target.value)} style={{...I,height:100,resize:"vertical"}}/></div>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0.4rem",marginBottom:"0.6rem"}}>
-                <div><label style={L}>Page #</label><input type="number" min="1" value={pageNum} onChange={e=>setPageNum(parseInt(e.target.value)||1)} style={{...I,textAlign:"center",fontWeight:700}}/></div>
-                <div><label style={L}>Total pages</label><input type="number" min="1" value={totalPages} onChange={e=>setTotalPages(parseInt(e.target.value)||1)} style={{...I,textAlign:"center",fontWeight:700}}/></div>
-              </div>
-              {!textPhoto&&<div style={{marginBottom:"0.6rem"}}><label style={L}>Background Color</label><div style={{display:"flex",gap:"3px"}}>
-                {Object.entries(BG_COLORS).map(([k,v])=><button key={k} onClick={()=>setBgKey(k)} style={{width:28,height:28,borderRadius:"5px",cursor:"pointer",background:v.hex,border:bgKey===k?"2px solid #FFF":"2px solid transparent",boxShadow:bgKey===k?"0 0 6px rgba(255,255,255,0.3)":"none"}} title={v.name}/>)}</div></div>}
+
+              {/* ADVANCED: photo · overlay · page nums · bg color */}
+              <details style={{marginBottom:"0.6rem",background:"rgba(245,240,232,0.02)",border:"1px solid rgba(245,240,232,0.06)",borderRadius:"6px"}}>
+                <summary style={{padding:"8px 12px",cursor:"pointer",fontSize:"0.6rem",color:"rgba(245,240,232,0.5)",letterSpacing:"1.5px",textTransform:"uppercase",fontWeight:700,fontFamily:"'Syne',sans-serif",listStyle:"none"}}>
+                  ▸ Advanced · photo · overlay · page numbers · bg color
+                </summary>
+                <div style={{padding:"0 12px 12px"}}>
+                  <div style={{marginBottom:"0.6rem"}}><label style={L}>Background Photo · optional</label>
+                    <div style={{display:"flex",gap:"0.3rem",alignItems:"center"}}>
+                      <button onClick={()=>textFileRef.current?.click()} style={{...B,flex:1}}>{textPhoto?"✓ Photo loaded — change":"Upload Photo"}</button>
+                      <button onClick={()=>openLibrary("text")} style={{...B,padding:"5px 10px"}} title="Pick a photo from the library">📚</button>
+                      {textPhoto&&<button onClick={()=>setTextPhoto(null)} style={{...B,color:"rgba(251,113,133,0.5)"}}>×</button>}
+                      <input ref={textFileRef} type="file" accept="image/*" onChange={handleTextPhoto} style={{display:"none"}}/>
+                    </div>
+                    {textPhoto&&<div style={{marginTop:"6px"}}>
+                      <div style={{fontSize:"0.5rem",color:"rgba(245,240,232,0.45)",letterSpacing:"1px",textTransform:"uppercase",marginBottom:"3px"}}>
+                        Darken overlay · {Math.round(textOpacity*100)}% {textOpacity >= 0.85 ? "(photo mostly hidden)" : textOpacity >= 0.55 ? "(photo subtle backdrop)" : "(photo more visible)"}
+                      </div>
+                      <div style={{display:"flex",alignItems:"center",gap:"6px"}}>
+                        <span style={{fontSize:"0.45rem",color:"rgba(245,240,232,0.3)"}}>20%</span>
+                        <input type="range" min="0.20" max="1.0" step="0.01" value={textOpacity} onChange={e=>setTextOpacity(parseFloat(e.target.value))} style={{flex:1,accentColor:accent}}/>
+                        <span style={{fontSize:"0.45rem",color:"rgba(245,240,232,0.3)"}}>100%</span>
+                      </div>
+                    </div>}
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0.4rem",marginBottom:"0.6rem"}}>
+                    <div><label style={L}>Page #</label><input type="number" min="1" value={pageNum} onChange={e=>setPageNum(parseInt(e.target.value)||1)} style={{...I,textAlign:"center",fontWeight:700}}/></div>
+                    <div><label style={L}>Total pages</label><input type="number" min="1" value={totalPages} onChange={e=>setTotalPages(parseInt(e.target.value)||1)} style={{...I,textAlign:"center",fontWeight:700}}/></div>
+                  </div>
+                  {!textPhoto&&<div><label style={L}>Background Color</label><div style={{display:"flex",gap:"3px"}}>
+                    {Object.entries(BG_COLORS).map(([k,v])=><button key={k} onClick={()=>setBgKey(k)} style={{width:28,height:28,borderRadius:"5px",cursor:"pointer",background:v.hex,border:bgKey===k?"2px solid #FFF":"2px solid transparent",boxShadow:bgKey===k?"0 0 6px rgba(255,255,255,0.3)":"none"}} title={v.name}/>)}</div></div>}
+                </div>
+              </details>
             </>}
 
             {mode==="cta"&&<>
@@ -4815,30 +4825,42 @@ export default function MediaTool() {
                   marginBottom:"0.8rem",
                 }}
               >✨ AI Generate CTA</button>
-              <div style={{marginBottom:"0.6rem"}}><label style={L}>Background Photo (optional · shares Text-mode photo)</label>
-                <div style={{display:"flex",gap:"0.3rem",alignItems:"center"}}>
-                  <button onClick={()=>textFileRef.current?.click()} style={{...B,flex:1}}>{textPhoto?"✓ Photo loaded — change":"Upload Photo"}</button>
-                  <button onClick={()=>openLibrary("text")} style={{...B,padding:"5px 10px"}} title="Pick a photo from the library">📚</button>
-                  {textPhoto&&<button onClick={()=>setTextPhoto(null)} style={{...B,color:"rgba(251,113,133,0.5)"}}>×</button>}
-                  <input ref={textFileRef} type="file" accept="image/*" onChange={handleTextPhoto} style={{display:"none"}}/>
-                </div>
-                {textPhoto&&<div style={{marginTop:"6px"}}>
-                  <div style={{fontSize:"0.5rem",color:"rgba(245,240,232,0.45)",letterSpacing:"1px",textTransform:"uppercase",marginBottom:"3px"}}>
-                    Darken overlay · {Math.round(textOpacity*100)}% {textOpacity >= 0.85 ? "(photo mostly hidden)" : textOpacity >= 0.55 ? "(photo subtle backdrop)" : "(photo more visible)"}
-                  </div>
-                  <div style={{display:"flex",alignItems:"center",gap:"6px"}}>
-                    <span style={{fontSize:"0.45rem",color:"rgba(245,240,232,0.3)"}}>20%</span>
-                    <input type="range" min="0.20" max="1.0" step="0.01" value={textOpacity} onChange={e=>setTextOpacity(parseFloat(e.target.value))} style={{flex:1,accentColor:accent}}/>
-                    <span style={{fontSize:"0.45rem",color:"rgba(245,240,232,0.3)"}}>100%</span>
-                  </div>
-                </div>}
-              </div>
+              {/* PRIMARY: kicker · date · venue · url — the four fields
+                  that drive a CTA card. Background photo + overlay + bg
+                  color → Advanced (set-and-forget styling). */}
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Kicker pill (top)</label><input value={ctaKicker} onChange={e=>setCtaKicker(e.target.value)} style={I} placeholder="e.g. SAVE YOUR SPOT / JOIN US"/></div>
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Date (use \n for multi-line)</label><textarea value={ctaDate} onChange={e=>setCtaDate(e.target.value)} style={{...I,height:55,resize:"vertical"}} placeholder="e.g. Sunday, June 14 · 6 PM"/></div>
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Venue</label><input value={ctaVenue} onChange={e=>setCtaVenue(e.target.value)} style={I} placeholder="e.g. Pickleball HQ — Aberdeen"/></div>
               <div style={{marginBottom:"0.6rem"}}><label style={L}>URL</label><input value={ctaUrl} onChange={e=>setCtaUrl(e.target.value)} style={I} placeholder="e.g. pbdates.org"/></div>
-              {!textPhoto&&<div style={{marginBottom:"0.6rem"}}><label style={L}>Background Color</label><div style={{display:"flex",gap:"3px"}}>
-                {Object.entries(BG_COLORS).map(([k,v])=><button key={k} onClick={()=>setBgKey(k)} style={{width:28,height:28,borderRadius:"5px",cursor:"pointer",background:v.hex,border:bgKey===k?"2px solid #FFF":"2px solid transparent",boxShadow:bgKey===k?"0 0 6px rgba(255,255,255,0.3)":"none"}} title={v.name}/>)}</div></div>}
+
+              {/* ADVANCED: photo · overlay · bg color */}
+              <details style={{marginBottom:"0.6rem",background:"rgba(245,240,232,0.02)",border:"1px solid rgba(245,240,232,0.06)",borderRadius:"6px"}}>
+                <summary style={{padding:"8px 12px",cursor:"pointer",fontSize:"0.6rem",color:"rgba(245,240,232,0.5)",letterSpacing:"1.5px",textTransform:"uppercase",fontWeight:700,fontFamily:"'Syne',sans-serif",listStyle:"none"}}>
+                  ▸ Advanced · photo · overlay · bg color
+                </summary>
+                <div style={{padding:"0 12px 12px"}}>
+                  <div style={{marginBottom:"0.6rem"}}><label style={L}>Background Photo · shares Text-mode photo</label>
+                    <div style={{display:"flex",gap:"0.3rem",alignItems:"center"}}>
+                      <button onClick={()=>textFileRef.current?.click()} style={{...B,flex:1}}>{textPhoto?"✓ Photo loaded — change":"Upload Photo"}</button>
+                      <button onClick={()=>openLibrary("text")} style={{...B,padding:"5px 10px"}} title="Pick a photo from the library">📚</button>
+                      {textPhoto&&<button onClick={()=>setTextPhoto(null)} style={{...B,color:"rgba(251,113,133,0.5)"}}>×</button>}
+                      <input ref={textFileRef} type="file" accept="image/*" onChange={handleTextPhoto} style={{display:"none"}}/>
+                    </div>
+                    {textPhoto&&<div style={{marginTop:"6px"}}>
+                      <div style={{fontSize:"0.5rem",color:"rgba(245,240,232,0.45)",letterSpacing:"1px",textTransform:"uppercase",marginBottom:"3px"}}>
+                        Darken overlay · {Math.round(textOpacity*100)}% {textOpacity >= 0.85 ? "(photo mostly hidden)" : textOpacity >= 0.55 ? "(photo subtle backdrop)" : "(photo more visible)"}
+                      </div>
+                      <div style={{display:"flex",alignItems:"center",gap:"6px"}}>
+                        <span style={{fontSize:"0.45rem",color:"rgba(245,240,232,0.3)"}}>20%</span>
+                        <input type="range" min="0.20" max="1.0" step="0.01" value={textOpacity} onChange={e=>setTextOpacity(parseFloat(e.target.value))} style={{flex:1,accentColor:accent}}/>
+                        <span style={{fontSize:"0.45rem",color:"rgba(245,240,232,0.3)"}}>100%</span>
+                      </div>
+                    </div>}
+                  </div>
+                  {!textPhoto&&<div><label style={L}>Background Color</label><div style={{display:"flex",gap:"3px"}}>
+                    {Object.entries(BG_COLORS).map(([k,v])=><button key={k} onClick={()=>setBgKey(k)} style={{width:28,height:28,borderRadius:"5px",cursor:"pointer",background:v.hex,border:bgKey===k?"2px solid #FFF":"2px solid transparent",boxShadow:bgKey===k?"0 0 6px rgba(255,255,255,0.3)":"none"}} title={v.name}/>)}</div></div>}
+                </div>
+              </details>
             </>}
 
             {mode==="photo"&&<>
@@ -4868,6 +4890,9 @@ export default function MediaTool() {
                 of these between a Cover and a CTA slide for a "5 spots this
                 weekend" / "12 happy hours" / "8 brunches" carousel. */}
             {mode==="spotlight"&&<>
+              {/* PRIMARY: photo · name · detail · day/time — the four
+                  fields that define an event spotlight. Highlights tag
+                  in-line with the name (only when name has words). */}
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Venue Photo</label>
                 <div style={{display:"flex",gap:"0.3rem"}}>
                   <button onClick={()=>spotFileRef.current?.click()} style={{...B,flex:1}}>{spotPhoto?"✓ Photo loaded — change":"Upload Photo"}</button>
@@ -4879,9 +4904,6 @@ export default function MediaTool() {
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Venue / event name (headline)</label>
                 <textarea value={spotName} onChange={e=>setSpotName(e.target.value)} style={{...I,height:55,resize:"vertical",fontFamily:"'Syne'"}} placeholder="e.g. ROOFTOP NIGHT AT THE STANDARD"/>
               </div>
-              {/* Per-word accent highlights — same pattern as Cover.
-                  Click any word chip to toggle whether it renders in
-                  the accent color (vs default white/day-mode dark). */}
               {spotWords.length > 0 && (
                 <div style={{marginBottom:"0.6rem"}}><label style={L}>Click words to highlight</label>
                   <div style={{display:"flex",flexWrap:"wrap",gap:"3px",padding:"6px",background:"#111",borderRadius:"6px",border:"1px solid rgba(245,240,232,0.04)"}}>
@@ -4891,41 +4913,43 @@ export default function MediaTool() {
                   </div>
                 </div>
               )}
-              {/* Optional numbered badge — Feature Drop / listicle treatment.
-                  Empty = no badge (default). Pair with a Carousel Template
-                  like Feature Drop where 5+ Spotlights stack as numbered
-                  ideas. Per-slide — set "1", "2", "3" on consecutive Spotlights. */}
-              <div style={{display:"grid",gridTemplateColumns:"110px 1fr",gap:"0.4rem",marginBottom:"0.6rem",alignItems:"end"}}>
-                <div><label style={L}>Number badge</label>
-                  <input
-                    value={spotNumber}
-                    onChange={e=>setSpotNumber(e.target.value.slice(0,3))}
-                    style={{...I,textAlign:"center",fontWeight:700,fontFamily:"'Syne',sans-serif"}}
-                    placeholder="—"
-                    maxLength={3}
-                  />
-                </div>
-                <div style={{fontSize:"0.55rem",color:"rgba(245,240,232,0.4)",lineHeight:1.4,paddingBottom:"6px"}}>
-                  Optional. Renders a circular badge above the venue name. Use for Feature Drop / listicle posts where Spotlights stack as numbered ideas. Leave blank for editorial spotlights.
-                </div>
-              </div>
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Detail line (address · city)</label>
                 <input value={spotMeta} onChange={e=>setSpotMeta(e.target.value)} style={I} placeholder="e.g. 9 Clinton St | Newark"/>
               </div>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0.4rem",marginBottom:"0.6rem"}}>
-                <div><label style={L}>Day · Time</label>
-                  <input value={spotTime} onChange={e=>setSpotTime(e.target.value)} style={I} placeholder="Friday · 8 PM"/></div>
-                <div><label style={L}>Price</label>
-                  <input value={spotPrice} onChange={e=>setSpotPrice(e.target.value)} style={I} placeholder="$30 / Free"/></div>
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Day · Time</label>
+                <input value={spotTime} onChange={e=>setSpotTime(e.target.value)} style={I} placeholder="Friday · 8 PM"/>
               </div>
-              <div style={{marginBottom:"0.6rem"}}><label style={L}>CTA (right-side footer, accent color)</label>
-                <input value={spotCta} onChange={e=>setSpotCta(e.target.value)} style={I} placeholder="tix in bio / RSVP in bio / comment SAVE"/>
-              </div>
-              {!spotPhoto&&<div style={{marginBottom:"0.6rem"}}><label style={L}>Background Color (no photo)</label><div style={{display:"flex",gap:"3px"}}>
-                {Object.entries(BG_COLORS).map(([k,v])=><button key={k} onClick={()=>setBgKey(k)} style={{width:28,height:28,borderRadius:"5px",cursor:"pointer",background:v.hex,border:bgKey===k?"2px solid #FFF":"2px solid transparent",boxShadow:bgKey===k?"0 0 6px rgba(255,255,255,0.3)":"none"}} title={v.name}/>)}</div></div>}
-              <p style={{fontSize:"0.55rem",color:"rgba(245,240,232,0.4)",lineHeight:1.5,marginTop:"4px"}}>
-                Tip: build a roundup carousel by using <strong>Cover</strong> ("12 SPOTS THIS WEEKEND") as slide 1, then a Spotlight slide per venue, then a <strong>CTA</strong> slide ("comment SAVE for the full list").
-              </p>
+
+              {/* ADVANCED: price · CTA · number badge · bg color */}
+              <details style={{marginBottom:"0.6rem",background:"rgba(245,240,232,0.02)",border:"1px solid rgba(245,240,232,0.06)",borderRadius:"6px"}}>
+                <summary style={{padding:"8px 12px",cursor:"pointer",fontSize:"0.6rem",color:"rgba(245,240,232,0.5)",letterSpacing:"1.5px",textTransform:"uppercase",fontWeight:700,fontFamily:"'Syne',sans-serif",listStyle:"none"}}>
+                  ▸ Advanced · price · CTA · number badge · bg color
+                </summary>
+                <div style={{padding:"0 12px 12px"}}>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0.4rem",marginBottom:"0.6rem"}}>
+                    <div><label style={L}>Price</label>
+                      <input value={spotPrice} onChange={e=>setSpotPrice(e.target.value)} style={I} placeholder="$30 / Free"/></div>
+                    <div><label style={L}>CTA · accent</label>
+                      <input value={spotCta} onChange={e=>setSpotCta(e.target.value)} style={I} placeholder="tix in bio"/></div>
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"110px 1fr",gap:"0.4rem",marginBottom:"0.6rem",alignItems:"end"}}>
+                    <div><label style={L}>Number badge</label>
+                      <input
+                        value={spotNumber}
+                        onChange={e=>setSpotNumber(e.target.value.slice(0,3))}
+                        style={{...I,textAlign:"center",fontWeight:700,fontFamily:"'Syne',sans-serif"}}
+                        placeholder="—"
+                        maxLength={3}
+                      />
+                    </div>
+                    <div style={{fontSize:"0.55rem",color:"rgba(245,240,232,0.4)",lineHeight:1.4,paddingBottom:"6px"}}>
+                      Use for Feature Drop / listicle posts. Leave blank for editorial spotlights.
+                    </div>
+                  </div>
+                  {!spotPhoto&&<div><label style={L}>Background Color (no photo)</label><div style={{display:"flex",gap:"3px"}}>
+                    {Object.entries(BG_COLORS).map(([k,v])=><button key={k} onClick={()=>setBgKey(k)} style={{width:28,height:28,borderRadius:"5px",cursor:"pointer",background:v.hex,border:bgKey===k?"2px solid #FFF":"2px solid transparent",boxShadow:bgKey===k?"0 0 6px rgba(255,255,255,0.3)":"none"}} title={v.name}/>)}</div></div>}
+                </div>
+              </details>
             </>}
 
             {/* COUNTDOWN — big "3 WEEKS / TOMORROW / TONIGHT" anticipation
