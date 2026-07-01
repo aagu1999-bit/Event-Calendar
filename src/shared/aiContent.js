@@ -84,7 +84,7 @@ function formatTemplatePurposeBlock(meta) {
   return lines;
 }
 
-export async function generateSlideContent({ apiKey, slotType, topic, voice, slotPrompts }) {
+export async function generateSlideContent({ apiKey, slotType, topic, voice, slotPrompts, count = 3 }) {
   if (!apiKey) throw new Error("Missing Gemini API key");
   if (!slotType) throw new Error("Missing slotType");
   if (!topic || !topic.trim()) throw new Error("Missing topic");
@@ -92,7 +92,7 @@ export async function generateSlideContent({ apiKey, slotType, topic, voice, slo
   const slotRule = slotPrompts?.[slotType];
   if (!slotRule) throw new Error(`No prompt defined for slot type "${slotType}"`);
 
-  const prompt = buildPrompt({ slotType, topic, voice, slotRule });
+  const prompt = buildPrompt({ slotType, topic, voice, slotRule, count });
 
   const res = await fetch(`${URL_BASE}?key=${encodeURIComponent(apiKey)}`, {
     method: "POST",
@@ -122,6 +122,95 @@ export async function generateSlideContent({ apiKey, slotType, topic, voice, slo
   const options = Array.isArray(parsed?.options) ? parsed.options : [];
   if (!options.length) throw new Error("Got 0 options back");
   return options;
+}
+
+// === HOOK JUDGE (cover) ===
+// Second-pass ranker for cover headlines. Generation is creative but noisy —
+// some of the N candidates land flat. This asks Gemini to swap the writer hat
+// for an editor hat and score each candidate on scroll-stopping power, then
+// returns the top `keep` best-first, each annotated with _hookScore (0-100)
+// and _hookReason. Low temperature on purpose: we want judgment, not more
+// creativity.
+export async function rankHooks({ apiKey, topic, candidates, keep = 3 }) {
+  if (!apiKey) throw new Error("Missing Gemini API key");
+  if (!Array.isArray(candidates) || candidates.length === 0) throw new Error("No candidates to rank");
+  const keepN = Math.min(keep, candidates.length);
+
+  const list = candidates.map((c, i) =>
+    `#${i}\nheadline: ${(c.headline || "").trim()}\nsubtitle: ${(c.subtitle || "").trim()}`
+  ).join("\n\n");
+
+  const prompt = [
+    "You are a ruthless social-media editor for CGE, an NJ news-media outlet.",
+    "Below are candidate Instagram COVER headlines for the SAME post. Rank them",
+    "on SCROLL-STOPPING POWER — would a thumb actually stop on it during a",
+    "1.5-second scroll?",
+    "",
+    `Topic: ${topic?.trim() || "(unspecified)"}`,
+    "",
+    "Candidates:",
+    "",
+    list,
+    "",
+    "Score each 0-100. REWARD: a real curiosity gap / open loop, a concrete",
+    "specific (a number, a named place, a before→after), and an honest hook the",
+    "post can actually pay off. NJ / Garden State specificity is a plus. PUNISH:",
+    "flyer language ('join us', \"don't miss\"), generic vagueness, and any hook",
+    "that lies or overpromises what the post can deliver.",
+    "",
+    `Return the TOP ${keepN} ONLY, best first, as JSON (no prose, no fences):`,
+    `{"ranked":[{"index":<the # of a candidate above>,"score":<0-100>,"reason":"<max 12 words on why it stops the scroll>"}]}`,
+  ].join("\n");
+
+  const res = await fetch(`${URL_BASE}?key=${encodeURIComponent(apiKey)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { responseMimeType: "application/json", temperature: 0.3 },
+    }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Gemini ${res.status}: ${errText.slice(0, 240)}`);
+  }
+
+  const data = await res.json();
+  const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!raw) throw new Error("Empty response from Gemini");
+
+  let parsed;
+  try { parsed = JSON.parse(raw); }
+  catch { throw new Error("Gemini did not return valid JSON"); }
+
+  const ranked = Array.isArray(parsed?.ranked) ? parsed.ranked : [];
+  const out = [];
+  const seen = new Set();
+  for (const r of ranked) {
+    const idx = Number(r?.index);
+    if (!Number.isInteger(idx) || idx < 0 || idx >= candidates.length || seen.has(idx)) continue;
+    seen.add(idx);
+    out.push({ ...candidates[idx], _hookScore: Number(r.score) || null, _hookReason: (r.reason || "").trim() });
+    if (out.length >= keepN) break;
+  }
+  // Judge returned nothing usable — fall back to the first keepN raw candidates.
+  return out.length ? out : candidates.slice(0, keepN);
+}
+
+// Generate cover options, then rank them. Generates `genCount` candidates
+// (the cover rule spreads them across hook archetypes), then the hook judge
+// trims to the `keep` strongest. Falls back to raw candidates if the judge
+// call fails, so a ranker hiccup never blocks generation.
+export async function generateRankedCovers({ apiKey, topic, voice, slotPrompts, genCount = 6, keep = 3 }) {
+  const candidates = await generateSlideContent({ apiKey, slotType: "cover", topic, voice, slotPrompts, count: genCount });
+  if (candidates.length <= keep) return candidates;
+  try {
+    return await rankHooks({ apiKey, topic, candidates, keep });
+  } catch (e) {
+    if (typeof console !== "undefined") console.warn("Hook ranking failed, showing unranked:", e?.message || e);
+    return candidates.slice(0, keep);
+  }
 }
 
 // AI Template Picker — given a topic + context, ask Gemini which of
@@ -353,7 +442,7 @@ function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, tem
   ].join("\n");
 }
 
-function buildPrompt({ slotType, topic, voice, slotRule }) {
+function buildPrompt({ slotType, topic, voice, slotRule, count = 3 }) {
   const hasVoiceDesc = voice && typeof voice.description === "string" && voice.description.trim();
   const exemplars = Array.isArray(voice?.exemplars) ? voice.exemplars.filter(e => e && e.trim()) : [];
   const hasExemplars = exemplars.length > 0;
@@ -383,11 +472,12 @@ function buildPrompt({ slotType, topic, voice, slotRule }) {
   // of what schema the user's editable rule embeds. Falls back to {}
   // for unknown slot types (rule must self-describe).
   const shape = SLOT_OUTPUT_SHAPES[slotType];
+  const n = Math.max(1, count || 3);
   const schemaOverride = shape ? [
     "FINAL OUTPUT SCHEMA — IGNORE any schema mentioned in the rule above; use ONLY this shape:",
-    `{"options":[${shape},${shape},${shape}]}`,
+    `{"options":[${Array.from({ length: n }, () => shape).join(",")}]}`,
     "",
-    "Return exactly 3 distinct variations in the options array.",
+    `Return exactly ${n} DISTINCT variations in the options array — each meaningfully different, not slight rewordings.`,
   ] : ["Output ONLY the JSON, no prose, no markdown fences."];
 
   return [

@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useBrandStore } from "../store";
-import { generateSlideContent } from "./aiContent.js";
+import { generateSlideContent, generateRankedCovers } from "./aiContent.js";
 
 // Modal for AI-assisted slot generation (Cover, CTA). Topic in →
 // 3 options out → user picks → onAccept fires with the chosen option.
@@ -107,7 +107,9 @@ export function AiSlideGeneratorModal({ open, slotType, apiKey, initialTopic, on
     setError("");
     setOptions([]);
     try {
-      const opts = await generateSlideContent({ apiKey, slotType, topic, voice, slotPrompts });
+      const opts = slotType === "cover"
+        ? await generateRankedCovers({ apiKey, topic, voice, slotPrompts })
+        : await generateSlideContent({ apiKey, slotType, topic, voice, slotPrompts });
       setOptions(opts);
     } catch (err) {
       console.error(err);
@@ -162,7 +164,7 @@ export function AiSlideGeneratorModal({ open, slotType, apiKey, initialTopic, on
         </div>
 
         <div style={{ fontSize: "0.7rem", color: "rgba(245,240,232,0.6)", marginBottom: 14, lineHeight: 1.5 }}>
-          Type the topic of this carousel. Gemini will write 3 options using your Brand Kit voice + the {slotLabel} content rule. Edit the rule in <strong>/brand → Slide Content Rules</strong>.
+          Type the topic of this carousel. Gemini will write {slotType === "cover" ? "6 options across different hook archetypes, then rank them down to the 3 strongest," : "3 options"} using your Brand Kit voice + the {slotLabel} content rule. Edit the rule in <strong>/brand → Slide Content Rules</strong>.
         </div>
 
         <label style={{ fontSize: "0.65rem", color: "rgba(245,240,232,0.65)", display: "block", marginBottom: 5, letterSpacing: 0.5 }}>
@@ -206,7 +208,7 @@ export function AiSlideGeneratorModal({ open, slotType, apiKey, initialTopic, on
               cursor: busy ? "wait" : (topic.trim() ? "pointer" : "not-allowed"),
               fontFamily: "'Syne',sans-serif",
             }}
-          >{busy ? "Generating…" : (options.length ? "↻ Regenerate" : "✨ Generate 3 options")}</button>
+          >{busy ? (slotType === "cover" ? "Generating + ranking…" : "Generating…") : (options.length ? "↻ Regenerate" : (slotType === "cover" ? "✨ Generate + rank hooks" : "✨ Generate 3 options"))}</button>
 
           <span style={{ fontSize: "0.6rem", color: voiceOn ? "#34D399" : "rgba(245,240,232,0.4)", letterSpacing: 1, textTransform: "uppercase", fontFamily: "'Syne',sans-serif", fontWeight: 700 }}>
             {voiceOn ? "🎙 Voice: ON" : "🎙 Voice: off"}
@@ -300,6 +302,18 @@ function renderOptionPreview(slotType, opt) {
         {opt.accentWord && (
           <div style={{ fontSize: "0.55rem", color: "rgba(229,188,79,0.7)", letterSpacing: 1, textTransform: "uppercase", marginTop: 6 }}>
             Accent word: <strong>{opt.accentWord}</strong>
+          </div>
+        )}
+        {(opt._hookScore != null || opt._hookReason) && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(229,188,79,0.15)" }}>
+            {opt._hookScore != null && (
+              <span style={{ fontSize: "0.62rem", fontWeight: 800, color: opt._hookScore >= 75 ? "#34D399" : opt._hookScore >= 55 ? "#E5BC4F" : "rgba(245,240,232,0.6)", fontFamily: "'Syne',sans-serif", letterSpacing: 0.5, whiteSpace: "nowrap" }}>
+                🎯 {opt._hookScore}
+              </span>
+            )}
+            {opt._hookReason && (
+              <span style={{ fontSize: "0.62rem", color: "rgba(245,240,232,0.55)", fontStyle: "italic" }}>{opt._hookReason}</span>
+            )}
           </div>
         )}
       </>
