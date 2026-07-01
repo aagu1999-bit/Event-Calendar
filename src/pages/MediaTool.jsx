@@ -691,7 +691,7 @@ function renderPhotoCaption(canvas, cfg) {
 // + venue text + footer + logo + watermark) filling the target frame.
 // Defaults to 1080×1080 + center focal for backward compat.
 function renderSpotlight(canvas, cfg) {
-  const { photo, spotName, spotNameHighlights, spotMeta, spotTime, spotPrice, spotCta, spotNumber, accent, bgKey, dots, totalDots, targetW = 1080, targetH = 1080, focalX = 0.5, focalY = 0.5 } = cfg;
+  const { photo, spotName, spotNameHighlights, spotMeta, spotTime, spotPrice, spotCta, spotNumber, align = "left", band = false, accent, bgKey, dots, totalDots, targetW = 1080, targetH = 1080, focalX = 0.5, focalY = 0.5 } = cfg;
   const W = targetW, H = targetH;
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext("2d");
@@ -731,6 +731,38 @@ function renderSpotlight(canvas, cfg) {
   // px=110 keeps content inside IG's 4:5 cover-preview safe zone when
   // exporting at 1:1 (864×1080 centered crop = 108px per side).
   const px = 110;
+  const isCenter = align === "center";
+
+  // Optional solid band behind the venue-name + detail stack (legibility
+  // over busy photos, @theaifield look). Pre-measure the venue name the same
+  // way the renderer below does so the bar hugs the text instead of covering
+  // the whole slide.
+  if (band) {
+    const hasFooterB = (spotTime && spotTime.trim()) || (spotPrice && spotPrice.trim()) || (spotCta && spotCta.trim());
+    const hasMetaB = spotMeta && spotMeta.trim();
+    const ybEst = (H - 110) - (hasFooterB ? 50 : 0) - (hasMetaB ? 44 : 0);
+    let venueH = 0;
+    if (spotName && spotName.trim()) {
+      const ws = spotName.toUpperCase().split(/\s+/).filter(w => w);
+      const nLinesAt = (f) => {
+        ctx.font = ff(`900 ${f}px 'Syne',sans-serif`);
+        const s2 = ctx.measureText(" ").width;
+        let lines = 1, cw = 0, first = true;
+        for (const wtxt of ws) {
+          const ww = ctx.measureText(wtxt).width;
+          if (!first && cw + s2 + ww > W - px * 2) { lines++; cw = ww; }
+          else { cw += (first ? 0 : s2) + ww; first = false; }
+        }
+        return lines;
+      };
+      let fb = 92, nLines = nLinesAt(fb);
+      while ((nLines > 4 || nLines * fb * 1.02 > H * 0.45) && fb > 46) { fb -= 4; nLines = nLinesAt(fb); }
+      venueH = nLines * fb * 1.02;
+    }
+    const bandTop = Math.max(0, ybEst - venueH - 6 - 28);
+    ctx.fillStyle = "rgba(0,0,0,0.90)";
+    ctx.fillRect(0, bandTop, W, H - bandTop);
+  }
 
   // Text colors flip in day mode (no photo + light bg).
   const headlineColor = isLight ? "#0a0a0a" : "#FFF";
@@ -771,8 +803,9 @@ function renderSpotlight(canvas, cfg) {
     ctx.font = ff("600 26px 'DM Sans',sans-serif");
     ctx.fillStyle = detailColor;
     ctx.textBaseline = "bottom";
+    ctx.textAlign = isCenter ? "center" : "left";
+    ctx.fillText(spotMeta, isCenter ? W / 2 : px, yBottom);
     ctx.textAlign = "left";
-    ctx.fillText(spotMeta, px, yBottom);
     yBottom -= 44;
   }
 
@@ -840,7 +873,8 @@ function renderSpotlight(canvas, cfg) {
     const sw = ctx.measureText(" ").width;
     const hl = spotNameHighlights instanceof Set ? spotNameHighlights : new Set();
     lines.forEach((lw, li) => {
-      let x = px;
+      const lineW = lw.reduce((a, w) => a + w.width, 0) + sw * Math.max(0, lw.length - 1);
+      let x = isCenter ? (W - lineW) / 2 : px;
       const y = startY + li * lh;
       lw.forEach(w => {
         ctx.fillStyle = hl.has(w.idx) ? accent : headlineColor;
@@ -2609,6 +2643,11 @@ export default function MediaTool() {
   // string keeps the badge off (default behavior — editorial spotlights
   // typically don't need numbering).
   const [spotNumber, setSpotNumber] = useState("");
+  // Spotlight headline alignment + solid text band — mirrors the Cover
+  // controls (left = current look, center = magazine centering; band = solid
+  // bar behind the venue name + detail for legibility over busy photos).
+  const [spotAlign, setSpotAlign] = useState("left");
+  const [spotBand, setSpotBand] = useState(false);
   const [spotName, setSpotName] = useState("ROOFTOP NIGHT AT THE STANDARD");
   // Per-word highlight set for the spotlight name — same pattern as
   // Cover's `highlights`. Word indices match the order words appear in
@@ -3043,7 +3082,7 @@ export default function MediaTool() {
     items,bgKey,listTitle,listSubtitle,statNumber,statLabel,statSub,
     textTitle,textTitleHL,textBody,pageNum,totalPages,textPhoto,textOpacity,
     ctaKicker,ctaDate,ctaVenue,ctaUrl,featuresTitle,features,captionPhoto,captionFocalX,captionFocalY,caption,captionSecondary,captionAlign,
-    spotPhoto,spotName,spotNameHL,spotMeta,spotTime,spotPrice,spotCta,spotNumber,
+    spotPhoto,spotName,spotNameHL,spotMeta,spotTime,spotPrice,spotCta,spotNumber,spotAlign,spotBand,
     countPhoto,countFocalX,countFocalY,countText,countEvent,countWhen,countCta,countOpacity,
     savePhoto,saveKicker,saveDay,saveDateBig,saveEvent,saveVenue,saveCta,saveOpacity,
     savesPhoto,savesFocalX,savesFocalY,savesHeader,savesItems,savesCta,savesOpacity,
@@ -3062,7 +3101,7 @@ export default function MediaTool() {
     else if(s.mode==="cta") renderCTA(cv,{ctaKicker:s.ctaKicker,ctaDate:s.ctaDate,ctaVenue:s.ctaVenue,ctaUrl:s.ctaUrl,photo:s.textPhoto,accent:s.accent,bgKey:s.bgKey,dots:s.dots,totalDots:s.totalDots,opacity:s.textOpacity});
     else if(s.mode==="features") renderFeatures(cv,{featuresTitle:s.featuresTitle,features:s.features,accent:s.accent,bgKey:s.bgKey,dots:s.dots,totalDots:s.totalDots,photo:s.textPhoto,opacity:s.textOpacity});
     else if(s.mode==="photo") renderPhotoCaption(cv,{photo:s.captionPhoto,caption:s.caption,captionSecondary:s.captionSecondary,alignment:s.captionAlign,accent:s.accent,bgKey:s.bgKey,dots:s.dots,totalDots:s.totalDots});
-    else if(s.mode==="spotlight") renderSpotlight(cv,{photo:s.spotPhoto,spotName:s.spotName,spotNameHighlights:s.spotNameHL,spotMeta:s.spotMeta,spotTime:s.spotTime,spotPrice:s.spotPrice,spotCta:s.spotCta,spotNumber:s.spotNumber,accent:s.accent,bgKey:s.bgKey,dots:s.dots,totalDots:s.totalDots});
+    else if(s.mode==="spotlight") renderSpotlight(cv,{photo:s.spotPhoto,spotName:s.spotName,spotNameHighlights:s.spotNameHL,spotMeta:s.spotMeta,spotTime:s.spotTime,spotPrice:s.spotPrice,spotCta:s.spotCta,spotNumber:s.spotNumber,align:s.spotAlign,band:s.spotBand,accent:s.accent,bgKey:s.bgKey,dots:s.dots,totalDots:s.totalDots});
     else if(s.mode==="countdown") renderCountdown(cv,{photo:s.countPhoto,countText:s.countText,countEvent:s.countEvent,countWhen:s.countWhen,countCta:s.countCta,accent:s.accent,bgKey:s.bgKey,dots:s.dots,totalDots:s.totalDots,opacity:s.countOpacity});
     else if(s.mode==="savedate") renderSaveDate(cv,{photo:s.savePhoto,saveKicker:s.saveKicker,saveDay:s.saveDay,saveDateBig:s.saveDateBig,saveEvent:s.saveEvent,saveVenue:s.saveVenue,saveCta:s.saveCta,accent:s.accent,bgKey:s.bgKey,dots:s.dots,totalDots:s.totalDots,opacity:s.saveOpacity});
     else if(s.mode==="savedates") renderSaveDates(cv,{photo:s.savesPhoto,savesHeader:s.savesHeader,savesItems:s.savesItems,savesCta:s.savesCta,accent:s.accent,bgKey:s.bgKey,dots:s.dots,totalDots:s.totalDots,opacity:s.savesOpacity});
@@ -3254,7 +3293,7 @@ export default function MediaTool() {
     else if(mode==="cta") renderCTA(cv,{ctaKicker,ctaDate,ctaVenue,ctaUrl,photo:textPhoto,accent,bgKey,dots,totalDots,opacity:textOpacity, ...targetCfg});
     else if(mode==="features") renderFeatures(cv,{featuresTitle,features,accent,bgKey,dots,totalDots,photo:textPhoto,opacity:textOpacity, ...targetCfg});
     else if(mode==="photo") renderPhotoCaption(cv,{photo:captionPhoto,caption,captionSecondary,alignment:captionAlign,accent,bgKey,dots,totalDots, ...targetCfg});
-    else if(mode==="spotlight") renderSpotlight(cv,{photo:spotPhoto,spotName,spotNameHighlights:spotNameHL,spotMeta,spotTime,spotPrice,spotCta,spotNumber,accent,bgKey,dots,totalDots, ...targetCfg});
+    else if(mode==="spotlight") renderSpotlight(cv,{photo:spotPhoto,spotName,spotNameHighlights:spotNameHL,spotMeta,spotTime,spotPrice,spotCta,spotNumber,align:spotAlign,band:spotBand,accent,bgKey,dots,totalDots, ...targetCfg});
     else if(mode==="countdown") renderCountdown(cv,{photo:countPhoto,countText,countEvent,countWhen,countCta,accent,bgKey,dots,totalDots,opacity:countOpacity, ...targetCfg});
     else if(mode==="savedate") renderSaveDate(cv,{photo:savePhoto,saveKicker,saveDay,saveDateBig,saveEvent,saveVenue,saveCta,accent,bgKey,dots,totalDots,opacity:saveOpacity, ...targetCfg});
     else if(mode==="savedates") renderSaveDates(cv,{photo:savesPhoto,savesHeader,savesItems,savesCta,accent,bgKey,dots,totalDots,opacity:savesOpacity, ...targetCfg});
@@ -3324,7 +3363,7 @@ export default function MediaTool() {
       else if (mode === "cta") renderCTA(thumbCv, {...cfg, ctaKicker, ctaDate, ctaVenue, ctaUrl, photo: textPhoto, opacity: textOpacity});
       else if (mode === "features") renderFeatures(thumbCv, {...cfg, featuresTitle, features, photo: textPhoto, opacity: textOpacity});
       else if (mode === "photo") renderPhotoCaption(thumbCv, {...cfg, photo: captionPhoto, caption, captionSecondary, alignment: captionAlign});
-      else if (mode === "spotlight") renderSpotlight(thumbCv, {...cfg, photo: spotPhoto, spotName, spotNameHighlights: spotNameHL, spotMeta, spotTime, spotPrice, spotCta, spotNumber});
+      else if (mode === "spotlight") renderSpotlight(thumbCv, {...cfg, photo: spotPhoto, spotName, spotNameHighlights: spotNameHL, spotMeta, spotTime, spotPrice, spotCta, spotNumber, align: spotAlign, band: spotBand});
       else if (mode === "countdown") renderCountdown(thumbCv, {...cfg, photo: countPhoto, countText, countEvent, countWhen, countCta, opacity: countOpacity});
       else if (mode === "savedate") renderSaveDate(thumbCv, {...cfg, photo: savePhoto, saveKicker, saveDay, saveDateBig, saveEvent, saveVenue, saveCta, opacity: saveOpacity});
       else if (mode === "savedates") renderSaveDates(thumbCv, {...cfg, photo: savesPhoto, savesHeader, savesItems, savesCta, opacity: savesOpacity});
@@ -3420,7 +3459,7 @@ export default function MediaTool() {
     else if (type === "spotlight") renderSpotlight(cv, { ...common, photo: s.photo,
       spotName: s.spotName, spotNameHighlights: s.spotNameHL, spotMeta: s.spotMeta,
       spotTime: s.spotTime, spotPrice: s.spotPrice, spotCta: s.spotCta,
-      spotNumber: s.spotNumber, bgKey: effBgKey, ...targetCfg });
+      spotNumber: s.spotNumber, align: s.spotAlign, band: s.spotBand, bgKey: effBgKey, ...targetCfg });
     else if (type === "countdown") renderCountdown(cv, { ...common, photo: s.photo,
       countText: s.countText, countEvent: s.countEvent, countWhen: s.countWhen,
       countCta: s.countCta, bgKey: effBgKey, opacity: s.countOpacity, ...targetCfg });
@@ -3468,7 +3507,7 @@ export default function MediaTool() {
       case "cta": return { ...common, ctaKicker, ctaDate, ctaVenue, ctaUrl, photo: textPhoto, textOpacity };
       case "features": return { ...common, featuresTitle, features: features.map(f=>({...f})), photo: textPhoto, textOpacity };
       case "photo": return { ...common, photo: captionPhoto, caption, captionSecondary, captionAlign, captionFocalX, captionFocalY };
-      case "spotlight": return { ...common, photo: spotPhoto, spotName, spotNameHL, spotMeta, spotTime, spotPrice, spotCta, spotNumber, spotFocalX, spotFocalY };
+      case "spotlight": return { ...common, photo: spotPhoto, spotName, spotNameHL, spotMeta, spotTime, spotPrice, spotCta, spotNumber, spotAlign, spotBand, spotFocalX, spotFocalY };
       case "countdown": return { ...common, photo: countPhoto, countText, countEvent, countWhen, countCta, countOpacity, countFocalX, countFocalY };
       case "savedate":  return { ...common, photo: savePhoto, saveKicker, saveDay, saveDateBig, saveEvent, saveVenue, saveCta, saveOpacity, saveFocalX, saveFocalY };
       case "savedates": return { ...common, photo: savesPhoto, savesHeader, savesItems: savesItems.map(x=>({...x})), savesCta, savesOpacity, savesFocalX, savesFocalY };
@@ -3537,6 +3576,8 @@ export default function MediaTool() {
         // spotNumber is optional and may be missing on older snapshots —
         // default to empty string (renderer treats falsy as "no badge").
         setSpotNumber(snapshot.spotNumber || "");
+        setSpotAlign(snapshot.spotAlign === "center" ? "center" : "left");
+        setSpotBand(!!snapshot.spotBand);
         // spotNameHL is a Set; serializeSnap converts it to an array for
         // IndexedDB / cloud storage, and deserializeSnap turns it back
         // into a Set before we land here. Older snapshots without it
@@ -3881,6 +3922,8 @@ export default function MediaTool() {
         spotPrice: String(slot.spotPrice || "").trim(),
         spotCta: String(slot.spotCta || "").trim(),
         spotNumber: "", // bulk-number button can add post-push
+        spotAlign: "left",
+        spotBand: false,
         bgKey: "black",
       }};
     }
@@ -5528,6 +5571,22 @@ export default function MediaTool() {
               )}
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Detail line (address · city)</label>
                 <input value={spotMeta} onChange={e=>setSpotMeta(e.target.value)} style={I} placeholder="e.g. 9 Clinton St | Newark"/>
+              </div>
+              {/* Headline layout — align (left = current, center = magazine)
+                  + solid band behind the venue name for legibility on photos. */}
+              <div style={{marginBottom:"0.6rem",display:"flex",alignItems:"flex-end",gap:"14px",flexWrap:"wrap"}}>
+                <div>
+                  <label style={L}>Name align</label>
+                  <div style={{display:"flex",gap:"3px"}}>
+                    {["left","center"].map(a=>(
+                      <button key={a} onClick={()=>setSpotAlign(a)} style={{padding:"5px 12px",borderRadius:"5px",cursor:"pointer",fontSize:"0.65rem",fontWeight:700,fontFamily:"'Syne'",textTransform:"uppercase",background:spotAlign===a?`${accent}22`:"rgba(245,240,232,0.04)",color:spotAlign===a?accent:"rgba(245,240,232,0.4)",border:spotAlign===a?`2px solid ${accent}55`:"2px solid transparent"}}>{a}</button>
+                    ))}
+                  </div>
+                </div>
+                <label style={{display:"flex",alignItems:"center",gap:"6px",cursor:"pointer",fontSize:"0.7rem",color:"rgba(245,240,232,0.7)",fontFamily:"'Syne',sans-serif",paddingBottom:"5px"}}>
+                  <input type="checkbox" checked={spotBand} onChange={e=>setSpotBand(e.target.checked)} style={{accentColor:accent,cursor:"pointer"}}/>
+                  Solid text band
+                </label>
               </div>
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Day · Time</label>
                 <input value={spotTime} onChange={e=>setSpotTime(e.target.value)} style={I} placeholder="Friday · 8 PM"/>
