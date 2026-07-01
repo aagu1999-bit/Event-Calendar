@@ -175,7 +175,7 @@ function drawPageNum(ctx, W, H, current, total, accent, isLight = false) {
 // + center focal so callers that don't pass these get the original
 // square render unchanged.
 function renderCover(canvas, cfg) {
-  const { photo, headline, highlights, accent, dots, totalDots, subtitle, opacity, ribbon, categoryTag, coverCtaButton, targetW = 1080, targetH = 1080, focalX = 0.5, focalY = 0.5 } = cfg;
+  const { photo, headline, highlights, accent, dots, totalDots, subtitle, opacity, ribbon, categoryTag, coverCtaButton, align = "left", band = false, targetW = 1080, targetH = 1080, focalX = 0.5, focalY = 0.5 } = cfg;
   const W = targetW, H = targetH;
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext("2d");
@@ -233,19 +233,30 @@ function renderCover(canvas, cfg) {
   // edge of a 1:1 post (caption row, profile chip, action bar overlap).
   // 130px keeps the full title visible across feed, grid, and explore.
   const lh=fs*1.05, totalH=lines.length*lh, startY=H-130-totalH;
+  const isCenter = align === "center";
+  // Optional solid band behind the headline block — legibility over busy
+  // photos (@theaifield look). Full-width, from just above the ribbon/
+  // subtitle down to just below the last headline line.
+  if(band){
+    const bandTop = ribbon?.trim() ? startY-104 : (subtitle?.trim() ? startY-58 : startY-20);
+    const top = Math.max(0, bandTop);
+    ctx.fillStyle="rgba(0,0,0,0.90)";
+    ctx.fillRect(0, top, W, (startY+totalH+24)-top);
+  }
   if(ribbon?.trim()){
     const rt=ribbon.toUpperCase();
     ctx.font=ff("800 22px 'Syne',sans-serif"); ctx.letterSpacing="4px";
     const tw=ctx.measureText(rt).width, rpadX=20, rectW=tw+rpadX*2, rectH=44;
     const ribbonY=subtitle?.trim()?startY-94:startY-60;
-    ctx.fillStyle=accent; ctx.beginPath(); ctx.roundRect(px,ribbonY,rectW,rectH,4); ctx.fill();
+    const ribbonX=isCenter?(W-rectW)/2:px;
+    ctx.fillStyle=accent; ctx.beginPath(); ctx.roundRect(ribbonX,ribbonY,rectW,rectH,4); ctx.fill();
     ctx.fillStyle="#000"; ctx.textBaseline="middle"; ctx.textAlign="left";
-    ctx.fillText(rt,px+rpadX,ribbonY+rectH/2);
+    ctx.fillText(rt,ribbonX+rpadX,ribbonY+rectH/2);
     ctx.letterSpacing="0px"; ctx.textBaseline="top";
   }
-  if(subtitle?.trim()){ctx.font=ff("700 24px 'DM Sans',sans-serif");ctx.fillStyle=accent;ctx.textBaseline="bottom";ctx.letterSpacing="3px";ctx.fillText(subtitle.toUpperCase(),px,startY-12);ctx.letterSpacing="0px";}
+  if(subtitle?.trim()){ctx.font=ff("700 24px 'DM Sans',sans-serif");ctx.fillStyle=accent;ctx.textBaseline="bottom";ctx.letterSpacing="3px";ctx.textAlign=isCenter?"center":"left";ctx.fillText(subtitle.toUpperCase(),isCenter?W/2:px,startY-12);ctx.textAlign="left";ctx.letterSpacing="0px";}
   ctx.font=ff(`800 ${fs}px 'Syne',sans-serif`); ctx.textBaseline="top"; ctx.letterSpacing="0px"; const sw=ctx.measureText(" ").width;
-  lines.forEach((lw,li)=>{let x=px;const y=startY+li*lh;lw.forEach(w=>{ctx.fillStyle=highlights.has(w.idx)?accent:"#FFF";ctx.fillText(w.text,x,y);x+=w.width+sw;});});
+  lines.forEach((lw,li)=>{const lineW=lw.reduce((a,w)=>a+w.width,0)+sw*Math.max(0,lw.length-1);let x=isCenter?(W-lineW)/2:px;const y=startY+li*lh;lw.forEach(w=>{ctx.fillStyle=highlights.has(w.idx)?accent:"#FFF";ctx.fillText(w.text,x,y);x+=w.width+sw;});});
 
   // Optional CTA pill button — sits below the headline, above the footer.
   // Renders as a rounded rect filled with the accent color and dark text.
@@ -2542,6 +2553,11 @@ export default function MediaTool() {
   // Defaults blank so editorial Covers (no button) stay clean. Use for
   // promo Covers: "TAP THE LINK", "RSVP IN BIO", "SEE THE LINEUP", etc.
   const [coverCtaButton, setCoverCtaButton] = useState("");
+  // Cover headline alignment ("left" = default/current look, "center" =
+  // classic magazine centering) + optional solid band behind the headline
+  // block for legibility over busy photos (the @theaifield treatment).
+  const [coverAlign, setCoverAlign] = useState("left");
+  const [coverBand, setCoverBand] = useState(false);
   const [items, setItems] = useState([
     {name:"R&B Friday at Halftime",detail:"Jersey City · 8 PM",featured:true},
     {name:"Afrobeat Night",detail:"Suite 2, New Brunswick · 9 PM",featured:true},
@@ -3023,7 +3039,7 @@ export default function MediaTool() {
   // blocking input handling mid-tick.
   const renderStateRef = useRef({});
   renderStateRef.current = {
-    mode,photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,categoryTag,coverCtaButton,
+    mode,photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,categoryTag,coverCtaButton,coverAlign,coverBand,
     items,bgKey,listTitle,listSubtitle,statNumber,statLabel,statSub,
     textTitle,textTitleHL,textBody,pageNum,totalPages,textPhoto,textOpacity,
     ctaKicker,ctaDate,ctaVenue,ctaUrl,featuresTitle,features,captionPhoto,captionFocalX,captionFocalY,caption,captionSecondary,captionAlign,
@@ -3039,7 +3055,7 @@ export default function MediaTool() {
   const render = () => {
     const cv=cvRef.current; if(!cv) return;
     const s = renderStateRef.current;
-    if(s.mode==="cover") renderCover(cv,{photo:s.photo,headline:s.headline,highlights:s.highlights,accent:s.accent,dots:s.dots,totalDots:s.totalDots,subtitle:s.subtitle,opacity:s.opacity,ribbon:s.ribbon,categoryTag:s.categoryTag,coverCtaButton:s.coverCtaButton});
+    if(s.mode==="cover") renderCover(cv,{photo:s.photo,headline:s.headline,highlights:s.highlights,accent:s.accent,dots:s.dots,totalDots:s.totalDots,subtitle:s.subtitle,opacity:s.opacity,ribbon:s.ribbon,categoryTag:s.categoryTag,coverCtaButton:s.coverCtaButton,align:s.coverAlign,band:s.coverBand});
     else if(s.mode==="list") renderList(cv,{items:s.items,accent:s.accent,bgKey:s.bgKey,dots:s.dots,totalDots:s.totalDots,listTitle:s.listTitle,listSubtitle:s.listSubtitle});
     else if(s.mode==="stat") renderStat(cv,{statNumber:s.statNumber,statLabel:s.statLabel,statSub:s.statSub,accent:s.accent,bgKey:s.bgKey,dots:s.dots,totalDots:s.totalDots});
     else if(s.mode==="text") renderText(cv,{textTitle:s.textTitle,textTitleHighlights:s.textTitleHL,textBody:s.textBody,accent:s.accent,bgKey:s.bgKey,dots:s.dots,totalDots:s.totalDots,pageNum:s.pageNum,totalPages:s.totalPages,photo:s.textPhoto,textOpacity:s.textOpacity});
@@ -3231,7 +3247,7 @@ export default function MediaTool() {
      const RATIO_AWARE_MODES = new Set(["cover", "spotlight", "savedate", "press", "scene", "photo", "countdown", "savedates", "poster", "text", "cta", "features", "list", "stat", "vibe"]);
     const isRatioAware = RATIO_AWARE_MODES.has(mode);
     const targetCfg = isRatioAware ? { targetW: target.w, targetH: target.h, focalX: focal?.x ?? 0.5, focalY: focal?.y ?? 0.5 } : {};
-    if(mode==="cover") renderCover(cv,{photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,categoryTag,coverCtaButton, ...targetCfg});
+    if(mode==="cover") renderCover(cv,{photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,categoryTag,coverCtaButton,align:coverAlign,band:coverBand, ...targetCfg});
     else if(mode==="list") renderList(cv,{items,accent,bgKey,dots,totalDots,listTitle,listSubtitle, ...targetCfg});
     else if(mode==="stat") renderStat(cv,{statNumber,statLabel,statSub,accent,bgKey,dots,totalDots, ...targetCfg});
     else if(mode==="text") renderText(cv,{textTitle,textTitleHighlights:textTitleHL,textBody,accent,bgKey,dots,totalDots,pageNum,totalPages,photo:textPhoto,textOpacity, ...targetCfg});
@@ -3301,7 +3317,7 @@ export default function MediaTool() {
       const thumbCv = document.createElement("canvas");
       thumbCv.width = 1080; thumbCv.height = 1080;
       const cfg = { accent, bgKey, dots, totalDots };
-      if (mode === "cover") renderCover(thumbCv, {...cfg, photo, headline, highlights, subtitle, opacity, ribbon, categoryTag, coverCtaButton});
+      if (mode === "cover") renderCover(thumbCv, {...cfg, photo, headline, highlights, subtitle, opacity, ribbon, categoryTag, coverCtaButton, align: coverAlign, band: coverBand});
       else if (mode === "list") renderList(thumbCv, {...cfg, items, listTitle, listSubtitle});
       else if (mode === "stat") renderStat(thumbCv, {...cfg, statNumber, statLabel, statSub});
       else if (mode === "text") renderText(thumbCv, {...cfg, textTitle, textTitleHighlights: textTitleHL, textBody, pageNum, totalPages, photo: textPhoto, textOpacity});
@@ -3385,7 +3401,7 @@ export default function MediaTool() {
     if (type === "cover") renderCover(cv, { ...common, photo: s.photo, headline: s.headline,
       highlights: s.highlights instanceof Set ? s.highlights : new Set(s.highlights || []),
       subtitle: s.subtitle, opacity: s.opacity, ribbon: s.ribbon, categoryTag: s.categoryTag,
-      coverCtaButton: s.coverCtaButton, ...targetCfg });
+      coverCtaButton: s.coverCtaButton, align: s.coverAlign, band: s.coverBand, ...targetCfg });
     else if (type === "list") renderList(cv, { ...common, items: s.items, bgKey: effBgKey,
       listTitle: s.listTitle, listSubtitle: s.listSubtitle, ...targetCfg });
     else if (type === "stat") renderStat(cv, { ...common, statNumber: s.statNumber,
@@ -3445,7 +3461,7 @@ export default function MediaTool() {
   const makeSnapshot = () => {
     const common = { accent, accentKey, bgKey };
     switch (mode) {
-      case "cover": return { ...common, photo, headline, highlights, subtitle, opacity, ribbon, categoryTag, coverCtaButton, coverFocalX, coverFocalY };
+      case "cover": return { ...common, photo, headline, highlights, subtitle, opacity, ribbon, categoryTag, coverCtaButton, coverAlign, coverBand, coverFocalX, coverFocalY };
       case "list": return { ...common, items: items.map(x=>({...x})), listTitle, listSubtitle };
       case "stat": return { ...common, statNumber, statLabel, statSub };
       case "text": return { ...common, textTitle, textTitleHL, textBody, photo: textPhoto, textOpacity, pageNum, totalPages };
@@ -3476,6 +3492,10 @@ export default function MediaTool() {
         setCategoryTag(snapshot.categoryTag || "");
         // coverCtaButton may be missing on older snapshots — empty default.
         setCoverCtaButton(snapshot.coverCtaButton || "");
+        // Alignment + text band — default to the classic left / no-band look
+        // when absent (older snapshots predate these fields).
+        setCoverAlign(snapshot.coverAlign === "center" ? "center" : "left");
+        setCoverBand(!!snapshot.coverBand);
         // Cover focal point — defaults to center when missing (older snapshots).
         setCoverFocalX(typeof snapshot.coverFocalX === "number" ? snapshot.coverFocalX : 0.5);
         setCoverFocalY(typeof snapshot.coverFocalY === "number" ? snapshot.coverFocalY : 0.5);
@@ -3830,6 +3850,8 @@ export default function MediaTool() {
         categoryTag: "",
         opacity: 0.85,
         coverCtaButton: "",
+        coverAlign: "left",
+        coverBand: false,
       }};
     }
     if (slot.type === "text") {
@@ -5250,6 +5272,23 @@ export default function MediaTool() {
               <div style={{marginBottom:"0.6rem"}}>
                 <label style={L}>Tagline / where line · optional</label>
                 <input value={subtitle} onChange={e=>setSubtitle(e.target.value)} style={I} placeholder="e.g. NEWARK · NEW BRUNSWICK · JERSEY CITY + MORE"/>
+              </div>
+              {/* Headline layout — alignment (left = news-tile look à la
+                  @theaifield, center = classic magazine cover) + optional
+                  solid band behind the text for legibility over busy photos. */}
+              <div style={{marginBottom:"0.6rem",display:"flex",alignItems:"flex-end",gap:"14px",flexWrap:"wrap"}}>
+                <div>
+                  <label style={L}>Headline align</label>
+                  <div style={{display:"flex",gap:"3px"}}>
+                    {["left","center"].map(a=>(
+                      <button key={a} onClick={()=>setCoverAlign(a)} style={{padding:"5px 12px",borderRadius:"5px",cursor:"pointer",fontSize:"0.65rem",fontWeight:700,fontFamily:"'Syne'",textTransform:"uppercase",background:coverAlign===a?`${accent}22`:"rgba(245,240,232,0.04)",color:coverAlign===a?accent:"rgba(245,240,232,0.4)",border:coverAlign===a?`2px solid ${accent}55`:"2px solid transparent"}}>{a}</button>
+                    ))}
+                  </div>
+                </div>
+                <label style={{display:"flex",alignItems:"center",gap:"6px",cursor:"pointer",fontSize:"0.7rem",color:"rgba(245,240,232,0.7)",fontFamily:"'Syne',sans-serif",paddingBottom:"5px"}}>
+                  <input type="checkbox" checked={coverBand} onChange={e=>setCoverBand(e.target.checked)} style={{accentColor:accent,cursor:"pointer"}}/>
+                  Solid text band
+                </label>
               </div>
 
               {/* === ADVANCED FIELDS (collapsed by default) ===
