@@ -135,21 +135,25 @@ export const useBrandStore = create(
       // strong CGE editorial starting points; the user can tighten any of
       // them as they learn what works.
       slotPrompts: {
-        cover: `Generate an eye-catching EDITORIAL headline for a CGE social media carousel Cover slide.
+        cover: `Generate SCROLL-STOPPING editorial cover headlines for a CGE social carousel Cover slide. The reader sees this for ~1.5 seconds — the headline earns the swipe or it doesn't.
 
-Requirements:
-- Use a historical/contextual hook when possible. Pick whichever fits the topic:
-    1. ANNIVERSARY ("Five years since...", "On this weekend in 2019...")
-    2. SEASONAL ("First weekend of summer in NJ", "Last chance before...")
-    3. SCENE-HISTORY ("The Newark warehouse scene resurfaces...")
-- 4-8 words MAX on the main headline.
-- News-headline framing — NOT event-flyer language.
-- Garden State / NJ named or implied up front when relevant.
-- Optional X/Y contrast structure ("Tired of X. Try Y.").
-- Subtitle: 1 short line (8-15 words) that grounds the headline.
-- Pick ONE accentWord — the most editorially-charged word from the headline (the one Gemini judges as the strongest verb/noun). This word will render in the brand accent color.
+Write 3 variations, and EACH ONE MUST USE A DIFFERENT HOOK ARCHETYPE from this list:
+- OPEN LOOP — a setup, then a withheld payoff that forces the swipe. ("This Jersey mall was left for dead. Saturday, it wakes up.")
+- THEN / NOW — before → after transformation. ("Dark since 2016. Packed again this weekend.")
+- INTRIGUE — imply something surprising happened without spelling it out. ("The strip mall everyone wrote off just booked its biggest day in a decade.")
+- CONTRARIAN / QUESTION — flip the expectation, or open with a real question. ("Why is half the county driving to a mall nobody's shopped at in years?")
+- NUMBER-ANCHORED — lead with one concrete, specific number. ("40 empty storefronts. One weekend to fill them.")
+- SCENE-HISTORY / ANNIVERSARY — "Five years since...", "On this weekend in 2019...".
 
-Return JSON ONLY in this exact shape (3 different variations):
+Rules:
+- HOOK-TAIL encouraged: a headline can be a setup clause + a withheld-payoff clause across ~2 lines (up to ~16 words) when the archetype needs the room — the open loop IS the point. A tight 4-8 word line is also great when short hits harder. Match length to the archetype, don't pad.
+- Editorial/news register, NOT event-flyer language. Garden State / NJ named or implied up front when relevant.
+- The curiosity gap MUST be honest — the carousel pays it off. Tease the reader, never mislead them.
+- Don't open with the venue name; open with the hook. Venue lands in the subtitle.
+- Subtitle: 1 short line (8-15 words) that grounds the headline and begins to deliver on the hook.
+- Pick ONE accentWord — the most charged word in the headline; it renders in the brand accent color.
+
+Return JSON ONLY in this exact shape (3 variations, 3 DIFFERENT archetypes):
 {"options":[{"headline":"...","subtitle":"...","accentWord":"..."},{...},{...}]}`,
 
         text: `Generate a TEXT-slide manifesto paragraph for a CGE editorial carousel.
@@ -328,7 +332,20 @@ Return JSON ONLY in this exact shape (3 different variations):
     }),
     {
       name: "cge-brand-kit",
-      version: 1,
+      // v2 (2026-07): ship the new hook-archetype cover rule. Slot rules
+      // persist in localStorage, so a new code default would never reach an
+      // existing user. Dropping ONLY the persisted slotPrompts lets the
+      // shallow persist merge fall back to the new code defaults; voice,
+      // palette, creator, defaults and exemplars are all preserved. The one
+      // cost: a hand-edited slot rule (if any) resets to its new default.
+      version: 2,
+      migrate: (persisted, version) => {
+        if (version < 2 && persisted && typeof persisted === "object") {
+          const { slotPrompts, ...rest } = persisted;
+          return rest;
+        }
+        return persisted;
+      },
     }
   )
 );
@@ -379,17 +396,20 @@ export const SLOT_OUTPUT_SHAPES = {
 //                 short sentence Gemini can pattern-match against.
 export const SLOT_META = {
   cover: {
-    audience: "Someone scrolling Instagram who sees the cover for 1.5 seconds. The headline either earns the tap or doesn't. Treat like a magazine cover line, not a flyer.",
+    audience: "Someone scrolling Instagram who sees the cover for 1.5 seconds. The headline earns the swipe or it doesn't. Scroll-stopping magazine/news hook, never a flyer.",
     examples: [
-      `{"headline":"GARDEN STATE, JUNETEENTH WEEKEND","subtitle":"Five ways to mark it across NJ — Newark to AC.","accentWord":"JUNETEENTH"}`,
+      `{"headline":"THIS JERSEY MALL WAS LEFT FOR DEAD. SATURDAY, IT WAKES UP.","subtitle":"A written-off strip mall reopens with a wellness fair — its first real crowd in years.","accentWord":"WAKES"}`,
+      `{"headline":"DARK SINCE 2016. PACKED AGAIN THIS WEEKEND.","subtitle":"How an abandoned NJ strip mall booked its biggest day in a decade.","accentWord":"PACKED"}`,
+      `{"headline":"40 EMPTY STOREFRONTS. ONE WEEKEND TO FILL THEM.","subtitle":"The wellness fair betting a written-off Jersey mall can come back to life.","accentWord":"WEEKEND"}`,
       `{"headline":"THE NEWARK ROOFTOP IS BACK","subtitle":"Standard Hotel opens Friday. Bachata 8, social 9, no cover.","accentWord":"ROOFTOP"}`,
-      `{"headline":"FIVE YEARS SINCE THIS SCENE EXISTED","subtitle":"Warehouse parties resurface in Newark, on the right side of the law.","accentWord":"WAREHOUSE"}`,
+      `{"headline":"GARDEN STATE, JUNETEENTH WEEKEND","subtitle":"Five ways to mark it across NJ — Newark to AC.","accentWord":"JUNETEENTH"}`,
     ],
     antiPatterns: [
       "Never write 'Join us!', 'Don't miss out!', 'You won't want to miss this' — flyer language, not editorial.",
-      "Don't open with the venue name — open with the news beat. Venue can land in the subtitle.",
+      "Don't open with the venue name — open with the hook/news beat. Venue can land in the subtitle.",
       "Avoid emojis in the headline. The accent color does the visual lift.",
       "If the headline doesn't say something true even without the accent color, it's too weak.",
+      "An open-loop or curiosity hook MUST be honestly paid off by the carousel — tease, never mislead. No fabricated drama, no clickbait the slides don't deliver.",
     ],
   },
   text: {
