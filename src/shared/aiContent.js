@@ -17,7 +17,7 @@
 
 import { SLOT_META, SLOT_OUTPUT_SHAPES } from "../store.js";
 
-const MODEL = "gemini-2.5-flash";
+const MODEL = "gemini-2.5-flash-lite";
 const URL_BASE = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 
 // Render a slot's reference metadata (audience, examples, anti-patterns)

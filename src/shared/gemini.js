@@ -1,4 +1,4 @@
-const MODEL = "gemini-2.5-flash";
+const MODEL = "gemini-2.5-flash-lite";
 const URL_BASE = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 
 export async function generateCaptions(apiKey, eventCtx, images = [], options = {}) {
