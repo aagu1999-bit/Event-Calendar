@@ -234,7 +234,7 @@ const ARRANGEABLE_SLOTS = ["cover", "text", "spotlight", "stat", "features", "co
 
 export async function designSequence({ apiKey, topic, context, mode }) {
   if (!apiKey) throw new Error("Missing Gemini API key");
-  if (!topic || !topic.trim()) throw new Error("Missing topic");
+  if ((!topic || !topic.trim()) && (!context || !context.trim())) throw new Error("Add a topic or event details first");
 
   const prompt = [
     "You are an Instagram art director for CGE, an NJ news-media outlet. Design the",
@@ -242,7 +242,7 @@ export async function designSequence({ apiKey, topic, context, mode }) {
     "order, for maximum narrative pull (hook → build → payoff → close). Do NOT use a",
     "fixed template; design for this specific content.",
     "",
-    `Topic: ${topic.trim()}`,
+    ...((topic && topic.trim()) ? [`Topic: ${topic.trim()}`] : []),
     ...(context && context.trim() ? ["", "Event facts:", context.trim()] : []),
     (mode === "promo") ? "\nRegister: PROMO (own-event push, more energy)." : "\nRegister: EDITORIAL (restrained newsroom voice).",
     "",
@@ -392,7 +392,7 @@ export async function pickTemplate({ apiKey, topic, context, candidates }) {
 export async function generateTemplateFill({ apiKey, sequence, topic, context, voice, slotPrompts, templateMeta, mode, polish = true }) {
   if (!apiKey) throw new Error("Missing Gemini API key");
   if (!Array.isArray(sequence) || !sequence.length) throw new Error("Missing template sequence");
-  if (!topic || !topic.trim()) throw new Error("Missing topic");
+  if ((!topic || !topic.trim()) && (!context || !context.trim())) throw new Error("Add a topic or event details first");
 
   const today = (() => { try { return new Date().toISOString().slice(0, 10); } catch { return null; } })();
   const prompt = buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, templateMeta, mode, today });
@@ -589,8 +589,7 @@ function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, tem
       ? ["- REGISTER: PROMO — own-event push. More energy, a time pull, a soft invite. Still no 'don't miss out' clichés."]
       : ["- REGISTER: EDITORIAL — restrained newsroom confidence. Inform, don't sell."]),
     "",
-    `Carousel topic: ${topic.trim()}`,
-    "",
+    ...((topic && topic.trim()) ? [`Carousel topic: ${topic.trim()}`, ""] : []),
     ...(context && context.trim() ? [
       "Context (event details, selling points, lineup — break this up across slides as the rules below dictate):",
       context.trim(),

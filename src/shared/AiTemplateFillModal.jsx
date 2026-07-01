@@ -42,6 +42,9 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
   // useful exemplars (cover/text/spotlight/cta) — other types are
   // skipped in the slot→exemplar mapping.
   const [savedIdx, setSavedIdx] = useState(new Set());
+  // Which generated slides to push into the carousel (default: all). The user
+  // opts slides OUT via the keep toggle on each preview card.
+  const [keptIdx, setKeptIdx] = useState(new Set());
 
   useEffect(() => {
     if (open) {
@@ -58,6 +61,11 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
     }
   }, [open, initialTemplateId]);
 
+  // Every freshly generated batch starts fully kept.
+  useEffect(() => {
+    setKeptIdx(new Set(slides.map((_, i) => i)));
+  }, [slides]);
+
   if (!open) return null;
 
   const template = allTemplates.find(t => t.id === templateId) || allTemplates[0];
@@ -67,7 +75,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
   const handleGenerate = async () => {
     if (!apiKey) { setError("Paste your Gemini API key in the MediaTool toolbar first."); return; }
     if (!aiArrange && !letAiPick && !template) { setError("Pick a template first, or toggle 'Let AI pick' / 'AI arranges'."); return; }
-    if (!topic.trim()) { setError("Type a topic first."); return; }
+    if (!topic.trim() && !context.trim()) { setError("Add a topic or some event details first."); return; }
     setBusy(true);
     setError("");
     setSlides([]);
@@ -121,7 +129,9 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
   };
 
   const handlePush = () => {
-    onAccept(slides, pickedTemplate || template);
+    const chosen = slides.filter((_, i) => keptIdx.has(i));
+    if (!chosen.length) { setError("Keep at least one slide to push."); return; }
+    onAccept(chosen, pickedTemplate || template);
     onClose();
   };
 
@@ -685,6 +695,7 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
                 const exemplarText = slotToExemplar(slot);
                 const canSave = exemplarText && exemplarText.trim().length > 0;
                 const saved = savedIdx.has(idx);
+                const kept = keptIdx.has(idx);
                 return (
                   <div
                     key={idx}
@@ -692,11 +703,26 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
                       position: "relative",
                       padding: 12,
                       paddingRight: canSave ? 80 : 12,
-                      background: "rgba(229,188,79,0.04)",
-                      border: "1px solid rgba(229,188,79,0.20)",
+                      paddingLeft: 40,
+                      background: kept ? "rgba(229,188,79,0.04)" : "rgba(245,240,232,0.02)",
+                      border: "1px solid " + (kept ? "rgba(229,188,79,0.20)" : "rgba(245,240,232,0.10)"),
                       borderRadius: 6,
+                      opacity: kept ? 1 : 0.45,
+                      transition: "opacity 0.1s",
                     }}
                   >
+                    <button
+                      onClick={() => setKeptIdx(prev => { const n = new Set(prev); n.has(idx) ? n.delete(idx) : n.add(idx); return n; })}
+                      title={kept ? "Slide will be pushed — click to skip" : "Slide is skipped — click to keep"}
+                      style={{
+                        position: "absolute", top: 10, left: 10, width: 22, height: 22,
+                        borderRadius: 5, cursor: "pointer", padding: 0,
+                        background: kept ? "#34D399" : "transparent",
+                        border: `1px solid ${kept ? "#34D399" : "rgba(245,240,232,0.3)"}`,
+                        color: "#000", fontSize: "0.8rem", fontWeight: 800, lineHeight: 1,
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                      }}
+                    >{kept ? "✓" : ""}</button>
                     {canSave && (
                       <button
                         onClick={() => handleSaveSlideAsExemplar(slot, idx)}
@@ -744,7 +770,7 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
                 cursor: "pointer",
                 fontFamily: "'Syne',sans-serif",
               }}
-            >→ Push {slides.length} slides to carousel</button>
+            >→ Push {keptIdx.size} of {slides.length} slides to carousel</button>
           </>
         )}
       </div>
