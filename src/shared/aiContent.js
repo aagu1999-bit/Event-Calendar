@@ -84,7 +84,7 @@ function formatTemplatePurposeBlock(meta) {
   return lines;
 }
 
-export async function generateSlideContent({ apiKey, slotType, topic, voice, slotPrompts, count = 3 }) {
+export async function generateSlideContent({ apiKey, slotType, topic, voice, slotPrompts, count = 3, context }) {
   if (!apiKey) throw new Error("Missing Gemini API key");
   if (!slotType) throw new Error("Missing slotType");
   if (!topic || !topic.trim()) throw new Error("Missing topic");
@@ -92,7 +92,7 @@ export async function generateSlideContent({ apiKey, slotType, topic, voice, slo
   const slotRule = slotPrompts?.[slotType];
   if (!slotRule) throw new Error(`No prompt defined for slot type "${slotType}"`);
 
-  const prompt = buildPrompt({ slotType, topic, voice, slotRule, count });
+  const prompt = buildPrompt({ slotType, topic, voice, slotRule, count, context });
 
   const res = await fetch(`${URL_BASE}?key=${encodeURIComponent(apiKey)}`, {
     method: "POST",
@@ -131,7 +131,7 @@ export async function generateSlideContent({ apiKey, slotType, topic, voice, slo
 // returns the top `keep` best-first, each annotated with _hookScore (0-100)
 // and _hookReason. Low temperature on purpose: we want judgment, not more
 // creativity.
-export async function rankHooks({ apiKey, topic, candidates, keep = 3 }) {
+export async function rankHooks({ apiKey, topic, candidates, keep = 3, context }) {
   if (!apiKey) throw new Error("Missing Gemini API key");
   if (!Array.isArray(candidates) || candidates.length === 0) throw new Error("No candidates to rank");
   const keepN = Math.min(keep, candidates.length);
@@ -147,6 +147,12 @@ export async function rankHooks({ apiKey, topic, candidates, keep = 3 }) {
     "1.5-second scroll?",
     "",
     `Topic: ${topic?.trim() || "(unspecified)"}`,
+    ...((context && context.trim()) ? [
+      "",
+      "Event facts (judge honesty against these — a hook that overpromises vs.",
+      "these facts must score LOW):",
+      context.trim(),
+    ] : []),
     "",
     "Candidates:",
     "",
@@ -202,11 +208,11 @@ export async function rankHooks({ apiKey, topic, candidates, keep = 3 }) {
 // (the cover rule spreads them across hook archetypes), then the hook judge
 // trims to the `keep` strongest. Falls back to raw candidates if the judge
 // call fails, so a ranker hiccup never blocks generation.
-export async function generateRankedCovers({ apiKey, topic, voice, slotPrompts, genCount = 6, keep = 3 }) {
-  const candidates = await generateSlideContent({ apiKey, slotType: "cover", topic, voice, slotPrompts, count: genCount });
+export async function generateRankedCovers({ apiKey, topic, voice, slotPrompts, genCount = 6, keep = 3, context }) {
+  const candidates = await generateSlideContent({ apiKey, slotType: "cover", topic, voice, slotPrompts, count: genCount, context });
   if (candidates.length <= keep) return candidates;
   try {
-    return await rankHooks({ apiKey, topic, candidates, keep });
+    return await rankHooks({ apiKey, topic, candidates, keep, context });
   } catch (e) {
     if (typeof console !== "undefined") console.warn("Hook ranking failed, showing unranked:", e?.message || e);
     return candidates.slice(0, keep);
@@ -442,7 +448,7 @@ function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, tem
   ].join("\n");
 }
 
-function buildPrompt({ slotType, topic, voice, slotRule, count = 3 }) {
+function buildPrompt({ slotType, topic, voice, slotRule, count = 3, context }) {
   const hasVoiceDesc = voice && typeof voice.description === "string" && voice.description.trim();
   const exemplars = Array.isArray(voice?.exemplars) ? voice.exemplars.filter(e => e && e.trim()) : [];
   const hasExemplars = exemplars.length > 0;
@@ -486,6 +492,13 @@ function buildPrompt({ slotType, topic, voice, slotRule, count = 3 }) {
     "",
     `Topic: ${topic.trim()}`,
     "",
+    ...((context && context.trim()) ? [
+      "Event details / facts — ground every option in THESE specifics (names,",
+      "dates, numbers, history). This turns a generic hook into a concrete one,",
+      "and it's what an honest curiosity gap actually pays off:",
+      context.trim(),
+      "",
+    ] : []),
     ...(slotRefBlock.length ? [...slotRefBlock, "─────────────────────────────", ""] : []),
     "Apply the rule below STRICTLY:",
     "",

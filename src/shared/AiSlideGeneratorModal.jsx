@@ -20,6 +20,7 @@ export function AiSlideGeneratorModal({ open, slotType, apiKey, initialTopic, on
   const addExemplar = useBrandStore((s) => s.addExemplar);
 
   const [topic, setTopic] = useState(initialTopic || "");
+  const [context, setContext] = useState("");
   const [options, setOptions] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -32,6 +33,7 @@ export function AiSlideGeneratorModal({ open, slotType, apiKey, initialTopic, on
   useEffect(() => {
     if (open) {
       setTopic(initialTopic || "");
+      setContext("");
       setOptions([]);
       setError("");
       setBusy(false);
@@ -108,8 +110,8 @@ export function AiSlideGeneratorModal({ open, slotType, apiKey, initialTopic, on
     setOptions([]);
     try {
       const opts = slotType === "cover"
-        ? await generateRankedCovers({ apiKey, topic, voice, slotPrompts })
-        : await generateSlideContent({ apiKey, slotType, topic, voice, slotPrompts });
+        ? await generateRankedCovers({ apiKey, topic, voice, slotPrompts, context })
+        : await generateSlideContent({ apiKey, slotType, topic, voice, slotPrompts, context });
       setOptions(opts);
     } catch (err) {
       console.error(err);
@@ -174,6 +176,32 @@ export function AiSlideGeneratorModal({ open, slotType, apiKey, initialTopic, on
           value={topic}
           onChange={(e) => setTopic(e.target.value)}
           placeholder='e.g. "Juneteenth 2026 weekend in NJ" or "Soulja Boy at Lotus Rooftop"'
+          rows={2}
+          style={{
+            width: "100%",
+            padding: "8px 10px",
+            background: "#111",
+            border: "1px solid rgba(245,240,232,0.08)",
+            borderRadius: 4,
+            color: "#F5F0E8",
+            fontFamily: "inherit",
+            fontSize: "0.8rem",
+            outline: "none",
+            boxSizing: "border-box",
+            resize: "vertical",
+            marginBottom: 10,
+          }}
+        />
+
+        <label style={{ fontSize: "0.65rem", color: "rgba(245,240,232,0.65)", display: "block", marginBottom: 5, letterSpacing: 0.5 }}>
+          Event details / facts · optional{slotType === "cover" ? " · the specifics that make a hook land" : ""}
+        </label>
+        <textarea
+          value={context}
+          onChange={(e) => setContext(e.target.value)}
+          placeholder={slotType === "cover"
+            ? 'e.g. "The Bergen Mall, dark since 2016, reopens Sat with a 40-vendor wellness fair — first public event there in 8 years"'
+            : 'Any specifics to ground the copy — names, dates, numbers, history'}
           rows={2}
           style={{
             width: "100%",
