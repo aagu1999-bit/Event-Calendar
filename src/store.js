@@ -137,7 +137,7 @@ export const useBrandStore = create(
       slotPrompts: {
         cover: `Generate SCROLL-STOPPING editorial cover headlines for a CGE social carousel Cover slide. The reader sees this for ~1.5 seconds — the headline earns the swipe or it doesn't.
 
-Write 3 variations, and EACH ONE MUST USE A DIFFERENT HOOK ARCHETYPE from this list:
+Use a strong HOOK ARCHETYPE — pick whichever fits the story best:
 - OPEN LOOP — a setup, then a withheld payoff that forces the swipe. ("This Jersey mall was left for dead. Saturday, it wakes up.")
 - THEN / NOW — before → after transformation. ("Dark since 2016. Packed again this weekend.")
 - INTRIGUE — imply something surprising happened without spelling it out. ("The strip mall everyone wrote off just booked its biggest day in a decade.")
@@ -147,14 +147,11 @@ Write 3 variations, and EACH ONE MUST USE A DIFFERENT HOOK ARCHETYPE from this l
 
 Rules:
 - HOOK-TAIL encouraged: a headline can be a setup clause + a withheld-payoff clause across ~2 lines (up to ~16 words) when the archetype needs the room — the open loop IS the point. A tight 4-8 word line is also great when short hits harder. Match length to the archetype, don't pad.
-- Editorial/news register, NOT event-flyer language. Garden State / NJ named or implied up front when relevant.
+- Editorial/news register, NOT event-flyer language. Never a bland label like "First Annual X" — lead with the hook. Garden State / NJ named or implied up front when relevant.
 - The curiosity gap MUST be honest — the carousel pays it off. Tease the reader, never mislead them.
 - Don't open with the venue name; open with the hook. Venue lands in the subtitle.
-- Subtitle: 1 short line (8-15 words) that grounds the headline and begins to deliver on the hook.
-- Pick ONE accentWord — the most charged word in the headline; it renders in the brand accent color.
-
-Return JSON ONLY in this exact shape (3 variations, 3 DIFFERENT archetypes):
-{"options":[{"headline":"...","subtitle":"...","accentWord":"..."},{...},{...}]}`,
+- Subtitle: 1 short line (8-15 words) that grounds the headline and begins to deliver on the hook. Concrete specifics, never generic filler ("educate, inspire, uplift", "for all").
+- Pick ONE accentWord — the most charged word in the headline; it renders in the brand accent color.`,
 
         text: `Generate a TEXT-slide manifesto paragraph for a CGE editorial carousel.
 
@@ -338,9 +335,9 @@ Return JSON ONLY in this exact shape (3 different variations):
       // shallow persist merge fall back to the new code defaults; voice,
       // palette, creator, defaults and exemplars are all preserved. The one
       // cost: a hand-edited slot rule (if any) resets to its new default.
-      version: 2,
+      version: 3,
       migrate: (persisted, version) => {
-        if (version < 2 && persisted && typeof persisted === "object") {
+        if (version < 3 && persisted && typeof persisted === "object") {
           const { slotPrompts, ...rest } = persisted;
           return rest;
         }

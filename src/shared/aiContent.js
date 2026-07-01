@@ -310,12 +310,13 @@ export async function pickTemplate({ apiKey, topic, context, candidates }) {
 //
 // Output: { slides: [{ type, ...slot-fields }, ...] }
 
-export async function generateTemplateFill({ apiKey, sequence, topic, context, voice, slotPrompts, templateMeta }) {
+export async function generateTemplateFill({ apiKey, sequence, topic, context, voice, slotPrompts, templateMeta, mode }) {
   if (!apiKey) throw new Error("Missing Gemini API key");
   if (!Array.isArray(sequence) || !sequence.length) throw new Error("Missing template sequence");
   if (!topic || !topic.trim()) throw new Error("Missing topic");
 
-  const prompt = buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, templateMeta });
+  const today = (() => { try { return new Date().toISOString().slice(0, 10); } catch { return null; } })();
+  const prompt = buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, templateMeta, mode, today });
 
   const res = await fetch(`${URL_BASE}?key=${encodeURIComponent(apiKey)}`, {
     method: "POST",
@@ -347,7 +348,7 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   return slides;
 }
 
-function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, templateMeta }) {
+function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, templateMeta, mode, today }) {
   const hasVoiceDesc = voice && typeof voice.description === "string" && voice.description.trim();
   const exemplars = Array.isArray(voice?.exemplars) ? voice.exemplars.filter(e => e && e.trim()) : [];
   const hasExemplars = exemplars.length > 0;
@@ -404,6 +405,18 @@ function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, tem
     ...voiceBlock,
     ...purposeBlock,
     "You are generating an ENTIRE editorial Instagram carousel for CGE. The slides will be exported in order — write them as ONE coherent story, not isolated cards.",
+    "",
+    "QUALITY BAR — applies to EVERY slide, not just the cover:",
+    "- Concrete over generic. Name the real thing — a number, a place, a moment.",
+    "  BAN vague filler: 'educate, inspire, and uplift', 'for all', 'something for",
+    "  everyone', 'fun for the whole family', 'come out and enjoy'.",
+    "- The COVER must open with a real HOOK — a curiosity gap, a before→after, a",
+    "  number, or a question. NEVER a bland label like 'First Annual X'.",
+    "- Honest always: a hook the rest of the carousel actually pays off. Tease, never mislead.",
+    ...(today ? [`- Today is ${today}. Use the correct current year everywhere; never default to a past year.`] : []),
+    ...((mode === "promo")
+      ? ["- REGISTER: PROMO — own-event push. More energy, a time pull, a soft invite. Still no 'don't miss out' clichés."]
+      : ["- REGISTER: EDITORIAL — restrained newsroom confidence. Inform, don't sell."]),
     "",
     `Carousel topic: ${topic.trim()}`,
     "",
@@ -477,6 +490,7 @@ function buildPrompt({ slotType, topic, voice, slotRule, count = 3, context, mod
     `{"options":[${Array.from({ length: n }, () => shape).join(",")}]}`,
     "",
     `Return exactly ${n} DISTINCT variations in the options array — each meaningfully different, not slight rewordings.`,
+    ...((slotType === "cover" && n > 1) ? [`Across the ${n}, use DIFFERENT hook archetypes — don't repeat the same archetype twice.`] : []),
   ] : ["Output ONLY the JSON, no prose, no markdown fences."];
 
   return [
