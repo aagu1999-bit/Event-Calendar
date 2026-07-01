@@ -24,6 +24,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
   const [templateId, setTemplateId] = useState(initialTemplateId || allTemplates[0]?.id || "");
   const [topic, setTopic] = useState("");
   const [context, setContext] = useState("");
+  const [mode, setMode] = useState("editorial");
   const [slides, setSlides] = useState([]);
   const [busy, setBusy] = useState(false);
   const [busyLabel, setBusyLabel] = useState("");
@@ -50,6 +51,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
       setPickedTemplate(null);
       setPickReasoning("");
       setSavedIdx(new Set());
+      setMode("editorial");
       if (initialTemplateId) setTemplateId(initialTemplateId);
     }
   }, [open, initialTemplateId]);
@@ -94,6 +96,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
         voice,
         slotPrompts,
         templateMeta: useTemplate,
+        mode,
       });
       setSlides(result);
     } catch (err) {
@@ -545,6 +548,26 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
               }}
             />
           </div>
+        </div>
+
+        <label style={{ fontSize: "0.65rem", color: "rgba(245,240,232,0.65)", display: "block", marginBottom: 5, letterSpacing: 0.5 }}>
+          Register
+        </label>
+        <div style={{ display: "flex", gap: 4, marginBottom: 12 }}>
+          {[["editorial", "📰 Editorial", "restrained newsroom voice"], ["promo", "📣 Promo", "own-event push, more energy"]].map(([m, lbl, hint]) => (
+            <button
+              key={m}
+              onClick={() => setMode(m)}
+              title={hint}
+              style={{
+                padding: "6px 12px", borderRadius: 4, cursor: "pointer",
+                fontSize: "0.65rem", fontWeight: 700, fontFamily: "'Syne',sans-serif",
+                background: mode === m ? "rgba(229,188,79,0.18)" : "rgba(245,240,232,0.04)",
+                color: mode === m ? "#E5BC4F" : "rgba(245,240,232,0.5)",
+                border: mode === m ? "1px solid rgba(229,188,79,0.5)" : "1px solid transparent",
+              }}
+            >{lbl}</button>
+          ))}
         </div>
 
         <label style={{ fontSize: "0.65rem", color: "rgba(245,240,232,0.65)", display: "block", marginBottom: 5, letterSpacing: 0.5 }}>
