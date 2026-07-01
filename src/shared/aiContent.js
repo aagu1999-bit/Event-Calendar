@@ -16,6 +16,7 @@
 // Returns 3 options per call so the user can choose.
 
 import { SLOT_META, SLOT_OUTPUT_SHAPES } from "../store.js";
+import { extractJson } from "./aiJson.js";
 
 const MODEL = "gemini-2.5-flash-lite";
 const URL_BASE = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
@@ -115,9 +116,7 @@ export async function generateSlideContent({ apiKey, slotType, topic, voice, slo
   const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!raw) throw new Error("Empty response from Gemini");
 
-  let parsed;
-  try { parsed = JSON.parse(raw); }
-  catch { throw new Error("Gemini did not return valid JSON"); }
+  const parsed = extractJson(raw);
 
   const options = Array.isArray(parsed?.options) ? parsed.options : [];
   if (!options.length) throw new Error("Got 0 options back");
@@ -186,9 +185,7 @@ export async function rankHooks({ apiKey, topic, candidates, keep = 3, context }
   const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!raw) throw new Error("Empty response from Gemini");
 
-  let parsed;
-  try { parsed = JSON.parse(raw); }
-  catch { throw new Error("Gemini did not return valid JSON"); }
+  const parsed = extractJson(raw);
 
   const ranked = Array.isArray(parsed?.ranked) ? parsed.ranked : [];
   const out = [];
@@ -282,9 +279,7 @@ export async function pickTemplate({ apiKey, topic, context, candidates }) {
   const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!raw) throw new Error("Empty response from Gemini");
 
-  let parsed;
-  try { parsed = JSON.parse(raw); }
-  catch { throw new Error("Gemini did not return valid JSON"); }
+  const parsed = extractJson(raw);
 
   const templateId = parsed?.templateId;
   if (!templateId) throw new Error("Gemini did not return a templateId");
@@ -343,9 +338,7 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!raw) throw new Error("Empty response from Gemini");
 
-  let parsed;
-  try { parsed = JSON.parse(raw); }
-  catch { throw new Error("Gemini did not return valid JSON"); }
+  const parsed = extractJson(raw);
 
   const slides = Array.isArray(parsed?.slides) ? parsed.slides : [];
   if (slides.length !== sequence.length) {
