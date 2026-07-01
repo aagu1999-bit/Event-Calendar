@@ -310,7 +310,7 @@ export async function pickTemplate({ apiKey, topic, context, candidates }) {
 //
 // Output: { slides: [{ type, ...slot-fields }, ...] }
 
-export async function generateTemplateFill({ apiKey, sequence, topic, context, voice, slotPrompts, templateMeta, mode }) {
+export async function generateTemplateFill({ apiKey, sequence, topic, context, voice, slotPrompts, templateMeta, mode, polish = true }) {
   if (!apiKey) throw new Error("Missing Gemini API key");
   if (!Array.isArray(sequence) || !sequence.length) throw new Error("Missing template sequence");
   if (!topic || !topic.trim()) throw new Error("Missing topic");
@@ -345,7 +345,99 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   if (slides.length !== sequence.length) {
     throw new Error(`Expected ${sequence.length} slides, got ${slides.length}`);
   }
+  if (!polish) return slides;
+  // Critic pass — raise every slide to its quality bar. Falls back to the draft
+  // if the polish call fails or returns the wrong shape, so it never blocks output.
+  try {
+    const improved = await polishCarousel({ apiKey, topic, context, voice, sequence, slides, mode, today });
+    if (Array.isArray(improved) && improved.length === sequence.length) return improved;
+  } catch (e) {
+    if (typeof console !== "undefined") console.warn("Carousel polish failed, returning draft:", e?.message || e);
+  }
   return slides;
+}
+
+// The per-slide JSON shape the Template Fill (and its critic pass) must return
+// for each slot type. Includes the "type" tag and the Fill-specific field names
+// (e.g. cta uses ctaKicker/ctaDate/ctaVenue/ctaUrl, not the single-slot shape).
+function fillSlotShape(t) {
+  if (t === "cover")     return '{"type":"cover","headline":"...","subtitle":"...","accentWord":"..."}';
+  if (t === "text")      return '{"type":"text","textTitle":"...","textBody":"..."}';
+  if (t === "spotlight") return '{"type":"spotlight","spotName":"...","spotMeta":"...","spotTime":"","spotPrice":"","spotCta":""}';
+  if (t === "cta")       return '{"type":"cta","ctaKicker":"","ctaDate":"...","ctaVenue":"...","ctaUrl":"..."}';
+  if (t === "photo")     return '{"type":"photo","caption":"...","captionSecondary":"..."}';
+  if (t === "stat")      return '{"type":"stat","statNumber":"...","statLabel":"...","statSub":"..."}';
+  if (t === "countdown") return '{"type":"countdown","countText":"...","countEvent":"...","countWhen":"...","countCta":"..."}';
+  if (t === "poster")    return '{"type":"poster","topLine":"...","hosts":"...","kicker":"...","title":"...","subtitle":"...","leftList":"...","rightList":"...","dressCode":"...","dateLine":"..."}';
+  if (t === "press")     return '{"type":"press","pressTopMeta":["...","...","...","..."],"pressTitle":"...","pressBadge":"...","pressLineup":"...","pressGenres":"...","pressDateLine":"..."}';
+  if (t === "features")  return '{"type":"features","featuresTitle":"...","features":[{"emoji":"...","headline":"...","sub":"..."}]}';
+  return `{"type":"${t}"}`;
+}
+
+// === CAROUSEL CRITIC (whole-carousel polish) ===
+// Second pass over a generated Template Fill — the Fill analog of the cover
+// hook-judge. The Fill writes each slide one-shot with no selection, so weak or
+// generic slides slip through. This hands the whole draft to a low-temp editor
+// that raises EVERY slide to its quality bar (kill filler, make the cover hook,
+// keep facts honest) while preserving each slide's type, order, and JSON shape.
+// Returns the improved slides; throws on failure so the caller falls back to the draft.
+export async function polishCarousel({ apiKey, topic, context, voice, sequence, slides, mode, today }) {
+  if (!apiKey) throw new Error("Missing Gemini API key");
+  if (!Array.isArray(slides) || !slides.length) throw new Error("No slides to polish");
+
+  const hasVoiceDesc = voice && typeof voice.description === "string" && voice.description.trim();
+  const voiceLine = hasVoiceDesc ? `Brand voice: ${voice.description.trim()}` : "";
+
+  const draft = slides.map((s, i) => `SLIDE ${i + 1} (${s?.type || sequence[i]}):\n${JSON.stringify(s)}`).join("\n\n");
+
+  const prompt = [
+    "You are a ruthless CGE editor reviewing a DRAFT Instagram carousel before it",
+    "ships. Raise EVERY slide to the quality bar, then return the full carousel.",
+    "",
+    "QUALITY BAR:",
+    "- Concrete over generic. KILL filler: 'educate/inspire/uplift', 'for all',",
+    "  'something for everyone', 'come out and enjoy', 'delicious food', 'great vibes'.",
+    "- The COVER slide must open with a real HOOK — curiosity gap, before→after, a",
+    "  number, or a question. Never a bland label like 'First Annual X'.",
+    "- Every slide honest (a claim the event actually delivers) and on the CGE voice.",
+    "- Name concrete specifics — numbers, places, moments — over vague description.",
+    ...(today ? [`- Today is ${today}. Correct current year everywhere; never a past year.`] : []),
+    ...((mode === "promo")
+      ? ["- REGISTER: PROMO — own-event push, more energy, a time pull, a soft invite. No 'don't miss out' clichés."]
+      : ["- REGISTER: EDITORIAL — restrained newsroom confidence. Inform, don't sell."]),
+    voiceLine,
+    "",
+    ...(context && context.trim() ? ["Event facts (do NOT invent beyond these):", context.trim(), ""] : []),
+    `Topic: ${topic?.trim() || "(unspecified)"}`,
+    "",
+    "DRAFT (fix in place — a slide that already clears the bar can stay as-is):",
+    "",
+    draft,
+    "",
+    "Rules: keep the SAME number of slides in the SAME order, and each slide's SAME",
+    "type + JSON fields. Rewrite only the copy. Don't invent events or facts not in",
+    "the context. Return JSON ONLY (no fences, no prose) in this exact shape:",
+    `{"slides":[${sequence.map(fillSlotShape).join(",")}]}`,
+  ].join("\n");
+
+  const res = await fetch(`${URL_BASE}?key=${encodeURIComponent(apiKey)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { responseMimeType: "application/json", temperature: 0.4 },
+    }),
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Gemini ${res.status}: ${errText.slice(0, 240)}`);
+  }
+  const data = await res.json();
+  const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  const parsed = extractJson(raw);
+  const out = Array.isArray(parsed?.slides) ? parsed.slides : [];
+  if (out.length !== sequence.length) throw new Error(`Polish returned ${out.length} slides, expected ${sequence.length}`);
+  return out;
 }
 
 function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, templateMeta, mode, today }) {
@@ -438,19 +530,7 @@ function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, tem
     "─────────────────────────────",
     "",
     "Return JSON ONLY in this exact shape (no markdown fences, no prose):",
-    `{"slides":[${sequence.map(t => {
-      if (t === "cover")     return '{"type":"cover","headline":"...","subtitle":"...","accentWord":"..."}';
-      if (t === "text")      return '{"type":"text","textTitle":"...","textBody":"..."}';
-      if (t === "spotlight") return '{"type":"spotlight","spotName":"...","spotMeta":"...","spotTime":"","spotPrice":"","spotCta":""}';
-      if (t === "cta")       return '{"type":"cta","ctaKicker":"","ctaDate":"...","ctaVenue":"...","ctaUrl":"..."}';
-      if (t === "photo")     return '{"type":"photo","caption":"...","captionSecondary":"..."}';
-      if (t === "stat")      return '{"type":"stat","statNumber":"...","statLabel":"...","statSub":"..."}';
-      if (t === "countdown") return '{"type":"countdown","countText":"...","countEvent":"...","countWhen":"...","countCta":"..."}';
-      if (t === "poster")    return '{"type":"poster","topLine":"...","hosts":"...","kicker":"...","title":"...","subtitle":"...","leftList":"...","rightList":"...","dressCode":"...","dateLine":"..."}';
-      if (t === "press")     return '{"type":"press","pressTopMeta":["...","...","...","..."],"pressTitle":"...","pressBadge":"...","pressLineup":"...","pressGenres":"...","pressDateLine":"..."}';
-      if (t === "features")  return '{"type":"features","featuresTitle":"...","features":[{"emoji":"...","headline":"...","sub":"..."}]}';
-      return `{"type":"${t}"}`;
-    }).join(",")}]}`,
+    `{"slides":[${sequence.map(fillSlotShape).join(",")}]}`,
   ].join("\n");
 }
 
