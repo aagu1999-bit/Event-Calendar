@@ -225,6 +225,85 @@ export async function generateRankedCovers({ apiKey, topic, voice, slotPrompts, 
 // candidates is an array of { id, name, sequence, intent } drawn from
 // BUILTIN_CAROUSEL_TEMPLATES + custom user templates.
 
+// === AI SEQUENCE DESIGNER ===
+// Goes beyond pickTemplate (which chooses among fixed templates): this DESIGNS a
+// bespoke slide sequence for the specific story — which slot types, in what order,
+// for the strongest narrative arc (hook → build → payoff → close). The result
+// feeds generateTemplateFill like any other sequence, so it also gets the critic pass.
+const ARRANGEABLE_SLOTS = ["cover", "text", "spotlight", "stat", "features", "countdown", "cta", "photo", "poster", "press"];
+
+export async function designSequence({ apiKey, topic, context, mode }) {
+  if (!apiKey) throw new Error("Missing Gemini API key");
+  if (!topic || !topic.trim()) throw new Error("Missing topic");
+
+  const prompt = [
+    "You are an Instagram art director for CGE, an NJ news-media outlet. Design the",
+    "best SLIDE SEQUENCE to tell THIS story as a carousel — which slide types, in what",
+    "order, for maximum narrative pull (hook → build → payoff → close). Do NOT use a",
+    "fixed template; design for this specific content.",
+    "",
+    `Topic: ${topic.trim()}`,
+    ...(context && context.trim() ? ["", "Event facts:", context.trim()] : []),
+    (mode === "promo") ? "\nRegister: PROMO (own-event push, more energy)." : "\nRegister: EDITORIAL (restrained newsroom voice).",
+    "",
+    "Available slide types (use ONLY these):",
+    "- cover: the opening hook. ALWAYS slide 1.",
+    "- text: a short manifesto/thesis — the 'why it matters'.",
+    "- spotlight: ONE venue/feature/angle per slide; use several for a listicle feel.",
+    "- stat: one big number + label — an impact/bragging beat.",
+    "- features: 3-5 emoji + concrete promises (what's included).",
+    "- countdown: urgency dial toward a date (T-minus).",
+    "- cta: the closing invite, or a directory listing (one per event in a roundup).",
+    "- photo: a recap photo caption — POST-EVENT recaps only.",
+    "- poster / press: magazine-flyer format — music/nightlife/visually-loud events.",
+    "",
+    "Rules:",
+    "- 4 to 8 slides total. Slide 1 is ALWAYS 'cover'. End on a 'cta'.",
+    "- Match the mix to the STORY: a single event with many selling points → a few",
+    "  spotlights or a features slide; a multi-event roundup → several ctas; a single",
+    "  strong beat → keep it short. A PRE-event promo should NOT use 'photo'.",
+    "- Don't pad. Every slide must earn its place.",
+    "",
+    "Return JSON ONLY (no fences, no prose):",
+    `{"sequence":["cover","...","cta"],"rationale":"<1 sentence: why this arc fits this story>"}`,
+  ].join("\n");
+
+  const res = await fetch(`${URL_BASE}?key=${encodeURIComponent(apiKey)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { responseMimeType: "application/json", temperature: 0.5 },
+    }),
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Gemini ${res.status}: ${errText.slice(0, 240)}`);
+  }
+  const data = await res.json();
+  const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  const parsed = extractJson(raw);
+
+  let seq = Array.isArray(parsed?.sequence)
+    ? parsed.sequence.map(s => String(s).toLowerCase().trim()).filter(s => ARRANGEABLE_SLOTS.includes(s))
+    : [];
+  // Guardrails: cover first, cta last, sane length — the render pipeline assumes these.
+  seq = ["cover", ...seq.filter(s => s !== "cover")].slice(0, 8);
+  if (seq[seq.length - 1] !== "cta") seq.push("cta");
+  if (seq.length < 2) throw new Error("Designed sequence too short");
+  return { sequence: seq, rationale: (parsed?.rationale || "").trim() };
+}
+
+// Full "AI arranges the carousel" flow: design the sequence, then fill + polish it.
+export async function generateArrangedCarousel({ apiKey, topic, context, voice, slotPrompts, mode }) {
+  const design = await designSequence({ apiKey, topic, context, mode });
+  const slides = await generateTemplateFill({
+    apiKey, sequence: design.sequence, topic, context, voice, slotPrompts,
+    templateMeta: { name: "AI-arranged carousel", keyMove: design.rationale }, mode,
+  });
+  return { slides, sequence: design.sequence, rationale: design.rationale };
+}
+
 export async function pickTemplate({ apiKey, topic, context, candidates }) {
   if (!apiKey) throw new Error("Missing Gemini API key");
   if (!Array.isArray(candidates) || candidates.length === 0) throw new Error("No candidate templates");

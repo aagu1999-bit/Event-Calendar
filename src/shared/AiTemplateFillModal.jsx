@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useBrandStore, useCarouselTemplatesStore, BUILTIN_CAROUSEL_TEMPLATES } from "../store";
-import { generateTemplateFill, pickTemplate } from "./aiContent.js";
+import { generateTemplateFill, pickTemplate, generateArrangedCarousel } from "./aiContent.js";
 
 // Modal for AI-assisted whole-carousel generation. Pick a template,
 // type a topic + context, Gemini fills every slot in the sequence in
@@ -34,6 +34,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
   // banner. After generation, the picked template + reasoning displays
   // in the result panel so the user knows what was chosen.
   const [letAiPick, setLetAiPick] = useState(false);
+  const [aiArrange, setAiArrange] = useState(false);
   const [pickedTemplate, setPickedTemplate] = useState(null);
   const [pickReasoning, setPickReasoning] = useState("");
   // Per-slide exemplar harvest state. Tracks slide indices the user
@@ -52,6 +53,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
       setPickReasoning("");
       setSavedIdx(new Set());
       setMode("editorial");
+      setAiArrange(false);
       if (initialTemplateId) setTemplateId(initialTemplateId);
     }
   }, [open, initialTemplateId]);
@@ -64,7 +66,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
 
   const handleGenerate = async () => {
     if (!apiKey) { setError("Paste your Gemini API key in the MediaTool toolbar first."); return; }
-    if (!letAiPick && !template) { setError("Pick a template first or toggle 'Let AI pick'."); return; }
+    if (!aiArrange && !letAiPick && !template) { setError("Pick a template first, or toggle 'Let AI pick' / 'AI arranges'."); return; }
     if (!topic.trim()) { setError("Type a topic first."); return; }
     setBusy(true);
     setError("");
@@ -72,6 +74,16 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
     setPickedTemplate(null);
     setPickReasoning("");
     try {
+      // "AI arranges" — design a bespoke slot sequence for this story, then
+      // fill + polish it. Supersedes template selection.
+      if (aiArrange) {
+        setBusyLabel("Designing + filling…");
+        const arranged = await generateArrangedCarousel({ apiKey, topic, context, voice, slotPrompts, mode });
+        setPickedTemplate({ id: "ai-arranged", name: "AI-arranged carousel", sequence: arranged.sequence, custom: true });
+        setPickReasoning(arranged.rationale);
+        setSlides(arranged.slides);
+        return;
+      }
       // Phase 1 (optional): AI picks the template.
       let useTemplate = template;
       if (letAiPick) {
@@ -459,13 +471,29 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
           <input
             type="checkbox"
             checked={letAiPick}
-            onChange={(e) => setLetAiPick(e.target.checked)}
+            onChange={(e) => { setLetAiPick(e.target.checked); if (e.target.checked) setAiArrange(false); }}
           />
           <span style={{ fontWeight: 700, letterSpacing: 0.5 }}>
             ✨ Let AI pick the best template
           </span>
           <span style={{ marginLeft: "auto", fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: 0.5 }}>
             picks from {allTemplates.length} templates
+          </span>
+        </label>
+
+        {/* AI arranges — design a bespoke slot sequence for THIS story instead of
+            a fixed template. Supersedes template selection + AI-pick. */}
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.72rem", color: aiArrange ? "#E5BC4F" : "rgba(245,240,232,0.7)", cursor: "pointer", marginBottom: 12, padding: "8px 10px", background: aiArrange ? "rgba(229,188,79,0.08)" : "transparent", border: "1px solid " + (aiArrange ? "rgba(229,188,79,0.35)" : "rgba(245,240,232,0.08)"), borderRadius: 4 }}>
+          <input
+            type="checkbox"
+            checked={aiArrange}
+            onChange={(e) => { setAiArrange(e.target.checked); if (e.target.checked) setLetAiPick(false); }}
+          />
+          <span style={{ fontWeight: 700, letterSpacing: 0.5 }}>
+            🪄 Let AI arrange the carousel
+          </span>
+          <span style={{ marginLeft: "auto", fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: 0.5 }}>
+            designs a custom sequence
           </span>
         </label>
 
