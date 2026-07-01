@@ -21,6 +21,7 @@ export function AiSlideGeneratorModal({ open, slotType, apiKey, initialTopic, on
 
   const [topic, setTopic] = useState(initialTopic || "");
   const [context, setContext] = useState("");
+  const [coverMode, setCoverMode] = useState("editorial");
   const [options, setOptions] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -34,6 +35,7 @@ export function AiSlideGeneratorModal({ open, slotType, apiKey, initialTopic, on
     if (open) {
       setTopic(initialTopic || "");
       setContext("");
+      setCoverMode("editorial");
       setOptions([]);
       setError("");
       setBusy(false);
@@ -110,7 +112,7 @@ export function AiSlideGeneratorModal({ open, slotType, apiKey, initialTopic, on
     setOptions([]);
     try {
       const opts = slotType === "cover"
-        ? await generateRankedCovers({ apiKey, topic, voice, slotPrompts, context })
+        ? await generateRankedCovers({ apiKey, topic, voice, slotPrompts, context, mode: coverMode })
         : await generateSlideContent({ apiKey, slotType, topic, voice, slotPrompts, context });
       setOptions(opts);
     } catch (err) {
@@ -218,6 +220,28 @@ export function AiSlideGeneratorModal({ open, slotType, apiKey, initialTopic, on
             marginBottom: 10,
           }}
         />
+
+        {slotType === "cover" && (
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ fontSize: "0.65rem", color: "rgba(245,240,232,0.65)", display: "block", marginBottom: 5, letterSpacing: 0.5 }}>Register</label>
+            <div style={{ display: "flex", gap: 4 }}>
+              {[["editorial", "📰 Editorial", "restrained newsroom voice"], ["promo", "📣 Promo", "own-event push, more energy"]].map(([m, lbl, hint]) => (
+                <button
+                  key={m}
+                  onClick={() => setCoverMode(m)}
+                  title={hint}
+                  style={{
+                    padding: "6px 12px", borderRadius: 4, cursor: "pointer",
+                    fontSize: "0.65rem", fontWeight: 700, fontFamily: "'Syne',sans-serif",
+                    background: coverMode === m ? "rgba(229,188,79,0.18)" : "rgba(245,240,232,0.04)",
+                    color: coverMode === m ? "#E5BC4F" : "rgba(245,240,232,0.5)",
+                    border: coverMode === m ? "1px solid rgba(229,188,79,0.5)" : "1px solid transparent",
+                  }}
+                >{lbl}</button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
           <button

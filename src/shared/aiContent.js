@@ -84,7 +84,7 @@ function formatTemplatePurposeBlock(meta) {
   return lines;
 }
 
-export async function generateSlideContent({ apiKey, slotType, topic, voice, slotPrompts, count = 3, context }) {
+export async function generateSlideContent({ apiKey, slotType, topic, voice, slotPrompts, count = 3, context, mode }) {
   if (!apiKey) throw new Error("Missing Gemini API key");
   if (!slotType) throw new Error("Missing slotType");
   if (!topic || !topic.trim()) throw new Error("Missing topic");
@@ -92,7 +92,7 @@ export async function generateSlideContent({ apiKey, slotType, topic, voice, slo
   const slotRule = slotPrompts?.[slotType];
   if (!slotRule) throw new Error(`No prompt defined for slot type "${slotType}"`);
 
-  const prompt = buildPrompt({ slotType, topic, voice, slotRule, count, context });
+  const prompt = buildPrompt({ slotType, topic, voice, slotRule, count, context, mode });
 
   const res = await fetch(`${URL_BASE}?key=${encodeURIComponent(apiKey)}`, {
     method: "POST",
@@ -208,8 +208,8 @@ export async function rankHooks({ apiKey, topic, candidates, keep = 3, context }
 // (the cover rule spreads them across hook archetypes), then the hook judge
 // trims to the `keep` strongest. Falls back to raw candidates if the judge
 // call fails, so a ranker hiccup never blocks generation.
-export async function generateRankedCovers({ apiKey, topic, voice, slotPrompts, genCount = 6, keep = 3, context }) {
-  const candidates = await generateSlideContent({ apiKey, slotType: "cover", topic, voice, slotPrompts, count: genCount, context });
+export async function generateRankedCovers({ apiKey, topic, voice, slotPrompts, genCount = 6, keep = 3, context, mode }) {
+  const candidates = await generateSlideContent({ apiKey, slotType: "cover", topic, voice, slotPrompts, count: genCount, context, mode });
   if (candidates.length <= keep) return candidates;
   try {
     return await rankHooks({ apiKey, topic, candidates, keep, context });
@@ -448,7 +448,7 @@ function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, tem
   ].join("\n");
 }
 
-function buildPrompt({ slotType, topic, voice, slotRule, count = 3, context }) {
+function buildPrompt({ slotType, topic, voice, slotRule, count = 3, context, mode }) {
   const hasVoiceDesc = voice && typeof voice.description === "string" && voice.description.trim();
   const exemplars = Array.isArray(voice?.exemplars) ? voice.exemplars.filter(e => e && e.trim()) : [];
   const hasExemplars = exemplars.length > 0;
@@ -497,6 +497,16 @@ function buildPrompt({ slotType, topic, voice, slotRule, count = 3, context }) {
       "dates, numbers, history). This turns a generic hook into a concrete one,",
       "and it's what an honest curiosity gap actually pays off:",
       context.trim(),
+      "",
+    ] : []),
+    ...((slotType === "cover" && mode === "promo") ? [
+      "REGISTER: PROMO — this is an own-event / paid push. Keep every claim honest,",
+      "but you MAY raise the energy: a time pull ('this weekend', 'Saturday'), a soft",
+      "direct invite, more urgency in the cadence. Still NO 'don't miss out' clichés.",
+      "",
+    ] : (slotType === "cover") ? [
+      "REGISTER: EDITORIAL — restraint. Understated newsroom confidence. No CTA",
+      "pressure, no urgency words. Let the hook pull quietly; inform, don't sell.",
       "",
     ] : []),
     ...(slotRefBlock.length ? [...slotRefBlock, "─────────────────────────────", ""] : []),
