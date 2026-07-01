@@ -22,25 +22,21 @@ args = "Start application"
 name = "Start application"
 author = "agent"
 
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-# Self-cleaning startup: kill any lingering node processes (typically a
-# stale `npm run dev &` from the shell or a previous workflow attempt
-# that didn't release port 5000) before we bind it ourselves. Without
-# this, the workflow races against any existing node process and crashes
-# with EADDRINUSE — a recurring problem after running diagnostic
-# commands in the shell. The `|| true` guards keep the shell from
-# exiting early when pkill finds nothing to kill, and the sleep gives
-# the OS time to actually release the port after SIGKILL.
-args = "(pkill -9 -f 'node server' || true; pkill -9 -f 'npm run dev' || true; sleep 1; npm run dev)"
-waitForPort = 5000
-
 [workflows.workflow.metadata]
 outputType = "webview"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm run dev"
+waitForPort = 5000
 
 [[ports]]
 localPort = 5000
 externalPort = 80
+
+[[ports]]
+localPort = 24678
+externalPort = 3000
 
 [deployment]
 deploymentTarget = "static"
