@@ -1,4 +1,4 @@
-import { extractJson } from "./aiJson.js";
+import { extractJson, extractResponseText } from "./aiJson.js";
 
 const MODEL = "gemini-2.5-flash-lite";
 const URL_BASE = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
@@ -36,7 +36,7 @@ export async function generateCaptions(apiKey, eventCtx, images = [], options = 
   }
 
   const data = await res.json();
-  const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  const raw = extractResponseText(data);
   if (!raw) throw new Error("Empty response from Gemini");
 
   const parsed = extractJson(raw);

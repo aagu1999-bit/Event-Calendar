@@ -16,7 +16,7 @@
 // Returns 3 options per call so the user can choose.
 
 import { SLOT_META, SLOT_OUTPUT_SHAPES } from "../store.js";
-import { extractJson } from "./aiJson.js";
+import { extractJson, extractResponseText } from "./aiJson.js";
 
 const MODEL = "gemini-2.5-flash-lite";
 const URL_BASE = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
@@ -113,7 +113,7 @@ export async function generateSlideContent({ apiKey, slotType, topic, voice, slo
   }
 
   const data = await res.json();
-  const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  const raw = extractResponseText(data);
   if (!raw) throw new Error("Empty response from Gemini");
 
   const parsed = extractJson(raw);
@@ -182,7 +182,7 @@ export async function rankHooks({ apiKey, topic, candidates, keep = 3, context }
   }
 
   const data = await res.json();
-  const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  const raw = extractResponseText(data);
   if (!raw) throw new Error("Empty response from Gemini");
 
   const parsed = extractJson(raw);
@@ -285,7 +285,7 @@ export async function designSequence({ apiKey, topic, context, mode }) {
     throw new Error(`Gemini ${res.status}: ${errText.slice(0, 240)}`);
   }
   const data = await res.json();
-  const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  const raw = extractResponseText(data);
   const parsed = extractJson(raw);
 
   let seq = Array.isArray(parsed?.sequence)
@@ -359,7 +359,7 @@ export async function pickTemplate({ apiKey, topic, context, candidates }) {
   }
 
   const data = await res.json();
-  const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  const raw = extractResponseText(data);
   if (!raw) throw new Error("Empty response from Gemini");
 
   const parsed = extractJson(raw);
@@ -419,7 +419,7 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   }
 
   const data = await res.json();
-  const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  const raw = extractResponseText(data);
   if (!raw) throw new Error("Empty response from Gemini");
 
   const parsed = extractJson(raw);
@@ -520,7 +520,7 @@ export async function polishCarousel({ apiKey, topic, context, voice, sequence, 
     throw new Error(`Gemini ${res.status}: ${errText.slice(0, 240)}`);
   }
   const data = await res.json();
-  const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  const raw = extractResponseText(data);
   const parsed = extractJson(raw);
   const out = Array.isArray(parsed?.slides) ? parsed.slides : [];
   if (out.length !== sequence.length) throw new Error(`Polish returned ${out.length} slides, expected ${sequence.length}`);

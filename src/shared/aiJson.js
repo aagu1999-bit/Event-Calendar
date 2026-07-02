@@ -4,6 +4,17 @@
 // then throws "Gemini did not return valid JSON" even though the JSON is right
 // there. This strips fences and, as a last resort, extracts the outermost
 // {...} or [...] span before parsing.
+// Pull the response text out of a Gemini generateContent payload. gemini-2.5-*
+// are thinking models: their content.parts array can contain a reasoning part
+// ({thought:true, text:"..."}) BEFORE the real answer part. Reading parts[0]
+// blindly returns the thinking prose, which then fails JSON.parse. Skip any
+// thought parts and take the first real text part (falling back to parts[0]
+// for non-thinking models that only emit one part).
+export function extractResponseText(data) {
+  const parts = data?.candidates?.[0]?.content?.parts ?? [];
+  return (parts.find(p => p && !p.thought && typeof p.text === "string") ?? parts[0])?.text;
+}
+
 export function extractJson(raw) {
   if (raw == null || String(raw).trim() === "") {
     throw new Error("Empty response from Gemini");
