@@ -137,7 +137,7 @@ export async function generateSlideContent({ apiKey, slotType, topic, voice, slo
     contents: [{ parts: [{ text: prompt }] }],
     generationConfig: {
       responseMimeType: "application/json",
-      temperature: 0.9,
+      temperature: 1.0,
     },
   });
   const raw = extractResponseText(data);
@@ -401,7 +401,7 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
     contents: [{ parts: [{ text: prompt }] }],
     generationConfig: {
       responseMimeType: "application/json",
-      temperature: 0.85,
+      temperature: 0.95,
     },
   });
   const raw = extractResponseText(data);
@@ -503,6 +503,48 @@ export async function polishCarousel({ apiKey, topic, context, voice, sequence, 
   return out;
 }
 
+// A per-call variation token so regenerating with the SAME topic/context
+// still produces a genuinely different result instead of the model's single
+// "most likely" answer. Math.random is fine here — this is browser app code,
+// not the workflow sandbox. Paired with a directive that tells the model to
+// diverge, this is what makes "regenerate" actually change the output.
+function variationDirective() {
+  let seed = "X";
+  try { seed = Math.random().toString(36).slice(2, 8).toUpperCase(); } catch { /* noop */ }
+  return [
+    `FRESH-TAKE TOKEN ${seed} — treat this as a brand-new attempt, not a rerun.`,
+    "Deliberately diverge from the most obvious / first-instinct answer: a",
+    "different hook archetype, a different opening word, a different sentence",
+    "shape. Do NOT reproduce a headline you'd predictably generate first.",
+    "─────────────────────────────",
+    "",
+  ];
+}
+
+// Editorial vs Promo must read DIFFERENTLY. A one-liner wasn't enough — these
+// give the model a concrete, contrasting spec for voice, POV, energy, and how
+// the closer behaves, so the two registers produce visibly different copy.
+function registerBlock(mode) {
+  if (mode === "promo") return [
+    "REGISTER: PROMO — this is OUR event and we want people to COME.",
+    "- Voice: warm, direct, second-person ('you', 'your weekend'). Speak TO the reader.",
+    "- Energy: higher. Use a time pull ('this Saturday', 'doors at 8') and a soft, confident invite.",
+    "- The closer makes the next step obvious (RSVP, pull up, save the date).",
+    "- Still honest and editorial-grade — NEVER 'don't miss out!', 'link in bio!!!', or hype-spam.",
+    "─────────────────────────────",
+    "",
+  ];
+  return [
+    "REGISTER: EDITORIAL — we are the newsroom reporting on the scene, not selling it.",
+    "- Voice: third-person, observational, understated. Report; don't invite.",
+    "- Energy: restrained. NO urgency words, NO CTA pressure, NO 'you should go'.",
+    "- The hook pulls through curiosity and concrete specifics, never enthusiasm.",
+    "- Reads like a magazine dek, not a flyer.",
+    "─────────────────────────────",
+    "",
+  ];
+}
+
 function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, templateMeta, mode, today }) {
   const hasVoiceDesc = voice && typeof voice.description === "string" && voice.description.trim();
   const exemplars = Array.isArray(voice?.exemplars) ? voice.exemplars.filter(e => e && e.trim()) : [];
@@ -567,6 +609,9 @@ function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, tem
     "  everyone', 'fun for the whole family', 'come out and enjoy'.",
     "- The COVER must open with a real HOOK — a curiosity gap, a before→after, a",
     "  number, or a question. NEVER a bland label like 'First Annual X'.",
+    "- PREFER AN OPEN LOOP on the cover whenever the story supports it: a setup +",
+    "  a withheld payoff that forces the swipe ('This Jersey mall was left for",
+    "  dead. Saturday, it wakes up.'). It outperforms a plain descriptive line.",
     "- Honest always: a hook the rest of the carousel actually pays off. Tease, never mislead.",
     "- PULL-THROUGH (hold attention to the END): SLIDE 2 must CONTINUE the cover's hook —",
     "  open by paying off its curiosity ('Here's what happened…', 'How it came back…'), not",
@@ -574,10 +619,9 @@ function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, tem
     "  specifics through the middle. The FINAL slide must REWARD reaching the end (a payoff +",
     "  the invite), not a limp 'link in bio'.",
     ...(today ? [`- Today is ${today}. Use the correct current year everywhere; never default to a past year.`] : []),
-    ...((mode === "promo")
-      ? ["- REGISTER: PROMO — own-event push. More energy, a time pull, a soft invite. Still no 'don't miss out' clichés."]
-      : ["- REGISTER: EDITORIAL — restrained newsroom confidence. Inform, don't sell."]),
     "",
+    ...registerBlock(mode),
+    ...variationDirective(),
     ...((topic && topic.trim()) ? [`Carousel topic: ${topic.trim()}`, ""] : []),
     ...(context && context.trim() ? [
       "Context (event details, selling points, lineup — break this up across slides as the rules below dictate):",
@@ -653,16 +697,8 @@ function buildPrompt({ slotType, topic, voice, slotRule, count = 3, context, mod
       context.trim(),
       "",
     ] : []),
-    ...((slotType === "cover" && mode === "promo") ? [
-      "REGISTER: PROMO — this is an own-event / paid push. Keep every claim honest,",
-      "but you MAY raise the energy: a time pull ('this weekend', 'Saturday'), a soft",
-      "direct invite, more urgency in the cadence. Still NO 'don't miss out' clichés.",
-      "",
-    ] : (slotType === "cover") ? [
-      "REGISTER: EDITORIAL — restraint. Understated newsroom confidence. No CTA",
-      "pressure, no urgency words. Let the hook pull quietly; inform, don't sell.",
-      "",
-    ] : []),
+    ...registerBlock(mode),
+    ...variationDirective(),
     ...(slotRefBlock.length ? [...slotRefBlock, "─────────────────────────────", ""] : []),
     "Apply the rule below STRICTLY:",
     "",
