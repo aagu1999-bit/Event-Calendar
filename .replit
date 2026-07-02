@@ -38,7 +38,14 @@ externalPort = 80
 localPort = 24678
 externalPort = 3000
 
+# Server deployment (Reserved VM): runs server.js in production so the
+# backend — Review Sessions, Photo/Export Library, Brand Kit, Scraper — is
+# live on the published URL. A "static" target ships only the front-end and
+# 404s every /api call, which breaks all cross-account sharing. Reserved VM
+# (not Autoscale) is required because the app stores data as files on disk;
+# Autoscale's filesystem is ephemeral and not shared across instances.
+# server.js already reads process.env.PORT and binds 0.0.0.0.
 [deployment]
-deploymentTarget = "static"
+deploymentTarget = "gce"
 build = ["npm", "run", "build"]
-publicDir = "dist"
+run = ["npm", "run", "start"]
