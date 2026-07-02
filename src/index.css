@@ -354,6 +354,12 @@ body {
   .cge-builder-preview {
     max-width: 100% !important;
     overflow-x: hidden !important;
+    /* On desktop the preview is a sticky side panel; on mobile the columns
+       stack, so drop the sticky and let it sit naturally at the BOTTOM of
+       the page, below all the controls. */
+    position: static !important;
+    top: auto !important;
+    margin-top: 1rem;
   }
   .cge-builder-preview canvas {
     max-width: 100% !important;
