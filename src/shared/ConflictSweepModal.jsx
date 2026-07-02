@@ -4,7 +4,11 @@ import { createPortal } from "react-dom";
 // Condensed, highly legible display face for the event name — scoped to the
 // Sweep only (not tool-wide) so the title is easy to read at a glance while
 // triaging. 'Oswald Local' is bundled (see index.css @font-face).
-const SWEEP_TITLE_FONT = "'Oswald Local', 'Oswald', 'Syne', sans-serif";
+// Bebas Neue (loaded via the Google Fonts link in index.html) is the tall,
+// condensed, high-legibility face for the event name. 'Oswald Local' is the
+// bundled fallback so the title stays readable OFFLINE, where the CDN font
+// can't load.
+const SWEEP_TITLE_FONT = "'Bebas Neue', 'Oswald Local', 'Oswald', 'Syne', sans-serif";
 
 // Mobile Sweep Mode — one-conflict-group-at-a-time triage modal.
 // Renders full-screen on mobile so users with small screens can resolve
