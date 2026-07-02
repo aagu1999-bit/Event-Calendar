@@ -1765,6 +1765,9 @@ export default function ReviewQueue({ betaMode = false } = {}) {
         events={pending}
         warnings={warnings}
         onClose={() => setSweepOpen(false)}
+        onEdit={(eventId, patch) => {
+          setPending(p => p.map(e => String(e.id) === String(eventId) ? { ...e, ...patch } : e));
+        }}
         onApplyDeletions={(idsToDelete) => {
           if (!idsToDelete || idsToDelete.length === 0) return;
           const idSet = new Set(idsToDelete.map(String));
@@ -1783,6 +1786,9 @@ export default function ReviewQueue({ betaMode = false } = {}) {
         open={cleanSweepOpen}
         events={cleanEvents}
         onClose={() => setCleanSweepOpen(false)}
+        onEdit={(eventId, patch) => {
+          setPending(p => p.map(e => String(e.id) === String(eventId) ? { ...e, ...patch } : e));
+        }}
         onApply={({ keepIds, cutIds }) => {
           if (cutIds && cutIds.length > 0) {
             const cutSet = new Set(cutIds.map(String));

@@ -10,6 +10,21 @@ import { createPortal } from "react-dom";
 // can't load.
 const SWEEP_TITLE_FONT = "'Bebas Neue', 'Oswald Local', 'Oswald', 'Syne', sans-serif";
 
+// Inline-edit config — lets the user fix an event mid-sweep instead of only
+// keeping/deleting it (matches the review list's inline edit).
+const EDIT_FIELDS = [
+  ["name", "Name"], ["day", "Day"], ["time", "Time"],
+  ["venue", "Venue"], ["area", "City"], ["region", "Region"], ["type", "Type"],
+];
+const EDIT_DAY_OPTS = ["Fri", "Sat", "Sun"];
+const EDIT_REGION_OPTS = ["North", "Central", "South"];
+const EDIT_INPUT_STYLE = {
+  width: "100%", padding: "6px 8px", background: "#111",
+  border: "1px solid rgba(245,240,232,0.15)", borderRadius: 4,
+  color: "#F5F0E8", fontFamily: "inherit", fontSize: "0.8rem",
+  outline: "none", boxSizing: "border-box",
+};
+
 // Mobile Sweep Mode — one-conflict-group-at-a-time triage modal.
 // Renders full-screen on mobile so users with small screens can resolve
 // DUPE / VENUE / MULTI conflict groups without scrolling through the
@@ -91,7 +106,7 @@ function linkForEvent(ev) {
   return "";
 }
 
-export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDeletions }) {
+export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDeletions, onEdit }) {
   // Extract conflict groups — only the #N-tagged kind have partners.
   const groups = useMemo(() => {
     if (!open) return [];
@@ -119,6 +134,9 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
   const [decisions, setDecisions] = useState({}); // eventId → "keep" | "delete"
   // Stack of recent decision changes for Undo: { id, prev: "keep"|"delete"|null }
   const [history, setHistory] = useState([]);
+  // Inline edit — which card is being edited + its in-progress field values.
+  const [editingId, setEditingId] = useState(null);
+  const [editDraft, setEditDraft] = useState({});
 
   // === Swipe state ===
   // Only one card may be actively swiping at a time. swipingId holds
@@ -159,6 +177,23 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
     (events || []).forEach(e => m.set(String(e.id), e));
     return m;
   }, [events]);
+
+  // Exit edit mode when the group changes or the modal (re)opens, so a stale
+  // draft never bleeds across cards.
+  useEffect(() => { setEditingId(null); setEditDraft({}); }, [currentIdx, open]);
+
+  const startEditCard = (ev) => {
+    setEditDraft({
+      name: ev.name || "", day: ev.day || "", time: ev.time || "",
+      venue: ev.venue || "", area: ev.area || "", region: ev.region || "", type: ev.type || "",
+    });
+    setEditingId(ev.id);
+  };
+  const saveEditCard = () => {
+    if (editingId != null) onEdit?.(editingId, { ...editDraft });
+    setEditingId(null);
+  };
+  const cancelEditCard = () => { setEditingId(null); setEditDraft({}); };
 
   useEffect(() => {
     if (open) {
@@ -457,6 +492,7 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
           {(showAllCards ? groupEvents : groupEvents.slice(0, MAX_CARDS_INITIAL)).map((ev, i) => {
             const decision = decisions[ev.id];
             const isSwiping = swipingId === ev.id;
+            const isEditing = editingId === ev.id;
             // Per-field color: green if everyone agrees on this field's
             // value, orange if the group has differing values, dim if
             // this event's value is empty. Replaces the separate
@@ -489,10 +525,10 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
                   </div>
                 )}
                 <div
-                  onTouchStart={onTouchStart(ev.id)}
-                  onTouchMove={onTouchMove(ev.id)}
-                  onTouchEnd={onTouchEnd(ev.id)}
-                  onTouchCancel={onTouchEnd(ev.id)}
+                  onTouchStart={isEditing ? undefined : onTouchStart(ev.id)}
+                  onTouchMove={isEditing ? undefined : onTouchMove(ev.id)}
+                  onTouchEnd={isEditing ? undefined : onTouchEnd(ev.id)}
+                  onTouchCancel={isEditing ? undefined : onTouchEnd(ev.id)}
                   style={{
                     padding: 18,
                     background: swipeBgColor
@@ -513,42 +549,73 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
                   <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: 1, textTransform: "uppercase", marginBottom: 6, fontWeight: 600 }}>
                     Event {i + 1}{i === 0 ? " · first" : ""}
                   </div>
-                  {/* Name — color-coded: green if all events in
-                      group share this name, orange if it differs.
-                      Bumped up to read as the card hero. */}
-                  <div style={{ fontSize: "1.3rem", fontFamily: SWEEP_TITLE_FONT, fontWeight: 600, letterSpacing: "0.5px", lineHeight: 1.15, color: fieldColor("name"), marginBottom: 12 }}>
-                    {ev.name || "(no name)"}
-                  </div>
-                  {/* Each field value inline-colored against group
-                      consensus. Scan one card top-to-bottom — green
-                      means "this matches the group", orange means
-                      "this is one of the differences". Sized up so
-                      the comparison stays readable at arm's length. */}
-                  <div style={{ fontSize: "0.85rem", lineHeight: 1.7, marginBottom: 14 }}>
-                    <div>
-                      <span style={{ color: fieldColor("day") }}>{ev.day || "—"}</span>
-                      {sep}
-                      <span style={{ color: fieldColor("time") }}>{ev.time || "—"}</span>
+                  {isEditing ? (
+                    /* Inline edit form — fix the event without leaving the sweep. */
+                    <div style={{ display: "grid", gridTemplateColumns: "62px 1fr", gap: "8px 10px", alignItems: "center", marginBottom: 14 }}>
+                      {EDIT_FIELDS.map(([key, label]) => (
+                        <div key={key} style={{ display: "contents" }}>
+                          <label style={{ color: "rgba(245,240,232,0.5)", fontSize: "0.6rem", letterSpacing: "0.5px", textTransform: "uppercase" }}>{label}</label>
+                          {key === "day" ? (
+                            <select value={editDraft.day || ""} onChange={e => setEditDraft(d => ({ ...d, day: e.target.value }))} style={EDIT_INPUT_STYLE}>
+                              <option value="">—</option>
+                              {EDIT_DAY_OPTS.map(o => <option key={o} value={o}>{o}</option>)}
+                            </select>
+                          ) : key === "region" ? (
+                            <select value={editDraft.region || ""} onChange={e => setEditDraft(d => ({ ...d, region: e.target.value }))} style={EDIT_INPUT_STYLE}>
+                              <option value="">—</option>
+                              {EDIT_REGION_OPTS.map(o => <option key={o} value={o}>{o}</option>)}
+                            </select>
+                          ) : (
+                            <input value={editDraft[key] || ""} onChange={e => setEditDraft(d => ({ ...d, [key]: e.target.value }))} style={EDIT_INPUT_STYLE} />
+                          )}
+                        </div>
+                      ))}
                     </div>
-                    <div>
-                      <span style={{ color: fieldColor("venue") }}>{ev.venue || "—"}</span>
-                      {sep}
-                      <span style={{ color: fieldColor("area") }}>{ev.area || "—"}</span>
-                      {sep}
-                      <span style={{ color: fieldColor("region") }}>{ev.region || "—"}</span>
-                    </div>
-                    {ev.type && (
-                      <div style={{ marginTop: 4, fontSize: "0.75rem", color: fieldColor("type") }}>
-                        {ev.type}
+                  ) : (
+                    <>
+                      {/* Name — color-coded: green if all events in
+                          group share this name, orange if it differs.
+                          Bumped up to read as the card hero. */}
+                      <div style={{ fontSize: "1.3rem", fontFamily: SWEEP_TITLE_FONT, fontWeight: 600, letterSpacing: "0.5px", lineHeight: 1.15, color: fieldColor("name"), marginBottom: 12 }}>
+                        {ev.name || "(no name)"}
                       </div>
-                    )}
-                  </div>
+                      {/* Each field value inline-colored against group
+                          consensus. Scan one card top-to-bottom — green
+                          means "this matches the group", orange means
+                          "this is one of the differences". Sized up so
+                          the comparison stays readable at arm's length. */}
+                      <div style={{ fontSize: "0.85rem", lineHeight: 1.7, marginBottom: 14 }}>
+                        <div>
+                          <span style={{ color: fieldColor("day") }}>{ev.day || "—"}</span>
+                          {sep}
+                          <span style={{ color: fieldColor("time") }}>{ev.time || "—"}</span>
+                        </div>
+                        <div>
+                          <span style={{ color: fieldColor("venue") }}>{ev.venue || "—"}</span>
+                          {sep}
+                          <span style={{ color: fieldColor("area") }}>{ev.area || "—"}</span>
+                          {sep}
+                          <span style={{ color: fieldColor("region") }}>{ev.region || "—"}</span>
+                        </div>
+                        {ev.type && (
+                          <div style={{ marginTop: 4, fontSize: "0.75rem", color: fieldColor("type") }}>
+                            {ev.type}
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
                   {/* Per-card decision row — full-width buttons at the
                       bottom of the card so the thumb has a big target.
                       Tinder-style: keep on the right (green), delete
-                      on the left (red). The earlier top-right corner
-                      buttons made decisions feel like a side-action;
-                      bottom-row puts them front and center. */}
+                      on the left (red). While editing, this row swaps to
+                      Save / Cancel. */}
+                  {isEditing ? (
+                    <div style={{ display: "flex", gap: 8, alignItems: "stretch" }}>
+                      <button onClick={cancelEditCard} style={bottomActionBtnStyle(false, "#9CA3AF")} title="Discard changes">Cancel</button>
+                      <button onClick={saveEditCard} style={bottomActionBtnStyle(true, "#63B3ED")} title="Save changes">Save ✓</button>
+                    </div>
+                  ) : (
                   <div style={{ display: "flex", gap: 8, alignItems: "stretch" }}>
                     <button
                       onClick={() => setDecisionWithHistory(ev.id, "delete")}
@@ -560,6 +627,11 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
                       style={bottomActionBtnStyle(decision === "keep", "#34D399")}
                       title="Keep this event"
                     >✓ Keep</button>
+                    <button
+                      onClick={() => startEditCard(ev)}
+                      style={{ ...bottomActionBtnStyle(false, "#A78BFA"), flex: "0 0 auto", padding: "0 14px" }}
+                      title="Edit this event"
+                    >✎ Edit</button>
                     {/* IG / source link — opens the event's original
                         post (or IG profile) in a new tab so the user
                         can verify what they're keeping/deleting. */}
@@ -589,6 +661,7 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
                       >↗</a>
                     )}
                   </div>
+                  )}
                 </div>
               </div>
             );

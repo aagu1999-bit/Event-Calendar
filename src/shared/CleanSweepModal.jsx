@@ -40,12 +40,34 @@ const DETAIL_FIELDS = [
   ["type", "Type"],
 ];
 
-export function CleanSweepModal({ open, events, onClose, onApply }) {
+// Editable fields when fixing an event mid-sweep (matches the review list's
+// inline edit). Region is a fixed choice; the rest are free text.
+const EDIT_FIELDS = [
+  ["name", "Name"],
+  ["day", "Day"],
+  ["time", "Time"],
+  ["venue", "Venue"],
+  ["area", "City"],
+  ["region", "Region"],
+  ["type", "Type"],
+];
+const DAY_OPTS = ["Fri", "Sat", "Sun"];
+const REGION_OPTS = ["North", "Central", "South"];
+const INPUT_STYLE = {
+  width: "100%", padding: "6px 8px", background: "#111",
+  border: "1px solid rgba(245,240,232,0.15)", borderRadius: 4,
+  color: "#F5F0E8", fontFamily: "inherit", fontSize: "0.8rem",
+  outline: "none", boxSizing: "border-box",
+};
+
+export function CleanSweepModal({ open, events, onClose, onApply, onEdit }) {
   const [queue, setQueue] = useState([]);
   const [idx, setIdx] = useState(0);
   const [decisions, setDecisions] = useState({}); // id → "keep" | "cut"
   const [history, setHistory] = useState([]);      // ids in decision order
   const [drag, setDrag] = useState(0);             // live swipe offset (px)
+  const [editing, setEditing] = useState(false);   // is the current card in edit mode
+  const [draft, setDraft] = useState({});          // in-progress field edits
   const dragRef = useRef({ active: false, startX: 0 });
 
   // Snapshot the clean events when the modal opens so live deletions /
@@ -57,6 +79,8 @@ export function CleanSweepModal({ open, events, onClose, onApply }) {
       setDecisions({});
       setHistory([]);
       setDrag(0);
+      setEditing(false);
+      setDraft({});
     }
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -76,7 +100,29 @@ export function CleanSweepModal({ open, events, onClose, onApply }) {
     setHistory(h => [...h, id]);
     setIdx(i => i + 1);
     setDrag(0);
+    setEditing(false);
   };
+
+  // Fix an event mid-sweep. The edit reflects in the local deck immediately
+  // (card updates, no reshuffle) and is pushed up via onEdit so the review
+  // list + flag validation update too.
+  const startEdit = () => {
+    if (!current) return;
+    setDraft({
+      name: current.name || "", day: current.day || "", time: current.time || "",
+      venue: current.venue || "", area: current.area || "", region: current.region || "", type: current.type || "",
+    });
+    setDrag(0);
+    setEditing(true);
+  };
+  const saveEdit = () => {
+    if (current) {
+      setQueue(q => q.map((e, i) => (i === idx ? { ...e, ...draft } : e)));
+      onEdit?.(current.id, { ...draft });
+    }
+    setEditing(false);
+  };
+  const cancelEdit = () => { setEditing(false); setDraft({}); };
 
   const undo = () => {
     if (history.length === 0) return;
@@ -197,23 +243,23 @@ export function CleanSweepModal({ open, events, onClose, onApply }) {
 
               {/* Card */}
               <div
-                onPointerDown={onDown}
-                onPointerMove={onMove}
-                onPointerUp={onUp}
-                onPointerLeave={onUp}
+                onPointerDown={editing ? undefined : onDown}
+                onPointerMove={editing ? undefined : onMove}
+                onPointerUp={editing ? undefined : onUp}
+                onPointerLeave={editing ? undefined : onUp}
                 style={{
-                  position: "relative", touchAction: "pan-y", userSelect: "none",
+                  position: "relative", touchAction: "pan-y", userSelect: editing ? "auto" : "none",
                   padding: "22px 20px", borderRadius: 10,
                   background: leaning === "keep" ? "rgba(52,211,153,0.10)"
                     : leaning === "cut" ? "rgba(251,113,133,0.10)"
                     : "rgba(245,240,232,0.05)",
-                  border: `1.5px solid ${leaning === "keep" ? "#34D399" : leaning === "cut" ? "#FB7185" : "rgba(245,240,232,0.14)"}`,
-                  transform: `translateX(${drag}px) rotate(${drag * 0.02}deg)`,
+                  border: `1.5px solid ${editing ? "#63B3ED" : leaning === "keep" ? "#34D399" : leaning === "cut" ? "#FB7185" : "rgba(245,240,232,0.14)"}`,
+                  transform: editing ? "none" : `translateX(${drag}px) rotate(${drag * 0.02}deg)`,
                   transition: dragRef.current.active ? "none" : "transform 160ms ease, background 120ms, border-color 120ms",
-                  cursor: "grab",
+                  cursor: editing ? "default" : "grab",
                 }}
               >
-                {leaning && (
+                {!editing && leaning && (
                   <div style={{
                     position: "absolute", top: 12, [leaning === "keep" ? "right" : "left"]: 12,
                     fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: "0.7rem",
@@ -222,43 +268,78 @@ export function CleanSweepModal({ open, events, onClose, onApply }) {
                   }}>{leaning === "keep" ? "KEEP ✓" : "✗ CUT"}</div>
                 )}
 
-                {/* Event name — condensed readable title font, sweep-only */}
-                <div style={{
-                  fontFamily: TITLE_FONT, fontWeight: 600, fontSize: "1.7rem",
-                  lineHeight: 1.1, letterSpacing: "0.5px", marginBottom: 12,
-                  wordBreak: "break-word",
-                }}>
-                  {current.name || "(no name)"}
-                </div>
-
-                <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "4px 12px", fontSize: "0.75rem" }}>
-                  {DETAIL_FIELDS.map(([key, label]) => (
-                    (current[key] != null && String(current[key]).trim() !== "") ? (
+                {editing ? (
+                  <div style={{ display: "grid", gridTemplateColumns: "70px 1fr", gap: "8px 10px", alignItems: "center" }}>
+                    {EDIT_FIELDS.map(([key, label]) => (
                       <div key={key} style={{ display: "contents" }}>
-                        <span style={{ color: "rgba(245,240,232,0.4)", letterSpacing: "0.5px", textTransform: "uppercase", fontSize: "0.6rem", alignSelf: "center" }}>{label}</span>
-                        <span style={{ color: "rgba(245,240,232,0.9)" }}>{String(current[key])}</span>
+                        <label style={{ color: "rgba(245,240,232,0.5)", fontSize: "0.6rem", letterSpacing: "0.5px", textTransform: "uppercase" }}>{label}</label>
+                        {key === "day" ? (
+                          <select value={draft.day || ""} onChange={e => setDraft(d => ({ ...d, day: e.target.value }))} style={INPUT_STYLE}>
+                            <option value="">—</option>
+                            {DAY_OPTS.map(o => <option key={o} value={o}>{o}</option>)}
+                          </select>
+                        ) : key === "region" ? (
+                          <select value={draft.region || ""} onChange={e => setDraft(d => ({ ...d, region: e.target.value }))} style={INPUT_STYLE}>
+                            <option value="">—</option>
+                            {REGION_OPTS.map(o => <option key={o} value={o}>{o}</option>)}
+                          </select>
+                        ) : (
+                          <input value={draft[key] || ""} onChange={e => setDraft(d => ({ ...d, [key]: e.target.value }))} style={INPUT_STYLE} />
+                        )}
                       </div>
-                    ) : null
-                  ))}
+                    ))}
+                  </div>
+                ) : (
+                  <>
+                    {/* Event name — condensed readable title font, sweep-only */}
+                    <div style={{
+                      fontFamily: TITLE_FONT, fontWeight: 600, fontSize: "1.7rem",
+                      lineHeight: 1.1, letterSpacing: "0.5px", marginBottom: 12,
+                      wordBreak: "break-word",
+                    }}>
+                      {current.name || "(no name)"}
+                    </div>
+
+                    <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "4px 12px", fontSize: "0.75rem" }}>
+                      {DETAIL_FIELDS.map(([key, label]) => (
+                        (current[key] != null && String(current[key]).trim() !== "") ? (
+                          <div key={key} style={{ display: "contents" }}>
+                            <span style={{ color: "rgba(245,240,232,0.4)", letterSpacing: "0.5px", textTransform: "uppercase", fontSize: "0.6rem", alignSelf: "center" }}>{label}</span>
+                            <span style={{ color: "rgba(245,240,232,0.9)" }}>{String(current[key])}</span>
+                          </div>
+                        ) : null
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {editing ? (
+                <div style={{ display: "flex", gap: 10 }}>
+                  {btn("Cancel", "#9CA3AF", cancelEdit, { flex: 1, padding: "14px" })}
+                  {btn("Save ✓", "#63B3ED", saveEdit, { flex: 1, padding: "14px", fontSize: "0.85rem" })}
                 </div>
-              </div>
+              ) : (
+                <>
+                  {/* Keep / Cut */}
+                  <div style={{ display: "flex", gap: 10 }}>
+                    {btn("✗ Cut", "#FB7185", () => decide("cut"), { flex: 1, padding: "14px", fontSize: "0.85rem" })}
+                    {btn("Keep ✓", "#34D399", () => decide("keep"), { flex: 1, padding: "14px", fontSize: "0.85rem" })}
+                  </div>
 
-              {/* Keep / Cut */}
-              <div style={{ display: "flex", gap: 10 }}>
-                {btn("✗ Cut", "#FB7185", () => decide("cut"), { flex: 1, padding: "14px", fontSize: "0.85rem" })}
-                {btn("Keep ✓", "#34D399", () => decide("keep"), { flex: 1, padding: "14px", fontSize: "0.85rem" })}
-              </div>
+                  {/* Shortcuts */}
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
+                    {btn("✎ Edit", "#A78BFA", startEdit)}
+                    {btn("↩ Undo", "#63B3ED", undo, { opacity: history.length ? 1 : 0.4, cursor: history.length ? "pointer" : "not-allowed" })}
+                    {btn("Keep rest", "#34D399", () => decideRest("keep"))}
+                    {btn("Cut rest", "#FB7185", () => decideRest("cut"))}
+                  </div>
 
-              {/* Shortcuts */}
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
-                {btn("↩ Undo", "#63B3ED", undo, { opacity: history.length ? 1 : 0.4, cursor: history.length ? "pointer" : "not-allowed" })}
-                {btn("Keep rest", "#34D399", () => decideRest("keep"))}
-                {btn("Cut rest", "#FB7185", () => decideRest("cut"))}
-              </div>
-
-              <div style={{ textAlign: "center", fontSize: "0.55rem", color: "rgba(245,240,232,0.35)", letterSpacing: "1px", textTransform: "uppercase" }}>
-                Swipe right to keep · left to cut
-              </div>
+                  <div style={{ textAlign: "center", fontSize: "0.55rem", color: "rgba(245,240,232,0.35)", letterSpacing: "1px", textTransform: "uppercase" }}>
+                    Swipe right to keep · left to cut · tap ✎ Edit to fix
+                  </div>
+                </>
+              )}
             </>
           )}
 
