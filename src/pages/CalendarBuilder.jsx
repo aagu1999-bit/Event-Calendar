@@ -1331,7 +1331,18 @@ export default function CalendarBuilder() {
     eventRowsRef.current = rows;
   }, [pgEvts, activeColor, previewColor, friDate, sz, safePg, pages, dates, texture, watermark, pgIsCont, mode, bgImage, bgOpacity, pgDay, pgPrevRegion]);
 
-  useEffect(() => { const t = setTimeout(render, 60); return () => clearTimeout(t); }, [render]);
+  // Schedule a canvas repaint 400ms after the last change. Multiple
+  // keystrokes during that window collapse into ONE repaint — the preview
+  // reacts once you PAUSE typing, not on every character. The old 60ms
+  // window was shorter than the gap between most keystrokes, so it
+  // repainted the full canvas between nearly every character while filling
+  // out the form — heavy churn that janks (and crashes) on mobile. 400ms
+  // matches MediaTool's tuned debounce; wrapped in requestAnimationFrame so
+  // the canvas ops land on a frame boundary instead of blocking input.
+  useEffect(() => {
+    const t = setTimeout(() => requestAnimationFrame(render), 400);
+    return () => clearTimeout(t);
+  }, [render]);
 
   const addEv = () => {
     if (!nev.time || !nev.name) return;
