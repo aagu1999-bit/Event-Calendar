@@ -9,6 +9,7 @@ import { UInput, todaysFridayMD } from "../shared/inputs.jsx";
 import { ReviewSessionsModal } from "../shared/ReviewSessionsModal.jsx";
 import { ColumnMapperModal } from "../shared/ColumnMapperModal.jsx";
 import { ConflictSweepModal } from "../shared/ConflictSweepModal.jsx";
+import { CleanSweepModal } from "../shared/CleanSweepModal.jsx";
 import { FixFlagsModal } from "../shared/FixFlagsModal.jsx";
 import { saveExport } from "../shared/photoLibrary.js";
 import { rememberLastSession, getLastSession, forgetLastSession, loadSession } from "../shared/reviewSessions.js";
@@ -246,6 +247,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
   // triage. Button surfaces under .cge-mobile-only CSS so desktop users
   // keep the existing flag-pill workflow.
   const [sweepOpen, setSweepOpen] = useState(false);
+  const [cleanSweepOpen, setCleanSweepOpen] = useState(false);
   const [fixFlagsOpen, setFixFlagsOpen] = useState(false);
   // Weekend date anchor — same UX as CalendarBuilder. Type the upcoming
   // Friday in M/D format; Saturday and Sunday derive automatically. Used
@@ -382,6 +384,15 @@ export default function ReviewQueue({ betaMode = false } = {}) {
     });
     return n;
   }, [warnings]);
+
+  // Clean events — no warnings at all. These sailed past Conflict Sweep and
+  // Fix Flags, but "clean" isn't "wanted": Clean Sweep lets the user keep/cut
+  // them one at a time. Exclude already-vetted ones (already decided).
+  const cleanEvents = useMemo(
+    () => pending.filter(e => (warnings[e.id] || []).length === 0 && !approvedSet.has(e.id)),
+    [pending, warnings, approvedSet]
+  );
+  const cleanCount = cleanEvents.length;
 
   // Helper — match a flag tag in summary to its event count for filter
   const eventsWithFlagTag = (tag) => pending.filter(ev => {
@@ -1146,6 +1157,36 @@ export default function ReviewQueue({ betaMode = false } = {}) {
               </button>
             )}
 
+            {/* Clean Sweep — keep/cut the unflagged events one at a time.
+                Always visible (any device): it's a deliberate final curation
+                step, distinct from the flag-triage buttons above. */}
+            {cleanCount > 0 && (
+              <button
+                onClick={() => setCleanSweepOpen(true)}
+                style={{
+                  width: "100%",
+                  padding: betaMode ? "16px 18px" : "12px 16px",
+                  marginBottom: "0.8rem",
+                  background: "rgba(139,92,246,0.12)",
+                  border: "1.5px solid rgba(139,92,246,0.5)",
+                  color: "#A78BFA",
+                  borderRadius: 6,
+                  fontSize: betaMode ? "0.95rem" : "0.8rem",
+                  fontWeight: 800,
+                  letterSpacing: 1,
+                  textTransform: "uppercase",
+                  cursor: "pointer",
+                  fontFamily: "'Syne',sans-serif",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 8,
+                }}
+              >
+                ✨ Clean Sweep {cleanCount} Clean Event{cleanCount === 1 ? "" : "s"}
+              </button>
+            )}
+
             {/* Flag-type summary — counts per tag, click to filter */}
             {flagSummary.length > 0 && (
               <details
@@ -1733,6 +1774,32 @@ export default function ReviewQueue({ betaMode = false } = {}) {
             idsToDelete.forEach(id => { delete next[id]; });
             return next;
           });
+        }}
+      />
+      {/* Clean Sweep — keep/cut the unflagged events. Cut deletes from
+          pending (like the Conflict Sweep); Keep marks the event ✓ vetted
+          so it's confirmed to go through. warnings recompute via useMemo. */}
+      <CleanSweepModal
+        open={cleanSweepOpen}
+        events={cleanEvents}
+        onClose={() => setCleanSweepOpen(false)}
+        onApply={({ keepIds, cutIds }) => {
+          if (cutIds && cutIds.length > 0) {
+            const cutSet = new Set(cutIds.map(String));
+            setPending(p => p.filter(e => !cutSet.has(String(e.id))));
+            setApprovals(a => {
+              const next = { ...a };
+              cutIds.forEach(id => { delete next[id]; });
+              return next;
+            });
+          }
+          if (keepIds && keepIds.length > 0) {
+            setApprovedSet(s => {
+              const next = new Set(s);
+              keepIds.forEach(id => next.add(id));
+              return next;
+            });
+          }
         }}
       />
       {/* Fix Flags — single-event triage modal. Edits commit live via
