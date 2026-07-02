@@ -1,6 +1,11 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 
+// Condensed, highly legible display face for the event name — scoped to the
+// Sweep only (not tool-wide) so the title is easy to read at a glance while
+// triaging. 'Oswald Local' is bundled (see index.css @font-face).
+const SWEEP_TITLE_FONT = "'Oswald Local', 'Oswald', 'Syne', sans-serif";
+
 // Mobile Sweep Mode — one-conflict-group-at-a-time triage modal.
 // Renders full-screen on mobile so users with small screens can resolve
 // DUPE / VENUE / MULTI conflict groups without scrolling through the
@@ -507,7 +512,7 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
                   {/* Name — color-coded: green if all events in
                       group share this name, orange if it differs.
                       Bumped up to read as the card hero. */}
-                  <div style={{ fontSize: "1.15rem", fontFamily: "'Syne',sans-serif", fontWeight: 800, lineHeight: 1.2, color: fieldColor("name"), marginBottom: 12 }}>
+                  <div style={{ fontSize: "1.3rem", fontFamily: SWEEP_TITLE_FONT, fontWeight: 600, letterSpacing: "0.5px", lineHeight: 1.15, color: fieldColor("name"), marginBottom: 12 }}>
                     {ev.name || "(no name)"}
                   </div>
                   {/* Each field value inline-colored against group
