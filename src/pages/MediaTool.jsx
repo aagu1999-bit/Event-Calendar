@@ -3111,12 +3111,14 @@ export default function MediaTool() {
     else if(s.mode==="press") renderPress(cv,{photo:s.pressPhoto,topMeta:s.pressTopMeta,title:s.pressTitle,badge:s.pressBadge,lineup:s.pressLineup,genres:s.pressGenres,dateLine:s.pressDateLine,badgeBg:s.pressBadgeBg,badgeText:s.pressBadgeText,genreBg:s.pressGenreBg,genreText:s.pressGenreText,dateBg:s.pressDateBg,dateText:s.pressDateText,photoOpacity:s.pressPhotoOpacity,accent:s.accent,bgKey:s.bgKey,dots:s.dots,totalDots:s.totalDots});
   };
 
-  // Schedule a canvas repaint 120ms after the last render. Multiple
-  // keystrokes during that window collapse into one paint. Wrapped in
-  // rAF so the actual canvas ops land on a frame boundary instead of
-  // mid-input-event (smoother typing).
+  // Schedule a canvas repaint 400ms after the last render. Multiple keystrokes
+  // during that window collapse into ONE paint — the preview reacts once you
+  // PAUSE typing, not on every character. The old 120ms window repainted
+  // mid-typing and thrashed the canvas on mobile while filling out a form;
+  // 400ms = far fewer full-canvas redraws. Wrapped in rAF so the canvas ops
+  // land on a frame boundary.
   useEffect(()=>{
-    const t=setTimeout(()=>requestAnimationFrame(render),120);
+    const t=setTimeout(()=>requestAnimationFrame(render),400);
     return ()=>clearTimeout(t);
   });
 
