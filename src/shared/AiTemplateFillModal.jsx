@@ -3,6 +3,19 @@ import { createPortal } from "react-dom";
 import { useBrandStore, useCarouselTemplatesStore, BUILTIN_CAROUSEL_TEMPLATES } from "../store";
 import { generateTemplateFill, pickTemplate, generateArrangedCarousel } from "./aiContent.js";
 
+// Scaffold that primes the Context box with the ingredients a strong hook
+// (esp. an open loop) needs: the TWIST is the curiosity gap, PROOF + WHAT
+// HAPPENS are what the carousel uses to pay it off honestly. Filling these
+// in beats a bland bullet list every time — the "＋ Template" button drops
+// this skeleton in for the user to complete.
+const CONTEXT_SCAFFOLD = [
+  "THE TWIST: (the one surprising, counterintuitive thing — the \"wait, what?\")",
+  "WHAT HAPPENS: (concrete activities, lineup, format)",
+  "PROOF: (real specifics — names, venues, times, prices, counts)",
+  "WHY NOW: (why THIS weekend; what's new or at stake)",
+  "WHO IT'S FOR: (the specific crowd — never \"everyone\")",
+].join("\n");
+
 // Modal for AI-assisted whole-carousel generation. Pick a template,
 // type a topic + context, Gemini fills every slot in the sequence in
 // one coherent call. Output → preview cards → "Push to carousel".
@@ -608,9 +621,27 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
           ))}
         </div>
 
-        <label style={{ fontSize: "0.65rem", color: "rgba(245,240,232,0.65)", display: "block", marginBottom: 5, letterSpacing: 0.5 }}>
-          Context — event details / selling points / lineup / description
-        </label>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 5, flexWrap: "wrap" }}>
+          <label style={{ fontSize: "0.65rem", color: "rgba(245,240,232,0.65)", letterSpacing: 0.5 }}>
+            Context — the raw material for the hook (give it the twist, not a description)
+          </label>
+          <div style={{ flex: 1 }} />
+          <button
+            type="button"
+            onClick={() => {
+              if (context.trim() && !confirm("Replace what's in the Context box with the prompt template?")) return;
+              setContext(CONTEXT_SCAFFOLD);
+            }}
+            title="Drop in a fill-in template that gives the AI the ingredients an open loop needs"
+            style={{
+              padding: "3px 9px", borderRadius: 4, cursor: "pointer",
+              background: "rgba(139,92,246,0.12)", color: "#A78BFA",
+              border: "1px solid rgba(139,92,246,0.4)",
+              fontSize: "0.55rem", fontWeight: 700, letterSpacing: "1px",
+              textTransform: "uppercase", fontFamily: "inherit",
+            }}
+          >＋ Template</button>
+        </div>
         <textarea
           value={context}
           onChange={(e) => setContext(e.target.value)}
