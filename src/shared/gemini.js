@@ -3,6 +3,37 @@ import { extractJson, extractResponseText } from "./aiJson.js";
 const MODEL = "gemini-2.5-flash-lite";
 const URL_BASE = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 
+// Transient Gemini errors (429 rate limit, 5xx overload / "high demand") and
+// network drops usually clear within seconds — retry them with exponential
+// backoff instead of giving up on the first failure. Permanent errors (bad
+// request / bad key) are surfaced immediately. Mirrors the helper in
+// aiContent.js.
+const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
+
+async function geminiGenerate(apiKey, requestBody, { tries = 4 } = {}) {
+  if (!apiKey) throw new Error("Missing Gemini API key");
+  let lastErr;
+  for (let attempt = 0; attempt < tries; attempt++) {
+    if (attempt > 0) await new Promise(r => setTimeout(r, 800 * 2 ** (attempt - 1)));
+    let res;
+    try {
+      res = await fetch(`${URL_BASE}?key=${encodeURIComponent(apiKey)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody),
+      });
+    } catch (e) {
+      lastErr = e;          // network drop — transient, retry
+      continue;
+    }
+    if (res.ok) return res.json();
+    const errText = await res.text();
+    lastErr = new Error(`Gemini ${res.status}: ${errText.slice(0, 240)}`);
+    if (!RETRYABLE_STATUS.has(res.status)) throw lastErr;   // permanent — fail fast
+  }
+  throw lastErr;
+}
+
 export async function generateCaptions(apiKey, eventCtx, images = [], options = {}) {
   if (!apiKey) throw new Error("Missing Gemini API key");
 
@@ -18,24 +49,13 @@ export async function generateCaptions(apiKey, eventCtx, images = [], options = 
     }
   }
 
-  const res = await fetch(`${URL_BASE}?key=${encodeURIComponent(apiKey)}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ parts }],
-      generationConfig: {
-        responseMimeType: "application/json",
-        temperature: 0.9,
-      },
-    }),
+  const data = await geminiGenerate(apiKey, {
+    contents: [{ parts }],
+    generationConfig: {
+      responseMimeType: "application/json",
+      temperature: 0.9,
+    },
   });
-
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Gemini ${res.status}: ${errText.slice(0, 240)}`);
-  }
-
-  const data = await res.json();
   const raw = extractResponseText(data);
   if (!raw) throw new Error("Empty response from Gemini");
 

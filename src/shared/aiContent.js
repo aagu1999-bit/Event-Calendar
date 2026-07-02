@@ -21,6 +21,44 @@ import { extractJson, extractResponseText } from "./aiJson.js";
 const MODEL = "gemini-2.5-flash-lite";
 const URL_BASE = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 
+// Transient errors from Gemini — 429 (rate limit), 500, 503 (model
+// overloaded / "high demand"), plus network drops — usually clear within a
+// few seconds. Retry those with exponential backoff so a momentary spike
+// doesn't abort a generation the user is waiting on. Real errors (400 bad
+// request, 401/403 bad key) are NOT retried — they'd fail identically every
+// time, so we surface them immediately.
+const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
+
+// POST a request body to Gemini and return the parsed JSON response,
+// retrying transient failures. Replaces the raw fetch + res.ok check that
+// every generator here duplicated (and which gave up after one attempt).
+async function geminiGenerate(apiKey, requestBody, { tries = 4 } = {}) {
+  if (!apiKey) throw new Error("Missing Gemini API key");
+  let lastErr;
+  for (let attempt = 0; attempt < tries; attempt++) {
+    if (attempt > 0) {
+      // 0.8s → 1.6s → 3.2s. Enough for a "high demand" spike to pass.
+      await new Promise(r => setTimeout(r, 800 * 2 ** (attempt - 1)));
+    }
+    let res;
+    try {
+      res = await fetch(`${URL_BASE}?key=${encodeURIComponent(apiKey)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody),
+      });
+    } catch (e) {
+      lastErr = e;          // network/CORS drop — transient, retry
+      continue;
+    }
+    if (res.ok) return res.json();
+    const errText = await res.text();
+    lastErr = new Error(`Gemini ${res.status}: ${errText.slice(0, 240)}`);
+    if (!RETRYABLE_STATUS.has(res.status)) throw lastErr;   // permanent — fail fast
+  }
+  throw lastErr;
+}
+
 // Render a slot's reference metadata (audience, examples, anti-patterns)
 // as a labeled prompt block. Concrete examples drive output style more
 // than prose rules; anti-patterns prevent the well-known failure modes.
@@ -95,24 +133,13 @@ export async function generateSlideContent({ apiKey, slotType, topic, voice, slo
 
   const prompt = buildPrompt({ slotType, topic, voice, slotRule, count, context, mode });
 
-  const res = await fetch(`${URL_BASE}?key=${encodeURIComponent(apiKey)}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: {
-        responseMimeType: "application/json",
-        temperature: 0.9,
-      },
-    }),
+  const data = await geminiGenerate(apiKey, {
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: {
+      responseMimeType: "application/json",
+      temperature: 0.9,
+    },
   });
-
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Gemini ${res.status}: ${errText.slice(0, 240)}`);
-  }
-
-  const data = await res.json();
   const raw = extractResponseText(data);
   if (!raw) throw new Error("Empty response from Gemini");
 
@@ -167,21 +194,10 @@ export async function rankHooks({ apiKey, topic, candidates, keep = 3, context }
     `{"ranked":[{"index":<the # of a candidate above>,"score":<0-100>,"reason":"<max 12 words on why it stops the scroll>"}]}`,
   ].join("\n");
 
-  const res = await fetch(`${URL_BASE}?key=${encodeURIComponent(apiKey)}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { responseMimeType: "application/json", temperature: 0.3 },
-    }),
+  const data = await geminiGenerate(apiKey, {
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: { responseMimeType: "application/json", temperature: 0.3 },
   });
-
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Gemini ${res.status}: ${errText.slice(0, 240)}`);
-  }
-
-  const data = await res.json();
   const raw = extractResponseText(data);
   if (!raw) throw new Error("Empty response from Gemini");
 
@@ -272,19 +288,10 @@ export async function designSequence({ apiKey, topic, context, mode }) {
     `{"sequence":["cover","...","cta"],"rationale":"<1 sentence: why this arc fits this story>"}`,
   ].join("\n");
 
-  const res = await fetch(`${URL_BASE}?key=${encodeURIComponent(apiKey)}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { responseMimeType: "application/json", temperature: 0.5 },
-    }),
+  const data = await geminiGenerate(apiKey, {
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: { responseMimeType: "application/json", temperature: 0.5 },
   });
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Gemini ${res.status}: ${errText.slice(0, 240)}`);
-  }
-  const data = await res.json();
   const raw = extractResponseText(data);
   const parsed = extractJson(raw);
 
@@ -341,24 +348,13 @@ export async function pickTemplate({ apiKey, topic, context, candidates }) {
     `{"templateId":"<one of the ids above>","reasoning":"<1 sentence explaining the pick, citing the matching audience/bestFor/keyMove>"}`,
   ].join("\n");
 
-  const res = await fetch(`${URL_BASE}?key=${encodeURIComponent(apiKey)}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: {
-        responseMimeType: "application/json",
-        temperature: 0.4,
-      },
-    }),
+  const data = await geminiGenerate(apiKey, {
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: {
+      responseMimeType: "application/json",
+      temperature: 0.4,
+    },
   });
-
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Gemini ${res.status}: ${errText.slice(0, 240)}`);
-  }
-
-  const data = await res.json();
   const raw = extractResponseText(data);
   if (!raw) throw new Error("Empty response from Gemini");
 
@@ -401,24 +397,13 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   const today = (() => { try { return new Date().toISOString().slice(0, 10); } catch { return null; } })();
   const prompt = buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, templateMeta, mode, today });
 
-  const res = await fetch(`${URL_BASE}?key=${encodeURIComponent(apiKey)}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: {
-        responseMimeType: "application/json",
-        temperature: 0.85,
-      },
-    }),
+  const data = await geminiGenerate(apiKey, {
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: {
+      responseMimeType: "application/json",
+      temperature: 0.85,
+    },
   });
-
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Gemini ${res.status}: ${errText.slice(0, 240)}`);
-  }
-
-  const data = await res.json();
   const raw = extractResponseText(data);
   if (!raw) throw new Error("Empty response from Gemini");
 
@@ -507,19 +492,10 @@ export async function polishCarousel({ apiKey, topic, context, voice, sequence, 
     `{"slides":[${sequence.map(fillSlotShape).join(",")}]}`,
   ].join("\n");
 
-  const res = await fetch(`${URL_BASE}?key=${encodeURIComponent(apiKey)}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { responseMimeType: "application/json", temperature: 0.4 },
-    }),
+  const data = await geminiGenerate(apiKey, {
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: { responseMimeType: "application/json", temperature: 0.4 },
   });
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Gemini ${res.status}: ${errText.slice(0, 240)}`);
-  }
-  const data = await res.json();
   const raw = extractResponseText(data);
   const parsed = extractJson(raw);
   const out = Array.isArray(parsed?.slides) ? parsed.slides : [];
