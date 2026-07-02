@@ -8,6 +8,16 @@
 
 const API = "/api/review-sessions";
 
+// Session names travel in the URL path (…/review-sessions/<name>). A "/" in
+// the name encodes to %2F, which Replit's proxy rejects with a 404 before
+// the request ever reaches the server — so a name like "7/3 triage" fails to
+// save. Collapse path-hostile characters to a dash up front. The server
+// applies its own basename guard too; sanitizing here keeps the name the
+// user sees matching the file that actually gets written.
+function safeName(raw) {
+  return String(raw || "").replace(/[/\\]+/g, "-").trim();
+}
+
 async function api(path, init = {}) {
   const res = await fetch(API + path, init);
   if (!res.ok) {
@@ -26,12 +36,12 @@ export async function listSessions() {
 }
 
 export async function loadSession(name) {
-  const res = await api(`/${encodeURIComponent(name)}`);
+  const res = await api(`/${encodeURIComponent(safeName(name))}`);
   return res.json();
 }
 
 export async function saveSession(name, payload) {
-  const res = await api(`/${encodeURIComponent(name)}`, {
+  const res = await api(`/${encodeURIComponent(safeName(name))}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -40,7 +50,7 @@ export async function saveSession(name, payload) {
 }
 
 export async function deleteSession(name) {
-  await api(`/${encodeURIComponent(name)}`, { method: "DELETE" });
+  await api(`/${encodeURIComponent(safeName(name))}`, { method: "DELETE" });
 }
 
 // Remember the last loaded session so the next boot can re-load it

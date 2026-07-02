@@ -1,6 +1,21 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { createPortal } from "react-dom";
 import { listSessions, loadSession, saveSession, deleteSession } from "./reviewSessions.js";
+
+// Download an object as a pretty-printed JSON file. Pure client-side — no
+// backend involved, so this works even when the app is served statically
+// (no Repl server) and the file can be handed to anyone on any account.
+function downloadJson(obj, filename) {
+  const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 
 function formatBytes(n) {
   if (!n) return "0 B";
@@ -36,6 +51,54 @@ export function ReviewSessionsModal({
   const [items, setItems] = useState([]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
+  const fileInputRef = useRef(null);
+
+  // Export the current review state to a downloadable .json file. Unlike the
+  // server-backed "Save" (which writes to one Repl's disk and only syncs to
+  // clients hitting that same live backend), a file works with zero backend
+  // and can be handed to a teammate on any device or account.
+  const exportToFile = () => {
+    try {
+      const cur = getCurrent() || {};
+      const stamp = new Date().toISOString().slice(0, 10);
+      const payload = {
+        __cgeReviewSession: true,
+        version: 1,
+        exportedAt: Date.now(),
+        events: Array.isArray(cur.events) ? cur.events : [],
+        approvals: cur.approvals && typeof cur.approvals === "object" ? cur.approvals : {},
+        vetted: Array.isArray(cur.vetted) ? cur.vetted : [],
+        filter: typeof cur.filter === "string" ? cur.filter : "",
+        sortByTag: typeof cur.sortByTag === "string" ? cur.sortByTag : null,
+      };
+      downloadJson(payload, `cge-review-session-${stamp}.json`);
+    } catch (e) {
+      alert("Export failed: " + (e.message || e));
+    }
+  };
+
+  // Load a review session from a file the user picks. Mirrors onPickLoad but
+  // reads the JSON locally instead of from the server.
+  const importFromFile = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";   // reset so re-picking the same file fires onChange
+    if (!file) return;
+    try {
+      const parsed = JSON.parse(await file.text());
+      if (!parsed || !Array.isArray(parsed.events)) {
+        throw new Error("That doesn't look like a CGE review-session file (no events array).");
+      }
+      const cur = getCurrent();
+      if ((cur?.events?.length || 0) > 0 &&
+          !confirm(`Replace the current ${cur.events.length} event(s) with the ${parsed.events.length} from this file?`)) {
+        return;
+      }
+      onLoad(parsed, file.name.replace(/\.json$/i, ""));
+      onClose();
+    } catch (err) {
+      alert("Import failed: " + (err.message || err));
+    }
+  };
 
   const reload = async () => {
     try {
@@ -139,7 +202,7 @@ export function ReviewSessionsModal({
         <div className="cge-modal-header" style={{
           padding: "14px 18px",
           borderBottom: "1px solid rgba(245,240,232,0.08)",
-          display: "flex", alignItems: "center", gap: "12px",
+          display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap",
         }}>
           <div style={{ fontSize: "0.75rem", fontWeight: 800, letterSpacing: "2px", textTransform: "uppercase", color: "#34D399" }}>
             📁 Review Sessions
@@ -148,6 +211,39 @@ export function ReviewSessionsModal({
             {mode === "save" ? "Save the current events + approvals as a named snapshot" : "Click a session to load · save the current state as a new snapshot"}
           </div>
           <div style={{ flex: 1 }} />
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="application/json,.json"
+            onChange={importFromFile}
+            style={{ display: "none" }}
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={busy}
+            title="Load a session from a .json file a teammate sent you (no server needed)"
+            style={{
+              padding: "5px 12px", borderRadius: "4px",
+              background: "rgba(99,179,237,0.1)", color: "#63B3ED",
+              border: "1px solid rgba(99,179,237,0.4)",
+              fontSize: "0.6rem", fontWeight: 700, letterSpacing: "1.5px",
+              textTransform: "uppercase", cursor: busy ? "wait" : "pointer",
+              fontFamily: "inherit",
+            }}
+          >⬆ Import File</button>
+          <button
+            onClick={exportToFile}
+            disabled={busy}
+            title="Download the current review state as a .json file you can hand to anyone, on any device or account"
+            style={{
+              padding: "5px 12px", borderRadius: "4px",
+              background: "rgba(99,179,237,0.1)", color: "#63B3ED",
+              border: "1px solid rgba(99,179,237,0.4)",
+              fontSize: "0.6rem", fontWeight: 700, letterSpacing: "1.5px",
+              textTransform: "uppercase", cursor: busy ? "wait" : "pointer",
+              fontFamily: "inherit",
+            }}
+          >⬇ Export File</button>
           <button
             onClick={() => onSaveAs(null)}
             disabled={busy}
