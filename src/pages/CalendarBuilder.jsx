@@ -116,7 +116,13 @@ function sortEv(evts) {
   return [...evts].sort((a, b) => {
     const da = DAY_ORDER[a.day] ?? 9, db = DAY_ORDER[b.day] ?? 9;
     if (da !== db) return da - db;
-    const ra = REGION_ORDER[a.region] ?? 9, rb = REGION_ORDER[b.region] ?? 9;
+    // Normalize the region before ranking. Scraper/sheet imports store it as
+    // "NORTH", "North NJ", "northern", etc., which don't exact-match the
+    // canonical REGION_ORDER keys ("North"/"Central"/"South"). Without this
+    // every event tied on region and the sort fell through to pure time
+    // order — interleaving the regions (CENTRAL, NORTH, SOUTH, NORTH…)
+    // instead of grouping them North → Central → South with one header each.
+    const ra = REGION_ORDER[parseRegion(a.region)] ?? 9, rb = REGION_ORDER[parseRegion(b.region)] ?? 9;
     if (ra !== rb) return ra - rb;
     return parseTime(a.time) - parseTime(b.time);
   });
@@ -1109,7 +1115,15 @@ export default function CalendarBuilder() {
   const maxFirst = MAX_FIRST[sz];
   const maxCont = MAX_CONT[sz];
   const dates = calcDates(friDate);
-  const sorted = sortEv(events);
+  // Normalize each event's region to canonical "North"/"Central"/"South" for
+  // the whole calendar pipeline, so sort, region grouping, dividers and
+  // headers all agree even when imports store "NORTH", "North NJ", etc.
+  // (otherwise a region can split into two headers). Only clones when the
+  // value actually changes; falls back to the raw value if unrecognized.
+  const sorted = sortEv(events).map(e => {
+    const canon = parseRegion(e.region);
+    return canon && canon !== e.region ? { ...e, region: canon } : e;
+  });
 
   // === VALIDATION: duplicates + missing fields + venue conflicts ===
   const normalize = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
