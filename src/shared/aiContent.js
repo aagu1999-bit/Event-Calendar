@@ -545,6 +545,37 @@ function registerBlock(mode) {
   ];
 }
 
+// Genre-adaptive creativity. The same open-loop formula makes a nutrition
+// fair, a singles mixer, and a 2000s party all read alike. This tells the
+// model to FIRST read the event's genre + energy and match the hook, tone,
+// and rhythm to IT — and to invent vivid, on-genre specifics when the input
+// is thin, so a topic + template alone yields a fully-formed carousel with
+// minimal input from the user.
+function creativeDirection() {
+  return [
+    "CREATIVE DIRECTION — read before writing a single line:",
+    "- FIRST infer this event's GENRE + ENERGY from the topic. Examples:",
+    "    wellness / civic → calm, meaningful, restorative;",
+    "    food / market → sensory, communal, abundant;",
+    "    singles / social → playful, a little flirty, low-stakes fun;",
+    "    nightlife / party → loud, FOMO, after-dark energy;",
+    "    arts / culture → curatorial, considered;   sports → stakes, hype.",
+    "- MATCH the hook, vocabulary, and rhythm to THAT genre. A wellness fair, a",
+    "  singles mixer, and a 2000s throwback party must NOT sound like the same",
+    "  post — same brand voice, completely different energy and angle.",
+    "- ROTATE hook archetypes to fit the genre; never default to one formula:",
+    "  open loop, then→now, a pointed question, a hard number, a contrarian flip,",
+    "  a single vivid scene detail. Be clever and surprising, not templated.",
+    "- Come with MORE than the input gives you. If details are thin, invent vivid,",
+    "  on-genre, realistic specifics (a believable time, a concrete activity, a",
+    "  venue mood) so the carousel feels fully-formed and effective on its own —",
+    "  the user will fine-tune. Favor concrete texture over generic filler, and",
+    "  don't assert unverifiable facts as hard guarantees.",
+    "─────────────────────────────",
+    "",
+  ];
+}
+
 function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, templateMeta, mode, today }) {
   const hasVoiceDesc = voice && typeof voice.description === "string" && voice.description.trim();
   const exemplars = Array.isArray(voice?.exemplars) ? voice.exemplars.filter(e => e && e.trim()) : [];
@@ -620,6 +651,7 @@ function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, tem
     "  the invite), not a limp 'link in bio'.",
     ...(today ? [`- Today is ${today}. Use the correct current year everywhere; never default to a past year.`] : []),
     "",
+    ...creativeDirection(),
     ...registerBlock(mode),
     ...variationDirective(),
     ...((topic && topic.trim()) ? [`Carousel topic: ${topic.trim()}`, ""] : []),
@@ -697,6 +729,7 @@ function buildPrompt({ slotType, topic, voice, slotRule, count = 3, context, mod
       context.trim(),
       "",
     ] : []),
+    ...creativeDirection(),
     ...registerBlock(mode),
     ...variationDirective(),
     ...(slotRefBlock.length ? [...slotRefBlock, "─────────────────────────────", ""] : []),
