@@ -64,6 +64,26 @@ let _brand = {
   url: "centralgroupevents.com",
 };
 const ff = (s) => s.replace(/'Syne'/g, `'${_displayFont}'`).replace(/'DM Sans'/g, `'${_bodyFont}'`);
+
+// Split `text` into whole-word lines that each fit within maxW at the
+// caller's current ctx.font / letterSpacing. Description / meta / subtitle
+// lines used to draw as a single fillText and run off the slide edge when
+// long; renderers now wrap them with this and stack the lines themselves
+// (up or down depending on their anchor). Always returns at least one line.
+function wrapToLines(ctx, text, maxW) {
+  const words = String(text || "").split(/\s+/).filter(Boolean);
+  if (!words.length) return [""];
+  const lines = [];
+  let cur = "";
+  for (const w of words) {
+    const test = cur ? cur + " " + w : w;
+    if (cur && ctx.measureText(test).width > maxW) { lines.push(cur); cur = w; }
+    else cur = test;
+  }
+  if (cur) lines.push(cur);
+  return lines;
+}
+
 const setActiveFonts = (d, b) => { _displayFont = d; _bodyFont = b; };
 const setActiveWatermark = (w) => { _watermark = w; };
 const setActiveBrand = (b) => { _brand = { ..._brand, ...b }; };
@@ -392,7 +412,9 @@ function renderStat(canvas, cfg) {
 
   if(statSub?.trim()){
     ctx.font=ff("400 28px 'DM Sans',sans-serif"); ctx.fillStyle=subColor; ctx.textBaseline="top";
-    const subLines=statSub.split("\n");
+    // Respect manual line breaks, but ALSO auto-wrap any long segment so it
+    // doesn't run off the edge.
+    const subLines=statSub.split("\n").flatMap(seg=>wrapToLines(ctx,seg,W-160));
     subLines.forEach((ln,i)=>ctx.fillText(ln.trim(),W/2,H*0.67+i*36));
   }
 
@@ -692,7 +714,9 @@ function renderPhotoCaption(canvas, cfg) {
   if (captionSecondary?.trim()) {
     ctx.font=ff("700 22px 'DM Sans',sans-serif");
     ctx.fillStyle=accent; ctx.letterSpacing="3px"; ctx.textAlign=align; ctx.textBaseline="bottom";
-    ctx.fillText(captionSecondary.toUpperCase(), ax, H-100);
+    const secLines = wrapToLines(ctx, captionSecondary.toUpperCase(), W-160);
+    const secLH = 28;
+    secLines.forEach((ln,i)=>ctx.fillText(ln, ax, (H-100)-(secLines.length-1-i)*secLH));
     ctx.letterSpacing="0px"; ctx.textBaseline="top";
   }
 
@@ -820,15 +844,23 @@ function renderSpotlight(canvas, cfg) {
     yBottom -= 50;
   }
 
-  // DETAIL line — address-style, monospace-ish feel via letterSpacing.
+  // DETAIL line — address-style. Wraps to the safe width instead of running
+  // off the edge; because the stack builds bottom-up, extra lines go ABOVE
+  // yBottom and we push yBottom up by the added height so the venue name
+  // above doesn't overlap.
   if (spotMeta && spotMeta.trim()) {
     ctx.font = ff("600 26px 'DM Sans',sans-serif");
     ctx.fillStyle = detailColor;
     ctx.textBaseline = "bottom";
     ctx.textAlign = isCenter ? "center" : "left";
-    ctx.fillText(spotMeta, isCenter ? W / 2 : px, yBottom);
+    const metaLines = wrapToLines(ctx, spotMeta, W - px * 2);
+    const metaLH = 34;
+    metaLines.forEach((ln, i) => {
+      const y = yBottom - (metaLines.length - 1 - i) * metaLH;
+      ctx.fillText(ln, isCenter ? W / 2 : px, y);
+    });
     ctx.textAlign = "left";
-    yBottom -= 44;
+    yBottom -= 44 + (metaLines.length - 1) * metaLH;
   }
 
   // NUMBERED BADGE — optional Feature Drop / listicle treatment. Drawn
@@ -1163,7 +1195,7 @@ function renderSaveDate(canvas, cfg) {
   if (saveVenue?.trim()) {
     ctx.font = ff("600 28px 'DM Sans',sans-serif");
     ctx.fillStyle = venueColor; ctx.textAlign = "center";
-    ctx.fillText(saveVenue, W / 2, 800);
+    wrapToLines(ctx, saveVenue, W - 160).forEach((ln, i) => ctx.fillText(ln, W / 2, 800 + i * 36));
   }
 
   // CTA
