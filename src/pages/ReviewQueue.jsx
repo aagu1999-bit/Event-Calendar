@@ -199,7 +199,22 @@ export default function ReviewQueue({ betaMode = false } = {}) {
     setLastSessionName(name);
   };
 
-  const [pending, setPending] = useState([]); // parsed Event[]
+  // The working review list. Persisted to localStorage so switching tabs
+  // (which unmounts this page) — or reloading — doesn't wipe in-progress
+  // curation (deletions, edits, sweeps). approvals/vetted already live in
+  // the store for the same reason; pending was the one piece still dying on
+  // nav. Seeded from localStorage on mount; written back whenever it changes.
+  const REVIEW_PENDING_KEY = "cge_review_pending";
+  const [pending, setPending] = useState(() => {
+    try {
+      const raw = localStorage.getItem(REVIEW_PENDING_KEY);
+      const arr = raw ? JSON.parse(raw) : [];
+      return Array.isArray(arr) ? arr : [];
+    } catch { return []; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(REVIEW_PENDING_KEY, JSON.stringify(pending)); } catch {}
+  }, [pending]);
 
   // Scraper-intake handoff. ScraperReview stashes a batch of events into
   // useScraperIntakeStore then navigates here. Consume once on mount —
