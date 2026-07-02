@@ -254,7 +254,29 @@ function renderCover(canvas, cfg) {
     ctx.fillText(rt,ribbonX+rpadX,ribbonY+rectH/2);
     ctx.letterSpacing="0px"; ctx.textBaseline="top";
   }
-  if(subtitle?.trim()){ctx.font=ff("700 24px 'DM Sans',sans-serif");ctx.fillStyle=accent;ctx.textBaseline="bottom";ctx.letterSpacing="3px";ctx.textAlign=isCenter?"center":"left";ctx.fillText(subtitle.toUpperCase(),isCenter?W/2:px,startY-12);ctx.textAlign="left";ctx.letterSpacing="0px";}
+  if(subtitle?.trim()){
+    ctx.font=ff("700 24px 'DM Sans',sans-serif");ctx.fillStyle=accent;ctx.textBaseline="bottom";ctx.letterSpacing="3px";ctx.textAlign=isCenter?"center":"left";
+    // Wrap the subtitle/where-line instead of drawing it on one line — a long
+    // tagline (e.g. a full "X hosts the first …" sentence) used to run off the
+    // right edge of the slide. Break it into lines that fit the safe width and
+    // stack them UPWARD from just above the headline so the layout still reads
+    // top-to-bottom.
+    const subMaxW = W - px*2;
+    const subWords = subtitle.toUpperCase().split(/\s+/).filter(Boolean);
+    const subLines = []; let curLine = "";
+    for(const wd of subWords){
+      const test = curLine ? curLine+" "+wd : wd;
+      if(curLine && ctx.measureText(test).width > subMaxW){ subLines.push(curLine); curLine = wd; }
+      else curLine = test;
+    }
+    if(curLine) subLines.push(curLine);
+    const subLH = 30;
+    subLines.forEach((ln,si)=>{
+      const y = startY - 12 - (subLines.length - 1 - si) * subLH;
+      ctx.fillText(ln, isCenter?W/2:px, y);
+    });
+    ctx.textAlign="left";ctx.letterSpacing="0px";
+  }
   ctx.font=ff(`800 ${fs}px 'Syne',sans-serif`); ctx.textBaseline="top"; ctx.letterSpacing="0px"; const sw=ctx.measureText(" ").width;
   lines.forEach((lw,li)=>{const lineW=lw.reduce((a,w)=>a+w.width,0)+sw*Math.max(0,lw.length-1);let x=isCenter?(W-lineW)/2:px;const y=startY+li*lh;lw.forEach(w=>{ctx.fillStyle=highlights.has(w.idx)?accent:"#FFF";ctx.fillText(w.text,x,y);x+=w.width+sw;});});
 
@@ -4763,8 +4785,8 @@ export default function MediaTool() {
   }, [alternateColors, alternateBgKey]);
 
   return(
-    <div style={{minHeight:"calc(100vh - 60px)",background:"#080808",color:"#F5F0E8",fontFamily:"'DM Sans',sans-serif"}}>
-      <div style={{maxWidth:1150,margin:"0 auto",padding:"1.25rem"}}>
+    <div style={{minHeight:"calc(100vh - 60px)",background:"#080808",color:"#F5F0E8",fontFamily:"'DM Sans',sans-serif",overflowX:"hidden"}}>
+      <div style={{maxWidth:1150,margin:"0 auto",padding:"1.25rem",width:"100%",boxSizing:"border-box"}}>
         <div style={{display:"flex",alignItems:"center",gap:"0.75rem",marginBottom:"1rem"}}>
           <h1 style={{fontFamily:"'Syne',sans-serif",fontSize:"1.2rem",fontWeight:800,textTransform:"uppercase"}}>CGE Media Template</h1>
           <span style={{fontSize:"0.6rem",color:accent,letterSpacing:"1.5px",textTransform:"uppercase",padding:"2px 8px",border:"1px solid rgba(255,255,255,0.08)",borderRadius:"14px"}}>{mode} Slide · Export {exportRatio}</span>
