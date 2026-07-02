@@ -263,6 +263,10 @@ export async function designSequence({ apiKey, topic, context, mode }) {
     "  spotlights or a features slide; a multi-event roundup → several ctas; a single",
     "  strong beat → keep it short. A PRE-event promo should NOT use 'photo'.",
     "- Don't pad. Every slide must earn its place.",
+    "- RETENTION — build for the swipe-through: if the cover is an open-loop hook,",
+    "  make SLIDE 2 the payoff/reveal that starts answering it (not a generic thesis).",
+    "  Each slide should tease the next; escalate concrete specifics through the middle;",
+    "  end on a slide that REWARDS reaching the end (payoff + invite), not a limp CTA.",
     "",
     "Return JSON ONLY (no fences, no prose):",
     `{"sequence":["cover","...","cta"],"rationale":"<1 sentence: why this arc fits this story>"}`,
@@ -480,6 +484,10 @@ export async function polishCarousel({ apiKey, topic, context, voice, sequence, 
     "  number, or a question. Never a bland label like 'First Annual X'.",
     "- Every slide honest (a claim the event actually delivers) and on the CGE voice.",
     "- Name concrete specifics — numbers, places, moments — over vague description.",
+    "- PULL-THROUGH: read the carousel end-to-end. Slide 2 must continue the cover's",
+    "  hook (pay off its curiosity, don't restate it). Each slide should make the reader",
+    "  want the next. The FINAL slide must reward reaching the end. If a slide breaks the",
+    "  throughline, rewrite it to carry momentum forward.",
     ...(today ? [`- Today is ${today}. Correct current year everywhere; never a past year.`] : []),
     ...((mode === "promo")
       ? ["- REGISTER: PROMO — own-event push, more energy, a time pull, a soft invite. No 'don't miss out' clichés."]
@@ -584,6 +592,11 @@ function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, tem
     "- The COVER must open with a real HOOK — a curiosity gap, a before→after, a",
     "  number, or a question. NEVER a bland label like 'First Annual X'.",
     "- Honest always: a hook the rest of the carousel actually pays off. Tease, never mislead.",
+    "- PULL-THROUGH (hold attention to the END): SLIDE 2 must CONTINUE the cover's hook —",
+    "  open by paying off its curiosity ('Here's what happened…', 'How it came back…'), not",
+    "  a generic thesis. Every slide should make the reader want the next; escalate concrete",
+    "  specifics through the middle. The FINAL slide must REWARD reaching the end (a payoff +",
+    "  the invite), not a limp 'link in bio'.",
     ...(today ? [`- Today is ${today}. Use the correct current year everywhere; never default to a past year.`] : []),
     ...((mode === "promo")
       ? ["- REGISTER: PROMO — own-event push. More energy, a time pull, a soft invite. Still no 'don't miss out' clichés."]
