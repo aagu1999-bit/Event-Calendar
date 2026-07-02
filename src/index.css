@@ -244,6 +244,18 @@ body {
     grid-template-columns: 1fr !important;
     gap: 1rem !important;
   }
+  /* Grid & flex children default to min-width:auto (their content's min
+     size), so a single wide, non-wrapping descendant (a button row, a
+     nested fixed-column grid, a long label) expands the 1fr column PAST the
+     viewport — shifting the whole form right and clipping the Download
+     button, Total-slides box, etc. Forcing min-width:0 lets the column
+     shrink to the phone width so everything fits. */
+  .cge-main-grid,
+  .cge-main-grid > *,
+  .cge-builder-layout,
+  .cge-builder-layout > * {
+    min-width: 0 !important;
+  }
   /* Show mobile-only controls (e.g. Sweep Conflicts button in Review).
      Inline display:none keeps them invisible on desktop; this rule
      flips to inline-flex on mobile to surface them. */
