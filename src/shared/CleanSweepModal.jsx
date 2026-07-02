@@ -60,6 +60,17 @@ const INPUT_STYLE = {
   outline: "none", boxSizing: "border-box",
 };
 
+// The event's source link — the original post if the scraper captured one,
+// else the IG profile. Lets the user verify "what is this event?" mid-sweep.
+// (Mirrors linkForEvent in ConflictSweepModal.)
+function linkForEvent(ev) {
+  const link = String(ev?.link || "").trim();
+  if (link) return link;
+  const ig = String(ev?.igHandle || "").trim().replace(/^@+/, "");
+  if (ig) return `https://instagram.com/${ig}`;
+  return "";
+}
+
 export function CleanSweepModal({ open, events, onClose, onApply, onEdit }) {
   const [queue, setQueue] = useState([]);
   const [idx, setIdx] = useState(0);
@@ -329,6 +340,7 @@ export function CleanSweepModal({ open, events, onClose, onApply, onEdit }) {
 
                   {/* Shortcuts */}
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
+                    {linkForEvent(current) && btn("↗ Source", "#63B3ED", () => window.open(linkForEvent(current), "_blank", "noopener,noreferrer"))}
                     {btn("✎ Edit", "#A78BFA", startEdit)}
                     {btn("↩ Undo", "#63B3ED", undo, { opacity: history.length ? 1 : 0.4, cursor: history.length ? "pointer" : "not-allowed" })}
                     {btn("Keep rest", "#34D399", () => decideRest("keep"))}
