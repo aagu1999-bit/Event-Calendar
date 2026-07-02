@@ -58,6 +58,18 @@ function FacePicker({ onSwitch }) {
   const [topN, setTopN]             = useState(DEFAULT_TOP_N);
   const fileRef = useRef(null);
 
+  // Revoke every uploaded photo's object URL when the FacePicker unmounts.
+  // Each photo pins an object URL + the original File + its face-api
+  // detections; previously only the "Clear all" button freed them, so
+  // switching tools (or back to the Library view) without clearing leaked
+  // every uploaded bitmap for the life of the page. A ref mirrors the live
+  // list so the unmount cleanup sees the current photos, not a stale [].
+  const photosRef = useRef(photos);
+  photosRef.current = photos;
+  useEffect(() => () => {
+    photosRef.current.forEach(p => URL.revokeObjectURL(p.url));
+  }, []);
+
   // Load face-api.js + tiny detector + expression net on mount
   useEffect(() => {
     let cancelled = false;

@@ -266,6 +266,15 @@ export default function ReviewQueue({ betaMode = false } = {}) {
   // Shape: { prefix: "VENUE", label: "VENUE #31", ids: Set<id> } or null.
   const [highlightedGroup, setHighlightedGroup] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
+  // Debounced copy of searchQuery that actually feeds the `visible` list.
+  // The text field stays bound to searchQuery (instant feedback), but the
+  // expensive filter + full-list re-render only fires 200ms after you pause
+  // typing — otherwise every character re-filtered and re-rendered all rows.
+  const [searchTerm, setSearchTerm] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setSearchTerm(searchQuery), 200);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
   const [storeOpen, setStoreOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);   // event id being inline-edited
   const [editDraft, setEditDraft] = useState({});     // in-progress edit fields (separate from pending so validation doesn't re-run per keystroke)
@@ -591,7 +600,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
     else list = pending;
 
     // Search filter — additive on top of the active filter
-    const q = searchQuery.trim().toLowerCase();
+    const q = searchTerm.trim().toLowerCase();
     if (q) {
       list = list.filter(e =>
         (e.name || "").toLowerCase().includes(q) ||
@@ -633,7 +642,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
       });
     }
     return list;
-  }, [pending, warnings, approvals, approvedSet, filter, searchQuery, sortByTag, highlightedGroup]);
+  }, [pending, warnings, approvals, approvedSet, filter, searchTerm, sortByTag, highlightedGroup]);
 
   const approvedCount = pending.filter(e => approvals[e.id]).length;
   const flaggedCount = pending.filter(e => (warnings[e.id] || []).length > 0).length;

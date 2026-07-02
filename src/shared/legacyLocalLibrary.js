@@ -148,11 +148,12 @@ export async function loadPhotoAsImageLocal(id) {
   const url = URL.createObjectURL(blob);
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = reject;
+    // Revoke once decoded — the HTMLImageElement stays usable for redraw
+    // after the object URL is gone; only the redundant Blob backing is freed.
+    // (Mirrors the fix in photoLibrary.loadPhotoAsImage.)
+    img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+    img.onerror = (e) => { URL.revokeObjectURL(url); reject(e); };
     img.src = url;
-    // Don't revoke — the consumer holds the img and may re-draw it later.
-    // Browsers GC the blob when the img is dropped.
   });
 }
 

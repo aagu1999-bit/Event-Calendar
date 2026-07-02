@@ -430,7 +430,7 @@ export default function ReelTool(){
       const stream=cv.captureStream(30);const chunks=[];
       const rec=new MediaRecorder(stream,{mimeType:"video/webm;codecs=vp9"});
       rec.ondataavailable=e=>{if(e.data.size>0)chunks.push(e.data);};
-      rec.onstop=()=>{const blob=new Blob(chunks,{type:"video/webm"});const url=URL.createObjectURL(blob);const a=document.createElement("a");const filename=`CGE_Reel_${day}_${friDate.replace("/","-")}.webm`;a.download=filename;a.href=url;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);setRecording(false);saveExport(blob,{sourceTool:"reel",sourceMode:day,name:filename,kind:"archive"}).catch(err=>console.warn("Export archive failed:",err));};
+      rec.onstop=()=>{const blob=new Blob(chunks,{type:"video/webm"});const url=URL.createObjectURL(blob);const a=document.createElement("a");const filename=`CGE_Reel_${day}_${friDate.replace("/","-")}.webm`;a.download=filename;a.href=url;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);stream.getTracks().forEach(t=>t.stop());setRecording(false);saveExport(blob,{sourceTool:"reel",sourceMode:day,name:filename,kind:"archive"}).catch(err=>console.warn("Export archive failed:",err));};
       recRef.current=rec;rec.start();setRecording(true);startRef.current=null;setPlaying(true);
     }catch(err){alert("Video recording not supported here. Use screen recording instead.");}
   };
@@ -511,7 +511,7 @@ export default function ReelTool(){
                 const borderColor=!hasW?(ev.featured?"#FACC15":"transparent"):isDis?"rgba(245,240,232,0.08)":worstType==="red"?"#FB7185":worstType==="yellow"?"#FACC15":"rgba(245,240,232,0.15)";
                 const isEditing=editId===ev.id;
                 if(isEditing){
-                  return <div key={ev.id} ref={el=>{if(el)eventRefs.current[ev.id]=el;}} style={{display:"flex",gap:"0.2rem",padding:"0.3rem 0.4rem",fontSize:"0.55rem",background:"rgba(250,204,21,0.06)",borderRadius:"3px",alignItems:"center",borderLeft:"2px solid #FACC15",flexWrap:"wrap"}}>
+                  return <div key={ev.id} ref={el=>{if(el)eventRefs.current[ev.id]=el;else delete eventRefs.current[ev.id];}} style={{display:"flex",gap:"0.2rem",padding:"0.3rem 0.4rem",fontSize:"0.55rem",background:"rgba(250,204,21,0.06)",borderRadius:"3px",alignItems:"center",borderLeft:"2px solid #FACC15",flexWrap:"wrap"}}>
                     <select value={ev.emoji||""} onChange={e=>{if(e.target.value==="__custom__"){const c=prompt("Paste any emoji:");if(c)setEvents(p=>p.map(x=>x.id===ev.id?{...x,emoji:c.trim().slice(0,2)}:x));}else{setEvents(p=>p.map(x=>x.id===ev.id?{...x,emoji:e.target.value}:x));}}} style={{background:"transparent",border:"none",fontSize:"0.65rem",cursor:"pointer",minWidth:22,padding:0,outline:"none"}}>
                       {ALL_EMOJIS.map((em,ei)=><option key={ei} value={em}>{em||"— none —"}</option>)}
                       <option value="__custom__">✏️ Pick...</option>
@@ -529,7 +529,7 @@ export default function ReelTool(){
                     <button onClick={()=>setEditId(null)} style={{background:"none",border:"none",color:"#FACC15",cursor:"pointer",fontSize:"0.6rem"}}>✓</button>
                   </div>;
                 }
-                return <div key={ev.id} ref={el=>{if(el)eventRefs.current[ev.id]=el;}} style={{display:"flex",gap:"0.2rem",padding:"0.2rem 0.4rem",fontSize:"0.55rem",background:ev.featured?"rgba(250,204,21,0.04)":(i%2===0?"#0e0e0e":"transparent"),borderRadius:"2px",alignItems:"center",borderLeft:`2px solid ${borderColor}`,opacity:isDis&&hasW?0.5:1}}>
+                return <div key={ev.id} ref={el=>{if(el)eventRefs.current[ev.id]=el;else delete eventRefs.current[ev.id];}} style={{display:"flex",gap:"0.2rem",padding:"0.2rem 0.4rem",fontSize:"0.55rem",background:ev.featured?"rgba(250,204,21,0.04)":(i%2===0?"#0e0e0e":"transparent"),borderRadius:"2px",alignItems:"center",borderLeft:`2px solid ${borderColor}`,opacity:isDis&&hasW?0.5:1}}>
                   <select value={ev.emoji||""} onChange={e=>{if(e.target.value==="__custom__"){const c=prompt("Paste any emoji:");if(c)setEvents(p=>p.map(x=>x.id===ev.id?{...x,emoji:c.trim().slice(0,2)}:x));}else{setEvents(p=>p.map(x=>x.id===ev.id?{...x,emoji:e.target.value}:x));}}} style={{background:"transparent",border:"none",fontSize:"0.65rem",cursor:"pointer",minWidth:22,padding:0,outline:"none"}}>
                     {ALL_EMOJIS.map((em,ei)=><option key={ei} value={em}>{em||"— none —"}</option>)}
                     <option value="__custom__">✏️ Pick...</option>
