@@ -187,10 +187,15 @@ export async function loadPhotoAsImage(id) {
   const url = URL.createObjectURL(blob);
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = reject;
+    // Revoke as soon as the bitmap has decoded. The decoded HTMLImageElement
+    // stays fully usable for repeated drawImage() after the object URL is
+    // gone — only the redundant full-size Blob backing gets freed. Skipping
+    // this pinned one full-resolution blob in memory PER library pick for the
+    // life of the page; a long carousel/calendar session picking dozens of
+    // photos leaked steadily until the tab OOM-crashed.
+    img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+    img.onerror = (e) => { URL.revokeObjectURL(url); reject(e); };
     img.src = url;
-    // Don't revoke — the consumer holds the img and may re-draw it later.
   });
 }
 

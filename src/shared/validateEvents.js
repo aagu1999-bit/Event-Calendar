@@ -9,6 +9,10 @@ export function computeWarnings(events) {
   const warnings = {};
   let flagGroup = 1;
 
+  const addWarn = (id, warn) => {
+    (warnings[id] || (warnings[id] = [])).push(warn);
+  };
+
   // Missing fields
   events.forEach(ev => {
     const w = [];
@@ -22,65 +26,53 @@ export function computeWarnings(events) {
     if (w.length > 0) warnings[ev.id] = w;
   });
 
+  // Group-flagging passes. Each event is tagged AT MOST ONCE per pass, so we
+  // tag on the fly instead of re-walking the whole group every time a new
+  // member joins. The old code re-scanned + `.some()`-checked every existing
+  // member on each insert — O(M²) per bucket, which froze the tab (and OOM'd)
+  // on large or duplicate-heavy imports where one bucket holds hundreds of
+  // rows. This is O(N): the first member is tagged when the group forms (its
+  // second member arrives), every later member tags only itself.
+  //
+  //   keyFor  — returns the bucket key, or null to skip this event
+  //   prefix  — flag label prefix ("DUPE" / "VENUE" / "MULTI")
+  //   type    — severity color for the pushed warning
+  const flagGroups = (keyFor, prefix, type) => {
+    const seen = {};
+    events.forEach(ev => {
+      const key = keyFor(ev);
+      if (key == null) return;
+      const bucket = seen[key];
+      if (!bucket) {
+        seen[key] = { firstId: ev.id, group: null };
+        return;
+      }
+      if (bucket.group == null) {
+        bucket.group = flagGroup++;
+        addWarn(bucket.firstId, { type, msg: `${prefix} #${bucket.group}` });
+      }
+      addWarn(ev.id, { type, msg: `${prefix} #${bucket.group}` });
+    });
+  };
+
   // Exact name+day duplicates
-  const seenNameDay = {};
-  events.forEach(ev => {
-    const key = normalize(ev.name) + "|" + (ev.day || "");
-    if (!key || key === "|" || !normalize(ev.name)) return;
-    if (seenNameDay[key]) {
-      if (!seenNameDay[key].group) seenNameDay[key].group = flagGroup++;
-      const g = seenNameDay[key].group;
-      seenNameDay[key].ids.push(ev.id);
-      seenNameDay[key].ids.forEach(id => {
-        if (!warnings[id]) warnings[id] = [];
-        if (!warnings[id].some(w => w.msg.startsWith("DUPE"))) {
-          warnings[id].push({ type: "yellow", msg: `DUPE #${g}` });
-        }
-      });
-    } else {
-      seenNameDay[key] = { ids: [ev.id], group: null };
-    }
-  });
+  flagGroups(ev => {
+    const n = normalize(ev.name);
+    if (!n) return null;
+    return n + "|" + (ev.day || "");
+  }, "DUPE", "yellow");
 
   // Same venue + same day (different events at same location)
-  const seenVenueDay = {};
-  events.forEach(ev => {
-    if (!ev.venue || !String(ev.venue).trim()) return;
-    const key = normalize(ev.venue) + "|" + (ev.day || "");
-    if (seenVenueDay[key]) {
-      if (!seenVenueDay[key].group) seenVenueDay[key].group = flagGroup++;
-      const g = seenVenueDay[key].group;
-      seenVenueDay[key].ids.push(ev.id);
-      seenVenueDay[key].ids.forEach(id => {
-        if (!warnings[id]) warnings[id] = [];
-        if (!warnings[id].some(w => w.msg.startsWith("VENUE"))) {
-          warnings[id].push({ type: "gray", msg: `VENUE #${g}` });
-        }
-      });
-    } else {
-      seenVenueDay[key] = { ids: [ev.id], group: null };
-    }
-  });
+  flagGroups(ev => {
+    if (!ev.venue || !String(ev.venue).trim()) return null;
+    return normalize(ev.venue) + "|" + (ev.day || "");
+  }, "VENUE", "gray");
 
   // Same name+venue+time across different days (probably same event listed twice)
-  const seenCrossDay = {};
-  events.forEach(ev => {
-    if (!ev.name || !ev.venue) return;
-    const key = normalize(ev.name) + "|" + normalize(ev.venue) + "|" + normalize(ev.time);
-    if (seenCrossDay[key]) {
-      if (!seenCrossDay[key].group) seenCrossDay[key].group = flagGroup++;
-      const g = seenCrossDay[key].group;
-      seenCrossDay[key].ids.push(ev.id);
-      seenCrossDay[key].ids.forEach(id => {
-        if (!warnings[id]) warnings[id] = [];
-        if (!warnings[id].some(w => w.msg.startsWith("MULTI"))) {
-          warnings[id].push({ type: "yellow", msg: `MULTI #${g}` });
-        }
-      });
-    } else {
-      seenCrossDay[key] = { ids: [ev.id], group: null };
-    }
-  });
+  flagGroups(ev => {
+    if (!ev.name || !ev.venue) return null;
+    return normalize(ev.name) + "|" + normalize(ev.venue) + "|" + normalize(ev.time);
+  }, "MULTI", "yellow");
 
   // Event name mentions a day that doesn't match its assigned day
   const dayNames = { friday: "Fri", fridays: "Fri", saturday: "Sat", saturdays: "Sat", sunday: "Sun", sundays: "Sun" };

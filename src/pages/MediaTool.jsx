@@ -3810,6 +3810,24 @@ export default function MediaTool() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Composer thumbnails render on a 1080px canvas but are only ever shown at
+  // ~140px in the slide strip. Stamping the full 1080px PNG as a base64
+  // string cost 1-4 MB PER slide held in React state, and regenerateThumbs
+  // rebuilt ALL of them on every reorder / delete / alternation toggle — tens
+  // of MB of string + GC churn per edit on a long carousel. Downscale to a
+  // 240px JPEG (~10-30 KB); the thumb is display-only, export renders from the
+  // snapshot at full resolution on a separate path.
+  const THUMB_MAX = 240;
+  const canvasToThumb = (cv) => {
+    const scale = Math.min(1, THUMB_MAX / Math.max(cv.width, cv.height));
+    const w = Math.max(1, Math.round(cv.width * scale));
+    const h = Math.max(1, Math.round(cv.height * scale));
+    const t = document.createElement("canvas");
+    t.width = w; t.height = h;
+    t.getContext("2d").drawImage(cv, 0, 0, w, h);
+    return t.toDataURL("image/jpeg", 0.72);
+  };
+
   const addToCarousel = async () => {
     await document.fonts.ready;
     const snapshot = makeSnapshot();
@@ -3817,7 +3835,7 @@ export default function MediaTool() {
     // Pass the about-to-be position for alternation; the new slide
     // sits at index = carousel.length.
     renderSlide(cv, mode, snapshot, carousel.length + 1, carousel.length + 1, carousel.length);
-    const thumb = cv.toDataURL("image/png");
+    const thumb = canvasToThumb(cv);
     setCarousel(prev => {
       const next = [...prev, {
         id: `s_${Date.now()}_${Math.random().toString(36).slice(2,6)}`,
@@ -4425,7 +4443,7 @@ export default function MediaTool() {
     const newSlides = snapshots.map((s, i) => {
       const cv = document.createElement("canvas");
       renderSlide(cv, s.type, s.snapshot, i + 1, snapshots.length, i);
-      const thumb = cv.toDataURL("image/png");
+      const thumb = canvasToThumb(cv);
       return {
         id: `s_${Date.now()}_${i}_${Math.random().toString(36).slice(2,4)}`,
         type: s.type, snapshot: s.snapshot, thumb,
@@ -4734,7 +4752,7 @@ export default function MediaTool() {
     return slides.map((slide, idx) => {
       const cv = document.createElement("canvas");
       renderSlide(cv, slide.type, slide.snapshot, idx + 1, slides.length, idx);
-      return { ...slide, thumb: cv.toDataURL("image/png") };
+      return { ...slide, thumb: canvasToThumb(cv) };
     });
   };
 
