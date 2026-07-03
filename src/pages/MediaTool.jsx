@@ -73,12 +73,27 @@ const ff = (s) => s.replace(/'Syne'/g, `'${_displayFont}'`).replace(/'DM Sans'/g
 function wrapToLines(ctx, text, maxW) {
   const words = String(text || "").split(/\s+/).filter(Boolean);
   if (!words.length) return [""];
+  // A single token wider than maxW (a long unbroken string / URL) can't wrap
+  // on spaces, so hard-break it by characters — otherwise it still runs off
+  // the edge even with word wrapping.
+  const fit = (w) => {
+    if (ctx.measureText(w).width <= maxW) return [w];
+    const chunks = []; let piece = "";
+    for (const ch of w) {
+      if (piece && ctx.measureText(piece + ch).width > maxW) { chunks.push(piece); piece = ch; }
+      else piece += ch;
+    }
+    if (piece) chunks.push(piece);
+    return chunks;
+  };
   const lines = [];
   let cur = "";
-  for (const w of words) {
-    const test = cur ? cur + " " + w : w;
-    if (cur && ctx.measureText(test).width > maxW) { lines.push(cur); cur = w; }
-    else cur = test;
+  for (const raw of words) {
+    for (const w of fit(raw)) {
+      const test = cur ? cur + " " + w : w;
+      if (cur && ctx.measureText(test).width > maxW) { lines.push(cur); cur = w; }
+      else cur = test;
+    }
   }
   if (cur) lines.push(cur);
   return lines;
