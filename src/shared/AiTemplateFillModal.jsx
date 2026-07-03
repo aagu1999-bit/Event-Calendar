@@ -60,6 +60,9 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
   // (distinct from researchOn's evergreen background) so you can spin a
   // same-week "what's happening" post out of the current moment.
   const [newsOn, setNewsOn] = useState(false);
+  // The brief + source links from the last news lookup, so the user can SEE
+  // and verify what fed the generation instead of trusting a black box.
+  const [newsFound, setNewsFound] = useState(null);
   const [pickedTemplate, setPickedTemplate] = useState(null);
   const [pickReasoning, setPickReasoning] = useState("");
   // Per-slide exemplar harvest state. Tracks slide indices the user
@@ -90,6 +93,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
       setAiArrange(false);
       setSlideCount("auto");
       setNewsOn(false);
+      setNewsFound(null);
       setLetterMode(false);
       if (initialTemplateId) setTemplateId(initialTemplateId);
     }
@@ -118,6 +122,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
     setSlides([]);
     setPickedTemplate(null);
     setPickReasoning("");
+    setNewsFound(null);
     try {
       // Optional web research — a grounded Gemini call looks the event up and
       // returns a background brief, which we append to the context so every
@@ -143,10 +148,11 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
         setBusyLabel("Looking up recent news…");
         try {
           const news = await researchNews({ apiKey, topic, context });
-          if (news) {
+          if (news?.brief) {
             genContext = (genContext ? genContext + "\n\n" : "")
               + "TIMELY NEWS + UPCOMING HAPPENINGS (recent web results — verify any date/venue/price before stating it as fact; build the post around these current items):\n"
-              + news;
+              + news.brief;
+            setNewsFound(news);
           }
         } catch (e) {
           console.warn("News lookup failed, continuing without it:", e?.message || e);
@@ -895,6 +901,34 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
           <div style={{ marginBottom: 14, padding: "10px 12px", background: "rgba(251,113,133,0.08)", border: "1px solid rgba(251,113,133,0.3)", borderRadius: 4, fontSize: "0.7rem", color: "rgba(251,113,133,0.9)" }}>
             <strong>Error:</strong> {error}
           </div>
+        )}
+
+        {/* What the news lookup actually found — surfaced so you can verify it
+            (and catch stale/off items) instead of trusting a black box. */}
+        {newsFound && (newsFound.brief || (newsFound.sources && newsFound.sources.length > 0)) && (
+          <details open style={{ marginBottom: 14, background: "rgba(99,179,237,0.05)", border: "1px solid rgba(99,179,237,0.3)", borderRadius: 5 }}>
+            <summary style={{ padding: "9px 12px", cursor: "pointer", fontSize: "0.6rem", color: "#63B3ED", letterSpacing: 1.2, textTransform: "uppercase", fontWeight: 700, fontFamily: "'Syne',sans-serif", listStyle: "none" }}>
+              🔎 What the web turned up{newsFound.sources?.length ? ` · ${newsFound.sources.length} source${newsFound.sources.length === 1 ? "" : "s"}` : ""}
+            </summary>
+            <div style={{ padding: "0 12px 12px" }}>
+              {newsFound.brief && (
+                <pre style={{ margin: "0 0 8px", whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: "0.68rem", lineHeight: 1.5, color: "rgba(245,240,232,0.82)" }}>{newsFound.brief}</pre>
+              )}
+              {newsFound.sources?.length > 0 && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                  <div style={{ fontSize: "0.5rem", letterSpacing: 1, textTransform: "uppercase", color: "rgba(245,240,232,0.4)", marginBottom: 2 }}>Sources</div>
+                  {newsFound.sources.map((s, i) => (
+                    <a key={i} href={s.uri} target="_blank" rel="noreferrer" style={{ fontSize: "0.64rem", color: "#63B3ED", textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {i + 1}. {s.title}
+                    </a>
+                  ))}
+                </div>
+              )}
+              <div style={{ fontSize: "0.52rem", color: "rgba(245,240,232,0.4)", marginTop: 8, lineHeight: 1.4 }}>
+                Verify any date/venue/price before posting — grounded search can still be wrong or stale.
+              </div>
+            </div>
+          </details>
         )}
 
         {slides.length > 0 && (

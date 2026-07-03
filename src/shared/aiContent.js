@@ -32,8 +32,13 @@ const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
 // POST a request body to Gemini and return the parsed JSON response,
 // retrying transient failures. Replaces the raw fetch + res.ok check that
 // every generator here duplicated (and which gave up after one attempt).
-async function geminiGenerate(apiKey, requestBody, { tries = 4 } = {}) {
+async function geminiGenerate(apiKey, requestBody, { tries = 4, model } = {}) {
   if (!apiKey) throw new Error("Missing Gemini API key");
+  // Per-call model override — most calls use the cheap flash-lite default, but
+  // the grounded research calls pass a stronger model for better web reasoning.
+  const url = model
+    ? `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`
+    : URL_BASE;
   let lastErr;
   for (let attempt = 0; attempt < tries; attempt++) {
     if (attempt > 0) {
@@ -42,7 +47,7 @@ async function geminiGenerate(apiKey, requestBody, { tries = 4 } = {}) {
     }
     let res;
     try {
-      res = await fetch(`${URL_BASE}?key=${encodeURIComponent(apiKey)}`, {
+      res = await fetch(`${url}?key=${encodeURIComponent(apiKey)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
@@ -155,54 +160,73 @@ export async function researchEvent({ apiKey, topic, context }) {
   ].join("\n");
 
   // Note: no responseMimeType here — JSON mode is incompatible with the
-  // Google Search tool. We read the grounded plain text back out.
+  // Google Search tool. We read the grounded plain text back out. Uses the
+  // stronger flash model (not flash-lite) since grounded research benefits.
   const data = await geminiGenerate(apiKey, {
     contents: [{ parts: [{ text: prompt }] }],
     tools: [{ google_search: {} }],
     generationConfig: { temperature: 0.4 },
-  });
+  }, { model: "gemini-2.5-flash" });
   return (extractResponseText(data) || "").trim();
 }
 
+// Pull the REAL source URLs Gemini used out of the grounding metadata so the
+// user can see + verify what fed the research (instead of trusting a black box).
+// Grounding URIs are often Google redirect links, but they still resolve and
+// carry the site title. Deduped, capped.
+function extractGroundingSources(data) {
+  try {
+    const chunks = data?.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+    const seen = new Set(); const out = [];
+    for (const c of chunks) {
+      const uri = c?.web?.uri; const title = c?.web?.title;
+      if (uri && !seen.has(uri)) { seen.add(uri); out.push({ uri, title: (title || uri).trim() }); }
+    }
+    return out.slice(0, 12);
+  } catch { return []; }
+}
+
 // === TIMELY NEWS LOOKUP (Google Search grounding) ===
-// Like researchEvent, but oriented at what's HAPPENING NOW rather than
-// evergreen background. Given a topic/area, it searches for recent, dated
-// news + upcoming happenings so the user can spin a timely post out of the
-// current moment. Returns a plain-text brief (grounded → no JSON mode).
-// `today` anchors "recent" so the model doesn't surface stale items.
+// Oriented at what's HAPPENING NOW rather than evergreen background. Runs a
+// stronger model (gemini-2.5-flash, not the flash-lite default) and asks it to
+// search SEVERAL angles, then returns { brief, sources } — the plain-text brief
+// plus the real source links so the caller can show them for verification.
+// `today` anchors recency so the model doesn't surface stale items.
 export async function researchNews({ apiKey, topic, context, today = null }) {
   if (!apiKey) throw new Error("Missing Gemini API key");
   const subject = [topic, context].map(s => (s || "").trim()).filter(Boolean).join(" — ");
   if (!subject) throw new Error("Add a topic or area to look up news for first");
   const stamp = today || (() => { try { return new Date().toISOString().slice(0, 10); } catch { return null; } })();
   const prompt = [
-    "You are a news researcher gathering TIMELY, CURRENT happenings for a same-week",
-    "social-media carousel. Search the web for what's happening NOW and coming up soon",
-    "for the topic/area below, then write a tight brief a writer can turn into a post.",
+    "You are a LOCAL news researcher gathering TIMELY, CURRENT happenings for a same-week",
+    "social-media carousel. Do SEVERAL focused web searches (not just one) to cover the",
+    "topic/area from multiple angles, then write a tight, verifiable brief.",
     "",
     `TOPIC / AREA: ${subject}`,
-    ...(stamp ? ["", `TODAY'S DATE: ${stamp}. Only surface items that are RECENT (last ~2 weeks) or UPCOMING. Skip anything stale.`] : []),
+    ...(stamp ? ["", `TODAY: ${stamp}. Only surface items dated within roughly the last 10 days, or UPCOMING within ~3 weeks. Skip anything older.`] : []),
     "",
-    "Return 5-10 plain-text bullets, each a distinct, DATED happening — for example:",
-    "- new openings, closings, launches, announcements;",
-    "- upcoming events, festivals, markets, shows (with the date);",
-    "- notable local news beats relevant to the topic/area (NJ / Garden State when applicable).",
+    "SEARCH THESE ANGLES (adapt the wording to the topic/area — run each as its own search):",
+    "- \"<area> events this weekend / this week\"",
+    "- \"<area> new openings / closings / launches\"",
+    "- \"<topic> <current month> <year>\"",
+    "- \"things to do <area>\", plus any specific venue/organizer/name mentioned in the context",
     "",
-    "For each bullet include, when known: WHAT happened / is happening, WHERE (venue + town),",
-    "WHEN (date), and a one-line WHY IT MATTERS. Put the date in brackets, e.g. [Jul 5].",
+    "Then return 6-12 plain-text bullets, each a DISTINCT, DATED happening. For each bullet give:",
+    "WHAT is happening, WHERE (venue + town), WHEN in [brackets] e.g. [Jul 5], a one-line WHY IT",
+    "MATTERS, and the SOURCE (the site/publication name).",
     "",
     "RULES:",
-    "- Prefer specific, verifiable, recent facts. Note the source site in parentheses when helpful.",
-    "- If you cannot confirm a date or specific, say so plainly — never invent a date, venue, or price.",
-    "- Rank by timeliness + relevance. Plain-text bullets only. No preamble, no markdown headers.",
+    "- Every bullet must trace to a REAL search result. If you can't confirm a date/venue/price, say so — never invent one.",
+    "- Prefer NJ / Garden State and the named area. Rank by timeliness first, then relevance.",
+    "- Merge duplicates. Plain-text bullets only — no preamble, no markdown headers.",
   ].join("\n");
 
   const data = await geminiGenerate(apiKey, {
     contents: [{ parts: [{ text: prompt }] }],
     tools: [{ google_search: {} }],
-    generationConfig: { temperature: 0.4 },
-  });
-  return (extractResponseText(data) || "").trim();
+    generationConfig: { temperature: 0.3 },
+  }, { model: "gemini-2.5-flash" });
+  return { brief: (extractResponseText(data) || "").trim(), sources: extractGroundingSources(data) };
 }
 
 export async function generateSlideContent({ apiKey, slotType, topic, voice, slotPrompts, count = 3, context, mode }) {
