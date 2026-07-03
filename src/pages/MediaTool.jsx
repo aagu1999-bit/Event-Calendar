@@ -2256,6 +2256,7 @@ function renderVibeBoard(canvas, cfg) {
 // === FEATURES RENDERER (2x2 emoji-card grid) ===
 function renderFeatures(canvas, cfg) {
   const { featuresTitle, features, accent, bgKey, dots, totalDots, photo, opacity,
+          style = "icon", layout = "grid",
           targetW = 1080, targetH = 1080, focalX = 0.5, focalY = 0.5 } = cfg;
   const W = targetW, H = targetH; canvas.width=W; canvas.height=H;
   const ctx = canvas.getContext("2d");
@@ -2281,10 +2282,15 @@ function renderFeatures(canvas, cfg) {
   }
 
   const titleColor = isLight ? "#0a0a0a" : "#FFF";
-  const cardFill = isLight ? "rgba(0,0,0,0.06)" : "rgba(255,255,255,0.06)";
+  // Card fill is stronger over a photo (0.06 was nearly invisible on top of
+  // an image) and a featured card gets an accent-tinted fill so ONE card can
+  // stand out instead of six identical boxes.
+  const baseAlpha = photo ? 0.16 : 0.06;
+  const cardFill = isLight ? "rgba(0,0,0,0.06)" : `rgba(255,255,255,${baseAlpha})`;
+  const featFill = accent + "26";               // accent @ ~15% for the starred card
   const cardHeadlineColor = isLight ? "#0a0a0a" : "#FFF";
-  const cardSubColor = isLight ? "rgba(0,0,0,0.65)" : "rgba(255,255,255,0.6)";
-  const emojiBg = isLight ? "#0a0a0a" : "#FFF";
+  const cardSubColor = isLight ? "rgba(0,0,0,0.65)" : "rgba(255,255,255,0.62)";
+  const markerColor = isLight ? "#0a0a0a" : "#FFF";
 
   ctx.globalAlpha=1; ctx.textBaseline="top";
 
@@ -2302,83 +2308,121 @@ function renderFeatures(canvas, cfg) {
     titleBottom = barY + 18;
   }
 
-  // Adaptive grid — supports 1 to 6 cards. 1 = full width row.
-  // 2 = 2x1. 3-4 = 2 cols × ceil(n/2) rows. 5-6 = 2 cols × 3 rows. When
-  // n is odd in a 2-column layout the LAST card spans both columns so
-  // the bottom row isn't a lonely floater.
   const cards = (features || []).slice(0, 6);
   const n = cards.length;
-  const cols = n === 1 ? 1 : 2;
-  const rows = Math.ceil(n / cols);
-  // margin=110 keeps cards inside IG's 4:5 cover-preview safe zone
-  // (was 60, which let the cards' left/right edges get cropped).
-  const margin = 110;
-  const gap = 28;
-  const cw = (W - margin*2 - (cols-1)*gap) / cols;
+  const margin = 110;   // IG 4:5 safe zone
+  const gap = 24;
   const gridTop = Math.max(titleBottom + 40, 240);
-  // Card height auto-scales to fit available vertical space — leaves room
-  // for the bottom footer + dots and clamps to 300px so single cards
-  // don't stretch unreasonably tall.
   const availH = H - gridTop - 80;
-  const ch = Math.max(160, Math.min(300, (availH - (rows-1)*gap) / rows));
+  if (n === 0) { ctx.textAlign="left"; drawDots(ctx,W,dots,totalDots,accent,isLight); drawFooter(ctx,W,H,isLight); return; }
 
-  cards.forEach((card, i) => {
-    const col = i % cols;
-    const row = Math.floor(i / cols);
-    const isLastOdd = (cols === 2) && (i === n - 1) && (n % 2 === 1) && (i > 0);
-    const x = isLastOdd ? margin : (margin + col * (cw + gap));
-    const y = gridTop + row * (ch + gap);
-    const thisCw = isLastOdd ? (cw * 2 + gap) : cw;
-
-    // Card bg
-    ctx.fillStyle = cardFill;
-    ctx.beginPath(); ctx.roundRect(x, y, thisCw, ch, 12); ctx.fill();
-
-    // Left accent stripe
-    ctx.fillStyle = accent;
-    ctx.beginPath(); ctx.roundRect(x, y, 5, ch, [12, 0, 0, 12]); ctx.fill();
-
-    // Card font sizes shrink slightly for shorter cards (5-6 case)
-    const emojiSize = ch >= 260 ? 78 : ch >= 200 ? 64 : 52;
-    const emojiY = ch >= 260 ? 30 : ch >= 200 ? 22 : 16;
-    const headlineY = ch >= 260 ? 144 : ch >= 200 ? 110 : 84;
-    const subY = ch >= 260 ? 188 : ch >= 200 ? 150 : 120;
-
-    // Emoji
-    if (card.emoji?.trim()) {
-      ctx.font=ff(`${emojiSize}px 'Apple Color Emoji','Segoe UI Emoji','Noto Color Emoji',sans-serif`);
+  // Draw the per-card marker at (mx,my): a two-digit number (numbered),
+  // the emoji (icon), or nothing (minimal). `size` scales it to the card.
+  const drawMarker = (mx, my, size, idx, emoji) => {
+    if (style === "numbered") {
+      ctx.font = ff(`800 ${size}px 'Syne',sans-serif`);
       ctx.textAlign = "left"; ctx.textBaseline = "top";
-      ctx.fillStyle = emojiBg;
-      ctx.fillText(card.emoji, x + 28, y + emojiY);
+      ctx.fillStyle = accent;
+      ctx.fillText(String(idx + 1).padStart(2, "0"), mx, my);
+    } else if (style === "icon" && emoji?.trim()) {
+      ctx.font = ff(`${size}px 'Apple Color Emoji','Segoe UI Emoji','Noto Color Emoji',sans-serif`);
+      ctx.textAlign = "left"; ctx.textBaseline = "top";
+      ctx.fillStyle = markerColor;
+      ctx.fillText(emoji, mx, my);
     }
+    // minimal → no marker
+  };
+  const hasMarker = (card) => style === "numbered" || (style === "icon" && card.emoji?.trim());
 
-    // Headline
-    if (card.headline?.trim()) {
-      let hfs = ch >= 260 ? 30 : ch >= 200 ? 26 : 22;
-      const headlineText = card.headline.toUpperCase();
-      ctx.font=ff(`800 ${hfs}px 'Syne',sans-serif`);
-      while (ctx.measureText(headlineText).width > thisCw - 50 && hfs > 16) {
-        hfs -= 2; ctx.font=ff(`800 ${hfs}px 'Syne',sans-serif`);
-      }
-      ctx.fillStyle = cardHeadlineColor; ctx.textAlign = "left"; ctx.textBaseline = "top";
-      ctx.fillText(headlineText, x + 28, y + headlineY);
-    }
+  if (layout === "stack") {
+    // Full-width single-column rows — far more scannable for 4-6 items, and
+    // the copy doesn't get crushed the way the 2-col grid forces it to.
+    const rowH = Math.max(84, Math.min(190, (availH - (n - 1) * gap) / n));
+    const px = 30;
+    cards.forEach((card, i) => {
+      const x = margin, y = gridTop + i * (rowH + gap), w = W - margin * 2;
+      const featured = !!card.featured;
+      ctx.fillStyle = featured ? featFill : cardFill;
+      ctx.beginPath(); ctx.roundRect(x, y, w, rowH, 12); ctx.fill();
+      ctx.fillStyle = accent;
+      ctx.beginPath(); ctx.roundRect(x, y, featured ? 8 : 5, rowH, [12, 0, 0, 12]); ctx.fill();
 
-    // Sub (wrap to 2 lines max)
-    if (card.sub?.trim()) {
-      ctx.font=ff("400 20px 'DM Sans',sans-serif");
-      ctx.fillStyle = cardSubColor;
-      const subWords = card.sub.split(/\s+/);
-      const subLines = []; let bl = "";
-      for (const w of subWords) {
-        const test = bl ? bl + " " + w : w;
-        if (ctx.measureText(test).width > thisCw - 50 && bl) { subLines.push(bl); bl = w; }
-        else bl = test;
+      let textX = x + px;
+      if (hasMarker(card)) {
+        const mSize = style === "numbered" ? Math.min(52, rowH * 0.44) : Math.min(60, rowH * 0.52);
+        drawMarker(x + px, y + (rowH - mSize) / 2 - (style === "numbered" ? 2 : 4), mSize, i, card.emoji);
+        textX = x + px + (style === "numbered" ? 92 : 84);
       }
-      if (bl) subLines.push(bl);
-      subLines.slice(0, 2).forEach((ln, j) => ctx.fillText(ln, x + 28, y + subY + j*26));
-    }
-  });
+      const availW = (x + w - px) - textX;
+
+      let hfs = Math.min(34, Math.max(20, rowH * 0.30));
+      const headlineText = (card.headline || "").toUpperCase();
+      ctx.font = ff(`800 ${hfs}px 'Syne',sans-serif`);
+      while (ctx.measureText(headlineText).width > availW && hfs > 16) { hfs -= 2; ctx.font = ff(`800 ${hfs}px 'Syne',sans-serif`); }
+      const hasSub = !!card.sub?.trim();
+      const blockH = hfs + (hasSub ? 30 : 0);
+      const ty = y + (rowH - blockH) / 2;
+      ctx.fillStyle = featured ? accent : cardHeadlineColor; ctx.textAlign = "left"; ctx.textBaseline = "top";
+      if (headlineText) ctx.fillText(headlineText, textX, ty);
+      if (hasSub) {
+        ctx.font = ff("400 22px 'DM Sans',sans-serif"); ctx.fillStyle = cardSubColor;
+        let sub = card.sub.trim();
+        if (ctx.measureText(sub).width > availW) {
+          while (sub.length && ctx.measureText(sub + "…").width > availW) sub = sub.slice(0, -1);
+          sub = sub.trim() + "…";
+        }
+        ctx.fillText(sub, textX, ty + hfs + 8);
+      }
+    });
+  } else {
+    // GRID (1-2 col). 1 = full width. Odd last card spans both columns so the
+    // bottom row isn't a lonely floater.
+    const cols = n === 1 ? 1 : 2;
+    const rows = Math.ceil(n / cols);
+    const cw = (W - margin * 2 - (cols - 1) * gap) / cols;
+    const ch = Math.max(160, Math.min(300, (availH - (rows - 1) * gap) / rows));
+
+    cards.forEach((card, i) => {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const isLastOdd = (cols === 2) && (i === n - 1) && (n % 2 === 1) && (i > 0);
+      const x = isLastOdd ? margin : (margin + col * (cw + gap));
+      const y = gridTop + row * (ch + gap);
+      const thisCw = isLastOdd ? (cw * 2 + gap) : cw;
+      const featured = !!card.featured;
+
+      ctx.fillStyle = featured ? featFill : cardFill;
+      ctx.beginPath(); ctx.roundRect(x, y, thisCw, ch, 12); ctx.fill();
+      ctx.fillStyle = accent;
+      ctx.beginPath(); ctx.roundRect(x, y, featured ? 8 : 5, ch, [12, 0, 0, 12]); ctx.fill();
+
+      const emojiSize = ch >= 260 ? 78 : ch >= 200 ? 64 : 52;
+      const numSize   = ch >= 260 ? 58 : ch >= 200 ? 48 : 40;
+      const markerY   = ch >= 260 ? 30 : ch >= 200 ? 22 : 16;
+      // With no marker (minimal), pull the headline up to where the marker was.
+      const headlineY = style === "minimal" ? (ch >= 260 ? 40 : ch >= 200 ? 30 : 24)
+                                            : (ch >= 260 ? 144 : ch >= 200 ? 110 : 84);
+      const subY = headlineY + (ch >= 260 ? 44 : ch >= 200 ? 40 : 36);
+
+      drawMarker(x + 28, y + markerY, style === "numbered" ? numSize : emojiSize, i, card.emoji);
+
+      if (card.headline?.trim()) {
+        let hfs = ch >= 260 ? 30 : ch >= 200 ? 26 : 22;
+        const headlineText = card.headline.toUpperCase();
+        ctx.font=ff(`800 ${hfs}px 'Syne',sans-serif`);
+        while (ctx.measureText(headlineText).width > thisCw - 50 && hfs > 16) { hfs -= 2; ctx.font=ff(`800 ${hfs}px 'Syne',sans-serif`); }
+        ctx.fillStyle = featured ? accent : cardHeadlineColor; ctx.textAlign = "left"; ctx.textBaseline = "top";
+        ctx.fillText(headlineText, x + 28, y + headlineY);
+      }
+      if (card.sub?.trim()) {
+        ctx.font=ff("400 20px 'DM Sans',sans-serif"); ctx.fillStyle = cardSubColor;
+        const subWords = card.sub.split(/\s+/); const subLines = []; let bl = "";
+        for (const w of subWords) { const test = bl ? bl + " " + w : w; if (ctx.measureText(test).width > thisCw - 50 && bl) { subLines.push(bl); bl = w; } else bl = test; }
+        if (bl) subLines.push(bl);
+        subLines.slice(0, 2).forEach((ln, j) => ctx.fillText(ln, x + 28, y + subY + j * 26));
+      }
+    });
+  }
 
   ctx.textAlign = "left";
   drawDots(ctx, W, dots, totalDots, accent, isLight);
@@ -2779,6 +2823,12 @@ export default function MediaTool() {
     { emoji: "💃", headline: "Bachata Dancing", sub: "Beginner friendly" },
     { emoji: "🎁", headline: "Gift Baskets", sub: "And good vibes" },
   ]);
+  // Card marker style: "numbered" (01·02·03 — editorial default), "icon"
+  // (emoji), or "minimal" (no marker). Layout: "grid" (1-2 col cards) or
+  // "stack" (full-width scannable rows). Per-card `featured` emphasis lives
+  // on each card object (like the List slot's featured flag).
+  const [featuresStyle, setFeaturesStyle] = useState("numbered");
+  const [featuresLayout, setFeaturesLayout] = useState("grid");
 
   const [captionPhoto, setCaptionPhoto] = useState(null);
   const [captionFocalX, setCaptionFocalX] = useState(0.5);
@@ -3489,7 +3539,7 @@ export default function MediaTool() {
     else if(mode==="stat") renderStat(cv,{statNumber,statLabel,statSub,photo:statPhoto,opacity:statOpacity,accent,bgKey,dots,totalDots, ...targetCfg});
     else if(mode==="text") renderText(cv,{textTitle,textTitleHighlights:textTitleHL,textBody,accent,bgKey,dots,totalDots,pageNum,totalPages,photo:textPhoto,textOpacity, ...targetCfg});
     else if(mode==="cta") renderCTA(cv,{ctaKicker,ctaDate,ctaVenue,ctaUrl,photo:textPhoto,accent,bgKey,dots,totalDots,opacity:textOpacity, ...targetCfg});
-    else if(mode==="features") renderFeatures(cv,{featuresTitle,features,accent,bgKey,dots,totalDots,photo:textPhoto,opacity:textOpacity, ...targetCfg});
+    else if(mode==="features") renderFeatures(cv,{featuresTitle,features,style:featuresStyle,layout:featuresLayout,accent,bgKey,dots,totalDots,photo:textPhoto,opacity:textOpacity, ...targetCfg});
     else if(mode==="photo") renderPhotoCaption(cv,{photo:captionPhoto,caption,captionSecondary,alignment:captionAlign,accent,bgKey,dots,totalDots, ...targetCfg});
     else if(mode==="spotlight") renderSpotlight(cv,{photo:spotPhoto,spotName,spotNameHighlights:spotNameHL,spotMeta,spotTime,spotPrice,spotCta,spotNumber,align:spotAlign,band:spotBand,accent,bgKey,dots,totalDots, ...targetCfg});
     else if(mode==="countdown") renderCountdown(cv,{photo:countPhoto,countText,countEvent,countWhen,countCta,accent,bgKey,dots,totalDots,opacity:countOpacity, ...targetCfg});
@@ -3559,7 +3609,7 @@ export default function MediaTool() {
       else if (mode === "stat") renderStat(thumbCv, {...cfg, statNumber, statLabel, statSub, photo: statPhoto, opacity: statOpacity, focalX: statFocalX, focalY: statFocalY});
       else if (mode === "text") renderText(thumbCv, {...cfg, textTitle, textTitleHighlights: textTitleHL, textBody, pageNum, totalPages, photo: textPhoto, textOpacity});
       else if (mode === "cta") renderCTA(thumbCv, {...cfg, ctaKicker, ctaDate, ctaVenue, ctaUrl, photo: textPhoto, opacity: textOpacity});
-      else if (mode === "features") renderFeatures(thumbCv, {...cfg, featuresTitle, features, photo: textPhoto, opacity: textOpacity});
+      else if (mode === "features") renderFeatures(thumbCv, {...cfg, featuresTitle, features, style: featuresStyle, layout: featuresLayout, photo: textPhoto, opacity: textOpacity});
       else if (mode === "photo") renderPhotoCaption(thumbCv, {...cfg, photo: captionPhoto, caption, captionSecondary, alignment: captionAlign});
       else if (mode === "spotlight") renderSpotlight(thumbCv, {...cfg, photo: spotPhoto, spotName, spotNameHighlights: spotNameHL, spotMeta, spotTime, spotPrice, spotCta, spotNumber, align: spotAlign, band: spotBand});
       else if (mode === "countdown") renderCountdown(thumbCv, {...cfg, photo: countPhoto, countText, countEvent, countWhen, countCta, opacity: countOpacity});
@@ -3663,7 +3713,8 @@ export default function MediaTool() {
     else if (type === "cta") renderCTA(cv, { ...common, ctaKicker: s.ctaKicker, ctaDate: s.ctaDate,
       ctaVenue: s.ctaVenue, ctaUrl: s.ctaUrl, photo: s.photo, bgKey: effBgKey, opacity: s.textOpacity, ...targetCfg });
     else if (type === "features") renderFeatures(cv, { ...common, featuresTitle: s.featuresTitle,
-      features: s.features, bgKey: effBgKey, photo: s.photo, opacity: s.textOpacity, ...targetCfg });
+      features: s.features, style: s.featuresStyle, layout: s.featuresLayout,
+      bgKey: effBgKey, photo: s.photo, opacity: s.textOpacity, ...targetCfg });
     else if (type === "photo") renderPhotoCaption(cv, { ...common, photo: s.photo,
       caption: s.caption, captionSecondary: s.captionSecondary, alignment: s.captionAlign,
       bgKey: effBgKey, ...targetCfg });
@@ -3716,7 +3767,7 @@ export default function MediaTool() {
       case "stat": return { ...common, statNumber, statLabel, statSub, photo: statPhoto, statOpacity, statFocalX, statFocalY };
       case "text": return { ...common, textTitle, textTitleHL, textBody, photo: textPhoto, textOpacity, pageNum, totalPages };
       case "cta": return { ...common, ctaKicker, ctaDate, ctaVenue, ctaUrl, photo: textPhoto, textOpacity };
-      case "features": return { ...common, featuresTitle, features: features.map(f=>({...f})), photo: textPhoto, textOpacity };
+      case "features": return { ...common, featuresTitle, features: features.map(f=>({...f})), featuresStyle, featuresLayout, photo: textPhoto, textOpacity };
       case "photo": return { ...common, photo: captionPhoto, caption, captionSecondary, captionAlign, captionFocalX, captionFocalY };
       case "spotlight": return { ...common, photo: spotPhoto, spotName, spotNameHL, spotMeta, spotTime, spotPrice, spotCta, spotNumber, spotAlign, spotBand, spotFocalX, spotFocalY };
       case "countdown": return { ...common, photo: countPhoto, countText, countEvent, countWhen, countCta, countOpacity, countFocalX, countFocalY };
@@ -3780,6 +3831,10 @@ export default function MediaTool() {
       case "features":
         setFeaturesTitle(snapshot.featuresTitle);
         setFeatures(snapshot.features.map(f=>({...f})));
+        // Older snapshots predate style/layout — they carried emoji, so fall
+        // back to the icon style + grid to preserve their look.
+        setFeaturesStyle(snapshot.featuresStyle || "icon");
+        setFeaturesLayout(snapshot.featuresLayout || "grid");
         setTextPhoto(snapshot.photo); setTextOpacity(snapshot.textOpacity);
         break;
       case "photo":
@@ -4306,12 +4361,16 @@ export default function MediaTool() {
           emoji: String(f.emoji || "✨").trim(),
           headline: String(f.headline || "").trim(),
           sub: String(f.sub || "").trim(),
+          featured: !!f.featured,
         }));
       return { type: "features", snapshot: {
         ...common,
         photo: null,
         featuresTitle: String(slot.featuresTitle || "").trim(),
         features,
+        // Default AI-generated Features to the editorial numbered style.
+        featuresStyle: "numbered",
+        featuresLayout: "grid",
         textOpacity: 0.85,
         bgKey: "black",
       }};
@@ -4436,6 +4495,7 @@ export default function MediaTool() {
             emoji: String(f.emoji || "✨").trim(),
             headline: String(f.headline || "").trim(),
             sub: String(f.sub || "").trim(),
+            featured: !!f.featured,
           }));
         if (arr.length) setFeatures(arr);
       }
@@ -6523,7 +6583,26 @@ export default function MediaTool() {
                 </div>}
               </div>
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Title</label><input value={featuresTitle} onChange={e=>setFeaturesTitle(e.target.value)} style={I} placeholder="e.g. Here's the night"/></div>
-              <div style={{marginBottom:"0.5rem",fontSize:"0.5rem",color:"rgba(245,240,232,0.4)",letterSpacing:"1.5px",textTransform:"uppercase"}}>{features.length} Card{features.length===1?"":"s"} · {features.length===1?"full width":features.length===2?"2×1":features.length<=4?"2 cols":"2 cols, 3 rows"} · 1-6</div>
+              {/* Card style (marker) + layout. Numbered reads editorial; Icon
+                  uses each card's emoji; Minimal drops the marker entirely.
+                  Grid = 1-2 col cards, Stacked = full-width scannable rows. */}
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0.4rem",marginBottom:"0.6rem"}}>
+                <div><label style={L}>Card style</label>
+                  <div style={{display:"flex",gap:"3px"}}>
+                    {[["numbered","01·02"],["icon","Emoji"],["minimal","Minimal"]].map(([k,lbl])=>(
+                      <button key={k} onClick={()=>setFeaturesStyle(k)} title={k==="numbered"?"Editorial number badges (01·02·03)":k==="icon"?"Use each card's emoji":"No marker — clean text"} style={{flex:1,padding:"5px 3px",borderRadius:4,cursor:"pointer",fontSize:"0.52rem",fontWeight:700,fontFamily:"'Syne',sans-serif",background:featuresStyle===k?"rgba(229,188,79,0.18)":"rgba(245,240,232,0.04)",color:featuresStyle===k?"#E5BC4F":"rgba(245,240,232,0.5)",border:featuresStyle===k?"1px solid rgba(229,188,79,0.5)":"1px solid transparent"}}>{lbl}</button>
+                    ))}
+                  </div>
+                </div>
+                <div><label style={L}>Layout</label>
+                  <div style={{display:"flex",gap:"3px"}}>
+                    {[["grid","Grid"],["stack","Stacked"]].map(([k,lbl])=>(
+                      <button key={k} onClick={()=>setFeaturesLayout(k)} title={k==="grid"?"1-2 column cards":"Full-width rows — more scannable for 4-6"} style={{flex:1,padding:"5px 4px",borderRadius:4,cursor:"pointer",fontSize:"0.55rem",fontWeight:700,fontFamily:"'Syne',sans-serif",background:featuresLayout===k?"rgba(229,188,79,0.18)":"rgba(245,240,232,0.04)",color:featuresLayout===k?"#E5BC4F":"rgba(245,240,232,0.5)",border:featuresLayout===k?"1px solid rgba(229,188,79,0.5)":"1px solid transparent"}}>{lbl}</button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div style={{marginBottom:"0.5rem",fontSize:"0.5rem",color:"rgba(245,240,232,0.4)",letterSpacing:"1.5px",textTransform:"uppercase"}}>{features.length} Card{features.length===1?"":"s"} · {featuresLayout==="stack"?"stacked rows":features.length===1?"full width":features.length===2?"2×1":features.length<=4?"2 cols":"2 cols, 3 rows"} · ★ = highlight · 1-6</div>
               {features.map((card,i)=>(
                 <div key={i} style={{display:"grid",gridTemplateColumns:"50px 1fr 1fr auto",gap:"0.3rem",marginBottom:"0.4rem",alignItems:"center"}}>
                   <EmojiPicker
@@ -6532,7 +6611,10 @@ export default function MediaTool() {
                   />
                   <input value={card.headline} onChange={e=>setFeatures(p=>p.map((c,j)=>j===i?{...c,headline:e.target.value}:c))} style={{...I,fontSize:"0.6rem"}} placeholder="Headline"/>
                   <input value={card.sub} onChange={e=>setFeatures(p=>p.map((c,j)=>j===i?{...c,sub:e.target.value}:c))} style={{...I,fontSize:"0.6rem"}} placeholder="Sub copy"/>
-                  {features.length>1&&<button onClick={()=>setFeatures(p=>p.filter((_,j)=>j!==i))} style={{...B,padding:"4px 6px",color:"rgba(251,113,133,0.6)"}} title="Remove this card">×</button>}
+                  <div style={{display:"flex",gap:"2px"}}>
+                    <button onClick={()=>setFeatures(p=>p.map((c,j)=>j===i?{...c,featured:!c.featured}:c))} title={card.featured?"Featured card — click to remove highlight":"Highlight this card (accent fill)"} style={{...B,padding:"4px 6px",color:card.featured?"#E5BC4F":"rgba(245,240,232,0.3)"}}>★</button>
+                    {features.length>1&&<button onClick={()=>setFeatures(p=>p.filter((_,j)=>j!==i))} style={{...B,padding:"4px 6px",color:"rgba(251,113,133,0.6)"}} title="Remove this card">×</button>}
+                  </div>
                 </div>
               ))}
               {features.length<6&&<button onClick={()=>setFeatures(p=>[...p,{emoji:"",headline:"",sub:""}])} style={{...B,marginBottom:"0.6rem",fontSize:"0.55rem"}}>+ Add card ({features.length}/6)</button>}
