@@ -3472,10 +3472,16 @@ export default function MediaTool() {
     // 1080×1080 and get wrapForExport-composited.
     const target = EXPORT_RATIOS[exportRatio] || EXPORT_RATIOS["1:1"];
     const focal = getModeFocal();
-    // ALL slot types are now ratio-aware — renderers accept targetW/H
-     // and paint the whole design (incl. background + footer + watermark)
-     // at the target frame so nothing letterboxes on 4:5 / 3:4 / 9:16.
-     const RATIO_AWARE_MODES = new Set(["cover", "spotlight", "savedate", "press", "scene", "photo", "countdown", "savedates", "poster", "text", "cta", "features", "list", "stat", "vibe"]);
+    // Only the photo-hero, BOTTOM-anchored slots render directly at the
+     // target aspect: their headline/caption sits over a full-bleed photo at
+     // the frame bottom, so a taller frame just means more photo above — they
+     // fill it correctly. Every OTHER slot lays its content out top-anchored
+     // for a 1080-tall square; at 4:5 / 9:16 that content clustered at the top
+     // with dead space at the bottom ("made for 1:1, extra room below"). Those
+     // now render at 1080×1080 and get CENTERED into the target frame by
+     // wrapForExport (photo/bg extended into the margins), so the tuned 1:1
+     // layout lands where it's supposed to — vertically centered.
+     const RATIO_AWARE_MODES = new Set(["cover", "spotlight", "photo"]);
     const isRatioAware = RATIO_AWARE_MODES.has(mode);
     const targetCfg = isRatioAware ? { targetW: target.w, targetH: target.h, focalX: focal?.x ?? 0.5, focalY: focal?.y ?? 0.5 } : {};
     if(mode==="cover") renderCover(cv,{photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,categoryTag,coverCtaButton,align:coverAlign,band:coverBand, ...targetCfg});
@@ -3601,12 +3607,12 @@ export default function MediaTool() {
       : s.bgKey;
     const common = { accent: s.accent, dots: dotsNum, totalDots: dotsTot };
     // exportTarget = { w, h } when the caller wants this slide rendered
-    // at non-1:1 dimensions (ZIP export at 4:5 / 9:16 / 3:4). For the
-    // 5 ratio-aware modes (cover/spotlight/savedate/press/scene),
-    // forward target dims + focal from the snapshot to the renderer.
-    // Other modes ignore and render at 1080×1080; the caller wraps them
-    // via wrapForExport.
-    const RATIO_AWARE_ZIP_MODES = new Set(["cover", "spotlight", "savedate", "press", "scene", "photo", "countdown", "savedates", "poster", "text", "cta", "features", "list", "stat", "vibe"]);
+    // at non-1:1 dimensions (ZIP export at 4:5 / 9:16 / 3:4). Only the
+    // bottom-anchored photo-hero modes (cover/spotlight/photo) paint the
+    // whole design at the target aspect; every other mode renders at
+    // 1080×1080 and gets centered into the target frame by wrapForExport, so
+    // its top-anchored layout doesn't clump at the top with dead space below.
+    const RATIO_AWARE_ZIP_MODES = new Set(["cover", "spotlight", "photo"]);
     const FOCAL_KEY_MAP = {
       cover:     ["coverFocalX",   "coverFocalY"],
       list:      ["listFocalX",    "listFocalY"],
@@ -4772,7 +4778,11 @@ export default function MediaTool() {
       case "scene":     return sceneBgPhoto;
       case "poster":    return posterPhoto;
       case "press":     return pressPhoto;
-      default:          return null;  // list / stat / vibe — no shared bg photo
+      // Stat + List gained optional background photos — return them so the
+      // export bleed uses the photo (not a solid bar) when one is set.
+      case "stat":      return statPhoto;
+      case "list":      return listPhoto;
+      default:          return null;  // vibe — no single shared bg photo
     }
   };
 
@@ -4930,15 +4940,13 @@ export default function MediaTool() {
       for (let i = 0; i < carousel.length; i++) {
         const s = carousel[i];
         const cv = document.createElement("canvas");
-        // Pass target dims when this slide's mode is ratio-aware
-        // (cover/spotlight/savedate/press/scene). The renderer paints
-        // the whole design at the target aspect; we then SKIP
-        // wrapForExport below. Non-ratio-aware modes render at
-        // 1080×1080 and still get photo-bleed-composited via
-        // wrapForExport.
+        // Pass target dims only for the bottom-anchored photo-hero types
+        // (cover/spotlight/photo) — those paint the whole design at the
+        // target aspect and SKIP wrapForExport. Every other type renders at
+        // 1080×1080 and gets CENTERED into the target frame by wrapForExport,
+        // so its top-anchored layout doesn't sit high with dead space below.
         const slideTarget = EXPORT_RATIOS[exportRatio] || EXPORT_RATIOS["1:1"];
-        // Carousel ZIP: every slot type is ratio-aware now.
-        const RATIO_AWARE_SLIDE_TYPES = new Set(["cover", "spotlight", "savedate", "press", "scene", "photo", "countdown", "savedates", "poster", "text", "cta", "features", "list", "stat", "vibe"]);
+        const RATIO_AWARE_SLIDE_TYPES = new Set(["cover", "spotlight", "photo"]);
         const isRatioAwareSlide = RATIO_AWARE_SLIDE_TYPES.has(s.type);
         renderSlide(cv, s.type, s.snapshot, i+1, carousel.length, i, isRatioAwareSlide ? slideTarget : null);
         const exportCv = isRatioAwareSlide
