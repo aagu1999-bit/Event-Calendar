@@ -566,6 +566,18 @@ export const BUILTIN_CAROUSEL_TEMPLATES = [
     sequence: ["poster", "spotlight", "spotlight", "spotlight", "spotlight", "spotlight", "cta"],
   },
   {
+    id: "local-guide",
+    name: "Local Guide",
+    intent: "Neighborhood/region place guides — 'spots to visit in South Jersey', 'cafes to check out in the city', 'best rooftops in Newark'. Cover thesis + one Spotlight per PLACE + a where-to-start CTA.",
+    audience: "Locals and day-trippers who trust CGE to do the legwork — they want a curated shortlist of REAL places with a reason to go, not an ad.",
+    tone: "Warm local-critic voice. Been-there specificity. Each place gets named plainly, then the ONE thing that makes it worth the trip — the corner table, the 7am regulars, the espresso they actually pull well. No 'hidden gem', no 'must-visit', no 'something for everyone'.",
+    bestFor: "Place listicles / local guides: cafes, coffee shops, rooftops, bars, brunch spots, date-night spots, bookstores, parks — a themed set of 4-6 real PLACES in a named area (South Jersey, Jersey City, the Shore, 'the city').",
+    notFor: "A single event (use Feature Drop / Single Beat), a multi-event weekend directory (Editorial Roundup), post-event recaps (Recap).",
+    keyMove: "Cover names the theme + area as a promise ('7 South Jersey cafes worth the drive'). Each Spotlight = ONE place: spotName = the place's name; spotMeta = neighborhood/town (· street if useful); spotTime/spotPrice/spotCta carry a PRACTICAL detail (hours, $ range, 'cash only', 'get the cortado'). Each place must feel DIFFERENT — vary what you praise (coffee vs room vs crowd vs view). Close on a CTA that says where to start or how to save the list.",
+    example: "Cover: 'CAFES TO CHECK OUT IN SOUTH JERSEY. 6 WORTH THE DRIVE.' Spotlight 1: spotName='REVOLUTION COFFEE', spotMeta='Collingswood · Haddon Ave', spotTime='7A–6P', spotCta='get the cortado'. Spotlight 2: spotName='CORNER BAKERY & CAFE', spotMeta='Haddonfield', spotTime='closed Mondays', spotCta='pastries sell out by 11'.",
+    sequence: ["cover", "spotlight", "spotlight", "spotlight", "spotlight", "spotlight", "cta"],
+  },
+  {
     id: "single-beat",
     name: "Single Beat",
     intent: "Partner spotlight, one-image scene report. Cover + optional Text.",

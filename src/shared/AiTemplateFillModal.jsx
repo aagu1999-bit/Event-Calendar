@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useBrandStore, useCarouselTemplatesStore, BUILTIN_CAROUSEL_TEMPLATES } from "../store";
-import { generateTemplateFill, pickTemplate, generateArrangedCarousel, researchEvent } from "./aiContent.js";
+import { generateTemplateFill, pickTemplate, generateArrangedCarousel, researchEvent, researchNews } from "./aiContent.js";
 
 // Scaffold that primes the Context box with the ingredients a strong hook
 // (esp. an open loop) needs: the TWIST is the curiosity gap, PROOF + WHAT
@@ -52,6 +52,10 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
   // the story; a number pins it. Ignored by fixed-length template fill.
   const [slideCount, setSlideCount] = useState("auto");
   const [researchOn, setResearchOn] = useState(false);
+  // Timely news lookup — grounds generation in recent + upcoming happenings
+  // (distinct from researchOn's evergreen background) so you can spin a
+  // same-week "what's happening" post out of the current moment.
+  const [newsOn, setNewsOn] = useState(false);
   const [pickedTemplate, setPickedTemplate] = useState(null);
   const [pickReasoning, setPickReasoning] = useState("");
   // Per-slide exemplar harvest state. Tracks slide indices the user
@@ -81,6 +85,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
       setMode("editorial");
       setAiArrange(false);
       setSlideCount("auto");
+      setNewsOn(false);
       if (initialTemplateId) setTemplateId(initialTemplateId);
     }
   }, [open, initialTemplateId]);
@@ -119,12 +124,27 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
         try {
           const brief = await researchEvent({ apiKey, topic, context });
           if (brief) {
-            genContext = (context ? context + "\n\n" : "")
+            genContext = (genContext ? genContext + "\n\n" : "")
               + "RESEARCHED BACKGROUND (general web context — verify any specifics before treating them as fact about THIS event):\n"
               + brief;
           }
         } catch (e) {
           console.warn("Research step failed, continuing without it:", e?.message || e);
+        }
+      }
+      // Timely news lookup — recent + upcoming happenings for this topic/area,
+      // folded in so the carousel is built off the current moment.
+      if (newsOn) {
+        setBusyLabel("Looking up recent news…");
+        try {
+          const news = await researchNews({ apiKey, topic, context });
+          if (news) {
+            genContext = (genContext ? genContext + "\n\n" : "")
+              + "TIMELY NEWS + UPCOMING HAPPENINGS (recent web results — verify any date/venue/price before stating it as fact; build the post around these current items):\n"
+              + news;
+          }
+        } catch (e) {
+          console.warn("News lookup failed, continuing without it:", e?.message || e);
         }
       }
       // "AI arranges" — design a bespoke slot sequence for this story, then
@@ -637,6 +657,24 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
           </span>
           <span style={{ marginLeft: "auto", fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: 0.5 }}>
             adds real background
+          </span>
+        </label>
+
+        {/* Timely news lookup — recent + upcoming happenings for this topic/area.
+            Distinct from Research (evergreen background): this pulls dated,
+            current items so you can spin a same-week "what's happening" post.
+            Great paired with "AI arranges" for a from-scratch timely carousel. */}
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.72rem", color: newsOn ? "#63B3ED" : "rgba(245,240,232,0.7)", cursor: "pointer", marginBottom: 12, padding: "8px 10px", background: newsOn ? "rgba(99,179,237,0.08)" : "transparent", border: "1px solid " + (newsOn ? "rgba(99,179,237,0.35)" : "rgba(245,240,232,0.08)"), borderRadius: 4 }}>
+          <input
+            type="checkbox"
+            checked={newsOn}
+            onChange={(e) => setNewsOn(e.target.checked)}
+          />
+          <span style={{ fontWeight: 700, letterSpacing: 0.5 }}>
+            📰 Pull recent news / what's happening (web)
+          </span>
+          <span style={{ marginLeft: "auto", fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: 0.5 }}>
+            timely, dated items
           </span>
         </label>
 
