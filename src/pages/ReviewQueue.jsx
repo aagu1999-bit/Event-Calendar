@@ -7,6 +7,7 @@ import { detectRegulars } from "../shared/regulars";
 import { normalizeHandle } from "../shared/parseEvents";
 import { UInput, todaysFridayMD } from "../shared/inputs.jsx";
 import { ReviewSessionsModal } from "../shared/ReviewSessionsModal.jsx";
+import { WebsitePublishModal } from "../shared/WebsitePublishModal.jsx";
 import { ColumnMapperModal } from "../shared/ColumnMapperModal.jsx";
 import { ConflictSweepModal } from "../shared/ConflictSweepModal.jsx";
 import { CleanSweepModal } from "../shared/CleanSweepModal.jsx";
@@ -143,6 +144,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
   // "Session: <name>" pill in the header so the user remembers where
   // they are).
   const [sessionsOpen, setSessionsOpen] = useState(false);
+  const [websiteOpen, setWebsiteOpen] = useState(false);
   const [lastSessionName, setLastSessionName] = useState(() => getLastSession());
 
   const setEvents = useEventsStore(s => s.setEvents);
@@ -981,6 +983,26 @@ export default function ReviewQueue({ betaMode = false } = {}) {
               whiteSpace: "nowrap",
             }}
           >📁 {lastSessionName ? `Session: ${lastSessionName.length > 14 ? lastSessionName.slice(0, 14) + "…" : lastSessionName}` : "Sessions"}</button>
+          {/* Send the reviewed/curated events store to the CGE website repo
+              as a single events.json commit. */}
+          <button
+            onClick={() => setWebsiteOpen(true)}
+            title={`Publish the ${events.length} reviewed events (the curated store) to your Central Group Events website as events.json.`}
+            style={{
+              padding: "6px 12px",
+              background: "rgba(99,179,237,0.10)",
+              border: "1px solid rgba(99,179,237,0.35)",
+              borderRadius: "5px",
+              color: "#63B3ED",
+              fontSize: "0.6rem",
+              fontWeight: 700,
+              letterSpacing: "1.5px",
+              textTransform: "uppercase",
+              cursor: "pointer",
+              fontFamily: "inherit",
+              whiteSpace: "nowrap",
+            }}
+          >🌐 Send to Website ({events.length})</button>
         </div>
 
         {/* Weekly Regulars — master-sheet importer (step 1: no browse UI yet). */}
@@ -1764,6 +1786,11 @@ export default function ReviewQueue({ betaMode = false } = {}) {
         onClose={() => setSessionsOpen(false)}
         onLoad={applyLoadedSession}
         getCurrent={getSessionPayload}
+      />
+      <WebsitePublishModal
+        open={websiteOpen}
+        events={events}
+        onClose={() => setWebsiteOpen(false)}
       />
       <ColumnMapperModal
         open={mapperOpen}
