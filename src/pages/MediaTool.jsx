@@ -490,9 +490,14 @@ function renderStat(canvas, cfg) {
 // === TEXT RENDERER ===
 function renderText(canvas, cfg) {
   const { textTitle, textTitleHighlights, textBody, accent, bgKey, dots, totalDots, pageNum, totalPages, photo, textOpacity,
+          style = "manifesto", band = false,
           targetW = 1080, targetH = 1080, focalX = 0.5, focalY = 0.5 } = cfg;
   const W = targetW, H = targetH; canvas.width=W; canvas.height=H;
   const ctx=canvas.getContext("2d");
+
+  // NEWS CARD — headline on a solid CGE-cream bar up top, photo/graphic
+  // filling below (the @blackmillionaires layout, in Syne instead of serif).
+  if (style === "newscard") { renderTextNewsCard(ctx, W, H, cfg); return; }
 
   const bg=BG_COLORS[bgKey]||BG_COLORS.black;
   const isLight = !photo && !!bg.isLight;
@@ -514,7 +519,9 @@ function renderText(canvas, cfg) {
   }
 
   const titleColor = isLight ? "#0a0a0a" : "#FFF";
-  const bodyColor = isLight ? "rgba(0,0,0,0.72)" : "rgba(255,255,255,0.65)";
+  // Body brightened (was 0.65) for the "text-on-text is a harder read" note —
+  // stronger default contrast so the manifesto pops even without the band.
+  const bodyColor = isLight ? "rgba(0,0,0,0.78)" : "rgba(255,255,255,0.84)";
   const bodyBold = isLight ? "#0a0a0a" : "#FFF";
 
   ctx.globalAlpha=1; ctx.textBaseline="top"; ctx.textAlign="left";
@@ -571,6 +578,17 @@ function renderText(canvas, cfg) {
     if(startY<minY)startY=minY;
     if(startY+blockH>maxBottom)startY=maxBottom-blockH;
 
+    // Optional legibility band — a soft dark panel behind the body block so
+    // the copy always reads over a busy photo/background (like the cover's
+    // band toggle). Drawn before the text so the text sits on top.
+    if(band){
+      const bx=px-24, bw=W-(px-24)*2, bTop=startY-26, bBot=startY+blockH+26;
+      ctx.save();
+      ctx.fillStyle="rgba(0,0,0,0.58)";
+      ctx.beginPath(); ctx.roundRect(bx, Math.max(0,bTop), bw, bBot-Math.max(0,bTop), 18); ctx.fill();
+      ctx.restore();
+    }
+
     bodyLines.forEach((ln,i)=>{
       const y = startY + yOffsets[i];
       if(y<0||y>H-40) return;
@@ -609,6 +627,104 @@ function renderText(canvas, cfg) {
   }
   drawPageNum(ctx,W,H,pageNum,totalPages,accent,isLight);
   drawDots(ctx,W,dots,totalDots,accent,isLight);
+}
+
+// News-card variant of the Text slot: a big Syne headline on a solid CGE-cream
+// bar up top, with the photo/graphic filling the space below (the newspaper
+// "headline card" structure from @blackmillionaires, kept on-brand with Syne
+// + the gold accent instead of a serif on plain white).
+function renderTextNewsCard(ctx, W, H, cfg) {
+  const { textTitle, textTitleHighlights, textBody, accent, bgKey, dots, totalDots,
+          pageNum, totalPages, photo, focalX = 0.5, focalY = 0.5 } = cfg;
+  const inkColor = "#12100c";
+  const blockBg = "#F5F0E8"; // CGE cream
+  const px = 72, maxW = W - px * 2;
+  const hi = textTitleHighlights instanceof Set
+    ? textTitleHighlights
+    : new Set(Array.isArray(textTitleHighlights) ? textTitleHighlights : []);
+  const words = (textTitle || "THE HEADLINE").split(/\s+/).filter(Boolean);
+
+  const wrapAt = (f) => {
+    ctx.font = ff(`800 ${f}px 'Syne',sans-serif`); ctx.letterSpacing = "0px";
+    const sw = ctx.measureText(" ").width; const r = []; let cl = [], cw = 0;
+    for (let i = 0; i < words.length; i++) {
+      const t = words[i].toUpperCase(), ww = ctx.measureText(t).width;
+      if (cl.length > 0 && cw + sw + ww > maxW) { r.push(cl); cl = [{ text: t, idx: i, width: ww }]; cw = ww; }
+      else { cw += (cl.length > 0 ? sw : 0) + ww; cl.push({ text: t, idx: i, width: ww }); }
+    }
+    if (cl.length) r.push(cl); return r;
+  };
+  // Fill the width, cap the headline block to ~46% of the height.
+  let hfs = 96, lines = wrapAt(96);
+  for (; hfs > 40; hfs -= 2) { const ls = wrapAt(hfs); if (ls.length * (hfs * 1.06) <= H * 0.46) { lines = ls; break; } lines = ls; }
+  const lh = hfs * 1.08;
+  const padTop = 100, padBot = 44;
+  const blockH = Math.min(Math.round(H * 0.62), padTop + lines.length * lh + padBot);
+
+  // Photo (or solid bg) fills BELOW the block.
+  const py = blockH, ph = H - blockH;
+  if (photo) {
+    const s = Math.max(W / photo.width, ph / photo.height);
+    const dw = photo.width * s, dh = photo.height * s;
+    let dx = (W / 2) - (photo.width * focalX * s);
+    let dy = (py + ph / 2) - (photo.height * focalY * s);
+    dx = Math.max(W - dw, Math.min(0, dx));
+    dy = Math.max(py + ph - dh, Math.min(py, dy));
+    ctx.save(); ctx.beginPath(); ctx.rect(0, py, W, ph); ctx.clip();
+    ctx.drawImage(photo, dx, dy, dw, dh);
+    ctx.restore();
+  } else {
+    const bgc = BG_COLORS[bgKey] || BG_COLORS.black;
+    ctx.fillStyle = bgc.hex; ctx.fillRect(0, py, W, ph);
+  }
+
+  // Cream headline block + accent seam rule at the bottom edge.
+  ctx.fillStyle = blockBg; ctx.fillRect(0, 0, W, blockH);
+  ctx.fillStyle = accent; ctx.fillRect(0, blockH - 8, W, 8);
+  // Masthead tick — a short accent bar anchoring the top-left of the block.
+  ctx.fillStyle = accent; ctx.fillRect(px, 56, 64, 7);
+
+  // Headline — dark Syne, left-aligned. Highlighted words get an accent
+  // highlighter bar behind them (reads on cream, where accent text wouldn't).
+  ctx.textAlign = "left"; ctx.textBaseline = "top";
+  lines.forEach((lw, li) => {
+    const y = padTop + li * lh;
+    ctx.font = ff(`800 ${hfs}px 'Syne',sans-serif`); ctx.letterSpacing = "0px";
+    const sw = ctx.measureText(" ").width;
+    let x = px;
+    lw.forEach(w => {
+      if (hi.has(w.idx)) {
+        ctx.fillStyle = accent;
+        ctx.fillRect(x - 4, y + hfs * 0.10, w.width + 8, hfs * 0.80);
+        ctx.fillStyle = inkColor;
+      } else {
+        ctx.fillStyle = inkColor;
+      }
+      ctx.fillText(w.text, x, y);
+      x += w.width + sw;
+    });
+  });
+
+  // Optional dek — the first body line as a caption over the photo bottom,
+  // on a gradient scrim so it stays legible.
+  if (photo && textBody?.trim()) {
+    const dek = textBody.split("\n")[0].replace(/\*/g, "").trim();
+    if (dek) {
+      const grd = ctx.createLinearGradient(0, H - 170, 0, H);
+      grd.addColorStop(0, "transparent"); grd.addColorStop(1, "rgba(0,0,0,0.88)");
+      ctx.fillStyle = grd; ctx.fillRect(0, H - 170, W, 170);
+      ctx.font = ff("600 26px 'DM Sans',sans-serif"); ctx.fillStyle = "rgba(255,255,255,0.92)";
+      ctx.textAlign = "left"; ctx.textBaseline = "bottom";
+      let d = dek;
+      while (ctx.measureText(d).width > maxW && d.length) d = d.slice(0, -1);
+      if (d !== dek) d = d.slice(0, -1) + "…";
+      ctx.fillText(d, px, H - 66);
+    }
+  }
+
+  drawFooter(ctx, W, H, false);
+  drawDots(ctx, W, dots, totalDots, accent, false);
+  drawPageNum(ctx, W, H, pageNum, totalPages, accent, false);
 }
 
 // === CTA RENDERER ===
@@ -2826,6 +2942,11 @@ export default function MediaTool() {
   const [totalPages, setTotalPages] = useState(5);
   const [textPhoto, setTextPhoto] = useState(null);
   const [textOpacity, setTextOpacity] = useState(0.85);
+  // Text slot style: "manifesto" (title + body) or "newscard" (headline block
+  // on top, photo below). `textBand` draws a legibility panel behind the
+  // manifesto body over busy backgrounds.
+  const [textStyle, setTextStyle] = useState("manifesto");
+  const [textBand, setTextBand] = useState(false);
   const [editItem, setEditItem] = useState(null);
   const [ctaKicker, setCtaKicker] = useState("SAVE YOUR SPOT");
   const [ctaDate, setCtaDate] = useState("Sunday, June 14 · 6 PM");
@@ -3553,7 +3674,7 @@ export default function MediaTool() {
     if(mode==="cover") renderCover(cv,{photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,categoryTag,coverCtaButton,align:coverAlign,band:coverBand, ...targetCfg});
     else if(mode==="list") renderList(cv,{items,accent,bgKey,dots,totalDots,listTitle,listSubtitle,photo:listPhoto,opacity:listOpacity, ...targetCfg});
     else if(mode==="stat") renderStat(cv,{statNumber,statLabel,statSub,photo:statPhoto,opacity:statOpacity,accent,bgKey,dots,totalDots, ...targetCfg});
-    else if(mode==="text") renderText(cv,{textTitle,textTitleHighlights:textTitleHL,textBody,accent,bgKey,dots,totalDots,pageNum,totalPages,photo:textPhoto,textOpacity, ...targetCfg});
+    else if(mode==="text") renderText(cv,{textTitle,textTitleHighlights:textTitleHL,textBody,style:textStyle,band:textBand,accent,bgKey,dots,totalDots,pageNum,totalPages,photo:textPhoto,textOpacity, ...targetCfg});
     else if(mode==="cta") renderCTA(cv,{ctaKicker,ctaDate,ctaVenue,ctaUrl,photo:textPhoto,accent,bgKey,dots,totalDots,opacity:textOpacity, ...targetCfg});
     else if(mode==="features") renderFeatures(cv,{featuresTitle,features,style:featuresStyle,layout:featuresLayout,accent,bgKey,dots,totalDots,photo:textPhoto,opacity:textOpacity, ...targetCfg});
     else if(mode==="photo") renderPhotoCaption(cv,{photo:captionPhoto,caption,captionSecondary,alignment:captionAlign,accent,bgKey,dots,totalDots, ...targetCfg});
@@ -3623,7 +3744,7 @@ export default function MediaTool() {
       if (mode === "cover") renderCover(thumbCv, {...cfg, photo, headline, highlights, subtitle, opacity, ribbon, categoryTag, coverCtaButton, align: coverAlign, band: coverBand});
       else if (mode === "list") renderList(thumbCv, {...cfg, items, listTitle, listSubtitle, photo: listPhoto, opacity: listOpacity, focalX: listFocalX, focalY: listFocalY});
       else if (mode === "stat") renderStat(thumbCv, {...cfg, statNumber, statLabel, statSub, photo: statPhoto, opacity: statOpacity, focalX: statFocalX, focalY: statFocalY});
-      else if (mode === "text") renderText(thumbCv, {...cfg, textTitle, textTitleHighlights: textTitleHL, textBody, pageNum, totalPages, photo: textPhoto, textOpacity});
+      else if (mode === "text") renderText(thumbCv, {...cfg, textTitle, textTitleHighlights: textTitleHL, textBody, style: textStyle, band: textBand, pageNum, totalPages, photo: textPhoto, textOpacity});
       else if (mode === "cta") renderCTA(thumbCv, {...cfg, ctaKicker, ctaDate, ctaVenue, ctaUrl, photo: textPhoto, opacity: textOpacity});
       else if (mode === "features") renderFeatures(thumbCv, {...cfg, featuresTitle, features, style: featuresStyle, layout: featuresLayout, photo: textPhoto, opacity: textOpacity});
       else if (mode === "photo") renderPhotoCaption(thumbCv, {...cfg, photo: captionPhoto, caption, captionSecondary, alignment: captionAlign});
@@ -3724,7 +3845,7 @@ export default function MediaTool() {
       bgKey: effBgKey, ...targetCfg });
     else if (type === "text") renderText(cv, { ...common, textTitle: s.textTitle,
       textTitleHighlights: s.textTitleHL instanceof Set ? s.textTitleHL : new Set(s.textTitleHL || []),
-      textBody: s.textBody, bgKey: effBgKey, pageNum: s.pageNum, totalPages: s.totalPages,
+      textBody: s.textBody, style: s.textStyle, band: s.textBand, bgKey: effBgKey, pageNum: s.pageNum, totalPages: s.totalPages,
       photo: s.photo, textOpacity: s.textOpacity, ...targetCfg });
     else if (type === "cta") renderCTA(cv, { ...common, ctaKicker: s.ctaKicker, ctaDate: s.ctaDate,
       ctaVenue: s.ctaVenue, ctaUrl: s.ctaUrl, photo: s.photo, bgKey: effBgKey, opacity: s.textOpacity, ...targetCfg });
@@ -3781,7 +3902,7 @@ export default function MediaTool() {
       case "cover": return { ...common, photo, headline, highlights, subtitle, opacity, ribbon, categoryTag, coverCtaButton, coverAlign, coverBand, coverFocalX, coverFocalY };
       case "list": return { ...common, items: items.map(x=>({...x})), listTitle, listSubtitle, photo: listPhoto, listOpacity, listFocalX, listFocalY };
       case "stat": return { ...common, statNumber, statLabel, statSub, photo: statPhoto, statOpacity, statFocalX, statFocalY };
-      case "text": return { ...common, textTitle, textTitleHL, textBody, photo: textPhoto, textOpacity, pageNum, totalPages };
+      case "text": return { ...common, textTitle, textTitleHL, textBody, photo: textPhoto, textOpacity, textStyle, textBand, pageNum, totalPages };
       case "cta": return { ...common, ctaKicker, ctaDate, ctaVenue, ctaUrl, photo: textPhoto, textOpacity };
       case "features": return { ...common, featuresTitle, features: features.map(f=>({...f})), featuresStyle, featuresLayout, photo: textPhoto, textOpacity };
       case "photo": return { ...common, photo: captionPhoto, caption, captionSecondary, captionAlign, captionFocalX, captionFocalY };
@@ -3837,6 +3958,8 @@ export default function MediaTool() {
         setTextTitle(snapshot.textTitle);
         setTextTitleHL(snapshot.textTitleHL instanceof Set ? new Set(snapshot.textTitleHL) : new Set(snapshot.textTitleHL || []));
         setTextBody(snapshot.textBody); setTextPhoto(snapshot.photo); setTextOpacity(snapshot.textOpacity);
+        setTextStyle(snapshot.textStyle || "manifesto");
+        setTextBand(!!snapshot.textBand);
         setPageNum(snapshot.pageNum); setTotalPages(snapshot.totalPages);
         break;
       case "cta":
@@ -5881,8 +6004,26 @@ export default function MediaTool() {
 
             {mode==="text"&&<>
               <AiSlotBtn slot="text" label="Text" onClick={setAiSlotOpen} />
+              {/* Text style: Manifesto (centered title + body) or News card
+                  (Syne headline on a cream bar up top, photo/graphic below).
+                  Band = a legibility panel behind the manifesto body for busy
+                  backgrounds (the manifesto body already got brighter defaults). */}
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0.4rem",marginBottom:"0.6rem"}}>
+                <div><label style={L}>Text style</label>
+                  <div style={{display:"flex",gap:"3px"}}>
+                    {[["manifesto","Manifesto"],["newscard","News card"]].map(([k,lbl])=>(
+                      <button key={k} onClick={()=>setTextStyle(k)} title={k==="manifesto"?"Centered title + body":"Headline block up top, photo/graphic below (news-card look)"} style={{flex:1,padding:"5px 4px",borderRadius:4,cursor:"pointer",fontSize:"0.55rem",fontWeight:700,fontFamily:"'Syne',sans-serif",background:textStyle===k?"rgba(229,188,79,0.18)":"rgba(245,240,232,0.04)",color:textStyle===k?"#E5BC4F":"rgba(245,240,232,0.5)",border:textStyle===k?"1px solid rgba(229,188,79,0.5)":"1px solid transparent"}}>{lbl}</button>
+                    ))}
+                  </div>
+                </div>
+                {textStyle==="manifesto"
+                  ? <div><label style={L}>Legibility band</label>
+                      <button onClick={()=>setTextBand(b=>!b)} title="Draw a panel behind the body so it reads over busy photos/backgrounds" style={{width:"100%",padding:"5px 4px",borderRadius:4,cursor:"pointer",fontSize:"0.55rem",fontWeight:700,fontFamily:"'Syne',sans-serif",background:textBand?"rgba(229,188,79,0.18)":"rgba(245,240,232,0.04)",color:textBand?"#E5BC4F":"rgba(245,240,232,0.5)",border:textBand?"1px solid rgba(229,188,79,0.5)":"1px solid transparent"}}>{textBand?"Band ON":"Band OFF"}</button>
+                    </div>
+                  : <div><label style={L}>Tip</label><div style={{fontSize:"0.5rem",color:"rgba(245,240,232,0.4)",lineHeight:1.4,paddingTop:"2px"}}>Title = headline. Add a photo (Advanced) for the panel below; the body's first line becomes a caption.</div></div>}
+              </div>
               {/* PRIMARY: title + body — the content of the manifesto slide. */}
-              <div style={{marginBottom:"0.6rem"}}><label style={L}>Title</label><input value={textTitle} onChange={e=>setTextTitle(e.target.value)} style={I}/></div>
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>{textStyle==="newscard"?"Headline":"Title"}</label><input value={textTitle} onChange={e=>setTextTitle(e.target.value)} style={I}/></div>
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Click words to highlight</label>
                 <div style={{display:"flex",flexWrap:"wrap",gap:"3px",padding:"6px",background:"#111",borderRadius:"6px",border:"1px solid rgba(245,240,232,0.04)"}}>
                   {textWords.map((w,i)=><button key={i} onClick={()=>toggleTextHL(i)} style={{padding:"3px 7px",borderRadius:"4px",cursor:"pointer",fontSize:"0.65rem",fontWeight:700,fontFamily:"'Syne'",textTransform:"uppercase",background:textTitleHL.has(i)?`${accent}22`:"rgba(245,240,232,0.04)",color:textTitleHL.has(i)?accent:"rgba(245,240,232,0.30)",border:textTitleHL.has(i)?`2px solid ${accent}55`:"2px solid transparent"}}>{w}</button>)}
