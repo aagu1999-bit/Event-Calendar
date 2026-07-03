@@ -259,10 +259,26 @@ function renderCover(canvas, cfg) {
   // word at draw time (since the actual fillText ran at 0px).
   ctx.letterSpacing = "0px";
   const words=headline.split(/\s+/).filter(w=>w), px=110, maxW=W-px*2;
-  let fs=72; ctx.font=ff(`800 ${fs}px 'Syne',sans-serif`);
+  ctx.font=ff(`800 72px 'Syne',sans-serif`);
   const wrap=(f)=>{ ctx.font=ff(`800 ${f}px 'Syne',sans-serif`); ctx.letterSpacing="0px"; const r=[]; let cl=[],cw=0; const sw=ctx.measureText(" ").width;
     for(let i=0;i<words.length;i++){const t=words[i].toUpperCase(),ww=ctx.measureText(t).width;if(cl.length>0&&cw+sw+ww>maxW){r.push(cl);cl=[{text:t,idx:i,width:ww}];cw=ww;}else{cw+=(cl.length>0?sw:0)+ww;cl.push({text:t,idx:i,width:ww});}}if(cl.length)r.push(cl);return r;};
-  let lines=wrap(fs); while(lines.length*(fs*1.05)>H*0.55&&fs>36){fs-=2;lines=wrap(fs);}
+  // Size the headline to FILL the safe width — start LARGE and step down until
+  // every line fits the width AND the stack fits the vertical budget. The old
+  // fixed 72px base never grew, so short/medium headlines came out small; the
+  // big, space-filling look (like the older Juneteenth cover) needs the font to
+  // scale UP toward the width, capped at 120 so a one-word line isn't absurd.
+  const widestLineW = (ls, f) => {
+    ctx.font=ff(`800 ${f}px 'Syne',sans-serif`); ctx.letterSpacing="0px";
+    const sw=ctx.measureText(" ").width; let m=0;
+    for(const l of ls){ const lw=l.reduce((a,w)=>a+w.width,0)+Math.max(0,l.length-1)*sw; if(lw>m)m=lw; }
+    return m;
+  };
+  let fs=120, lines=wrap(120);
+  for(; fs>44; fs-=2){
+    const ls=wrap(fs);
+    if(widestLineW(ls,fs)<=maxW && ls.length*(fs*1.05)<=H*0.58){ lines=ls; break; }
+    lines=ls;
+  }
   // Bottom margin 130 (was 50) so the title sits inside Instagram's 4:5
   // safe zone — IG previews tend to crop or visually nibble the bottom
   // edge of a 1:1 post (caption row, profile chip, action bar overlap).
