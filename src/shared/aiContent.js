@@ -289,9 +289,18 @@ export async function generateRankedCovers({ apiKey, topic, voice, slotPrompts, 
 // feeds generateTemplateFill like any other sequence, so it also gets the critic pass.
 const ARRANGEABLE_SLOTS = ["cover", "text", "spotlight", "stat", "features", "countdown", "cta", "photo", "poster", "press"];
 
-export async function designSequence({ apiKey, topic, context, mode }) {
+export async function designSequence({ apiKey, topic, context, mode, targetCount = null }) {
   if (!apiKey) throw new Error("Missing Gemini API key");
   if ((!topic || !topic.trim()) && (!context || !context.trim())) throw new Error("Add a topic or event details first");
+
+  // targetCount: when the user pins a slide count, aim for exactly that (3..12);
+  // otherwise let the AI size the arc to the story (up to 10).
+  const wantCount = (typeof targetCount === "number" && targetCount > 0)
+    ? Math.min(Math.max(Math.round(targetCount), 3), 12)
+    : null;
+  const countRule = wantCount
+    ? `- EXACTLY ${wantCount} slides total (the user asked for this many — hit it: expand the story with more spotlights/beats/stats if you're short, trim the weakest if you're over).`
+    : "- 4 to 10 slides total — as many as the story genuinely needs to breathe, and no more. A rich, multi-angle story SHOULD run long; a single beat stays short.";
 
   const prompt = [
     "You are an Instagram art director for CGE, an NJ news-media outlet. Design the",
@@ -315,7 +324,8 @@ export async function designSequence({ apiKey, topic, context, mode }) {
     "- poster / press: magazine-flyer format — music/nightlife/visually-loud events.",
     "",
     "Rules:",
-    "- 4 to 8 slides total. Slide 1 is ALWAYS 'cover'. End on a 'cta'.",
+    countRule,
+    "- Slide 1 is ALWAYS 'cover'. End on a 'cta'.",
     "- Match the mix to the STORY: a single event with many selling points → a few",
     "  spotlights or a features slide; a multi-event roundup → several ctas; a single",
     "  strong beat → keep it short. A PRE-event promo should NOT use 'photo'.",
@@ -340,15 +350,22 @@ export async function designSequence({ apiKey, topic, context, mode }) {
     ? parsed.sequence.map(s => String(s).toLowerCase().trim()).filter(s => ARRANGEABLE_SLOTS.includes(s))
     : [];
   // Guardrails: cover first, cta last, sane length — the render pipeline assumes these.
-  seq = ["cover", ...seq.filter(s => s !== "cover")].slice(0, 8);
-  if (seq[seq.length - 1] !== "cta") seq.push("cta");
+  // Cap at the requested count (when pinned) or 10 (auto).
+  const cap = wantCount || 10;
+  seq = ["cover", ...seq.filter(s => s !== "cover")].slice(0, cap);
+  if (seq[seq.length - 1] !== "cta") {
+    // Keep the total at the cap when pinned: replace the last slot with cta
+    // rather than pushing past the requested count.
+    if (wantCount && seq.length >= cap) seq[seq.length - 1] = "cta";
+    else seq.push("cta");
+  }
   if (seq.length < 2) throw new Error("Designed sequence too short");
   return { sequence: seq, rationale: (parsed?.rationale || "").trim() };
 }
 
 // Full "AI arranges the carousel" flow: design the sequence, then fill + polish it.
-export async function generateArrangedCarousel({ apiKey, topic, context, voice, slotPrompts, mode }) {
-  const design = await designSequence({ apiKey, topic, context, mode });
+export async function generateArrangedCarousel({ apiKey, topic, context, voice, slotPrompts, mode, targetCount = null }) {
+  const design = await designSequence({ apiKey, topic, context, mode, targetCount });
   const slides = await generateTemplateFill({
     apiKey, sequence: design.sequence, topic, context, voice, slotPrompts,
     templateMeta: { name: "AI-arranged carousel", keyMove: design.rationale }, mode,
