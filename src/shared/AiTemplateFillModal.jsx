@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useBrandStore, useCarouselTemplatesStore, BUILTIN_CAROUSEL_TEMPLATES } from "../store";
 import { generateTemplateFill, pickTemplate, generateArrangedCarousel, researchEvent } from "./aiContent.js";
@@ -48,6 +48,9 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
   // in the result panel so the user knows what was chosen.
   const [letAiPick, setLetAiPick] = useState(false);
   const [aiArrange, setAiArrange] = useState(false);
+  // Target slide count for "AI arranges" — "auto" lets Gemini size the arc to
+  // the story; a number pins it. Ignored by fixed-length template fill.
+  const [slideCount, setSlideCount] = useState("auto");
   const [researchOn, setResearchOn] = useState(false);
   const [pickedTemplate, setPickedTemplate] = useState(null);
   const [pickReasoning, setPickReasoning] = useState("");
@@ -59,6 +62,12 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
   // Which generated slides to push into the carousel (default: all). The user
   // opts slides OUT via the keep toggle on each preview card.
   const [keptIdx, setKeptIdx] = useState(new Set());
+  // Index currently being re-rolled by the per-slide "↻" button (null = none).
+  const [regenIdx, setRegenIdx] = useState(null);
+  // Set true right before a single-slot swap so the keptIdx-reset effect
+  // knows to leave the user's keep/skip choices alone (only a fresh full
+  // generation should reset everything to kept).
+  const singleRegenRef = useRef(false);
 
   useEffect(() => {
     if (open) {
@@ -71,12 +80,16 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
       setSavedIdx(new Set());
       setMode("editorial");
       setAiArrange(false);
+      setSlideCount("auto");
       if (initialTemplateId) setTemplateId(initialTemplateId);
     }
   }, [open, initialTemplateId]);
 
-  // Every freshly generated batch starts fully kept.
+  // Every freshly generated batch starts fully kept — but a single-slot
+  // re-roll (same array length, one entry swapped) must NOT wipe the user's
+  // keep/skip choices, so it flags singleRegenRef to skip one reset.
   useEffect(() => {
+    if (singleRegenRef.current) { singleRegenRef.current = false; return; }
     setKeptIdx(new Set(slides.map((_, i) => i)));
   }, [slides]);
 
@@ -118,7 +131,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
       // fill + polish it. Supersedes template selection.
       if (aiArrange) {
         setBusyLabel("Designing + filling…");
-        const arranged = await generateArrangedCarousel({ apiKey, topic, context: genContext, voice, slotPrompts, mode });
+        const arranged = await generateArrangedCarousel({ apiKey, topic, context: genContext, voice, slotPrompts, mode, targetCount: slideCount === "auto" ? null : parseInt(slideCount, 10) });
         setPickedTemplate({ id: "ai-arranged", name: "AI-arranged carousel", sequence: arranged.sequence, custom: true });
         setPickReasoning(arranged.rationale);
         setSlides(arranged.slides);
@@ -165,6 +178,51 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
     if (!chosen.length) { setError("Keep at least one slide to push."); return; }
     onAccept(chosen, pickedTemplate || template);
     onClose();
+  };
+
+  // Re-roll a SINGLE slot, keeping every other slide as-is. Reuses the
+  // template-fill generator with a one-slot sequence, and feeds in both the
+  // rest of the carousel (so the new slide complements it) and this slide's
+  // previous copy (so the rewrite is clearly different, not the same again).
+  const handleRegenerateSlide = async (idx) => {
+    if (!apiKey) { setError("Paste your Gemini API key in the MediaTool toolbar first."); return; }
+    const slot = slides[idx];
+    if (!slot || regenIdx !== null) return;
+    setRegenIdx(idx);
+    setError("");
+    try {
+      const prev = slotToExemplar(slot).trim();
+      const others = slides
+        .map((s, i) => (i === idx ? null : `Slide ${i + 1} (${s.type}): ${slotToExemplar(s).trim()}`))
+        .filter(Boolean)
+        .join("\n");
+      const regenContext = [
+        context.trim(),
+        others && `THE REST OF THE CAROUSEL (do NOT repeat these — this slide must complement them):\n${others}`,
+        prev && `PREVIOUS VERSION OF THIS SLIDE (write something clearly DIFFERENT — new angle, fresh wording, don't rephrase this):\n${prev}`,
+      ].filter(Boolean).join("\n\n");
+      const result = await generateTemplateFill({
+        apiKey,
+        sequence: [slot.type],
+        topic,
+        context: regenContext,
+        voice,
+        slotPrompts,
+        templateMeta: pickedTemplate || template || { sequence: [slot.type] },
+        mode,
+        polish: false,
+      });
+      const fresh = Array.isArray(result) && result[0] ? result[0] : null;
+      if (!fresh) throw new Error("No slide returned");
+      singleRegenRef.current = true; // preserve keep/skip choices across the swap
+      setSlides(prevSlides => prevSlides.map((s, i) => (i === idx ? fresh : s)));
+      setSavedIdx(prev2 => { const n = new Set(prev2); n.delete(idx); return n; }); // new copy → un-mark "saved"
+    } catch (err) {
+      console.error(err);
+      setError(`Regenerate slide ${idx + 1} failed: ${err.message || err}`);
+    } finally {
+      setRegenIdx(null);
+    }
   };
 
   // Small per-type preview renderer for the result cards.
@@ -539,6 +597,31 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
           </span>
         </label>
 
+        {/* Slide count — only meaningful when AI arranges the carousel (a fixed
+            template is locked to its own length). "Auto" lets Gemini size the
+            arc to the story; a number pins the count. */}
+        {aiArrange && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, padding: "8px 10px", background: "rgba(229,188,79,0.04)", border: "1px solid rgba(229,188,79,0.15)", borderRadius: 4 }}>
+            <span style={{ fontSize: "0.65rem", color: "rgba(245,240,232,0.7)", letterSpacing: 0.5, fontWeight: 700 }}>How many slides?</span>
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+              {["auto", "4", "5", "6", "7", "8", "10"].map((c) => (
+                <button
+                  key={c}
+                  onClick={() => setSlideCount(c)}
+                  title={c === "auto" ? "Let AI decide based on the story" : `Aim for exactly ${c} slides`}
+                  style={{
+                    padding: "4px 10px", borderRadius: 4, cursor: "pointer",
+                    fontSize: "0.62rem", fontWeight: 700, fontFamily: "'Syne',sans-serif",
+                    background: slideCount === c ? "rgba(229,188,79,0.18)" : "rgba(245,240,232,0.04)",
+                    color: slideCount === c ? "#E5BC4F" : "rgba(245,240,232,0.5)",
+                    border: slideCount === c ? "1px solid rgba(229,188,79,0.5)" : "1px solid transparent",
+                  }}
+                >{c === "auto" ? "✨ Auto" : c}</button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Web research — a grounded Gemini call looks the event up (Google
             Search) and feeds the background into generation, so it's not a
             black box that only knows what you typed. Opt-in: one extra call
@@ -770,7 +853,7 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
                     style={{
                       position: "relative",
                       padding: 12,
-                      paddingRight: canSave ? 80 : 12,
+                      paddingRight: canSave ? 132 : 52,
                       paddingLeft: 40,
                       background: kept ? "rgba(229,188,79,0.04)" : "rgba(245,240,232,0.02)",
                       border: "1px solid " + (kept ? "rgba(229,188,79,0.20)" : "rgba(245,240,232,0.10)"),
@@ -791,31 +874,52 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
                         display: "flex", alignItems: "center", justifyContent: "center",
                       }}
                     >{kept ? "✓" : ""}</button>
-                    {canSave && (
+                    <div style={{ position: "absolute", top: 8, right: 8, display: "flex", gap: 5, alignItems: "center" }}>
                       <button
-                        onClick={() => handleSaveSlideAsExemplar(slot, idx)}
-                        disabled={saved}
-                        title={saved ? "Saved to Brand Voice exemplars" : "Save this slide's copy to Brand Voice — feeds future generations"}
+                        onClick={() => handleRegenerateSlide(idx)}
+                        disabled={regenIdx !== null}
+                        title="Re-roll just this slide — keeps every other slide as-is"
                         style={{
-                          position: "absolute",
-                          top: 8,
-                          right: 8,
-                          background: saved ? "rgba(52,211,153,0.15)" : "transparent",
-                          border: `1px solid ${saved ? "rgba(52,211,153,0.4)" : "rgba(229,188,79,0.25)"}`,
-                          color: saved ? "#34D399" : "rgba(229,188,79,0.8)",
+                          background: regenIdx === idx ? "rgba(139,92,246,0.25)" : "transparent",
+                          border: "1px solid rgba(139,92,246,0.45)",
+                          color: "#A78BFA",
                           fontSize: "0.55rem",
                           fontWeight: 700,
                           letterSpacing: 0.8,
                           textTransform: "uppercase",
                           padding: "3px 7px",
                           borderRadius: 3,
-                          cursor: saved ? "default" : "pointer",
+                          cursor: regenIdx !== null ? "wait" : "pointer",
                           fontFamily: "'Syne',sans-serif",
+                          whiteSpace: "nowrap",
                         }}
                       >
-                        {saved ? "✓ Saved" : "🔖 Save"}
+                        {regenIdx === idx ? "…" : "↻ Redo"}
                       </button>
-                    )}
+                      {canSave && (
+                        <button
+                          onClick={() => handleSaveSlideAsExemplar(slot, idx)}
+                          disabled={saved}
+                          title={saved ? "Saved to Brand Voice exemplars" : "Save this slide's copy to Brand Voice — feeds future generations"}
+                          style={{
+                            background: saved ? "rgba(52,211,153,0.15)" : "transparent",
+                            border: `1px solid ${saved ? "rgba(52,211,153,0.4)" : "rgba(229,188,79,0.25)"}`,
+                            color: saved ? "#34D399" : "rgba(229,188,79,0.8)",
+                            fontSize: "0.55rem",
+                            fontWeight: 700,
+                            letterSpacing: 0.8,
+                            textTransform: "uppercase",
+                            padding: "3px 7px",
+                            borderRadius: 3,
+                            cursor: saved ? "default" : "pointer",
+                            fontFamily: "'Syne',sans-serif",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {saved ? "✓ Saved" : "🔖 Save"}
+                        </button>
+                      )}
+                    </div>
                     {renderPreview(slot, idx)}
                   </div>
                 );
