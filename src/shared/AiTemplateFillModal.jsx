@@ -207,9 +207,10 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
   };
 
   // Re-roll a SINGLE slot, keeping every other slide as-is. Reuses the
-  // template-fill generator with a one-slot sequence, and feeds in both the
-  // rest of the carousel (so the new slide complements it) and this slide's
-  // previous copy (so the rewrite is clearly different, not the same again).
+  // template-fill generator with a one-slot sequence, and feeds in the FULL
+  // carousel + this slide's immediate neighbors so the rewrite matches the
+  // established voice/motif, bridges the slides on either side, and fills the
+  // missing beat — plus its previous copy so it comes out clearly different.
   const handleRegenerateSlide = async (idx) => {
     if (!apiKey) { setError("Paste your Gemini API key in the MediaTool toolbar first."); return; }
     const slot = slides[idx];
@@ -217,15 +218,27 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
     setRegenIdx(idx);
     setError("");
     try {
-      const prev = slotToExemplar(slot).trim();
-      const others = slides
-        .map((s, i) => (i === idx ? null : `Slide ${i + 1} (${s.type}): ${slotToExemplar(s).trim()}`))
-        .filter(Boolean)
+      const prevVersion = slotToExemplar(slot).trim();
+      const n = slides.length;
+      const before = idx > 0 ? slides[idx - 1] : null;
+      const after = idx < n - 1 ? slides[idx + 1] : null;
+      // Full map of the carousel with THIS slide flagged, so the model can see
+      // the established voice/motif and exactly what each other slide already
+      // covers (the pattern to match + the gap to fill).
+      const fullMap = slides
+        .map((s, i) => `Slide ${i + 1} (${s.type})${i === idx ? "  <-- THIS ONE (being redone)" : ""}: ${slotToExemplar(s).trim() || "(no text)"}`)
         .join("\n");
+      const neighborLines = [
+        before ? `THE SLIDE RIGHT BEFORE (slide ${idx} - ${before.type}): ${slotToExemplar(before).trim() || "(no text)"}`
+               : "There is NO slide before — this is the opener/cover.",
+        after ? `THE SLIDE RIGHT AFTER (slide ${idx + 2} - ${after.type}): ${slotToExemplar(after).trim() || "(no text)"}`
+              : "There is NO slide after — this is the closer/CTA.",
+      ].join("\n");
       const regenContext = [
         context.trim(),
-        others && `THE REST OF THE CAROUSEL (do NOT repeat these — this slide must complement them):\n${others}`,
-        prev && `PREVIOUS VERSION OF THIS SLIDE (write something clearly DIFFERENT — new angle, fresh wording, don't rephrase this):\n${prev}`,
+        `FULL CAROUSEL (study the voice, the running motif, and what each slide already covers — do not repeat or contradict them):\n${fullMap}`,
+        `YOUR JOB: rewrite ONLY slide ${idx + 1} (the ${slot.type}) so it fits SEAMLESSLY between its neighbors — continue/pay off what the slide before sets up, and tee up the slide after. Match the established voice + motif + pattern, and fill the specific missing beat this position needs. Don't duplicate what other slides already say.\n${neighborLines}`,
+        prevVersion && `PREVIOUS VERSION OF THIS SLIDE (make the new one clearly DIFFERENT — fresh angle/wording, not a rephrase — while still bridging the neighbors):\n${prevVersion}`,
       ].filter(Boolean).join("\n\n");
       const result = await generateTemplateFill({
         apiKey,
