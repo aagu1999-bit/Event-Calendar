@@ -405,11 +405,11 @@ export async function designSequence({ apiKey, topic, context, mode, targetCount
 }
 
 // Full "AI arranges the carousel" flow: design the sequence, then fill + polish it.
-export async function generateArrangedCarousel({ apiKey, topic, context, voice, slotPrompts, mode, targetCount = null }) {
+export async function generateArrangedCarousel({ apiKey, topic, context, voice, slotPrompts, mode, targetCount = null, letterMode = false }) {
   const design = await designSequence({ apiKey, topic, context, mode, targetCount });
   const slides = await generateTemplateFill({
     apiKey, sequence: design.sequence, topic, context, voice, slotPrompts,
-    templateMeta: { name: "AI-arranged carousel", keyMove: design.rationale }, mode,
+    templateMeta: { name: "AI-arranged carousel", keyMove: design.rationale }, mode, letterMode,
   });
   return { slides, sequence: design.sequence, rationale: design.rationale };
 }
@@ -488,13 +488,13 @@ export async function pickTemplate({ apiKey, topic, context, candidates }) {
 //
 // Output: { slides: [{ type, ...slot-fields }, ...] }
 
-export async function generateTemplateFill({ apiKey, sequence, topic, context, voice, slotPrompts, templateMeta, mode, polish = true }) {
+export async function generateTemplateFill({ apiKey, sequence, topic, context, voice, slotPrompts, templateMeta, mode, polish = true, letterMode = false }) {
   if (!apiKey) throw new Error("Missing Gemini API key");
   if (!Array.isArray(sequence) || !sequence.length) throw new Error("Missing template sequence");
   if ((!topic || !topic.trim()) && (!context || !context.trim())) throw new Error("Add a topic or event details first");
 
   const today = (() => { try { return new Date().toISOString().slice(0, 10); } catch { return null; } })();
-  const prompt = buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, templateMeta, mode, today });
+  const prompt = buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, templateMeta, mode, today, letterMode });
 
   const data = await geminiGenerate(apiKey, {
     contents: [{ parts: [{ text: prompt }] }],
@@ -516,7 +516,7 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   // Critic pass — raise every slide to its quality bar. Falls back to the draft
   // if the polish call fails or returns the wrong shape, so it never blocks output.
   try {
-    const improved = await polishCarousel({ apiKey, topic, context, voice, sequence, slides, mode, today });
+    const improved = await polishCarousel({ apiKey, topic, context, voice, sequence, slides, mode, today, letterMode });
     if (Array.isArray(improved) && improved.length === sequence.length) return improved;
   } catch (e) {
     if (typeof console !== "undefined") console.warn("Carousel polish failed, returning draft:", e?.message || e);
@@ -548,7 +548,7 @@ function fillSlotShape(t) {
 // that raises EVERY slide to its quality bar (kill filler, make the cover hook,
 // keep facts honest) while preserving each slide's type, order, and JSON shape.
 // Returns the improved slides; throws on failure so the caller falls back to the draft.
-export async function polishCarousel({ apiKey, topic, context, voice, sequence, slides, mode, today }) {
+export async function polishCarousel({ apiKey, topic, context, voice, sequence, slides, mode, today, letterMode = false }) {
   if (!apiKey) throw new Error("Missing Gemini API key");
   if (!Array.isArray(slides) || !slides.length) throw new Error("No slides to polish");
 
@@ -577,6 +577,11 @@ export async function polishCarousel({ apiKey, topic, context, voice, sequence, 
     "  slide must reward reaching the end with the payoff it was teasing. Rewrite any slide",
     "  that closes the thread early or leaves the reader with nothing left to wonder.",
     ...(today ? [`- Today is ${today}. Correct current year everywhere; never a past year.`] : []),
+    ...(letterMode ? [
+      "- LETTER / MANIFESTO MODE is ON: the carousel is ONE continuous first-person letter.",
+      "  Preserve that — one flowing voice, thoughts that carry slide to slide (ellipses ok),",
+      "  intimate 'I/we/you', short beats. Don't chop it back into standalone cards.",
+    ] : []),
     ...((mode === "promo")
       ? ["- REGISTER: PROMO — own-event push, more energy, a time pull, a soft invite. No 'don't miss out' clichés."]
       : ["- REGISTER: EDITORIAL — restrained newsroom confidence. Inform, don't sell."]),
@@ -693,6 +698,7 @@ function hookFrameworks() {
     "- INFORMATION ASYMMETRY (status play): imply insiders know a secret. \"The one rule we're forcing every single to follow at Friday's mixer…\"",
     "- INCOMPLETE LISTICLE: promise a list, withhold the best item for later slides (\"the boldest one is on the next slide\") — great for multi-slide swipe.",
     "- PATTERN INTERRUPT: open with something jarring, absurd, or a corrected 'lie' that stops autopilot scrolling.",
+    "- LOSS / STAKES FRAME: open on something ending, at risk, or that almost didn't happen — loss aversion hits about twice as hard as any gain-framed hype line. \"This might be the last one…\" / \"We almost lost the venue three times.\" Then the carousel reveals why it matters and how it's being saved. Works for POSITIVE stories too — the near-miss or hidden cost behind a win. Use sparingly: it's a one-time card, not every post, and only when the stakes are REAL (never cry wolf).",
     "- THEN → NOW / NUMBER-ANCHORED / SCENE DETAIL are also fair game when they fit.",
     "Hard rules: the open loop MUST be honestly paid off by the rest of the carousel — tease, never mislead. Match the framework to the vibe: a 2000s throwback, a singles mixer, and a wellness fair each demand a DIFFERENT framework and energy.",
     "─────────────────────────────",
@@ -715,6 +721,10 @@ function retentionEngineering(slideCount) {
     "- CHAIN THE LOOPS. Every slide except the last must END by opening a NEW curiosity gap",
     "  that only the NEXT slide answers, while paying off the previous one. The reader should",
     "  finish each slide with a fresh unanswered question, not a closed, complete thought.",
+    "- RULE OUT THE OBVIOUS (especially slide 2). When the cover opens a 'why / what' loop, do",
+    "  NOT answer it on slide 2 — instead ELIMINATE the obvious guesses ('This isn't about a",
+    "  lack of X. It's not about Y either.'). Killing the easy explanations sharpens the mystery",
+    "  and pushes the reader toward the real, non-obvious answer, which you save for later.",
     "- ESCALATE. Each slide raises the stakes, specificity, or surprise over the one before —",
     "  never a flat list of equal-weight facts. Order the beats small→big, ordinary→wild, so",
     "  momentum builds toward the end instead of peaking early.",
@@ -729,7 +739,27 @@ function retentionEngineering(slideCount) {
   ];
 }
 
-function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, templateMeta, mode, today }) {
+// Letter / manifesto continuity mode. When on, the whole carousel is written
+// as ONE continuous first-person letter (a confession / open letter) whose
+// thought flows slide to slide, instead of separate standalone cards — the
+// @summerblockfest "This may be the last one…" structure, minus the sad-story
+// skin (works for a celebratory or announcement arc just as well). Opt-in.
+function letterModeBlock() {
+  return [
+    "LETTER / MANIFESTO MODE — write the ENTIRE carousel as ONE continuous first-person letter, not separate cards:",
+    "- One unbroken voice and one flowing thought across all slides. Sentences may CARRY OVER between slides — a slide can end mid-thought on an ellipsis and the next slide finishes it. It should read like turning the pages of one letter.",
+    "- Intimate and direct — 'I', 'we', 'you'. Vulnerable, candid, human. It should feel like a real person talking, not a brand announcing.",
+    "- Keep each slide SHORT — a beat or two with lots of breathing room. Slide 1 especially: a single line.",
+    "- Emotional arc, not a feature list: a quiet open → the real stakes / the turn → the point → the ask. The last slide lands the message and the invite.",
+    "- Do NOT restate the same idea on every slide; each one MOVES the letter forward a step.",
+    "- Keep each slot's required JSON fields, but treat the copy as consecutive paragraphs of the same letter (a cover headline is the opening line; a text slide is the next paragraph; the final cta is the sign-off + ask).",
+    "This is a STRUCTURE, not a mood — it can carry an exciting announcement or a grateful recap, not only a somber one. Never manufacture fake stakes.",
+    "─────────────────────────────",
+    "",
+  ];
+}
+
+function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, templateMeta, mode, today, letterMode = false }) {
   const hasVoiceDesc = voice && typeof voice.description === "string" && voice.description.trim();
   const exemplars = Array.isArray(voice?.exemplars) ? voice.exemplars.filter(e => e && e.trim()) : [];
   const hasExemplars = exemplars.length > 0;
@@ -807,6 +837,7 @@ function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, tem
     ...creativeDirection(),
     ...(sequence.includes("cover") ? hookFrameworks() : []),
     ...(sequence.length > 2 ? retentionEngineering(sequence.length) : []),
+    ...(letterMode ? letterModeBlock() : []),
     ...registerBlock(mode),
     ...variationDirective(),
     ...((topic && topic.trim()) ? [`Carousel topic: ${topic.trim()}`, ""] : []),
