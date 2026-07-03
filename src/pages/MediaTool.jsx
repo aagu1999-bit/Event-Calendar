@@ -2928,6 +2928,15 @@ export default function MediaTool() {
   // the 8 presets (e.g. "dry and deadpan", "hype church-announcement"), and
   // it's generated FIRST. Empty = just the presets.
   const [captionTone, setCaptionTone] = useState("");
+  // Saved custom tones — the user's own reusable one-tap chips. Persisted so
+  // "block-party hype" is as fast as a preset next time.
+  const [savedTones, setSavedTones] = useState(() => {
+    try { const a = JSON.parse(localStorage.getItem("cge_caption_tones") || "[]"); return Array.isArray(a) ? a : []; }
+    catch { return []; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("cge_caption_tones", JSON.stringify(savedTones)); } catch {}
+  }, [savedTones]);
   const [copiedIdx, setCopiedIdx] = useState(null);
   const [useVision, setUseVision] = useState(false);
   const saveKey = (v) => {
@@ -5004,18 +5013,36 @@ export default function MediaTool() {
 
           {/* Custom tone — beyond the 8 presets, type any tone/style and it's
               written FIRST. Same idea as the AI Fill Context: templates exist,
-              but you can go outside them. */}
-          <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "8px", flexWrap: "wrap" }}>
-            <span style={{ fontSize: "0.55rem", color: "rgba(99,179,237,0.85)", letterSpacing: "1px", textTransform: "uppercase", fontWeight: 700, flexShrink: 0 }}>Custom tone</span>
-            <input
-              value={captionTone}
-              onChange={e => setCaptionTone(e.target.value)}
-              placeholder="optional — e.g. 'dry & deadpan', 'block-party hype', 'poetic'"
-              title="Type any tone to write a caption outside the 8 presets. Left blank = just the presets."
-              style={{ flex: 1, minWidth: 0, padding: "6px 9px", background: "#111", border: "1px solid rgba(99,179,237,0.25)", borderRadius: 4, color: "#F5F0E8", fontFamily: "inherit", fontSize: "0.7rem", outline: "none", boxSizing: "border-box" }}
-            />
-            {captionTone && (
-              <button onClick={() => setCaptionTone("")} title="Clear custom tone" style={{ padding: "5px 9px", background: "transparent", color: "rgba(245,240,232,0.45)", border: "1px solid rgba(245,240,232,0.12)", borderRadius: 4, fontSize: "0.6rem", cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>×</button>
+              but you can go outside them. Save favorites as reusable chips. */}
+          <div style={{ marginTop: "8px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+              <span style={{ fontSize: "0.55rem", color: "rgba(99,179,237,0.85)", letterSpacing: "1px", textTransform: "uppercase", fontWeight: 700, flexShrink: 0 }}>Custom tone</span>
+              <input
+                value={captionTone}
+                onChange={e => setCaptionTone(e.target.value)}
+                placeholder="optional — e.g. 'dry & deadpan', 'block-party hype', 'poetic'"
+                title="Type any tone to write a caption outside the 8 presets. Left blank = just the presets."
+                style={{ flex: 1, minWidth: 0, padding: "6px 9px", background: "#111", border: "1px solid rgba(99,179,237,0.25)", borderRadius: 4, color: "#F5F0E8", fontFamily: "inherit", fontSize: "0.7rem", outline: "none", boxSizing: "border-box" }}
+              />
+              {captionTone.trim() && !savedTones.includes(captionTone.trim()) && (
+                <button onClick={() => setSavedTones(p => [...p, captionTone.trim()])} title="Save this tone as a reusable chip" style={{ padding: "5px 9px", background: "rgba(99,179,237,0.14)", color: "#63B3ED", border: "1px solid rgba(99,179,237,0.4)", borderRadius: 4, fontSize: "0.55rem", fontWeight: 700, letterSpacing: "0.5px", textTransform: "uppercase", cursor: "pointer", fontFamily: "'Syne',sans-serif", flexShrink: 0, whiteSpace: "nowrap" }}>＋ Save</button>
+              )}
+              {captionTone && (
+                <button onClick={() => setCaptionTone("")} title="Clear custom tone" style={{ padding: "5px 9px", background: "transparent", color: "rgba(245,240,232,0.45)", border: "1px solid rgba(245,240,232,0.12)", borderRadius: 4, fontSize: "0.6rem", cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>×</button>
+              )}
+            </div>
+            {savedTones.length > 0 && (
+              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "6px" }}>
+                {savedTones.map((t, i) => {
+                  const active = captionTone.trim() === t;
+                  return (
+                    <span key={i} style={{ display: "inline-flex", alignItems: "center", borderRadius: 12, overflow: "hidden", border: `1px solid ${active ? "#63B3ED" : "rgba(99,179,237,0.3)"}`, background: active ? "rgba(99,179,237,0.18)" : "rgba(99,179,237,0.06)" }}>
+                      <button onClick={() => setCaptionTone(t)} title="Use this tone" style={{ padding: "4px 9px", background: "transparent", color: active ? "#63B3ED" : "rgba(245,240,232,0.75)", border: "none", fontSize: "0.6rem", cursor: "pointer", fontFamily: "inherit", maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t}</button>
+                      <button onClick={() => setSavedTones(p => p.filter((_, j) => j !== i))} title="Remove this saved tone" style={{ padding: "4px 7px", background: "transparent", color: "rgba(245,240,232,0.4)", border: "none", borderLeft: "1px solid rgba(99,179,237,0.2)", fontSize: "0.6rem", cursor: "pointer", fontFamily: "inherit" }}>×</button>
+                    </span>
+                  );
+                })}
+              </div>
             )}
           </div>
 
