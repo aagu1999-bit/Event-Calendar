@@ -164,6 +164,47 @@ export async function researchEvent({ apiKey, topic, context }) {
   return (extractResponseText(data) || "").trim();
 }
 
+// === TIMELY NEWS LOOKUP (Google Search grounding) ===
+// Like researchEvent, but oriented at what's HAPPENING NOW rather than
+// evergreen background. Given a topic/area, it searches for recent, dated
+// news + upcoming happenings so the user can spin a timely post out of the
+// current moment. Returns a plain-text brief (grounded → no JSON mode).
+// `today` anchors "recent" so the model doesn't surface stale items.
+export async function researchNews({ apiKey, topic, context, today = null }) {
+  if (!apiKey) throw new Error("Missing Gemini API key");
+  const subject = [topic, context].map(s => (s || "").trim()).filter(Boolean).join(" — ");
+  if (!subject) throw new Error("Add a topic or area to look up news for first");
+  const stamp = today || (() => { try { return new Date().toISOString().slice(0, 10); } catch { return null; } })();
+  const prompt = [
+    "You are a news researcher gathering TIMELY, CURRENT happenings for a same-week",
+    "social-media carousel. Search the web for what's happening NOW and coming up soon",
+    "for the topic/area below, then write a tight brief a writer can turn into a post.",
+    "",
+    `TOPIC / AREA: ${subject}`,
+    ...(stamp ? ["", `TODAY'S DATE: ${stamp}. Only surface items that are RECENT (last ~2 weeks) or UPCOMING. Skip anything stale.`] : []),
+    "",
+    "Return 5-10 plain-text bullets, each a distinct, DATED happening — for example:",
+    "- new openings, closings, launches, announcements;",
+    "- upcoming events, festivals, markets, shows (with the date);",
+    "- notable local news beats relevant to the topic/area (NJ / Garden State when applicable).",
+    "",
+    "For each bullet include, when known: WHAT happened / is happening, WHERE (venue + town),",
+    "WHEN (date), and a one-line WHY IT MATTERS. Put the date in brackets, e.g. [Jul 5].",
+    "",
+    "RULES:",
+    "- Prefer specific, verifiable, recent facts. Note the source site in parentheses when helpful.",
+    "- If you cannot confirm a date or specific, say so plainly — never invent a date, venue, or price.",
+    "- Rank by timeliness + relevance. Plain-text bullets only. No preamble, no markdown headers.",
+  ].join("\n");
+
+  const data = await geminiGenerate(apiKey, {
+    contents: [{ parts: [{ text: prompt }] }],
+    tools: [{ google_search: {} }],
+    generationConfig: { temperature: 0.4 },
+  });
+  return (extractResponseText(data) || "").trim();
+}
+
 export async function generateSlideContent({ apiKey, slotType, topic, voice, slotPrompts, count = 3, context, mode }) {
   if (!apiKey) throw new Error("Missing Gemini API key");
   if (!slotType) throw new Error("Missing slotType");
@@ -695,7 +736,7 @@ function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, tem
       // the context into N distinct angles and have each Spotlight cover
       // ONE angle. This is the Spotlight Burst behavior — automatic.
       const spotIdxAmong = sequence.slice(0, idx).filter(t => t === "spotlight").length + 1;
-      extra = `\n\nThis is Spotlight ${spotIdxAmong} of ${spotlightCount}. Each Spotlight MUST cover a DIFFERENT angle/selling-point/feature from the context. Don't repeat across Spotlights. Together they should feel like a listicle that maps the full context onto ${spotlightCount} distinct ideas.`;
+      extra = `\n\nThis is Spotlight ${spotIdxAmong} of ${spotlightCount}. Each Spotlight MUST cover a DIFFERENT unit from the context, and they must not repeat. Follow the TEMPLATE's key move for what a Spotlight IS here: for a single-event template each Spotlight is a distinct selling-point/feature of that ONE event; for a list/guide template each Spotlight is a distinct PLACE/venue (spotName = the place's name, spotMeta = its neighborhood/town, and spotTime/spotPrice/spotCta carry a practical detail like hours, price range, or 'get the X'). Vary what you praise across the ${spotlightCount} so they don't blur together.`;
     } else if (slotType === "cta" && sequence.filter(t => t === "cta").length > 1) {
       // Multi-CTA (Editorial Roundup directory pattern). Each CTA maps
       // to ONE event from the context.
