@@ -51,6 +51,10 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
   // Target slide count for "AI arranges" — "auto" lets Gemini size the arc to
   // the story; a number pins it. Ignored by fixed-length template fill.
   const [slideCount, setSlideCount] = useState("auto");
+  // Letter / manifesto mode — write the whole carousel as one continuous
+  // first-person letter (the @summerblockfest structure), thought carrying
+  // slide to slide, instead of standalone cards.
+  const [letterMode, setLetterMode] = useState(false);
   const [researchOn, setResearchOn] = useState(false);
   // Timely news lookup — grounds generation in recent + upcoming happenings
   // (distinct from researchOn's evergreen background) so you can spin a
@@ -86,6 +90,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
       setAiArrange(false);
       setSlideCount("auto");
       setNewsOn(false);
+      setLetterMode(false);
       if (initialTemplateId) setTemplateId(initialTemplateId);
     }
   }, [open, initialTemplateId]);
@@ -151,7 +156,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
       // fill + polish it. Supersedes template selection.
       if (aiArrange) {
         setBusyLabel("Designing + filling…");
-        const arranged = await generateArrangedCarousel({ apiKey, topic, context: genContext, voice, slotPrompts, mode, targetCount: slideCount === "auto" ? null : parseInt(slideCount, 10) });
+        const arranged = await generateArrangedCarousel({ apiKey, topic, context: genContext, voice, slotPrompts, mode, targetCount: slideCount === "auto" ? null : parseInt(slideCount, 10), letterMode });
         setPickedTemplate({ id: "ai-arranged", name: "AI-arranged carousel", sequence: arranged.sequence, custom: true });
         setPickReasoning(arranged.rationale);
         setSlides(arranged.slides);
@@ -182,6 +187,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
         slotPrompts,
         templateMeta: useTemplate,
         mode,
+        letterMode,
       });
       setSlides(result);
     } catch (err) {
@@ -231,6 +237,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
         templateMeta: pickedTemplate || template || { sequence: [slot.type] },
         mode,
         polish: false,
+        letterMode,
       });
       const fresh = Array.isArray(result) && result[0] ? result[0] : null;
       if (!fresh) throw new Error("No slide returned");
@@ -675,6 +682,24 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
           </span>
           <span style={{ marginLeft: "auto", fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: 0.5 }}>
             timely, dated items
+          </span>
+        </label>
+
+        {/* Letter / manifesto mode — write the whole carousel as ONE continuous
+            first-person letter (the @summerblockfest "This may be the last
+            one…" structure), thought carrying slide to slide. A STRUCTURE, not
+            a sad-story skin — works for a celebratory arc too. */}
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.72rem", color: letterMode ? "#A78BFA" : "rgba(245,240,232,0.7)", cursor: "pointer", marginBottom: 12, padding: "8px 10px", background: letterMode ? "rgba(139,92,246,0.10)" : "transparent", border: "1px solid " + (letterMode ? "rgba(139,92,246,0.4)" : "rgba(245,240,232,0.08)"), borderRadius: 4 }}>
+          <input
+            type="checkbox"
+            checked={letterMode}
+            onChange={(e) => setLetterMode(e.target.checked)}
+          />
+          <span style={{ fontWeight: 700, letterSpacing: 0.5 }}>
+            ✉️ Letter / manifesto mode
+          </span>
+          <span style={{ marginLeft: "auto", fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: 0.5 }}>
+            one continuous letter, swipe-to-the-end
           </span>
         </label>
 
