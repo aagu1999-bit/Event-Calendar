@@ -271,12 +271,16 @@ function renderCover(canvas, cfg) {
   const isCenter = align === "center";
   // Optional solid band behind the headline block — legibility over busy
   // photos (@theaifield look). Full-width, from just above the ribbon/
-  // subtitle down to just below the last headline line.
+  // subtitle all the way down to the bottom edge of the photo. (It used to
+  // stop just below the last headline line, leaving a strip of photo showing
+  // under the black between the headline and the footer — the user wanted the
+  // solid black to reach the bottom.) The CENTRAL GROUP EVENTS watermark is
+  // drawn afterward (drawFooter, below) so it stays on top of the band.
   if(band){
     const bandTop = ribbon?.trim() ? startY-104 : (subtitle?.trim() ? startY-58 : startY-20);
     const top = Math.max(0, bandTop);
     ctx.fillStyle="rgba(0,0,0,0.90)";
-    ctx.fillRect(0, top, W, (startY+totalH+24)-top);
+    ctx.fillRect(0, top, W, H - top);
   }
   if(ribbon?.trim()){
     const rt=ribbon.toUpperCase();
@@ -347,18 +351,33 @@ function renderCover(canvas, cfg) {
 // === LIST RENDERER ===
 function renderList(canvas, cfg) {
   const { items, accent, bgKey, dots, totalDots, listTitle, listSubtitle,
+          photo, opacity, focalX = 0.5, focalY = 0.5,
           targetW = 1080, targetH = 1080 } = cfg;
   const W = targetW, H = targetH; canvas.width=W; canvas.height=H;
   const ctx=canvas.getContext("2d");
   const bg=BG_COLORS[bgKey]||BG_COLORS.black;
-  const isLight = !!bg.isLight;
-  ctx.fillStyle=bg.hex; ctx.fillRect(0,0,W,H);
+  // With a photo the dark wash carries the text + cards, so force day-mode
+  // off (white text on the photo) — matches the other photo slots.
+  const isLight = !photo && !!bg.isLight;
   const isBlack=bgKey==="black";
-  drawTexture(ctx,W,H,isBlack?"#FACC15":"#000",isBlack?0.04:(isLight?0.08:0.14));
-  // Spotlight is a nightclub-light effect — skip on light backgrounds.
-  if(!isLight){
-    if(!isBlack) drawSpotlight(ctx,W,H,"255,255,255",0.40);
-    else drawSpotlight(ctx,W,H,"229,188,79",0.30);
+  if (photo) {
+    // Full-bleed, focal-aware background photo + dark wash for legibility.
+    const s=Math.max(W/photo.width,H/photo.height); const dw=photo.width*s,dh=photo.height*s;
+    let dx = (W/2) - (photo.width * focalX * s);
+    let dy = (H/2) - (photo.height * focalY * s);
+    dx = Math.max(W - dw, Math.min(0, dx));
+    dy = Math.max(H - dh, Math.min(0, dy));
+    ctx.drawImage(photo, dx, dy, dw, dh);
+    ctx.fillStyle=`rgba(0,0,0,${opacity != null ? opacity : 0.60})`; ctx.fillRect(0,0,W,H);
+    drawTexture(ctx,W,H,"#FFF",0.03);
+  } else {
+    ctx.fillStyle=bg.hex; ctx.fillRect(0,0,W,H);
+    drawTexture(ctx,W,H,isBlack?"#FACC15":"#000",isBlack?0.04:(isLight?0.08:0.14));
+    // Spotlight is a nightclub-light effect — skip on light backgrounds.
+    if(!isLight){
+      if(!isBlack) drawSpotlight(ctx,W,H,"255,255,255",0.40);
+      else drawSpotlight(ctx,W,H,"229,188,79",0.30);
+    }
   }
 
   // Day mode flips every text + card surface from white-on-dark to dark-on-light.
@@ -397,17 +416,32 @@ function renderList(canvas, cfg) {
 // === STAT RENDERER ===
 function renderStat(canvas, cfg) {
   const { statNumber, statLabel, statSub, accent, bgKey, dots, totalDots,
+          photo, opacity, focalX = 0.5, focalY = 0.5,
           targetW = 1080, targetH = 1080 } = cfg;
   const W = targetW, H = targetH; canvas.width=W; canvas.height=H;
   const ctx=canvas.getContext("2d");
   const bg=BG_COLORS[bgKey]||BG_COLORS.purple;
-  const isLight = !!bg.isLight;
-  ctx.fillStyle=bg.hex; ctx.fillRect(0,0,W,H);
+  // With a photo the dark wash always carries the text, so force day-mode
+  // off and render white text on the photo (matches the other photo slots).
+  const isLight = !photo && !!bg.isLight;
   const isBlack=bgKey==="black";
-  drawTexture(ctx,W,H,isBlack?"#FACC15":"#000",isBlack?0.06:(isLight?0.08:0.14));
-  if(!isLight){
-    if(!isBlack) drawSpotlight(ctx,W,H,"255,255,255",0.45);
-    else drawSpotlight(ctx,W,H,"229,188,79",0.35);
+  if (photo) {
+    // Full-bleed, focal-aware background photo + dark wash for legibility.
+    const s=Math.max(W/photo.width,H/photo.height); const dw=photo.width*s,dh=photo.height*s;
+    let dx = (W/2) - (photo.width * focalX * s);
+    let dy = (H/2) - (photo.height * focalY * s);
+    dx = Math.max(W - dw, Math.min(0, dx));
+    dy = Math.max(H - dh, Math.min(0, dy));
+    ctx.drawImage(photo, dx, dy, dw, dh);
+    ctx.fillStyle=`rgba(0,0,0,${opacity != null ? opacity : 0.55})`; ctx.fillRect(0,0,W,H);
+    drawTexture(ctx,W,H,"#FFF",0.03);
+  } else {
+    ctx.fillStyle=bg.hex; ctx.fillRect(0,0,W,H);
+    drawTexture(ctx,W,H,isBlack?"#FACC15":"#000",isBlack?0.06:(isLight?0.08:0.14));
+    if(!isLight){
+      if(!isBlack) drawSpotlight(ctx,W,H,"255,255,255",0.45);
+      else drawSpotlight(ctx,W,H,"229,188,79",0.35);
+    }
   }
 
   const textPrimary = isLight ? "#0a0a0a" : "#FFF";
@@ -2671,9 +2705,21 @@ export default function MediaTool() {
   ]);
   const [listTitle, setListTitle] = useState("FRIDAY");
   const [listSubtitle, setListSubtitle] = useState("TOP PICKS");
+  // Optional background photo for the List slot (opacity + focal like the
+  // other photo slots). Null = the original solid-color treatment.
+  const [listPhoto, setListPhoto] = useState(null);
+  const [listFocalX, setListFocalX] = useState(0.5);
+  const [listFocalY, setListFocalY] = useState(0.5);
+  const [listOpacity, setListOpacity] = useState(0.60);
   const [statNumber, setStatNumber] = useState("47");
   const [statLabel, setStatLabel] = useState("EVENTS");
   const [statSub, setStatSub] = useState("Across 3 days, 3 regions,\nand 12 categories");
+  // Optional background photo for the Stat slot (with opacity + focal like
+  // the other photo slots). Null = the original solid-color treatment.
+  const [statPhoto, setStatPhoto] = useState(null);
+  const [statFocalX, setStatFocalX] = useState(0.5);
+  const [statFocalY, setStatFocalY] = useState(0.5);
+  const [statOpacity, setStatOpacity] = useState(0.55);
   const [textTitle, setTextTitle] = useState("The Rooftop Scene");
   const [textTitleHL, setTextTitleHL] = useState(new Set([1]));
   const [textBody, setTextBody] = useState("Three new rooftop venues opened in North Jersey this spring, joining the wave of outdoor-focused social spaces targeting young professionals.\n\nThe biggest? *Newark Standard's expansion* — doubling their outdoor capacity for summer 2026.");
@@ -3112,6 +3158,8 @@ export default function MediaTool() {
   const sceneBgRef = useRef(null), sceneHeroRef = useRef(null), sceneLeftRef = useRef(null), sceneRightRef = useRef(null);
   const pressFileRef = useRef(null);
   const posterFileRef = useRef(null);
+  const statFileRef = useRef(null);
+  const listFileRef = useRef(null);
   // One file input ref per Vibe Board slot (5 max).
   // Pre-allocate file-input refs for up to 6 Vibe Board cells. Rules of
   // Hooks forbid creating refs in a loop on each render, so we declare
@@ -3180,21 +3228,14 @@ export default function MediaTool() {
   const render = () => {
     const cv=cvRef.current; if(!cv) return;
     const s = renderStateRef.current;
-    if(s.mode==="cover") renderCover(cv,{photo:s.photo,headline:s.headline,highlights:s.highlights,accent:s.accent,dots:s.dots,totalDots:s.totalDots,subtitle:s.subtitle,opacity:s.opacity,ribbon:s.ribbon,categoryTag:s.categoryTag,coverCtaButton:s.coverCtaButton,align:s.coverAlign,band:s.coverBand});
-    else if(s.mode==="list") renderList(cv,{items:s.items,accent:s.accent,bgKey:s.bgKey,dots:s.dots,totalDots:s.totalDots,listTitle:s.listTitle,listSubtitle:s.listSubtitle});
-    else if(s.mode==="stat") renderStat(cv,{statNumber:s.statNumber,statLabel:s.statLabel,statSub:s.statSub,accent:s.accent,bgKey:s.bgKey,dots:s.dots,totalDots:s.totalDots});
-    else if(s.mode==="text") renderText(cv,{textTitle:s.textTitle,textTitleHighlights:s.textTitleHL,textBody:s.textBody,accent:s.accent,bgKey:s.bgKey,dots:s.dots,totalDots:s.totalDots,pageNum:s.pageNum,totalPages:s.totalPages,photo:s.textPhoto,textOpacity:s.textOpacity});
-    else if(s.mode==="cta") renderCTA(cv,{ctaKicker:s.ctaKicker,ctaDate:s.ctaDate,ctaVenue:s.ctaVenue,ctaUrl:s.ctaUrl,photo:s.textPhoto,accent:s.accent,bgKey:s.bgKey,dots:s.dots,totalDots:s.totalDots,opacity:s.textOpacity});
-    else if(s.mode==="features") renderFeatures(cv,{featuresTitle:s.featuresTitle,features:s.features,accent:s.accent,bgKey:s.bgKey,dots:s.dots,totalDots:s.totalDots,photo:s.textPhoto,opacity:s.textOpacity});
-    else if(s.mode==="photo") renderPhotoCaption(cv,{photo:s.captionPhoto,caption:s.caption,captionSecondary:s.captionSecondary,alignment:s.captionAlign,accent:s.accent,bgKey:s.bgKey,dots:s.dots,totalDots:s.totalDots});
-    else if(s.mode==="spotlight") renderSpotlight(cv,{photo:s.spotPhoto,spotName:s.spotName,spotNameHighlights:s.spotNameHL,spotMeta:s.spotMeta,spotTime:s.spotTime,spotPrice:s.spotPrice,spotCta:s.spotCta,spotNumber:s.spotNumber,align:s.spotAlign,band:s.spotBand,accent:s.accent,bgKey:s.bgKey,dots:s.dots,totalDots:s.totalDots});
-    else if(s.mode==="countdown") renderCountdown(cv,{photo:s.countPhoto,countText:s.countText,countEvent:s.countEvent,countWhen:s.countWhen,countCta:s.countCta,accent:s.accent,bgKey:s.bgKey,dots:s.dots,totalDots:s.totalDots,opacity:s.countOpacity});
-    else if(s.mode==="savedate") renderSaveDate(cv,{photo:s.savePhoto,saveKicker:s.saveKicker,saveDay:s.saveDay,saveDateBig:s.saveDateBig,saveEvent:s.saveEvent,saveVenue:s.saveVenue,saveCta:s.saveCta,accent:s.accent,bgKey:s.bgKey,dots:s.dots,totalDots:s.totalDots,opacity:s.saveOpacity});
-    else if(s.mode==="savedates") renderSaveDates(cv,{photo:s.savesPhoto,savesHeader:s.savesHeader,savesItems:s.savesItems,savesCta:s.savesCta,accent:s.accent,bgKey:s.bgKey,dots:s.dots,totalDots:s.totalDots,opacity:s.savesOpacity});
-    else if(s.mode==="vibe") renderVibeBoard(cv,{vibePhotos:s.vibePhotos,vibeHeadline:s.vibeHeadline,vibeLabels:s.vibeLabels,accent:s.accent,bgKey:s.bgKey,dots:s.dots,totalDots:s.totalDots});
-    else if(s.mode==="scene") renderScene(cv,{bgPhoto:s.sceneBgPhoto,sceneHero:s.sceneHero,sceneLeft:s.sceneLeft,sceneRight:s.sceneRight,sceneTopLabel:s.sceneTopLabel,sceneTitle:s.sceneTitle,sceneBigText:s.sceneBigText,sceneLeftMeta:s.sceneLeftMeta,sceneRightMeta:s.sceneRightMeta,sceneInfo:s.sceneInfo,sceneAddress:s.sceneAddress,sceneHalftone:s.sceneHalftone,sceneHeroScale:s.sceneHeroScale,sceneSideScale:s.sceneSideScale,accent:s.accent,bgKey:s.bgKey,dots:s.dots,totalDots:s.totalDots});
-    else if(s.mode==="poster") renderPoster(cv,{photo:s.posterPhoto,opacity:s.posterOpacity,topLine:s.posterTopLine,hosts:s.posterHosts,kicker:s.posterKicker,title:s.posterTitle,subtitle:s.posterSubtitle,leftList:s.posterLeftList,rightList:s.posterRightList,dressCode:s.posterDressCode,dateLine:s.posterDateLine,titleSize:s.posterTitleSize,titleX:s.posterTitleX,titleY:s.posterTitleY,titleAlign:s.posterTitleAlign,titleColor:s.posterTitleColor,accent:s.accent,bgKey:s.bgKey,dots:s.dots,totalDots:s.totalDots});
-    else if(s.mode==="press") renderPress(cv,{photo:s.pressPhoto,topMeta:s.pressTopMeta,title:s.pressTitle,badge:s.pressBadge,lineup:s.pressLineup,genres:s.pressGenres,dateLine:s.pressDateLine,badgeBg:s.pressBadgeBg,badgeText:s.pressBadgeText,genreBg:s.pressGenreBg,genreText:s.pressGenreText,dateBg:s.pressDateBg,dateText:s.pressDateText,photoOpacity:s.pressPhotoOpacity,accent:s.accent,bgKey:s.bgKey,dots:s.dots,totalDots:s.totalDots});
+    // Route the live preview through the SAME renderSlide() used for
+    // thumbnails and export, built from the current form state via
+    // makeSnapshot(). This keeps preview == thumbnail == export (they used
+    // to be a separate hand-maintained dispatch that drifted — notably it
+    // never passed the focal point, so the picker did nothing in preview)
+    // and collapses ~15 lines of duplicated wiring into one call. slideIdx=0
+    // so alternateColors doesn't kick in on the live canvas.
+    renderSlide(cv, s.mode, makeSnapshot(), s.dots, s.totalDots, 0);
   };
 
   // Schedule a canvas repaint 400ms after the last render. Multiple keystrokes
@@ -3236,6 +3277,12 @@ export default function MediaTool() {
   const handleCaptionPhoto = makeUploadHandler((img) => {
     setCaptionPhoto(img); setCaptionFocalX(0.5); setCaptionFocalY(0.5);
   }, "photo");
+  const handleStatPhoto = makeUploadHandler((img) => {
+    setStatPhoto(img); setStatFocalX(0.5); setStatFocalY(0.5);
+  }, "stat");
+  const handleListPhoto = makeUploadHandler((img) => {
+    setListPhoto(img); setListFocalX(0.5); setListFocalY(0.5);
+  }, "list");
   // Wrap each photo-having upload so a new picture resets its focal
   // point to center — the previous photo's focal is meaningless on the
   // new image, and the user shouldn't have to manually re-center.
@@ -3282,26 +3329,42 @@ export default function MediaTool() {
   const openLibrary = (target) => { setPickTarget(target); setLibOpen(true); };
 
   // === Per-carousel-slide photo helpers ===
-  // Update the PRIMARY photo of a slide already in the carousel. Used by
-  // the 📤 / 📚 buttons under each thumbnail so the user can drop a
-  // photo in without loading the slide back into the active form.
-  const setSnapshotPrimaryPhotoImg = (snap, type, img) => {
-    if (type === "scene") return { ...snap, bgPhoto: img };
-    if (type === "vibe") {
-      const prev = Array.isArray(snap.vibePhotos) ? snap.vibePhotos : [null,null,null,null,null];
-      const next = [...prev]; next[0] = img;
-      return { ...snap, vibePhotos: next };
-    }
-    return { ...snap, photo: img };
+  // Drop `img` into the ACTIVE FORM's primary photo for a given slide type,
+  // resetting that type's focal to center (the old focal is meaningless on a
+  // new picture). Mirrors onLibraryPick's per-type routing but targets the
+  // live form state instead of a carousel snapshot.
+  const setFormPrimaryPhoto = (type, img) => {
+    if (type === "cover")          { setPhoto(img);        setCoverFocalX(0.5);   setCoverFocalY(0.5); }
+    else if (type === "photo")     { setCaptionPhoto(img); setCaptionFocalX(0.5); setCaptionFocalY(0.5); }
+    else if (type === "stat")      { setStatPhoto(img);    setStatFocalX(0.5);    setStatFocalY(0.5); }
+    else if (type === "list")      { setListPhoto(img);    setListFocalX(0.5);    setListFocalY(0.5); }
+    else if (type === "spotlight") { setSpotPhoto(img);    setSpotFocalX(0.5);    setSpotFocalY(0.5); }
+    else if (type === "countdown") { setCountPhoto(img);   setCountFocalX(0.5);   setCountFocalY(0.5); }
+    else if (type === "savedate")  { setSavePhoto(img);    setSaveFocalX(0.5);    setSaveFocalY(0.5); }
+    else if (type === "savedates") { setSavesPhoto(img);   setSavesFocalX(0.5);   setSavesFocalY(0.5); }
+    else if (type === "scene")     { setSceneBgPhoto(img); setSceneFocalX(0.5);   setSceneFocalY(0.5); }
+    else if (type === "poster")    { setPosterPhoto(img);  setPosterFocalX(0.5);  setPosterFocalY(0.5); }
+    else if (type === "press")     { setPressPhoto(img);   setPressFocalX(0.5);   setPressFocalY(0.5); }
+    else if (type === "vibe")      setVibePhotos(prev => prev.map((p,i)=>i===0?img:p));
+    else                           setTextPhoto(img); // text / cta / features
   };
-  const applyPhotoToSlide = (slideId, img) => {
-    setCarousel(prev => {
-      const updated = prev.map(slide => {
-        if (slide.id !== slideId) return slide;
-        return { ...slide, snapshot: setSnapshotPrimaryPhotoImg(slide.snapshot, slide.type, img) };
-      });
-      return regenerateThumbs(updated);
-    });
+
+  // Per-slide photo buttons (📤 / 📚 under each thumbnail) now LOAD the slide
+  // into the editor and drop the photo into the live form — so the picture
+  // shows up in the main preview immediately with the opacity slider + focal
+  // picker right there, and the live edit-in-place effect writes it (and any
+  // opacity tweak) back to the slide. Previously these silently updated only
+  // the 86px thumbnail, so the photo "didn't upload into the preview" and
+  // there were no further options.
+  const editSlideWithPhoto = (slideId, img) => {
+    const idx = carousel.findIndex(s => s.id === slideId);
+    if (idx < 0) return;
+    const slide = carousel[idx];
+    loadSnapshot(slide.snapshot, slide.type);
+    setEditingSlideId(slideId);
+    setDots(idx + 1);
+    setTotalDots(carousel.length);
+    setFormPrimaryPhoto(slide.type, img);
   };
 
   // Hidden file input that the per-slide 📤 button triggers.
@@ -3318,7 +3381,7 @@ export default function MediaTool() {
     const r = new FileReader();
     r.onload = ev => {
       const img = new Image();
-      img.onload = () => applyPhotoToSlide(targetId, img);
+      img.onload = () => editSlideWithPhoto(targetId, img);
       img.src = ev.target.result;
     };
     r.readAsDataURL(f);
@@ -3338,11 +3401,13 @@ export default function MediaTool() {
     // photo + regenerate thumbs; everything else falls through to form setters.
     if (pickTarget && pickTarget.startsWith("slide:")) {
       const slideId = pickTarget.slice("slide:".length);
-      applyPhotoToSlide(slideId, img);
+      editSlideWithPhoto(slideId, img);
       return;
     }
     if (pickTarget === "cover")          setPhoto(img);
     else if (pickTarget === "photo")     { setCaptionPhoto(img); setCaptionFocalX(0.5); setCaptionFocalY(0.5); }
+    else if (pickTarget === "stat")      { setStatPhoto(img); setStatFocalX(0.5); setStatFocalY(0.5); }
+    else if (pickTarget === "list")      { setListPhoto(img); setListFocalX(0.5); setListFocalY(0.5); }
     else if (pickTarget === "spotlight") setSpotPhoto(img);
     else if (pickTarget === "countdown") { setCountPhoto(img); setCountFocalX(0.5); setCountFocalY(0.5); }
     else if (pickTarget === "savedate")  setSavePhoto(img);
@@ -3375,8 +3440,8 @@ export default function MediaTool() {
     const isRatioAware = RATIO_AWARE_MODES.has(mode);
     const targetCfg = isRatioAware ? { targetW: target.w, targetH: target.h, focalX: focal?.x ?? 0.5, focalY: focal?.y ?? 0.5 } : {};
     if(mode==="cover") renderCover(cv,{photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,categoryTag,coverCtaButton,align:coverAlign,band:coverBand, ...targetCfg});
-    else if(mode==="list") renderList(cv,{items,accent,bgKey,dots,totalDots,listTitle,listSubtitle, ...targetCfg});
-    else if(mode==="stat") renderStat(cv,{statNumber,statLabel,statSub,accent,bgKey,dots,totalDots, ...targetCfg});
+    else if(mode==="list") renderList(cv,{items,accent,bgKey,dots,totalDots,listTitle,listSubtitle,photo:listPhoto,opacity:listOpacity, ...targetCfg});
+    else if(mode==="stat") renderStat(cv,{statNumber,statLabel,statSub,photo:statPhoto,opacity:statOpacity,accent,bgKey,dots,totalDots, ...targetCfg});
     else if(mode==="text") renderText(cv,{textTitle,textTitleHighlights:textTitleHL,textBody,accent,bgKey,dots,totalDots,pageNum,totalPages,photo:textPhoto,textOpacity, ...targetCfg});
     else if(mode==="cta") renderCTA(cv,{ctaKicker,ctaDate,ctaVenue,ctaUrl,photo:textPhoto,accent,bgKey,dots,totalDots,opacity:textOpacity, ...targetCfg});
     else if(mode==="features") renderFeatures(cv,{featuresTitle,features,accent,bgKey,dots,totalDots,photo:textPhoto,opacity:textOpacity, ...targetCfg});
@@ -3445,8 +3510,8 @@ export default function MediaTool() {
       thumbCv.width = 1080; thumbCv.height = 1080;
       const cfg = { accent, bgKey, dots, totalDots };
       if (mode === "cover") renderCover(thumbCv, {...cfg, photo, headline, highlights, subtitle, opacity, ribbon, categoryTag, coverCtaButton, align: coverAlign, band: coverBand});
-      else if (mode === "list") renderList(thumbCv, {...cfg, items, listTitle, listSubtitle});
-      else if (mode === "stat") renderStat(thumbCv, {...cfg, statNumber, statLabel, statSub});
+      else if (mode === "list") renderList(thumbCv, {...cfg, items, listTitle, listSubtitle, photo: listPhoto, opacity: listOpacity, focalX: listFocalX, focalY: listFocalY});
+      else if (mode === "stat") renderStat(thumbCv, {...cfg, statNumber, statLabel, statSub, photo: statPhoto, opacity: statOpacity, focalX: statFocalX, focalY: statFocalY});
       else if (mode === "text") renderText(thumbCv, {...cfg, textTitle, textTitleHighlights: textTitleHL, textBody, pageNum, totalPages, photo: textPhoto, textOpacity});
       else if (mode === "cta") renderCTA(thumbCv, {...cfg, ctaKicker, ctaDate, ctaVenue, ctaUrl, photo: textPhoto, opacity: textOpacity});
       else if (mode === "features") renderFeatures(thumbCv, {...cfg, featuresTitle, features, photo: textPhoto, opacity: textOpacity});
@@ -3505,24 +3570,36 @@ export default function MediaTool() {
     const RATIO_AWARE_ZIP_MODES = new Set(["cover", "spotlight", "savedate", "press", "scene", "photo", "countdown", "savedates", "poster", "text", "cta", "features", "list", "stat", "vibe"]);
     const FOCAL_KEY_MAP = {
       cover:     ["coverFocalX",   "coverFocalY"],
+      list:      ["listFocalX",    "listFocalY"],
       spotlight: ["spotFocalX",    "spotFocalY"],
       savedate:  ["saveFocalX",    "saveFocalY"],
       press:     ["pressFocalX",   "pressFocalY"],
       scene:     ["sceneFocalX",   "sceneFocalY"],
       photo:     ["captionFocalX", "captionFocalY"],
+      stat:      ["statFocalX",    "statFocalY"],
       countdown: ["countFocalX",   "countFocalY"],
       savedates: ["savesFocalX",   "savesFocalY"],
       poster:    ["posterFocalX",  "posterFocalY"],
     };
     const buildTargetCfg = () => {
-      if (!exportTarget || !RATIO_AWARE_ZIP_MODES.has(type)) return {};
       const keys = FOCAL_KEY_MAP[type] || [];
-      return {
-        targetW: exportTarget.w,
-        targetH: exportTarget.h,
-        focalX: typeof s[keys[0]] === "number" ? s[keys[0]] : 0.5,
-        focalY: typeof s[keys[1]] === "number" ? s[keys[1]] : 0.5,
-      };
+      const cfg = {};
+      // Focal point always applies — even at 1080×1080 a non-square source
+      // photo is cover-fit into the square, so focalX/focalY change which
+      // part stays visible. Gating focal on `exportTarget` (as before) meant
+      // the picker did nothing in the live preview, the thumbnails, or square
+      // exports — it only kicked in for non-square ZIP ratios. That's why it
+      // looked broken. Compute focal unconditionally; add target dims only
+      // when a non-square export asks for them.
+      if (keys.length) {
+        cfg.focalX = typeof s[keys[0]] === "number" ? s[keys[0]] : 0.5;
+        cfg.focalY = typeof s[keys[1]] === "number" ? s[keys[1]] : 0.5;
+      }
+      if (exportTarget && RATIO_AWARE_ZIP_MODES.has(type)) {
+        cfg.targetW = exportTarget.w;
+        cfg.targetH = exportTarget.h;
+      }
+      return cfg;
     };
     const targetCfg = buildTargetCfg();
     if (type === "cover") renderCover(cv, { ...common, photo: s.photo, headline: s.headline,
@@ -3530,9 +3607,10 @@ export default function MediaTool() {
       subtitle: s.subtitle, opacity: s.opacity, ribbon: s.ribbon, categoryTag: s.categoryTag,
       coverCtaButton: s.coverCtaButton, align: s.coverAlign, band: s.coverBand, ...targetCfg });
     else if (type === "list") renderList(cv, { ...common, items: s.items, bgKey: effBgKey,
-      listTitle: s.listTitle, listSubtitle: s.listSubtitle, ...targetCfg });
+      listTitle: s.listTitle, listSubtitle: s.listSubtitle, photo: s.photo, opacity: s.listOpacity, ...targetCfg });
     else if (type === "stat") renderStat(cv, { ...common, statNumber: s.statNumber,
-      statLabel: s.statLabel, statSub: s.statSub, bgKey: effBgKey, ...targetCfg });
+      statLabel: s.statLabel, statSub: s.statSub, photo: s.photo, opacity: s.statOpacity,
+      bgKey: effBgKey, ...targetCfg });
     else if (type === "text") renderText(cv, { ...common, textTitle: s.textTitle,
       textTitleHighlights: s.textTitleHL instanceof Set ? s.textTitleHL : new Set(s.textTitleHL || []),
       textBody: s.textBody, bgKey: effBgKey, pageNum: s.pageNum, totalPages: s.totalPages,
@@ -3589,8 +3667,8 @@ export default function MediaTool() {
     const common = { accent, accentKey, bgKey };
     switch (mode) {
       case "cover": return { ...common, photo, headline, highlights, subtitle, opacity, ribbon, categoryTag, coverCtaButton, coverAlign, coverBand, coverFocalX, coverFocalY };
-      case "list": return { ...common, items: items.map(x=>({...x})), listTitle, listSubtitle };
-      case "stat": return { ...common, statNumber, statLabel, statSub };
+      case "list": return { ...common, items: items.map(x=>({...x})), listTitle, listSubtitle, photo: listPhoto, listOpacity, listFocalX, listFocalY };
+      case "stat": return { ...common, statNumber, statLabel, statSub, photo: statPhoto, statOpacity, statFocalX, statFocalY };
       case "text": return { ...common, textTitle, textTitleHL, textBody, photo: textPhoto, textOpacity, pageNum, totalPages };
       case "cta": return { ...common, ctaKicker, ctaDate, ctaVenue, ctaUrl, photo: textPhoto, textOpacity };
       case "features": return { ...common, featuresTitle, features: features.map(f=>({...f})), photo: textPhoto, textOpacity };
@@ -3630,9 +3708,18 @@ export default function MediaTool() {
       case "list":
         setItems(snapshot.items.map(x=>({...x})));
         setListTitle(snapshot.listTitle); setListSubtitle(snapshot.listSubtitle);
+        setListPhoto(snapshot.photo || null);
+        if (typeof snapshot.listOpacity === "number") setListOpacity(snapshot.listOpacity);
+        setListFocalX(typeof snapshot.listFocalX === "number" ? snapshot.listFocalX : 0.5);
+        setListFocalY(typeof snapshot.listFocalY === "number" ? snapshot.listFocalY : 0.5);
         break;
       case "stat":
         setStatNumber(snapshot.statNumber); setStatLabel(snapshot.statLabel); setStatSub(snapshot.statSub);
+        // Optional background photo — older snapshots have none (null).
+        setStatPhoto(snapshot.photo || null);
+        if (typeof snapshot.statOpacity === "number") setStatOpacity(snapshot.statOpacity);
+        setStatFocalX(typeof snapshot.statFocalX === "number" ? snapshot.statFocalX : 0.5);
+        setStatFocalY(typeof snapshot.statFocalY === "number" ? snapshot.statFocalY : 0.5);
         break;
       case "text":
         setTextTitle(snapshot.textTitle);
@@ -4669,11 +4756,13 @@ export default function MediaTool() {
   const getModeFocal = () => {
     switch (mode) {
       case "cover":     return { x: coverFocalX,   y: coverFocalY };
+      case "list":      return { x: listFocalX,    y: listFocalY };
       case "spotlight": return { x: spotFocalX,    y: spotFocalY };
       case "savedate":  return { x: saveFocalX,    y: saveFocalY };
       case "scene":     return { x: sceneFocalX,   y: sceneFocalY };
       case "press":     return { x: pressFocalX,   y: pressFocalY };
       case "photo":     return { x: captionFocalX, y: captionFocalY };
+      case "stat":      return { x: statFocalX,    y: statFocalY };
       case "countdown": return { x: countFocalX,   y: countFocalY };
       case "savedates": return { x: savesFocalX,   y: savesFocalY };
       case "poster":    return { x: posterFocalX,  y: posterFocalY };
@@ -4687,11 +4776,13 @@ export default function MediaTool() {
     if (!snap) return null;
     const map = {
       cover:     ["coverFocalX",   "coverFocalY"],
+      list:      ["listFocalX",    "listFocalY"],
       spotlight: ["spotFocalX",    "spotFocalY"],
       savedate:  ["saveFocalX",    "saveFocalY"],
       scene:     ["sceneFocalX",   "sceneFocalY"],
       press:     ["pressFocalX",   "pressFocalY"],
       photo:     ["captionFocalX", "captionFocalY"],
+      stat:      ["statFocalX",    "statFocalY"],
       countdown: ["countFocalX",   "countFocalY"],
       savedates: ["savesFocalX",   "savesFocalY"],
       poster:    ["posterFocalX",  "posterFocalY"],
@@ -5579,7 +5670,31 @@ export default function MediaTool() {
                 <div><label style={L}>Title</label><input value={listTitle} onChange={e=>setListTitle(e.target.value)} style={I}/></div>
                 <div><label style={L}>Subtitle</label><input value={listSubtitle} onChange={e=>setListSubtitle(e.target.value)} style={I}/></div>
               </div>
-              <div style={{marginBottom:"0.6rem"}}><label style={L}>Background</label><div style={{display:"flex",gap:"3px"}}>
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Background Photo (optional)</label>
+                <div style={{display:"flex",gap:"0.3rem",alignItems:"center"}}>
+                  <button onClick={()=>listFileRef.current?.click()} style={{...B,flex:1}}>{listPhoto?"✓ Photo loaded — change":"Upload Photo"}</button>
+                  <button onClick={()=>openLibrary("list")} style={{...B,padding:"5px 10px"}} title="Pick a photo from the library">📚</button>
+                  {listPhoto&&<button onClick={()=>setListPhoto(null)} style={{...B,color:"rgba(251,113,133,0.5)"}}>×</button>}
+                  <input ref={listFileRef} type="file" accept="image/*" onChange={handleListPhoto} style={{display:"none"}}/>
+                </div>
+                {listPhoto&&<div style={{marginTop:"6px"}}>
+                  <div style={{fontSize:"0.5rem",color:"rgba(245,240,232,0.45)",letterSpacing:"1px",textTransform:"uppercase",marginBottom:"3px"}}>
+                    Darken overlay · {Math.round(listOpacity*100)}%
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:"6px"}}>
+                    <span style={{fontSize:"0.45rem",color:"rgba(245,240,232,0.3)"}}>20%</span>
+                    <input type="range" min="0.20" max="1.0" step="0.01" value={listOpacity} onChange={e=>setListOpacity(parseFloat(e.target.value))} style={{flex:1,accentColor:accent}}/>
+                    <span style={{fontSize:"0.45rem",color:"rgba(245,240,232,0.3)"}}>100%</span>
+                  </div>
+                </div>}
+              </div>
+              {listPhoto&&<FocalPointPicker
+                photo={listPhoto}
+                focalX={listFocalX}
+                focalY={listFocalY}
+                onChange={(x, y) => { setListFocalX(x); setListFocalY(y); }}
+              />}
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Background color (used when no photo)</label><div style={{display:"flex",gap:"3px"}}>
                 {Object.entries(BG_COLORS).map(([k,v])=><button key={k} onClick={()=>setBgKey(k)} style={{width:28,height:28,borderRadius:"5px",cursor:"pointer",background:v.hex,border:bgKey===k?"2px solid #FFF":"2px solid transparent",boxShadow:bgKey===k?"0 0 6px rgba(255,255,255,0.3)":"none"}} title={v.name}/>)}</div></div>
               {events.length > 0 && (
                 <div style={{marginBottom:"0.6rem",padding:"0.5rem",background:"rgba(229,188,79,0.06)",border:"1px solid rgba(229,188,79,0.18)",borderRadius:"4px"}}>
@@ -5619,7 +5734,31 @@ export default function MediaTool() {
                 <div><label style={L}>Label</label><input value={statLabel} onChange={e=>setStatLabel(e.target.value)} style={I}/></div>
               </div>
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Subtitle (use \n for line breaks)</label><textarea value={statSub} onChange={e=>setStatSub(e.target.value)} style={{...I,height:50,resize:"vertical"}}/></div>
-              <div style={{marginBottom:"0.6rem"}}><label style={L}>Background</label><div style={{display:"flex",gap:"3px"}}>
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Background Photo (optional)</label>
+                <div style={{display:"flex",gap:"0.3rem",alignItems:"center"}}>
+                  <button onClick={()=>statFileRef.current?.click()} style={{...B,flex:1}}>{statPhoto?"✓ Photo loaded — change":"Upload Photo"}</button>
+                  <button onClick={()=>openLibrary("stat")} style={{...B,padding:"5px 10px"}} title="Pick a photo from the library">📚</button>
+                  {statPhoto&&<button onClick={()=>setStatPhoto(null)} style={{...B,color:"rgba(251,113,133,0.5)"}}>×</button>}
+                  <input ref={statFileRef} type="file" accept="image/*" onChange={handleStatPhoto} style={{display:"none"}}/>
+                </div>
+                {statPhoto&&<div style={{marginTop:"6px"}}>
+                  <div style={{fontSize:"0.5rem",color:"rgba(245,240,232,0.45)",letterSpacing:"1px",textTransform:"uppercase",marginBottom:"3px"}}>
+                    Darken overlay · {Math.round(statOpacity*100)}%
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:"6px"}}>
+                    <span style={{fontSize:"0.45rem",color:"rgba(245,240,232,0.3)"}}>20%</span>
+                    <input type="range" min="0.20" max="1.0" step="0.01" value={statOpacity} onChange={e=>setStatOpacity(parseFloat(e.target.value))} style={{flex:1,accentColor:accent}}/>
+                    <span style={{fontSize:"0.45rem",color:"rgba(245,240,232,0.3)"}}>100%</span>
+                  </div>
+                </div>}
+              </div>
+              {statPhoto&&<FocalPointPicker
+                photo={statPhoto}
+                focalX={statFocalX}
+                focalY={statFocalY}
+                onChange={(x, y) => { setStatFocalX(x); setStatFocalY(y); }}
+              />}
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Background color (used when no photo)</label><div style={{display:"flex",gap:"3px"}}>
                 {Object.entries(BG_COLORS).map(([k,v])=><button key={k} onClick={()=>setBgKey(k)} style={{width:28,height:28,borderRadius:"5px",cursor:"pointer",background:v.hex,border:bgKey===k?"2px solid #FFF":"2px solid transparent",boxShadow:bgKey===k?"0 0 6px rgba(255,255,255,0.3)":"none"}} title={v.name}/>)}</div></div>
             </>}
 
