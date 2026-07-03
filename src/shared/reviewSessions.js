@@ -6,6 +6,8 @@
 // device that hits the Repl URL. No background traffic, no conflict
 // resolution beyond last-write-wins per session name.
 
+import { retryFetch } from "./retryFetch.js";
+
 const API = "/api/review-sessions";
 
 // Session names travel in the URL path (…/review-sessions/<name>). A "/" in
@@ -19,7 +21,7 @@ function safeName(raw) {
 }
 
 async function api(path, init = {}) {
-  const res = await fetch(API + path, init);
+  const res = await retryFetch(API + path, init);
   if (!res.ok) {
     let msg = `${res.status} ${res.statusText}`;
     try { const j = await res.json(); if (j?.error) msg += ` — ${j.error}`; } catch {}

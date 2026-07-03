@@ -30,6 +30,7 @@ import {
   clearAllPhotosLocal,
   clearAllExportsLocal,
 } from "./legacyLocalLibrary.js";
+import { retryFetch } from "./retryFetch.js";
 
 const LIBRARY_API = "/api/library";
 const POLL_MS = 10_000;
@@ -79,7 +80,7 @@ function makeId(prefix) {
 // Fetch wrapper that surfaces server errors as Error objects with a usable
 // message (instead of res.ok = false returning silently).
 async function api(path, init = {}) {
-  const res = await fetch(LIBRARY_API + path, init);
+  const res = await retryFetch(LIBRARY_API + path, init);
   if (!res.ok) {
     let msg = `${res.status} ${res.statusText}`;
     try {

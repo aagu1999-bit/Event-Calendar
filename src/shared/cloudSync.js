@@ -6,6 +6,8 @@
 // All functions throw on non-2xx; callers should try/catch and surface
 // the message in the UI.
 
+import { retryFetch } from "./retryFetch.js";
+
 // One-time availability probe: when the app's served by `npm run dev`
 // (Node + Vite middleware), /api/health responds. When it's served as a
 // pure-static build (Replit static deployment), /api/health returns the
@@ -33,13 +35,13 @@ export function checkCloudAvailable() {
 }
 
 export async function cloudList() {
-  const res = await fetch("/api/workspaces", { cache: "no-store" });
+  const res = await retryFetch("/api/workspaces", { cache: "no-store" });
   if (!res.ok) throw new Error(`list failed (${res.status})`);
   return res.json();
 }
 
 export async function cloudSave(name, blob) {
-  const res = await fetch(`/api/workspaces/${encodeURIComponent(name)}`, {
+  const res = await retryFetch(`/api/workspaces/${encodeURIComponent(name)}`, {
     method: "PUT",
     headers: { "Content-Type": blob.type || "application/zip" },
     body: blob,
@@ -53,13 +55,13 @@ export async function cloudSave(name, blob) {
 }
 
 export async function cloudLoad(name) {
-  const res = await fetch(`/api/workspaces/${encodeURIComponent(name)}`, { cache: "no-store" });
+  const res = await retryFetch(`/api/workspaces/${encodeURIComponent(name)}`, { cache: "no-store" });
   if (!res.ok) throw new Error(`load failed (${res.status})`);
   return res.blob();
 }
 
 export async function cloudDelete(name) {
-  const res = await fetch(`/api/workspaces/${encodeURIComponent(name)}`, { method: "DELETE" });
+  const res = await retryFetch(`/api/workspaces/${encodeURIComponent(name)}`, { method: "DELETE" });
   if (!res.ok) {
     let msg = `delete failed (${res.status})`;
     try { const j = await res.json(); if (j.error) msg = j.error; } catch {}
