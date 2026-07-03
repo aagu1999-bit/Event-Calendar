@@ -2833,6 +2833,10 @@ export default function MediaTool() {
 
   // Custom carousel composer — snapshots of slides, reorderable, exportable
   const [carousel, setCarousel] = useState([]);
+  // Which carousel slide is currently loaded for editing (null = composing a
+  // fresh/unsaved slide). When set, edits to the form mirror back into that
+  // slide live — see the edit-in-place effect after addToCarousel.
+  const [editingSlideId, setEditingSlideId] = useState(null);
   const [dragIdx, setDragIdx] = useState(null);
 
   // Carousel Template queue — when the user picks a template from the
@@ -3903,17 +3907,20 @@ export default function MediaTool() {
     // sits at index = carousel.length.
     renderSlide(cv, mode, snapshot, carousel.length + 1, carousel.length + 1, carousel.length);
     const thumb = canvasToThumb(cv);
+    const newId = `s_${Date.now()}_${Math.random().toString(36).slice(2,6)}`;
     setCarousel(prev => {
-      const next = [...prev, {
-        id: `s_${Date.now()}_${Math.random().toString(36).slice(2,6)}`,
-        type: mode, snapshot, thumb,
-      }];
+      const next = [...prev, { id: newId, type: mode, snapshot, thumb }];
       // Advance the live preview's slide-counter to the brand-new slide so
       // the next snapshot lands at the right position automatically.
       setDots(next.length);
       setTotalDots(next.length);
       return next;
     });
+    // You're now editing the slide you just added, so further tweaks update
+    // it in place instead of piling up new slides. Exception: in a template
+    // queue we're about to advance to the NEXT blank slot, so don't lock
+    // editing onto the slide we just added.
+    setEditingSlideId(templateQueue ? null : newId);
     // (We don't re-render thumbnails of earlier slides on push — they
     // were stamped with their correct position-aware bgKey at creation.
     // Reorder via drag, however, would desync; the alternation useEffect
@@ -3933,6 +3940,42 @@ export default function MediaTool() {
         setTemplateQueue(null);
       }
     }
+  };
+
+  // Live edit-in-place. When a carousel slide is loaded for editing
+  // (editingSlideId set), mirror the current form back into that slide —
+  // snapshot + thumbnail — shortly after the last change, so edits show up on
+  // the slide "right then and there" instead of needing a re-add. Debounced,
+  // and skips no-op writes so it can't loop.
+  useEffect(() => {
+    if (editingSlideId == null) return;
+    const t = setTimeout(() => {
+      setCarousel(prev => {
+        const idx = prev.findIndex(s => s.id === editingSlideId);
+        if (idx < 0) return prev;
+        const snapshot = makeSnapshot();
+        const changed = prev[idx].type !== mode ||
+          JSON.stringify(serializeSnap(prev[idx].snapshot)) !== JSON.stringify(serializeSnap(snapshot));
+        if (!changed) return prev;               // no-op → no re-render → no loop
+        const cv = document.createElement("canvas");
+        renderSlide(cv, mode, snapshot, idx + 1, prev.length, idx);
+        const next = [...prev];
+        next[idx] = { ...next[idx], type: mode, snapshot, thumb: canvasToThumb(cv) };
+        return next;
+      });
+    }, 500);
+    return () => clearTimeout(t);
+  }); // depless on purpose: re-arms after every render; debounce + guard = one write per edit-pause
+
+  // Clone a slide (new id) right after it, so the user can tweak the copy's
+  // details without rebuilding it. Thumbs regenerate (positions shifted).
+  const duplicateSlide = (idx) => {
+    setCarousel(prev => {
+      if (idx < 0 || idx >= prev.length) return prev;
+      const orig = prev[idx];
+      const copy = { ...orig, id: `s_${Date.now()}_${Math.random().toString(36).slice(2,6)}`, snapshot: { ...orig.snapshot } };
+      return regenerateThumbs([...prev.slice(0, idx + 1), copy, ...prev.slice(idx + 1)]);
+    });
   };
 
   // === CAROUSEL TEMPLATE LIBRARY ===
@@ -4519,7 +4562,10 @@ export default function MediaTool() {
     setCarousel(newSlides);
   };
 
-  const deleteSlide = (idx) => setCarousel(p => regenerateThumbs(p.filter((_, i) => i !== idx)));
+  const deleteSlide = (idx) => setCarousel(p => {
+    if (p[idx] && p[idx].id === editingSlideId) setEditingSlideId(null);
+    return regenerateThumbs(p.filter((_, i) => i !== idx));
+  });
 
   // Bulk-toggle numbered badges on every Spotlight in the carousel.
   // Auto-numbers them 1, 2, 3... in order of appearance (skipping non-
@@ -5181,8 +5227,20 @@ export default function MediaTool() {
             <button
               onClick={addToCarousel}
               style={{padding:"6px 12px",background:"#A855F7",color:"#FFF",border:"none",borderRadius:"4px",fontSize:"0.6rem",fontWeight:700,letterSpacing:"1px",textTransform:"uppercase",cursor:"pointer",fontFamily:"'Syne',sans-serif",whiteSpace:"nowrap"}}
-              title="Snapshot the current slide and add it to the carousel"
-            >+ Add Current Slide</button>
+              title={editingSlideId ? "Add the current form as a NEW slide (a copy)" : "Snapshot the current form and add it to the carousel"}
+            >{editingSlideId && carousel.some(s=>s.id===editingSlideId) ? "+ Add as New" : "+ Add Current Slide"}</button>
+            {editingSlideId && carousel.some(s=>s.id===editingSlideId) && (
+              <div style={{display:"flex",alignItems:"center",gap:"6px",flex:"0 0 auto"}}>
+                <span style={{fontSize:"0.52rem",color:"#63B3ED",letterSpacing:"1px",textTransform:"uppercase",fontWeight:700}}>
+                  ✎ Editing slide {carousel.findIndex(s=>s.id===editingSlideId)+1} · saves live
+                </span>
+                <button
+                  onClick={()=>setEditingSlideId(null)}
+                  title="Stop editing that slide and compose a fresh one — your edits are already saved to it"
+                  style={{padding:"4px 8px",background:"transparent",color:"rgba(99,179,237,0.85)",border:"1px solid rgba(99,179,237,0.4)",borderRadius:"3px",fontSize:"0.5rem",fontWeight:700,letterSpacing:"0.5px",textTransform:"uppercase",cursor:"pointer",fontFamily:"'Syne',sans-serif",whiteSpace:"nowrap"}}
+                >＋ New slide</button>
+              </div>
+            )}
             {/* From Template picker — built-ins first, customs second.
                 Picking re-starts the queue from slide 1 of that template. */}
             <select
@@ -5331,16 +5389,18 @@ export default function MediaTool() {
                     minWidth:"86px", width:"86px", height:"86px",
                     borderRadius:"4px", overflow:"hidden",
                     cursor:"grab",
-                    border: dragIdx===idx ? "2px solid #A855F7" : "1px solid rgba(168,85,247,0.3)",
+                    border: dragIdx===idx ? "2px solid #A855F7" : (editingSlideId===slide.id ? "2px solid #63B3ED" : "1px solid rgba(168,85,247,0.3)"),
+                    boxShadow: editingSlideId===slide.id ? "0 0 0 2px rgba(99,179,237,0.35)" : "none",
                     background:"#000",
                     flexShrink:0,
                     opacity: dragIdx===idx ? 0.5 : 1,
                     userSelect: "none",
                   }}
-                  title={`Slide ${idx+1} · ${slide.type} · click to edit, drag to reorder`}
+                  title={`Slide ${idx+1} · ${slide.type} · click to edit (changes save to this slide), drag to reorder`}
                   onClick={()=>{
                     if (dragIdx !== null) return;
                     loadSnapshot(slide.snapshot, slide.type);
+                    setEditingSlideId(slide.id);
                     setDots(idx + 1);
                     setTotalDots(carousel.length);
                   }}
@@ -5354,6 +5414,11 @@ export default function MediaTool() {
                   <div style={{position:"absolute",bottom:0,left:0,right:0,background:"rgba(0,0,0,0.75)",padding:"2px 4px",fontSize:"0.45rem",color:"#FFF",letterSpacing:"1px",textTransform:"uppercase",fontWeight:700,textAlign:"center",pointerEvents:"none"}}>
                     {idx+1} · {slide.type}
                   </div>
+                  <button
+                    onClick={(e)=>{e.stopPropagation();duplicateSlide(idx);}}
+                    style={{position:"absolute",top:"2px",right:"22px",width:"18px",height:"18px",background:"rgba(0,0,0,0.75)",color:"#FFF",border:"none",borderRadius:"3px",fontSize:"0.65rem",lineHeight:"16px",cursor:"pointer",padding:0,fontFamily:"sans-serif"}}
+                    title="Duplicate this slide"
+                  >⧉</button>
                   <button
                     onClick={(e)=>{e.stopPropagation();deleteSlide(idx);}}
                     style={{position:"absolute",top:"2px",right:"2px",width:"18px",height:"18px",background:"rgba(0,0,0,0.75)",color:"#FFF",border:"none",borderRadius:"3px",fontSize:"0.85rem",lineHeight:"14px",cursor:"pointer",padding:0,fontFamily:"sans-serif"}}
