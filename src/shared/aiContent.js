@@ -617,6 +617,27 @@ function creativeDirection() {
   ];
 }
 
+// Proven open-loop / scroll-stopping hook frameworks for the COVER. Give the
+// model a menu of named structures to rotate through (matched to the event's
+// genre) instead of one repeated formula — drawn from what actually works on
+// IG carousels. Injected only when the generation involves a cover.
+function hookFrameworks() {
+  return [
+    "COVER HOOK FRAMEWORKS — pick the one that fits THIS event's genre; rotate across posts, never reuse the same one every time:",
+    "- TEASED OUTCOME: a setup + a withheld payoff. \"We're playing ONE song at midnight that will officially cause a noise complaint…\"",
+    "- THE 'WHY' HOOK: name a behavior, promise the reason. \"The [group] does [action] — here's exactly why.\"",
+    "- COUNTER-INTUITIVE CLAIM: flip the expectation. \"This isn't what most [X] do — but it's why [result].\"",
+    "- UNREVEALED ELEMENT: \"The hidden [thing] nobody tells you about…\"",
+    "- INFORMATION ASYMMETRY (status play): imply insiders know a secret. \"The one rule we're forcing every single to follow at Friday's mixer…\"",
+    "- INCOMPLETE LISTICLE: promise a list, withhold the best item for later slides (\"the boldest one is on the next slide\") — great for multi-slide swipe.",
+    "- PATTERN INTERRUPT: open with something jarring, absurd, or a corrected 'lie' that stops autopilot scrolling.",
+    "- THEN → NOW / NUMBER-ANCHORED / SCENE DETAIL are also fair game when they fit.",
+    "Hard rules: the open loop MUST be honestly paid off by the rest of the carousel — tease, never mislead. Match the framework to the vibe: a 2000s throwback, a singles mixer, and a wellness fair each demand a DIFFERENT framework and energy.",
+    "─────────────────────────────",
+    "",
+  ];
+}
+
 function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, templateMeta, mode, today }) {
   const hasVoiceDesc = voice && typeof voice.description === "string" && voice.description.trim();
   const exemplars = Array.isArray(voice?.exemplars) ? voice.exemplars.filter(e => e && e.trim()) : [];
@@ -693,6 +714,7 @@ function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, tem
     ...(today ? [`- Today is ${today}. Use the correct current year everywhere; never default to a past year.`] : []),
     "",
     ...creativeDirection(),
+    ...(sequence.includes("cover") ? hookFrameworks() : []),
     ...registerBlock(mode),
     ...variationDirective(),
     ...((topic && topic.trim()) ? [`Carousel topic: ${topic.trim()}`, ""] : []),
@@ -771,6 +793,7 @@ function buildPrompt({ slotType, topic, voice, slotRule, count = 3, context, mod
       "",
     ] : []),
     ...creativeDirection(),
+    ...(slotType === "cover" ? hookFrameworks() : []),
     ...registerBlock(mode),
     ...variationDirective(),
     ...(slotRefBlock.length ? [...slotRefBlock, "─────────────────────────────", ""] : []),
