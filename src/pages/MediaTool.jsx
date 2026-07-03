@@ -2924,6 +2924,10 @@ export default function MediaTool() {
   // the first variant by default and can flip through with the dropdown.
   const [captionPickIdx, setCaptionPickIdx] = useState(0);
   const [captionsError, setCaptionsError] = useState("");
+  // Optional custom caption tone — the user can type any tone/style beyond
+  // the 8 presets (e.g. "dry and deadpan", "hype church-announcement"), and
+  // it's generated FIRST. Empty = just the presets.
+  const [captionTone, setCaptionTone] = useState("");
   const [copiedIdx, setCopiedIdx] = useState(null);
   const [useVision, setUseVision] = useState(false);
   const saveKey = (v) => {
@@ -3054,7 +3058,7 @@ export default function MediaTool() {
       // Respect the in-session voice toggle. When off, send no voice
       // priming — Gemini falls back to its default writing register.
       const brandVoice = voiceEnabled ? useBrandStore.getState().voice : null;
-      const results = await generateCaptions(geminiKey, ctx, images, { voice: brandVoice });
+      const results = await generateCaptions(geminiKey, ctx, images, { voice: brandVoice, customTone: captionTone });
       if (!results.length) throw new Error("Got 0 captions back");
       setCaptions(results);
       setCaptionPickIdx(0);
@@ -4996,6 +5000,23 @@ export default function MediaTool() {
 
           <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", marginTop: "8px", lineHeight: 1.5 }}>
             Captions read the current carousel (or the active form if empty). Vision adds rendered images. Voice chip → Brand Kit.
+          </div>
+
+          {/* Custom tone — beyond the 8 presets, type any tone/style and it's
+              written FIRST. Same idea as the AI Fill Context: templates exist,
+              but you can go outside them. */}
+          <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "8px", flexWrap: "wrap" }}>
+            <span style={{ fontSize: "0.55rem", color: "rgba(99,179,237,0.85)", letterSpacing: "1px", textTransform: "uppercase", fontWeight: 700, flexShrink: 0 }}>Custom tone</span>
+            <input
+              value={captionTone}
+              onChange={e => setCaptionTone(e.target.value)}
+              placeholder="optional — e.g. 'dry & deadpan', 'block-party hype', 'poetic'"
+              title="Type any tone to write a caption outside the 8 presets. Left blank = just the presets."
+              style={{ flex: 1, minWidth: 0, padding: "6px 9px", background: "#111", border: "1px solid rgba(99,179,237,0.25)", borderRadius: 4, color: "#F5F0E8", fontFamily: "inherit", fontSize: "0.7rem", outline: "none", boxSizing: "border-box" }}
+            />
+            {captionTone && (
+              <button onClick={() => setCaptionTone("")} title="Clear custom tone" style={{ padding: "5px 9px", background: "transparent", color: "rgba(245,240,232,0.45)", border: "1px solid rgba(245,240,232,0.12)", borderRadius: 4, fontSize: "0.6rem", cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>×</button>
+            )}
           </div>
 
         {captionsError && (

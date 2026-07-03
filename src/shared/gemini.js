@@ -39,7 +39,8 @@ export async function generateCaptions(apiKey, eventCtx, images = [], options = 
 
   const hasVision = Array.isArray(images) && images.length > 0;
   const voice = options.voice || null;
-  const prompt = buildCaptionPrompt(eventCtx, hasVision, voice);
+  const customTone = (options.customTone || "").trim();
+  const prompt = buildCaptionPrompt(eventCtx, hasVision, voice, customTone);
 
   const parts = [{ text: prompt }];
   if (hasVision) {
@@ -64,7 +65,7 @@ export async function generateCaptions(apiKey, eventCtx, images = [], options = 
   return Array.isArray(parsed?.captions) ? parsed.captions : [];
 }
 
-function buildCaptionPrompt(ctx, hasVision = false, voice = null) {
+function buildCaptionPrompt(ctx, hasVision = false, voice = null, customTone = "") {
   // Voice fingerprint priming — when the user has filled in the Brand Kit
   // voice section, prepend it so every caption sounds like THIS brand,
   // not Gemini's generic register. Description sets cadence/tone; exemplars
@@ -131,7 +132,15 @@ function buildCaptionPrompt(ctx, hasVision = false, voice = null) {
       "If a slide has a strong photo, you can reference it specifically (e.g. \"the golden-hour shot\").",
       "",
     ] : []),
-    "Write 8 caption variants for the SAME event, each in a different tone.",
+    ...(customTone ? [
+      `CUSTOM TONE — the user typed this exact tone themselves: "${customTone}".`,
+      'Write the FIRST caption in EXACTLY that tone/style (label its tone "CUSTOM").',
+      "Nail it precisely — it's what they asked for — while keeping the brand voice.",
+      "Then ALSO write the 8 standard tone variants below.",
+      "",
+    ] : [
+      "Write 8 caption variants for the SAME event, each in a different tone.",
+    ]),
     "Follow each spec precisely — these tones are DIFFERENT and should feel different:",
     "",
     "1. HYPE — high energy, urgency, punchy short sentences. Light emoji ok.",
@@ -164,6 +173,7 @@ function buildCaptionPrompt(ctx, hasVision = false, voice = null) {
     "- Read like a human wrote it for Instagram, not a template",
     "",
     "Return ONLY valid JSON in this exact shape:",
-    '{"captions":[{"tone":"HYPE","text":"..."},{"tone":"PROFESSIONAL","text":"..."},{"tone":"MYSTERIOUS","text":"..."},{"tone":"CONVERSATIONAL","text":"..."},{"tone":"QUESTION HOOK","text":"..."},{"tone":"DATA DROP","text":"..."},{"tone":"VIBE CHECK","text":"..."},{"tone":"SYMBOL STORY","text":"..."}]}',
+    (customTone ? '{"captions":[{"tone":"CUSTOM","text":"..."},' : '{"captions":[')
+      + '{"tone":"HYPE","text":"..."},{"tone":"PROFESSIONAL","text":"..."},{"tone":"MYSTERIOUS","text":"..."},{"tone":"CONVERSATIONAL","text":"..."},{"tone":"QUESTION HOOK","text":"..."},{"tone":"DATA DROP","text":"..."},{"tone":"VIBE CHECK","text":"..."},{"tone":"SYMBOL STORY","text":"..."}]}',
   ].join("\n");
 }
