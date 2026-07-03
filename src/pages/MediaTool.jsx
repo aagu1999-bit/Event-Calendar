@@ -2658,6 +2658,45 @@ function AiSlotBtn({ slot, label, onClick }) {
   );
 }
 
+// Collapsible panel wrapper. Renders a clickable title bar (▸/▾ chevron +
+// title + optional badge) over a body that hides when collapsed. Open/closed
+// state persists per `sk` key in localStorage so a section you closed stays
+// closed across reloads. Defaults to OPEN, so nothing hides until the user
+// chooses to collapse it — the page looks the same, just gains toggles.
+function Collapsible({ title, badge = null, sk, defaultOpen = true, accent = "rgba(245,240,232,0.55)", style, children }) {
+  const key = sk ? `cge-collapse-${sk}` : null;
+  const [open, setOpen] = useState(() => {
+    if (!key) return defaultOpen;
+    try { const v = localStorage.getItem(key); return v === null ? defaultOpen : v === "1"; }
+    catch { return defaultOpen; }
+  });
+  const toggle = () => setOpen(o => {
+    const n = !o;
+    if (key) { try { localStorage.setItem(key, n ? "1" : "0"); } catch { /* ignore */ } }
+    return n;
+  });
+  return (
+    <div style={style}>
+      <button
+        onClick={toggle}
+        title={open ? "Collapse this section" : "Expand this section"}
+        style={{
+          width: "100%", display: "flex", alignItems: "center", gap: 8,
+          background: "transparent", border: "none", cursor: "pointer",
+          padding: 0, textAlign: "left", color: accent,
+          fontSize: "0.6rem", letterSpacing: "1.5px", textTransform: "uppercase",
+          fontWeight: 700, fontFamily: "'Syne',sans-serif",
+        }}
+      >
+        <span style={{ display: "inline-block", transition: "transform 0.15s", transform: open ? "rotate(90deg)" : "none" }}>▸</span>
+        <span>{title}</span>
+        {badge != null && <span style={{ opacity: 0.65 }}>({badge})</span>}
+      </button>
+      {open && <div style={{ marginTop: 10 }}>{children}</div>}
+    </div>
+  );
+}
+
 // === MEDIA TOOL ===
 export default function MediaTool() {
   const events = useEventsStore(s => s.events);
@@ -5100,7 +5139,7 @@ export default function MediaTool() {
             (off, or no brand voice yet) — when everything's fine
             (voice ON + has content), the chip is silent. Result
             picker shows inline when captions exist. */}
-        <div style={{
+        <Collapsible title="Captions" sk="captions" accent="#63B3ED" style={{
           marginBottom: "1rem",
           padding: "10px 14px",
           background: "rgba(99,179,237,0.04)",
@@ -5108,9 +5147,6 @@ export default function MediaTool() {
           borderRadius: "6px",
         }}>
           <div style={{display:"flex",alignItems:"center",gap:"0.5rem",flexWrap:"wrap"}}>
-            <div style={{ fontSize: "0.6rem", color: "#63B3ED", letterSpacing: "1.5px", textTransform: "uppercase", flexShrink: 0, fontWeight: 700 }}>
-              Captions
-            </div>
             <button
               onClick={runCaptions}
               disabled={isGenCaptions || !geminiKey}
@@ -5263,7 +5299,7 @@ export default function MediaTool() {
             </div>
           );
         })()}
-        </div>
+        </Collapsible>
 
         {/* Template Queue banner — shown when the user is walking through
             a Carousel Template. The progress chip narrates which slot
@@ -5319,7 +5355,7 @@ export default function MediaTool() {
           </div>
         )}
 
-        <div style={{
+        <Collapsible title="Carousel" badge={carousel.length} sk="carousel" accent="#A855F7" style={{
           marginBottom: "1rem",
           padding: "10px 12px",
           background: "rgba(168,85,247,0.04)",
@@ -5327,9 +5363,6 @@ export default function MediaTool() {
           borderRadius: "6px",
         }}>
           <div style={{display:"flex",alignItems:"center",gap:"0.5rem",marginBottom: carousel.length > 0 ? "8px" : "0",flexWrap:"wrap"}}>
-            <div style={{fontSize:"0.55rem",color:"#A855F7",letterSpacing:"1.5px",textTransform:"uppercase",fontWeight:700,flex:"0 0 auto"}}>
-              Carousel ({carousel.length})
-            </div>
             <button
               onClick={addToCarousel}
               style={{padding:"6px 12px",background:"#A855F7",color:"#FFF",border:"none",borderRadius:"4px",fontSize:"0.6rem",fontWeight:700,letterSpacing:"1px",textTransform:"uppercase",cursor:"pointer",fontFamily:"'Syne',sans-serif",whiteSpace:"nowrap"}}
@@ -5552,7 +5585,7 @@ export default function MediaTool() {
               ))}
             </div>
           )}
-        </div>
+        </Collapsible>
 
         {/* Event Tools — collapsible at the top, sits above the
             template-specific form. Two modes: Single Event (apply

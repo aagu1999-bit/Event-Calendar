@@ -568,10 +568,14 @@ export async function polishCarousel({ apiKey, topic, context, voice, sequence, 
     "  number, or a question. Never a bland label like 'First Annual X'.",
     "- Every slide honest (a claim the event actually delivers) and on the CGE voice.",
     "- Name concrete specifics — numbers, places, moments — over vague description.",
-    "- PULL-THROUGH: read the carousel end-to-end. Slide 2 must continue the cover's",
-    "  hook (pay off its curiosity, don't restate it). Each slide should make the reader",
-    "  want the next. The FINAL slide must reward reaching the end. If a slide breaks the",
-    "  throughline, rewrite it to carry momentum forward.",
+    "- PULL-THROUGH (the swipe is the product): read the carousel end-to-end and engineer",
+    "  it so a reader can't stop mid-way. Slide 2 continues the cover's hook (pays off its",
+    "  curiosity, doesn't restate it). RATION the information — if the draft front-loads",
+    "  everything by slide 2 so there's no reason to keep swiping, FIX IT: hold the best",
+    "  specific back and move it to the last content slide. Each middle slide should END on a",
+    "  fresh open loop the next slide answers, and ESCALATE over the one before it. The FINAL",
+    "  slide must reward reaching the end with the payoff it was teasing. Rewrite any slide",
+    "  that closes the thread early or leaves the reader with nothing left to wonder.",
     ...(today ? [`- Today is ${today}. Correct current year everywhere; never a past year.`] : []),
     ...((mode === "promo")
       ? ["- REGISTER: PROMO — own-event push, more energy, a time pull, a soft invite. No 'don't miss out' clichés."]
@@ -696,6 +700,35 @@ function hookFrameworks() {
   ];
 }
 
+// Nested-open-loop / retention engineering for MULTI-SLIDE carousels. This is
+// the fix for the "by slide 2 you already know everything" failure — it forces
+// the model to ration information, chain a fresh curiosity gap onto every
+// slide, and save the best payoff for the end so there's a reason to swipe all
+// the way through. Injected only when there's more than one slide.
+function retentionEngineering(slideCount) {
+  return [
+    `RETENTION ENGINEERING — this is a ${slideCount}-slide SWIPE, not ${slideCount} standalone cards. Build it so a reader can't comfortably stop mid-way:`,
+    "- RATION the information. Do NOT front-load. The single most surprising or valuable",
+    "  specific — the payoff — is WITHHELD until the last content slide, never dumped on",
+    "  slide 1 or 2. If everything worth knowing fits on the first two slides, it's wrong:",
+    "  hold something back and make them swipe for it.",
+    "- CHAIN THE LOOPS. Every slide except the last must END by opening a NEW curiosity gap",
+    "  that only the NEXT slide answers, while paying off the previous one. The reader should",
+    "  finish each slide with a fresh unanswered question, not a closed, complete thought.",
+    "- ESCALATE. Each slide raises the stakes, specificity, or surprise over the one before —",
+    "  never a flat list of equal-weight facts. Order the beats small→big, ordinary→wild, so",
+    "  momentum builds toward the end instead of peaking early.",
+    "- THE 'AND?' TEST: after each middle slide the reader should think 'okay… and?'. If a",
+    "  slide leaves them fully satisfied with nothing left to wonder, it's in the wrong spot",
+    "  or it gave away too much — move the reveal later.",
+    "- REWARD THE END. The final slide delivers the payoff the whole carousel was teasing",
+    "  (the reveal + the invite), so reaching the end feels earned, not anticlimactic.",
+    "- Honest always: every loop you open must be truthfully paid off later. Tease, never bait.",
+    "─────────────────────────────",
+    "",
+  ];
+}
+
 function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, templateMeta, mode, today }) {
   const hasVoiceDesc = voice && typeof voice.description === "string" && voice.description.trim();
   const exemplars = Array.isArray(voice?.exemplars) ? voice.exemplars.filter(e => e && e.trim()) : [];
@@ -773,6 +806,7 @@ function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, tem
     "",
     ...creativeDirection(),
     ...(sequence.includes("cover") ? hookFrameworks() : []),
+    ...(sequence.length > 2 ? retentionEngineering(sequence.length) : []),
     ...registerBlock(mode),
     ...variationDirective(),
     ...((topic && topic.trim()) ? [`Carousel topic: ${topic.trim()}`, ""] : []),
