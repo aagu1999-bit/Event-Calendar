@@ -123,6 +123,47 @@ function formatTemplatePurposeBlock(meta) {
   return lines;
 }
 
+// === WEB RESEARCH (Google Search grounding) ===
+// Gemini can't ground on Google Search AND return strict JSON in the same
+// call, so research is a separate step: a grounded, plain-text call that
+// gathers factual background on the event. The brief is then fed into the
+// normal (JSON) generation as extra context — so the model isn't a black box
+// that only knows what the user typed; it knows what e.g. "Juneteenth" or a
+// named festival actually is. Opt-in (costs an extra call + uses grounding
+// quota) and best-effort (callers continue without it if it fails).
+export async function researchEvent({ apiKey, topic, context }) {
+  if (!apiKey) throw new Error("Missing Gemini API key");
+  const subject = [topic, context].map(s => (s || "").trim()).filter(Boolean).join(" — ");
+  if (!subject) throw new Error("Add a topic or event details to research first");
+  const prompt = [
+    "You are a researcher gathering BACKGROUND for a social-media carousel about an event.",
+    "Search the web for useful context on the event/topic below, then write a tight brief.",
+    "",
+    `EVENT / TOPIC: ${subject}`,
+    "",
+    "Return 6-12 plain-text bullet points of factual, usable background — for example:",
+    "- what the event / holiday / genre is about and why it matters;",
+    "- cultural or local (NJ / Garden State) significance;",
+    "- typical activities, vibe, or format;",
+    "- notable history or widely-known facts that would make a post richer.",
+    "",
+    "RULES:",
+    "- Prefer specific, verifiable facts. Note the source site in parentheses when helpful.",
+    "- If you CANNOT confirm details about THIS specific event (exact venue / date / lineup /",
+    "  host), say so plainly and give GENERAL background instead — never invent specifics.",
+    "- Plain text bullets only. No preamble, no markdown headers.",
+  ].join("\n");
+
+  // Note: no responseMimeType here — JSON mode is incompatible with the
+  // Google Search tool. We read the grounded plain text back out.
+  const data = await geminiGenerate(apiKey, {
+    contents: [{ parts: [{ text: prompt }] }],
+    tools: [{ google_search: {} }],
+    generationConfig: { temperature: 0.4 },
+  });
+  return (extractResponseText(data) || "").trim();
+}
+
 export async function generateSlideContent({ apiKey, slotType, topic, voice, slotPrompts, count = 3, context, mode }) {
   if (!apiKey) throw new Error("Missing Gemini API key");
   if (!slotType) throw new Error("Missing slotType");

@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useBrandStore, useCarouselTemplatesStore, BUILTIN_CAROUSEL_TEMPLATES } from "../store";
-import { generateTemplateFill, pickTemplate, generateArrangedCarousel } from "./aiContent.js";
+import { generateTemplateFill, pickTemplate, generateArrangedCarousel, researchEvent } from "./aiContent.js";
 
 // Scaffold that primes the Context box with the ingredients a strong hook
 // (esp. an open loop) needs: the TWIST is the curiosity gap, PROOF + WHAT
@@ -48,6 +48,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
   // in the result panel so the user knows what was chosen.
   const [letAiPick, setLetAiPick] = useState(false);
   const [aiArrange, setAiArrange] = useState(false);
+  const [researchOn, setResearchOn] = useState(false);
   const [pickedTemplate, setPickedTemplate] = useState(null);
   const [pickReasoning, setPickReasoning] = useState("");
   // Per-slide exemplar harvest state. Tracks slide indices the user
@@ -95,11 +96,29 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
     setPickedTemplate(null);
     setPickReasoning("");
     try {
+      // Optional web research — a grounded Gemini call looks the event up and
+      // returns a background brief, which we append to the context so every
+      // downstream generation is richer than what the user typed alone.
+      // Best-effort: if it fails (grounding unsupported / offline), continue.
+      let genContext = context;
+      if (researchOn) {
+        setBusyLabel("Researching the event…");
+        try {
+          const brief = await researchEvent({ apiKey, topic, context });
+          if (brief) {
+            genContext = (context ? context + "\n\n" : "")
+              + "RESEARCHED BACKGROUND (general web context — verify any specifics before treating them as fact about THIS event):\n"
+              + brief;
+          }
+        } catch (e) {
+          console.warn("Research step failed, continuing without it:", e?.message || e);
+        }
+      }
       // "AI arranges" — design a bespoke slot sequence for this story, then
       // fill + polish it. Supersedes template selection.
       if (aiArrange) {
         setBusyLabel("Designing + filling…");
-        const arranged = await generateArrangedCarousel({ apiKey, topic, context, voice, slotPrompts, mode });
+        const arranged = await generateArrangedCarousel({ apiKey, topic, context: genContext, voice, slotPrompts, mode });
         setPickedTemplate({ id: "ai-arranged", name: "AI-arranged carousel", sequence: arranged.sequence, custom: true });
         setPickReasoning(arranged.rationale);
         setSlides(arranged.slides);
@@ -112,7 +131,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
         const pick = await pickTemplate({
           apiKey,
           topic,
-          context,
+          context: genContext,
           candidates: allTemplates,
         });
         useTemplate = pick.template;
@@ -125,7 +144,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
         apiKey,
         sequence: useTemplate.sequence,
         topic,
-        context,
+        context: genContext,
         voice,
         slotPrompts,
         templateMeta: useTemplate,
@@ -517,6 +536,24 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
           </span>
           <span style={{ marginLeft: "auto", fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: 0.5 }}>
             designs a custom sequence
+          </span>
+        </label>
+
+        {/* Web research — a grounded Gemini call looks the event up (Google
+            Search) and feeds the background into generation, so it's not a
+            black box that only knows what you typed. Opt-in: one extra call
+            and it uses grounding quota. Stacks with pick/arrange/template. */}
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.72rem", color: researchOn ? "#63B3ED" : "rgba(245,240,232,0.7)", cursor: "pointer", marginBottom: 12, padding: "8px 10px", background: researchOn ? "rgba(99,179,237,0.08)" : "transparent", border: "1px solid " + (researchOn ? "rgba(99,179,237,0.35)" : "rgba(245,240,232,0.08)"), borderRadius: 4 }}>
+          <input
+            type="checkbox"
+            checked={researchOn}
+            onChange={(e) => setResearchOn(e.target.checked)}
+          />
+          <span style={{ fontWeight: 700, letterSpacing: 0.5 }}>
+            🔎 Research the event first (web)
+          </span>
+          <span style={{ marginLeft: "auto", fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: 0.5 }}>
+            adds real background
           </span>
         </label>
 
