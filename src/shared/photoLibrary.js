@@ -293,12 +293,21 @@ export async function saveExport(blob, opts = {}) {
   return id;
 }
 
-// Server stores metadata fully (snapshot included), so loadExportRecord
-// just fetches the list entry. The caller usually wants the snapshot;
-// blob is fetched separately when needed.
+// Fetch the FULL export record for one id, including the heavy `snapshot`
+// used to restore a draft. The list endpoint strips snapshots out (returning
+// all of them OOM-crashed the deployment), so we hit the per-id meta endpoint
+// here — one record at a time is cheap. Callers want the snapshot; the blob
+// is fetched separately when needed.
 export async function loadExportRecord(id) {
-  const all = await getExportsList();
-  return all.find(r => r.id === id) || null;
+  try {
+    const res = await api(`/exports/${id}/meta`);
+    return await res.json();
+  } catch {
+    // Fall back to the (snapshot-less) list entry so callers that only need
+    // the lightweight metadata still get something rather than null.
+    const all = await getExportsList();
+    return all.find(r => r.id === id) || null;
+  }
 }
 
 export async function listExports(filter = {}) {
@@ -317,7 +326,10 @@ export async function listExports(filter = {}) {
       bytes: r.bytes,
       kind: r.kind,
       mime: r.mime,
-      hasSnapshot: !!r.snapshot,
+      // The list endpoint no longer ships the snapshot itself — it sends a
+      // `hasSnapshot` flag instead. Fall back to the old `!!r.snapshot` shape
+      // for any cached/legacy record that still carries the full snapshot.
+      hasSnapshot: r.hasSnapshot ?? !!r.snapshot,
       createdAt: r.createdAt,
     }));
 }
@@ -362,7 +374,17 @@ export async function getAllPhotosRaw() {
 
 export async function getAllExportsRaw() {
   const all = await getExportsList();
-  const withBlobs = await Promise.all(all.map(m => attachBlob("exports", m)));
+  // The list no longer includes the heavy `snapshot` (it OOM-crashed the
+  // server). Workspace export needs the full record so drafts survive the
+  // round trip, so fetch each id's full meta before attaching its blob.
+  const withBlobs = await Promise.all(all.map(async (m) => {
+    let full = m;
+    try {
+      const res = await api(`/exports/${m.id}/meta`);
+      full = await res.json();
+    } catch { /* fall back to the lightweight list entry */ }
+    return attachBlob("exports", full);
+  }));
   return withBlobs.filter(Boolean);
 }
 

@@ -145,11 +145,36 @@ app.get("/api/library/:kind", async (req, res) => {
       if (!f.endsWith(".json")) continue;
       try {
         const meta = JSON.parse(await fs.readFile(path.join(dir, f), "utf8"));
-        out.push(meta);
+        // Strip the heavy `snapshot` (a full carousel with base64 images) from
+        // the LIST. Returning all snapshots made res.json() allocate hundreds
+        // of MB and OOM-crash the deployment. Clients only need to know a
+        // snapshot exists; the full record is fetched by id when restoring.
+        if (meta && typeof meta === "object") {
+          meta.hasSnapshot = ("snapshot" in meta) ? !!meta.snapshot : !!meta.hasSnapshot;
+          delete meta.snapshot;
+          out.push(meta);
+        }
       } catch { /* corrupt — skip */ }
     }
     out.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     res.json(out);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Fetch the FULL metadata for a single item, including the heavy `snapshot`
+// that the list endpoint strips out. Callers use this when they actually
+// need the snapshot (restoring a draft, exporting a workspace) — one record
+// at a time, so it never allocates the whole library at once.
+app.get("/api/library/:kind/:id/meta", async (req, res) => {
+  const dir = getLibDir(req.params.kind);
+  const id = safeId(req.params.id);
+  if (!dir || !id) return res.status(400).json({ error: "Bad request" });
+  const metaPath = path.join(dir, `${id}.json`);
+  if (!existsSync(metaPath)) return res.status(404).json({ error: "Not found" });
+  try {
+    res.json(JSON.parse(await fs.readFile(metaPath, "utf8")));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
