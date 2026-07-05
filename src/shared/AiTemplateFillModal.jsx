@@ -606,9 +606,11 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
           >×</button>
         </div>
 
-        <div style={{ fontSize: "0.7rem", color: "rgba(245,240,232,0.6)", marginBottom: 14, lineHeight: 1.5 }}>
+        <div style={{ fontSize: "0.7rem", color: "rgba(245,240,232,0.6)", marginBottom: 16, lineHeight: 1.5 }}>
           Pick a template, type your topic + context. Gemini fills every slide in the sequence in one coherent pass — Cover headline, Text manifesto, Spotlight cards (one per angle), CTA listings (one per event). Per-slot rules from <strong>/brand → Slide Content Rules</strong> apply.
         </div>
+
+        <div style={{ fontSize: "0.55rem", letterSpacing: 1.4, textTransform: "uppercase", fontWeight: 700, color: "rgba(245,240,232,0.4)", margin: "0 0 8px" }}>Generation mode</div>
 
         {/* Let AI pick toggle — when on, Gemini chooses the best
             template from built-ins + customs based on topic + context.
@@ -667,6 +669,8 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
             </div>
           </div>
         )}
+
+        <div style={{ fontSize: "0.55rem", letterSpacing: 1.4, textTransform: "uppercase", fontWeight: 700, color: "rgba(245,240,232,0.4)", margin: "4px 0 8px" }}>Enrich &amp; voice</div>
 
         {/* Web research — a grounded Gemini call looks the event up (Google
             Search) and feeds the background into generation, so it's not a
@@ -803,23 +807,29 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
           </div>
         </div>
 
-        <label style={{ fontSize: "0.65rem", color: "rgba(245,240,232,0.65)", display: "block", marginBottom: 5, letterSpacing: 0.5 }}>
+        <label style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.5)", display: "block", marginBottom: 6, letterSpacing: 1.2, textTransform: "uppercase", fontWeight: 700 }}>
           Register
         </label>
-        <div style={{ display: "flex", gap: 4, marginBottom: 12 }}>
-          {[["editorial", "📰 Editorial", "restrained newsroom voice"], ["promo", "📣 Promo", "own-event push, more energy"]].map(([m, lbl, hint]) => (
+        <div style={{ display: "flex", gap: 4, marginBottom: 14, padding: 3, background: "rgba(0,0,0,0.28)", borderRadius: 9, border: "1px solid rgba(245,240,232,0.06)" }}>
+          {[["editorial", "📰", "Editorial", "restrained newsroom voice"], ["promo", "📣", "Promo", "own-event push, more energy"], ["story", "📖", "Story", "narrative, human, scene-driven"]].map(([m, ic, lbl, hint]) => (
             <button
               key={m}
               onClick={() => setMode(m)}
               title={hint}
               style={{
-                padding: "6px 12px", borderRadius: 4, cursor: "pointer",
-                fontSize: "0.65rem", fontWeight: 700, fontFamily: "'Syne',sans-serif",
-                background: mode === m ? "rgba(229,188,79,0.18)" : "rgba(245,240,232,0.04)",
+                flex: 1, padding: "9px 8px", borderRadius: 7, cursor: "pointer",
+                fontSize: "0.7rem", fontWeight: 700, fontFamily: "'Syne',sans-serif",
+                display: "flex", flexDirection: "column", alignItems: "center", gap: 3, lineHeight: 1.1,
+                background: mode === m ? "rgba(229,188,79,0.16)" : "transparent",
                 color: mode === m ? "#E5BC4F" : "rgba(245,240,232,0.5)",
                 border: mode === m ? "1px solid rgba(229,188,79,0.5)" : "1px solid transparent",
+                transition: "background 0.12s, color 0.12s",
               }}
-            >{lbl}</button>
+            >
+              <span style={{ fontSize: "0.95rem" }}>{ic}</span>
+              <span>{lbl}</span>
+              <span style={{ fontSize: "0.48rem", fontWeight: 600, fontFamily: "'DM Sans',sans-serif", color: mode === m ? "rgba(229,188,79,0.7)" : "rgba(245,240,232,0.32)", letterSpacing: 0.2 }}>{hint}</span>
+            </button>
           ))}
         </div>
 
