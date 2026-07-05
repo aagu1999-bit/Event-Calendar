@@ -727,6 +727,139 @@ function renderTextNewsCard(ctx, W, H, cfg) {
   drawPageNum(ctx, W, H, pageNum, totalPages, accent, false);
 }
 
+// === NEWS RENDERER ===
+// A dedicated "supporting / news" slide: a CGE-cream block up top holding an
+// optional kicker + heading and PARAGRAPHS of body copy, with the photo filling
+// the space below (ratio-aware — the photo grows on 4:5 / 9:16). `newsBold`
+// sets the body in bold (good for breaking-news beats). The block auto-sizes to
+// how much you write; the photo takes whatever's left.
+function renderNews(canvas, cfg) {
+  const { newsKicker, newsHeadline, newsBody, newsBold, newsCaption,
+          photo, accent, bgKey, dots, totalDots, pageNum, totalPages,
+          targetW = 1080, targetH = 1080, focalX = 0.5, focalY = 0.5 } = cfg;
+  const W = targetW, H = targetH; canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext("2d");
+
+  const inkColor = "#16130d";
+  const bodyInk = "#3a352c";
+  const blockBg = "#F5F0E8";
+  const px = 72, maxW = W - px * 2;
+
+  const hasKicker = !!(newsKicker && newsKicker.trim());
+  const hasHead = !!(newsHeadline && newsHeadline.trim());
+  const hasBody = !!(newsBody && newsBody.trim());
+
+  // Wrap `text` (respecting \n paragraph breaks) to `lineMax` at the given font.
+  const wrapText = (text, font, lineMax) => {
+    ctx.font = font; ctx.letterSpacing = "0px";
+    const out = [];
+    for (const para of String(text).split("\n")) {
+      if (!para.trim()) { out.push(""); continue; }
+      const words = para.split(/\s+/); let cur = "";
+      for (const w of words) {
+        const test = cur ? cur + " " + w : w;
+        if (ctx.measureText(test.replace(/\*/g, "")).width > lineMax && cur) { out.push(cur); cur = w; }
+        else cur = test;
+      }
+      if (cur) out.push(cur);
+    }
+    return out;
+  };
+
+  // Heading (Syne 800, up to 3 lines).
+  let headFs = 60, headLines = [];
+  if (hasHead) {
+    const wrapHead = (f) => wrapText(newsHeadline.toUpperCase(), ff(`800 ${f}px 'Syne',sans-serif`), maxW);
+    headLines = wrapHead(headFs);
+    while (headLines.length > 3 && headFs > 34) { headFs -= 3; headLines = wrapHead(headFs); }
+  }
+  const headLH = () => Math.round(headFs * 1.06);
+
+  // Body (DM Sans, bold when newsBold). Auto-shrink so the block fits the cap.
+  const bodyWeight = newsBold ? "700" : "400";
+  let bodyFs = 32;
+  const bodyLH = (f) => Math.round(f * 1.42);
+  const wrapBody = (f) => wrapText(newsBody, ff(`${bodyWeight} ${f}px 'DM Sans',sans-serif`), maxW);
+  let bodyLines = hasBody ? wrapBody(bodyFs) : [];
+
+  const padTop = 92, padBot = 54, gapKick = 22, gapHead = 26;
+  const bodyBlockH = (lines, f) => lines.reduce((a, l) => a + (l === "" ? Math.round(f * 0.55) : bodyLH(f)), 0);
+  const measureBlockH = () => {
+    let h = padTop;
+    if (hasKicker) h += 24 + gapKick;
+    if (hasHead) h += headLines.length * headLH() + gapHead;
+    if (hasBody) h += bodyBlockH(bodyLines, bodyFs);
+    return h + padBot;
+  };
+  const capH = Math.min(Math.round(H * 0.72), H - 200); // always leave room for a photo
+  let blockH = measureBlockH();
+  while (hasBody && blockH > capH && bodyFs > 19) { bodyFs -= 2; bodyLines = wrapBody(bodyFs); blockH = measureBlockH(); }
+  blockH = Math.min(blockH, capH);
+
+  // Photo (or solid bg) fills below the block.
+  const py = blockH, ph = H - blockH;
+  if (photo) {
+    const s = Math.max(W / photo.width, ph / photo.height);
+    const dw = photo.width * s, dh = photo.height * s;
+    let dx = (W / 2) - (photo.width * focalX * s);
+    let dy = (py + ph / 2) - (photo.height * focalY * s);
+    dx = Math.max(W - dw, Math.min(0, dx));
+    dy = Math.max(py + ph - dh, Math.min(py, dy));
+    ctx.save(); ctx.beginPath(); ctx.rect(0, py, W, ph); ctx.clip();
+    ctx.drawImage(photo, dx, dy, dw, dh);
+    ctx.restore();
+  } else {
+    const bgc = BG_COLORS[bgKey] || BG_COLORS.black;
+    ctx.fillStyle = bgc.hex; ctx.fillRect(0, py, W, ph);
+  }
+
+  // Cream block + accent seam + masthead tick.
+  ctx.fillStyle = blockBg; ctx.fillRect(0, 0, W, blockH);
+  ctx.fillStyle = accent; ctx.fillRect(0, blockH - 8, W, 8);
+  ctx.fillStyle = accent; ctx.fillRect(px, 52, 64, 7);
+
+  // Block content, top-down.
+  ctx.textAlign = "left"; ctx.textBaseline = "top";
+  let y = padTop;
+  if (hasKicker) {
+    ctx.font = ff("800 20px 'Syne',sans-serif"); ctx.letterSpacing = "4px";
+    ctx.fillStyle = "#9a6a13"; // darker gold reads on cream
+    ctx.fillText(newsKicker.toUpperCase(), px, y);
+    ctx.letterSpacing = "0px";
+    y += 24 + gapKick;
+  }
+  if (hasHead) {
+    ctx.fillStyle = inkColor;
+    headLines.forEach((ln) => { ctx.font = ff(`800 ${headFs}px 'Syne',sans-serif`); ctx.letterSpacing = "0px"; ctx.fillText(ln, px, y); y += headLH(); });
+    y += gapHead;
+  }
+  if (hasBody) {
+    ctx.fillStyle = bodyInk; ctx.font = ff(`${bodyWeight} ${bodyFs}px 'DM Sans',sans-serif`); ctx.letterSpacing = "0px";
+    bodyLines.forEach((ln) => {
+      if (ln === "") { y += Math.round(bodyFs * 0.55); return; }
+      ctx.fillText(ln.replace(/\*/g, ""), px, y);
+      y += bodyLH(bodyFs);
+    });
+  }
+
+  // Optional one-line caption over the photo bottom, on a scrim.
+  if (photo && newsCaption && newsCaption.trim()) {
+    const grd = ctx.createLinearGradient(0, H - 150, 0, H);
+    grd.addColorStop(0, "transparent"); grd.addColorStop(1, "rgba(0,0,0,0.85)");
+    ctx.fillStyle = grd; ctx.fillRect(0, H - 150, W, 150);
+    ctx.font = ff("600 24px 'DM Sans',sans-serif"); ctx.fillStyle = "rgba(255,255,255,0.92)";
+    ctx.textAlign = "left"; ctx.textBaseline = "bottom";
+    let d = newsCaption.trim();
+    while (ctx.measureText(d).width > maxW && d.length) d = d.slice(0, -1);
+    if (d !== newsCaption.trim()) d = d.slice(0, -1) + "…";
+    ctx.fillText(d, px, H - 66);
+  }
+
+  drawFooter(ctx, W, H, false);
+  drawDots(ctx, W, dots, totalDots, accent, false);
+  drawPageNum(ctx, W, H, pageNum, totalPages, accent, false);
+}
+
 // === CTA RENDERER ===
 function renderCTA(canvas, cfg) {
   const { ctaKicker, ctaDate, ctaVenue, ctaUrl, photo, accent, bgKey, dots, totalDots, opacity,
@@ -2947,6 +3080,16 @@ export default function MediaTool() {
   // manifesto body over busy backgrounds.
   const [textStyle, setTextStyle] = useState("manifesto");
   const [textBand, setTextBand] = useState(false);
+  // News slot — cream block (kicker + optional heading + paragraph body) over a
+  // photo. newsBold sets the body in bold (breaking-news beats).
+  const [newsKicker, setNewsKicker] = useState("The bigger picture");
+  const [newsHeadline, setNewsHeadline] = useState("");
+  const [newsBody, setNewsBody] = useState("For a decade this strip mall was the block everyone drove past. The Nutrition Fest is the first thing to fill it in years — and it's not a pop-up. It's a bet that teaching people how food actually fuels them, out in the open, can bring a forgotten corner back to life.");
+  const [newsBold, setNewsBold] = useState(false);
+  const [newsCaption, setNewsCaption] = useState("");
+  const [newsPhoto, setNewsPhoto] = useState(null);
+  const [newsFocalX, setNewsFocalX] = useState(0.5);
+  const [newsFocalY, setNewsFocalY] = useState(0.5);
   const [editItem, setEditItem] = useState(null);
   const [ctaKicker, setCtaKicker] = useState("SAVE YOUR SPOT");
   const [ctaDate, setCtaDate] = useState("Sunday, June 14 · 6 PM");
@@ -3386,6 +3529,7 @@ export default function MediaTool() {
   const posterFileRef = useRef(null);
   const statFileRef = useRef(null);
   const listFileRef = useRef(null);
+  const newsFileRef = useRef(null);
   // One file input ref per Vibe Board slot (5 max).
   // Pre-allocate file-input refs for up to 6 Vibe Board cells. Rules of
   // Hooks forbid creating refs in a loop on each render, so we declare
@@ -3509,6 +3653,9 @@ export default function MediaTool() {
   const handleListPhoto = makeUploadHandler((img) => {
     setListPhoto(img); setListFocalX(0.5); setListFocalY(0.5);
   }, "list");
+  const handleNewsPhoto = makeUploadHandler((img) => {
+    setNewsPhoto(img); setNewsFocalX(0.5); setNewsFocalY(0.5);
+  }, "news");
   // Wrap each photo-having upload so a new picture resets its focal
   // point to center — the previous photo's focal is meaningless on the
   // new image, and the user shouldn't have to manually re-center.
@@ -3564,6 +3711,7 @@ export default function MediaTool() {
     else if (type === "photo")     { setCaptionPhoto(img); setCaptionFocalX(0.5); setCaptionFocalY(0.5); }
     else if (type === "stat")      { setStatPhoto(img);    setStatFocalX(0.5);    setStatFocalY(0.5); }
     else if (type === "list")      { setListPhoto(img);    setListFocalX(0.5);    setListFocalY(0.5); }
+    else if (type === "news")      { setNewsPhoto(img);    setNewsFocalX(0.5);    setNewsFocalY(0.5); }
     else if (type === "spotlight") { setSpotPhoto(img);    setSpotFocalX(0.5);    setSpotFocalY(0.5); }
     else if (type === "countdown") { setCountPhoto(img);   setCountFocalX(0.5);   setCountFocalY(0.5); }
     else if (type === "savedate")  { setSavePhoto(img);    setSaveFocalX(0.5);    setSaveFocalY(0.5); }
@@ -3634,6 +3782,7 @@ export default function MediaTool() {
     else if (pickTarget === "photo")     { setCaptionPhoto(img); setCaptionFocalX(0.5); setCaptionFocalY(0.5); }
     else if (pickTarget === "stat")      { setStatPhoto(img); setStatFocalX(0.5); setStatFocalY(0.5); }
     else if (pickTarget === "list")      { setListPhoto(img); setListFocalX(0.5); setListFocalY(0.5); }
+    else if (pickTarget === "news")      { setNewsPhoto(img); setNewsFocalX(0.5); setNewsFocalY(0.5); }
     else if (pickTarget === "spotlight") setSpotPhoto(img);
     else if (pickTarget === "countdown") { setCountPhoto(img); setCountFocalX(0.5); setCountFocalY(0.5); }
     else if (pickTarget === "savedate")  setSavePhoto(img);
@@ -3668,13 +3817,14 @@ export default function MediaTool() {
      // now render at 1080×1080 and get CENTERED into the target frame by
      // wrapForExport (photo/bg extended into the margins), so the tuned 1:1
      // layout lands where it's supposed to — vertically centered.
-     const RATIO_AWARE_MODES = new Set(["cover", "spotlight", "photo"]);
+     const RATIO_AWARE_MODES = new Set(["cover", "spotlight", "photo", "news"]);
     const isRatioAware = RATIO_AWARE_MODES.has(mode);
     const targetCfg = isRatioAware ? { targetW: target.w, targetH: target.h, focalX: focal?.x ?? 0.5, focalY: focal?.y ?? 0.5 } : {};
     if(mode==="cover") renderCover(cv,{photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,categoryTag,coverCtaButton,align:coverAlign,band:coverBand, ...targetCfg});
     else if(mode==="list") renderList(cv,{items,accent,bgKey,dots,totalDots,listTitle,listSubtitle,photo:listPhoto,opacity:listOpacity, ...targetCfg});
     else if(mode==="stat") renderStat(cv,{statNumber,statLabel,statSub,photo:statPhoto,opacity:statOpacity,accent,bgKey,dots,totalDots, ...targetCfg});
     else if(mode==="text") renderText(cv,{textTitle,textTitleHighlights:textTitleHL,textBody,style:textStyle,band:textBand,accent,bgKey,dots,totalDots,pageNum,totalPages,photo:textPhoto,textOpacity, ...targetCfg});
+    else if(mode==="news") renderNews(cv,{newsKicker,newsHeadline,newsBody,newsBold,newsCaption,accent,bgKey,dots,totalDots,pageNum,totalPages,photo:newsPhoto, ...targetCfg});
     else if(mode==="cta") renderCTA(cv,{ctaKicker,ctaDate,ctaVenue,ctaUrl,photo:textPhoto,accent,bgKey,dots,totalDots,opacity:textOpacity, ...targetCfg});
     else if(mode==="features") renderFeatures(cv,{featuresTitle,features,style:featuresStyle,layout:featuresLayout,accent,bgKey,dots,totalDots,photo:textPhoto,opacity:textOpacity, ...targetCfg});
     else if(mode==="photo") renderPhotoCaption(cv,{photo:captionPhoto,caption,captionSecondary,alignment:captionAlign,accent,bgKey,dots,totalDots, ...targetCfg});
@@ -3745,6 +3895,7 @@ export default function MediaTool() {
       else if (mode === "list") renderList(thumbCv, {...cfg, items, listTitle, listSubtitle, photo: listPhoto, opacity: listOpacity, focalX: listFocalX, focalY: listFocalY});
       else if (mode === "stat") renderStat(thumbCv, {...cfg, statNumber, statLabel, statSub, photo: statPhoto, opacity: statOpacity, focalX: statFocalX, focalY: statFocalY});
       else if (mode === "text") renderText(thumbCv, {...cfg, textTitle, textTitleHighlights: textTitleHL, textBody, style: textStyle, band: textBand, pageNum, totalPages, photo: textPhoto, textOpacity});
+      else if (mode === "news") renderNews(thumbCv, {...cfg, newsKicker, newsHeadline, newsBody, newsBold, newsCaption, pageNum, totalPages, photo: newsPhoto, focalX: newsFocalX, focalY: newsFocalY});
       else if (mode === "cta") renderCTA(thumbCv, {...cfg, ctaKicker, ctaDate, ctaVenue, ctaUrl, photo: textPhoto, opacity: textOpacity});
       else if (mode === "features") renderFeatures(thumbCv, {...cfg, featuresTitle, features, style: featuresStyle, layout: featuresLayout, photo: textPhoto, opacity: textOpacity});
       else if (mode === "photo") renderPhotoCaption(thumbCv, {...cfg, photo: captionPhoto, caption, captionSecondary, alignment: captionAlign});
@@ -3775,7 +3926,7 @@ export default function MediaTool() {
     }
   };
 
-  const MODES=[["cover","Cover"],["list","List"],["stat","Stat"],["text","Text"],["cta","CTA"],["features","Features"],["photo","Photo"],["spotlight","Spotlight"],["countdown","Countdown"],["savedate","Save Date"],["savedates","Save Dates"],["vibe","Vibe Board"],["scene","Scene"],["poster","Poster"],["press","Press"]];
+  const MODES=[["cover","Cover"],["list","List"],["stat","Stat"],["text","Text"],["news","News"],["cta","CTA"],["features","Features"],["photo","Photo"],["spotlight","Spotlight"],["countdown","Countdown"],["savedate","Save Date"],["savedates","Save Dates"],["vibe","Vibe Board"],["scene","Scene"],["poster","Poster"],["press","Press"]];
 
   // isAutoGen is the "I'm busy exporting the carousel ZIP" flag —
   // legacy name from when this also drove auto-template generation.
@@ -3799,7 +3950,7 @@ export default function MediaTool() {
     // whole design at the target aspect; every other mode renders at
     // 1080×1080 and gets centered into the target frame by wrapForExport, so
     // its top-anchored layout doesn't clump at the top with dead space below.
-    const RATIO_AWARE_ZIP_MODES = new Set(["cover", "spotlight", "photo"]);
+    const RATIO_AWARE_ZIP_MODES = new Set(["cover", "spotlight", "photo", "news"]);
     const FOCAL_KEY_MAP = {
       cover:     ["coverFocalX",   "coverFocalY"],
       list:      ["listFocalX",    "listFocalY"],
@@ -3808,6 +3959,7 @@ export default function MediaTool() {
       press:     ["pressFocalX",   "pressFocalY"],
       scene:     ["sceneFocalX",   "sceneFocalY"],
       photo:     ["captionFocalX", "captionFocalY"],
+      news:      ["newsFocalX",    "newsFocalY"],
       stat:      ["statFocalX",    "statFocalY"],
       countdown: ["countFocalX",   "countFocalY"],
       savedates: ["savesFocalX",   "savesFocalY"],
@@ -3847,6 +3999,9 @@ export default function MediaTool() {
       textTitleHighlights: s.textTitleHL instanceof Set ? s.textTitleHL : new Set(s.textTitleHL || []),
       textBody: s.textBody, style: s.textStyle, band: s.textBand, bgKey: effBgKey, pageNum: s.pageNum, totalPages: s.totalPages,
       photo: s.photo, textOpacity: s.textOpacity, ...targetCfg });
+    else if (type === "news") renderNews(cv, { ...common, newsKicker: s.newsKicker, newsHeadline: s.newsHeadline,
+      newsBody: s.newsBody, newsBold: s.newsBold, newsCaption: s.newsCaption, bgKey: effBgKey,
+      pageNum: s.pageNum, totalPages: s.totalPages, photo: s.photo, ...targetCfg });
     else if (type === "cta") renderCTA(cv, { ...common, ctaKicker: s.ctaKicker, ctaDate: s.ctaDate,
       ctaVenue: s.ctaVenue, ctaUrl: s.ctaUrl, photo: s.photo, bgKey: effBgKey, opacity: s.textOpacity, ...targetCfg });
     else if (type === "features") renderFeatures(cv, { ...common, featuresTitle: s.featuresTitle,
@@ -3903,6 +4058,7 @@ export default function MediaTool() {
       case "list": return { ...common, items: items.map(x=>({...x})), listTitle, listSubtitle, photo: listPhoto, listOpacity, listFocalX, listFocalY };
       case "stat": return { ...common, statNumber, statLabel, statSub, photo: statPhoto, statOpacity, statFocalX, statFocalY };
       case "text": return { ...common, textTitle, textTitleHL, textBody, photo: textPhoto, textOpacity, textStyle, textBand, pageNum, totalPages };
+      case "news": return { ...common, newsKicker, newsHeadline, newsBody, newsBold, newsCaption, photo: newsPhoto, newsFocalX, newsFocalY, pageNum, totalPages };
       case "cta": return { ...common, ctaKicker, ctaDate, ctaVenue, ctaUrl, photo: textPhoto, textOpacity };
       case "features": return { ...common, featuresTitle, features: features.map(f=>({...f})), featuresStyle, featuresLayout, photo: textPhoto, textOpacity };
       case "photo": return { ...common, photo: captionPhoto, caption, captionSecondary, captionAlign, captionFocalX, captionFocalY };
@@ -3960,6 +4116,14 @@ export default function MediaTool() {
         setTextBody(snapshot.textBody); setTextPhoto(snapshot.photo); setTextOpacity(snapshot.textOpacity);
         setTextStyle(snapshot.textStyle || "manifesto");
         setTextBand(!!snapshot.textBand);
+        setPageNum(snapshot.pageNum); setTotalPages(snapshot.totalPages);
+        break;
+      case "news":
+        setNewsKicker(snapshot.newsKicker || ""); setNewsHeadline(snapshot.newsHeadline || "");
+        setNewsBody(snapshot.newsBody || ""); setNewsBold(!!snapshot.newsBold);
+        setNewsCaption(snapshot.newsCaption || ""); setNewsPhoto(snapshot.photo || null);
+        setNewsFocalX(typeof snapshot.newsFocalX === "number" ? snapshot.newsFocalX : 0.5);
+        setNewsFocalY(typeof snapshot.newsFocalY === "number" ? snapshot.newsFocalY : 0.5);
         setPageNum(snapshot.pageNum); setTotalPages(snapshot.totalPages);
         break;
       case "cta":
@@ -4489,6 +4653,18 @@ export default function MediaTool() {
         bgKey: "black",
       }};
     }
+    if (slot.type === "news") {
+      return { type: "news", snapshot: {
+        ...common,
+        photo: null,
+        newsKicker: String(slot.newsKicker || "").trim(),
+        newsHeadline: String(slot.newsHeadline || "").trim(),
+        newsBody: String(slot.newsBody || "").trim(),
+        newsBold: !!slot.newsBold,
+        newsCaption: "",
+        newsFocalX: 0.5, newsFocalY: 0.5,
+      }};
+    }
     if (slot.type === "features") {
       // Features expects an array of {emoji, headline, sub}. Defend
       // against missing items / wrong shapes — accept 3-5 entries.
@@ -4526,6 +4702,7 @@ export default function MediaTool() {
       case "cover":     return categoryTag || subtitle || headline || "";
       case "cta":       return ctaKicker || ctaDate || "";
       case "text":      return textTitle || "";
+      case "news":      return newsHeadline || newsKicker || "";
       case "spotlight": return spotName || "";
       case "photo":     return caption || "";
       case "stat":      return statLabel || statSub || "";
@@ -4622,6 +4799,13 @@ export default function MediaTool() {
       setIf(setPressLineup, opt.pressLineup);
       setIf(setPressGenres, opt.pressGenres);
       setIf(setPressDateLine, opt.pressDateLine);
+      return;
+    }
+    if (mode === "news") {
+      setIf(setNewsKicker, opt.newsKicker);
+      setIf(setNewsHeadline, opt.newsHeadline);
+      setIf(setNewsBody, opt.newsBody);
+      if (typeof opt.newsBold === "boolean") setNewsBold(opt.newsBold);
       return;
     }
     if (mode === "features") {
@@ -4977,6 +5161,7 @@ export default function MediaTool() {
       case "scene":     return sceneBgPhoto;
       case "poster":    return posterPhoto;
       case "press":     return pressPhoto;
+      case "news":      return newsPhoto;
       // Stat + List gained optional background photos — return them so the
       // export bleed uses the photo (not a solid bar) when one is set.
       case "stat":      return statPhoto;
@@ -5010,6 +5195,7 @@ export default function MediaTool() {
       case "scene":     return { x: sceneFocalX,   y: sceneFocalY };
       case "press":     return { x: pressFocalX,   y: pressFocalY };
       case "photo":     return { x: captionFocalX, y: captionFocalY };
+      case "news":      return { x: newsFocalX,    y: newsFocalY };
       case "stat":      return { x: statFocalX,    y: statFocalY };
       case "countdown": return { x: countFocalX,   y: countFocalY };
       case "savedates": return { x: savesFocalX,   y: savesFocalY };
@@ -5030,6 +5216,7 @@ export default function MediaTool() {
       scene:     ["sceneFocalX",   "sceneFocalY"],
       press:     ["pressFocalX",   "pressFocalY"],
       photo:     ["captionFocalX", "captionFocalY"],
+      news:      ["newsFocalX",    "newsFocalY"],
       stat:      ["statFocalX",    "statFocalY"],
       countdown: ["countFocalX",   "countFocalY"],
       savedates: ["savesFocalX",   "savesFocalY"],
@@ -5145,7 +5332,7 @@ export default function MediaTool() {
         // 1080×1080 and gets CENTERED into the target frame by wrapForExport,
         // so its top-anchored layout doesn't sit high with dead space below.
         const slideTarget = EXPORT_RATIOS[exportRatio] || EXPORT_RATIOS["1:1"];
-        const RATIO_AWARE_SLIDE_TYPES = new Set(["cover", "spotlight", "photo"]);
+        const RATIO_AWARE_SLIDE_TYPES = new Set(["cover", "spotlight", "photo", "news"]);
         const isRatioAwareSlide = RATIO_AWARE_SLIDE_TYPES.has(s.type);
         renderSlide(cv, s.type, s.snapshot, i+1, carousel.length, i, isRatioAwareSlide ? slideTarget : null);
         const exportCv = isRatioAwareSlide
@@ -6062,6 +6249,31 @@ export default function MediaTool() {
                     {Object.entries(BG_COLORS).map(([k,v])=><button key={k} onClick={()=>setBgKey(k)} style={{width:28,height:28,borderRadius:"5px",cursor:"pointer",background:v.hex,border:bgKey===k?"2px solid #FFF":"2px solid transparent",boxShadow:bgKey===k?"0 0 6px rgba(255,255,255,0.3)":"none"}} title={v.name}/>)}</div></div>}
                 </div>
               </details>
+            </>}
+
+            {mode==="news"&&<>
+              <p style={{fontSize:"0.5rem",color:"rgba(245,240,232,0.4)",lineHeight:1.4,marginBottom:"0.6rem"}}>A cream news block up top holding your supporting paragraphs, photo below. Great for the "here's the story / breaking" middle slides. (Use ✨ AI Fill Template to generate News slides in a carousel.)</p>
+              <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:"0.4rem",marginBottom:"0.6rem",alignItems:"end"}}>
+                <div><label style={L}>Kicker · small eyebrow · optional</label><input value={newsKicker} onChange={e=>setNewsKicker(e.target.value)} style={I} placeholder="e.g. BREAKING · THE BIGGER PICTURE"/></div>
+                <button onClick={()=>setNewsBold(b=>!b)} title="Bold body font — good for breaking-news beats" style={{padding:"7px 12px",borderRadius:4,cursor:"pointer",fontSize:"0.6rem",fontWeight:700,fontFamily:"'Syne',sans-serif",whiteSpace:"nowrap",background:newsBold?"rgba(229,188,79,0.18)":"rgba(245,240,232,0.04)",color:newsBold?"#E5BC4F":"rgba(245,240,232,0.5)",border:newsBold?"1px solid rgba(229,188,79,0.5)":"1px solid rgba(245,240,232,0.08)"}}>B · Bold {newsBold?"ON":"OFF"}</button>
+              </div>
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Heading · optional (leave blank for pure paragraphs)</label><input value={newsHeadline} onChange={e=>setNewsHeadline(e.target.value)} style={I} placeholder="e.g. Why a food fest, and why here"/></div>
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Body · your paragraphs (use blank line between paragraphs)</label><textarea value={newsBody} onChange={e=>setNewsBody(e.target.value)} style={{...I,height:130,resize:"vertical",lineHeight:1.5}}/></div>
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Background Photo</label>
+                <div style={{display:"flex",gap:"0.3rem",alignItems:"center"}}>
+                  <button onClick={()=>newsFileRef.current?.click()} style={{...B,flex:1}}>{newsPhoto?"✓ Photo loaded — change":"Upload Photo"}</button>
+                  <button onClick={()=>openLibrary("news")} style={{...B,padding:"5px 10px"}} title="Pick a photo from the library">📚</button>
+                  {newsPhoto&&<button onClick={()=>setNewsPhoto(null)} style={{...B,color:"rgba(251,113,133,0.5)"}}>×</button>}
+                  <input ref={newsFileRef} type="file" accept="image/*" onChange={handleNewsPhoto} style={{display:"none"}}/>
+                </div>
+              </div>
+              {newsPhoto&&<FocalPointPicker
+                photo={newsPhoto}
+                focalX={newsFocalX}
+                focalY={newsFocalY}
+                onChange={(x, y) => { setNewsFocalX(x); setNewsFocalY(y); }}
+              />}
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Photo caption · optional (one line, shows over the photo)</label><input value={newsCaption} onChange={e=>setNewsCaption(e.target.value)} style={I} placeholder="e.g. Valley Mall · Irvington, NJ"/></div>
             </>}
 
             {mode==="cta"&&<>
