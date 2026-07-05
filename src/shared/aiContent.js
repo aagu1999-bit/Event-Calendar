@@ -352,7 +352,7 @@ export async function generateRankedCovers({ apiKey, topic, voice, slotPrompts, 
 // bespoke slide sequence for the specific story — which slot types, in what order,
 // for the strongest narrative arc (hook → build → payoff → close). The result
 // feeds generateTemplateFill like any other sequence, so it also gets the critic pass.
-const ARRANGEABLE_SLOTS = ["cover", "text", "spotlight", "stat", "features", "countdown", "cta", "photo", "poster", "press"];
+const ARRANGEABLE_SLOTS = ["cover", "text", "news", "spotlight", "stat", "features", "countdown", "cta", "photo", "poster", "press"];
 
 export async function designSequence({ apiKey, topic, context, mode, targetCount = null }) {
   if (!apiKey) throw new Error("Missing Gemini API key");
@@ -380,6 +380,7 @@ export async function designSequence({ apiKey, topic, context, mode, targetCount
     "Available slide types (use ONLY these):",
     "- cover: the opening hook. ALWAYS slide 1.",
     "- text: a short manifesto/thesis — the 'why it matters'.",
+    "- news: a cream news-card block (kicker + short heading + a paragraph or two of supporting copy) over a photo — the 'here's the story / breaking' explainer beat.",
     "- spotlight: ONE venue/feature/angle per slide; use several for a listicle feel.",
     "- stat: one big number + label — an impact/bragging beat.",
     "- features: 3-5 emoji + concrete promises (what's included).",
@@ -554,6 +555,7 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
 function fillSlotShape(t) {
   if (t === "cover")     return '{"type":"cover","headline":"...","subtitle":"...","accentWord":"..."}';
   if (t === "text")      return '{"type":"text","textTitle":"...","textBody":"..."}';
+  if (t === "news")      return '{"type":"news","newsKicker":"<short eyebrow like BREAKING or THE BIGGER PICTURE>","newsHeadline":"<optional short heading, or empty>","newsBody":"<1-2 short paragraphs of supporting copy>","newsBold":false}';
   if (t === "spotlight") return '{"type":"spotlight","spotName":"...","spotMeta":"...","spotTime":"","spotPrice":"","spotCta":""}';
   if (t === "cta")       return '{"type":"cta","ctaKicker":"","ctaDate":"...","ctaVenue":"...","ctaUrl":"..."}';
   if (t === "photo")     return '{"type":"photo","caption":"...","captionSecondary":"..."}';
