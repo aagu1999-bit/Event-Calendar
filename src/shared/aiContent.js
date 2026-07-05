@@ -380,7 +380,7 @@ export async function designSequence({ apiKey, topic, context, mode, targetCount
     "Available slide types (use ONLY these):",
     "- cover: the opening hook. ALWAYS slide 1.",
     "- text: a short manifesto/thesis — the 'why it matters'.",
-    "- news: a cream news-card block (kicker + short heading + a paragraph or two of supporting copy) over a photo — the 'here's the story / breaking' explainer beat.",
+    "- news: a cream news-card block (kicker + short heading + a paragraph or two of supporting copy) over a photo. USE IT for a story/backstory/breaking beat — 'here's what's actually going on', the human context, the reported detail. Prefer it over a plain 'text' slide whenever the moment calls for reported storytelling with a photo, and reach for it especially in Story register or when timely news is in play.",
     "- spotlight: ONE venue/feature/angle per slide; use several for a listicle feel.",
     "- stat: one big number + label — an impact/bragging beat.",
     "- features: 3-5 emoji + concrete promises (what's included).",
@@ -614,7 +614,9 @@ export async function polishCarousel({ apiKey, topic, context, voice, sequence, 
     ] : []),
     ...((mode === "promo")
       ? ["- REGISTER: PROMO — own-event push, more energy, a time pull, a soft invite. No 'don't miss out' clichés."]
-      : ["- REGISTER: EDITORIAL — restrained newsroom confidence. Inform, don't sell."]),
+      : (mode === "story")
+        ? ["- REGISTER: STORY — narrative + human. Keep the arc (setup → tension → turn → payoff), a scene or moment on each beat, emotional truth over hype. Don't flatten it back into dry reporting."]
+        : ["- REGISTER: EDITORIAL — restrained newsroom confidence. Inform, don't sell."]),
     voiceLine,
     "",
     ...(context && context.trim() ? ["Event facts (do NOT invent beyond these):", context.trim(), ""] : []),
@@ -663,6 +665,16 @@ function variationDirective() {
 // give the model a concrete, contrasting spec for voice, POV, energy, and how
 // the closer behaves, so the two registers produce visibly different copy.
 function registerBlock(mode) {
+  if (mode === "story") return [
+    "REGISTER: STORY — tell this like a STORY, not a listing or a pitch.",
+    "- Voice: narrative and human — first- or close-third person ('we', 'here's what happened', 'the room went quiet'). Open on a scene, a moment, or a turn.",
+    "- Arc over facts: set up → tension / stakes → turn → payoff. Each slide is a BEAT in that arc, not a bullet.",
+    "- Emotional truth over both hype and dry reporting — let the reader FEEL the thing before any invite.",
+    "- Concrete and honest: real details, real people, real stakes; the story must be true to the event.",
+    "- Leans into the News slide and Letter mode — 'here's the story behind it'.",
+    "─────────────────────────────",
+    "",
+  ];
   if (mode === "promo") return [
     "REGISTER: PROMO — this is OUR event and we want people to COME.",
     "- Voice: warm, direct, second-person ('you', 'your weekend'). Speak TO the reader.",
@@ -842,6 +854,8 @@ function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, tem
       const ctaIdxAmong = sequence.slice(0, idx).filter(t => t === "cta").length + 1;
       const ctaTotal = sequence.filter(t => t === "cta").length;
       extra = `\n\nThis is CTA ${ctaIdxAmong} of ${ctaTotal}. Each CTA is a DIRECTORY LISTING for ONE event. ctaKicker stays BLANK. ctaDate slot becomes the EVENT NAME (uppercased big-bold headline of the card). ctaVenue slot is "<venue> · <day> · <time>". ctaUrl is that event's URL or page link. Pick a DIFFERENT event from the context for each CTA — don't repeat. If context lists fewer events than CTAs, invent plausible ones grounded in the topic.`;
+    } else if (slotType === "news") {
+      extra = "\n\nNEWS slide — a SUPPORTING explainer beat, not a cover. newsKicker = a 1-3 word eyebrow (BREAKING / THE BACKSTORY / WHY IT MATTERS / THE BIGGER PICTURE). newsHeadline = an optional short heading, or empty for pure paragraphs. newsBody = 1-2 SHORT paragraphs of real supporting context — the story, the human stakes, the reported detail — in plain flowing sentences, NOT a bulleted list and NOT a repeat of the cover. Set newsBold true only for a genuinely urgent breaking beat.";
     } else if (slotType === "features") {
       // The Features slot is the one most prone to filler because each card is
       // tiny — force concrete promises and a single standout card.
