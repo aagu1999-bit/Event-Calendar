@@ -210,7 +210,7 @@ function drawPageNum(ctx, W, H, current, total, accent, isLight = false) {
 // + center focal so callers that don't pass these get the original
 // square render unchanged.
 function renderCover(canvas, cfg) {
-  const { photo, headline, highlights, accent, dots, totalDots, subtitle, opacity, ribbon, categoryTag, coverCtaButton, align = "left", band = false, targetW = 1080, targetH = 1080, focalX = 0.5, focalY = 0.5 } = cfg;
+  const { photo, headline, highlights, accent, dots, totalDots, subtitle, opacity, ribbon, categoryTag, coverCtaButton, align = "left", band = false, titleScale = 1, targetW = 1080, targetH = 1080, focalX = 0.5, focalY = 0.5 } = cfg;
   const W = targetW, H = targetH;
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext("2d");
@@ -273,7 +273,10 @@ function renderCover(canvas, cfg) {
     for(const l of ls){ const lw=l.reduce((a,w)=>a+w.width,0)+Math.max(0,l.length-1)*sw; if(lw>m)m=lw; }
     return m;
   };
-  let fs=120, lines=wrap(120);
+  // Cap scales with the user's Headline size control (120 = default "L"); the
+  // loop still shrinks from the cap so the biggest sizes never overflow.
+  const fsCap = Math.max(60, Math.round(120 * (titleScale > 0 ? titleScale : 1)));
+  let fs=fsCap, lines=wrap(fsCap);
   for(; fs>44; fs-=2){
     const ls=wrap(fs);
     if(widestLineW(ls,fs)<=maxW && ls.length*(fs*1.05)<=H*0.58){ lines=ls; break; }
@@ -735,16 +738,24 @@ function renderTextNewsCard(ctx, W, H, cfg) {
 // how much you write; the photo takes whatever's left.
 function renderNews(canvas, cfg) {
   const { newsKicker, newsHeadline, newsBody, newsBold, newsCaption,
+          newsTheme = "light", newsPhotoPos = "bottom", newsTextScale = 1,
           photo, accent, bgKey, dots, totalDots, pageNum, totalPages,
           targetW = 1080, targetH = 1080, focalX = 0.5, focalY = 0.5 } = cfg;
   const W = targetW, H = targetH; canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext("2d");
 
-  const inkColor = "#16130d";
-  const bodyInk = "#3a352c";
-  const blockBg = "#F5F0E8";
-  const px = 72, maxW = W - px * 2;
+  // Theme: light = cream block + dark ink (default); dark = near-black block +
+  // cream ink. Accent (gold) works on both, so kicker uses accent on dark and
+  // a deepened gold on cream (raw gold is low-contrast on cream).
+  const dark = newsTheme === "dark";
+  const inkColor = dark ? "#f5f0e8" : "#16130d";
+  const bodyInk  = dark ? "rgba(245,240,232,0.84)" : "#3a352c";
+  const blockBg  = dark ? "#111014" : "#F5F0E8";
+  const kickColor = dark ? accent : "#9a6a13";
+  const photoOnTop = newsPhotoPos === "top";
+  const sc = (typeof newsTextScale === "number" && newsTextScale > 0) ? newsTextScale : 1;
 
+  const px = 72, maxW = W - px * 2;
   const hasKicker = !!(newsKicker && newsKicker.trim());
   const hasHead = !!(newsHeadline && newsHeadline.trim());
   const hasBody = !!(newsBody && newsBody.trim());
@@ -766,8 +777,9 @@ function renderNews(canvas, cfg) {
     return out;
   };
 
-  // Heading (Syne 800, up to 3 lines).
-  let headFs = 60, headLines = [];
+  // Heading (Syne 800). Base 60px scaled by the text-size control.
+  const kickFs = Math.round(20 * sc);
+  let headFs = Math.round(60 * sc), headLines = [];
   if (hasHead) {
     const wrapHead = (f) => wrapText(newsHeadline.toUpperCase(), ff(`800 ${f}px 'Syne',sans-serif`), maxW);
     headLines = wrapHead(headFs);
@@ -775,9 +787,9 @@ function renderNews(canvas, cfg) {
   }
   const headLH = () => Math.round(headFs * 1.06);
 
-  // Body (DM Sans, bold when newsBold). Auto-shrink so the block fits the cap.
+  // Body (DM Sans, bold when newsBold). Base 32px scaled; auto-shrinks to fit.
   const bodyWeight = newsBold ? "700" : "400";
-  let bodyFs = 32;
+  let bodyFs = Math.round(32 * sc);
   const bodyLH = (f) => Math.round(f * 1.42);
   const wrapBody = (f) => wrapText(newsBody, ff(`${bodyWeight} ${f}px 'DM Sans',sans-serif`), maxW);
   let bodyLines = hasBody ? wrapBody(bodyFs) : [];
@@ -786,7 +798,7 @@ function renderNews(canvas, cfg) {
   const bodyBlockH = (lines, f) => lines.reduce((a, l) => a + (l === "" ? Math.round(f * 0.55) : bodyLH(f)), 0);
   const measureBlockH = () => {
     let h = padTop;
-    if (hasKicker) h += 24 + gapKick;
+    if (hasKicker) h += kickFs + gapKick;
     if (hasHead) h += headLines.length * headLH() + gapHead;
     if (hasBody) h += bodyBlockH(bodyLines, bodyFs);
     return h + padBot;
@@ -796,37 +808,42 @@ function renderNews(canvas, cfg) {
   while (hasBody && blockH > capH && bodyFs > 19) { bodyFs -= 2; bodyLines = wrapBody(bodyFs); blockH = measureBlockH(); }
   blockH = Math.min(blockH, capH);
 
-  // Photo (or solid bg) fills below the block.
-  const py = blockH, ph = H - blockH;
+  // Regions: the block sits at the top (photo bottom) or the bottom (photo top).
+  const blockY = photoOnTop ? (H - blockH) : 0;
+  const photoY = photoOnTop ? 0 : blockH;
+  const photoH = H - blockH;
+
+  // Photo (or solid bg) fills its region, focal-aware, clipped.
   if (photo) {
-    const s = Math.max(W / photo.width, ph / photo.height);
+    const s = Math.max(W / photo.width, photoH / photo.height);
     const dw = photo.width * s, dh = photo.height * s;
     let dx = (W / 2) - (photo.width * focalX * s);
-    let dy = (py + ph / 2) - (photo.height * focalY * s);
+    let dy = (photoY + photoH / 2) - (photo.height * focalY * s);
     dx = Math.max(W - dw, Math.min(0, dx));
-    dy = Math.max(py + ph - dh, Math.min(py, dy));
-    ctx.save(); ctx.beginPath(); ctx.rect(0, py, W, ph); ctx.clip();
+    dy = Math.max(photoY + photoH - dh, Math.min(photoY, dy));
+    ctx.save(); ctx.beginPath(); ctx.rect(0, photoY, W, photoH); ctx.clip();
     ctx.drawImage(photo, dx, dy, dw, dh);
     ctx.restore();
   } else {
     const bgc = BG_COLORS[bgKey] || BG_COLORS.black;
-    ctx.fillStyle = bgc.hex; ctx.fillRect(0, py, W, ph);
+    ctx.fillStyle = bgc.hex; ctx.fillRect(0, photoY, W, photoH);
   }
 
-  // Cream block + accent seam + masthead tick.
-  ctx.fillStyle = blockBg; ctx.fillRect(0, 0, W, blockH);
-  ctx.fillStyle = accent; ctx.fillRect(0, blockH - 8, W, 8);
-  ctx.fillStyle = accent; ctx.fillRect(px, 52, 64, 7);
+  // Block + accent seam (on the edge touching the photo) + masthead tick.
+  ctx.fillStyle = blockBg; ctx.fillRect(0, blockY, W, blockH);
+  ctx.fillStyle = accent;
+  ctx.fillRect(0, photoOnTop ? blockY : (blockY + blockH - 8), W, 8);
+  ctx.fillStyle = accent; ctx.fillRect(px, blockY + 52, 64, 7);
 
-  // Block content, top-down.
+  // Block content, top-down from the block's top.
   ctx.textAlign = "left"; ctx.textBaseline = "top";
-  let y = padTop;
+  let y = blockY + padTop;
   if (hasKicker) {
-    ctx.font = ff("800 20px 'Syne',sans-serif"); ctx.letterSpacing = "4px";
-    ctx.fillStyle = "#9a6a13"; // darker gold reads on cream
+    ctx.font = ff(`800 ${kickFs}px 'Syne',sans-serif`); ctx.letterSpacing = "4px";
+    ctx.fillStyle = kickColor;
     ctx.fillText(newsKicker.toUpperCase(), px, y);
     ctx.letterSpacing = "0px";
-    y += 24 + gapKick;
+    y += kickFs + gapKick;
   }
   if (hasHead) {
     ctx.fillStyle = inkColor;
@@ -842,22 +859,28 @@ function renderNews(canvas, cfg) {
     });
   }
 
-  // Optional one-line caption over the photo bottom, on a scrim.
+  // Optional one-line caption on the OUTER edge of the photo (the edge away
+  // from the block), on a scrim, so it reads over the image either way.
   if (photo && newsCaption && newsCaption.trim()) {
-    const grd = ctx.createLinearGradient(0, H - 150, 0, H);
+    const capBase = photoY + photoH; // bottom edge of the photo region
+    const grd = ctx.createLinearGradient(0, capBase - 150, 0, capBase);
     grd.addColorStop(0, "transparent"); grd.addColorStop(1, "rgba(0,0,0,0.85)");
-    ctx.fillStyle = grd; ctx.fillRect(0, H - 150, W, 150);
+    ctx.fillStyle = grd; ctx.fillRect(0, capBase - 150, W, 150);
     ctx.font = ff("600 24px 'DM Sans',sans-serif"); ctx.fillStyle = "rgba(255,255,255,0.92)";
     ctx.textAlign = "left"; ctx.textBaseline = "bottom";
     let d = newsCaption.trim();
     while (ctx.measureText(d).width > maxW && d.length) d = d.slice(0, -1);
     if (d !== newsCaption.trim()) d = d.slice(0, -1) + "…";
-    ctx.fillText(d, px, H - 66);
+    ctx.fillText(d, px, capBase - 52);
   }
 
-  drawFooter(ctx, W, H, false);
-  drawDots(ctx, W, dots, totalDots, accent, false);
-  drawPageNum(ctx, W, H, pageNum, totalPages, accent, false);
+  // Footer/dots color follows whatever sits at the BOTTOM of the frame: the
+  // photo (dark → light watermark), a cream block (→ dark watermark), or a dark
+  // block (→ light watermark).
+  const footerLight = photoOnTop && !dark; // block at bottom AND it's the cream theme
+  drawFooter(ctx, W, H, footerLight);
+  drawDots(ctx, W, dots, totalDots, accent, footerLight);
+  drawPageNum(ctx, W, H, pageNum, totalPages, accent, footerLight);
 }
 
 // === CTA RENDERER ===
@@ -3043,6 +3066,7 @@ export default function MediaTool() {
   // block for legibility over busy photos (the @theaifield treatment).
   const [coverAlign, setCoverAlign] = useState("left");
   const [coverBand, setCoverBand] = useState(false);
+  const [coverTitleScale, setCoverTitleScale] = useState(1); // headline font-size multiplier
   const [items, setItems] = useState([
     {name:"R&B Friday at Halftime",detail:"Jersey City · 8 PM",featured:true},
     {name:"Afrobeat Night",detail:"Suite 2, New Brunswick · 9 PM",featured:true},
@@ -3087,6 +3111,9 @@ export default function MediaTool() {
   const [newsBody, setNewsBody] = useState("For a decade this strip mall was the block everyone drove past. The Nutrition Fest is the first thing to fill it in years — and it's not a pop-up. It's a bet that teaching people how food actually fuels them, out in the open, can bring a forgotten corner back to life.");
   const [newsBold, setNewsBold] = useState(false);
   const [newsCaption, setNewsCaption] = useState("");
+  const [newsTheme, setNewsTheme] = useState("light");      // "light" (cream) | "dark"
+  const [newsPhotoPos, setNewsPhotoPos] = useState("bottom"); // "bottom" | "top"
+  const [newsTextScale, setNewsTextScale] = useState(1);      // font-size multiplier
   const [newsPhoto, setNewsPhoto] = useState(null);
   const [newsFocalX, setNewsFocalX] = useState(0.5);
   const [newsFocalY, setNewsFocalY] = useState(0.5);
@@ -3820,11 +3847,11 @@ export default function MediaTool() {
      const RATIO_AWARE_MODES = new Set(["cover", "spotlight", "photo", "news"]);
     const isRatioAware = RATIO_AWARE_MODES.has(mode);
     const targetCfg = isRatioAware ? { targetW: target.w, targetH: target.h, focalX: focal?.x ?? 0.5, focalY: focal?.y ?? 0.5 } : {};
-    if(mode==="cover") renderCover(cv,{photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,categoryTag,coverCtaButton,align:coverAlign,band:coverBand, ...targetCfg});
+    if(mode==="cover") renderCover(cv,{photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,categoryTag,coverCtaButton,align:coverAlign,band:coverBand,titleScale:coverTitleScale, ...targetCfg});
     else if(mode==="list") renderList(cv,{items,accent,bgKey,dots,totalDots,listTitle,listSubtitle,photo:listPhoto,opacity:listOpacity, ...targetCfg});
     else if(mode==="stat") renderStat(cv,{statNumber,statLabel,statSub,photo:statPhoto,opacity:statOpacity,accent,bgKey,dots,totalDots, ...targetCfg});
     else if(mode==="text") renderText(cv,{textTitle,textTitleHighlights:textTitleHL,textBody,style:textStyle,band:textBand,accent,bgKey,dots,totalDots,pageNum,totalPages,photo:textPhoto,textOpacity, ...targetCfg});
-    else if(mode==="news") renderNews(cv,{newsKicker,newsHeadline,newsBody,newsBold,newsCaption,accent,bgKey,dots,totalDots,pageNum,totalPages,photo:newsPhoto, ...targetCfg});
+    else if(mode==="news") renderNews(cv,{newsKicker,newsHeadline,newsBody,newsBold,newsCaption,newsTheme,newsPhotoPos,newsTextScale,accent,bgKey,dots,totalDots,pageNum,totalPages,photo:newsPhoto, ...targetCfg});
     else if(mode==="cta") renderCTA(cv,{ctaKicker,ctaDate,ctaVenue,ctaUrl,photo:textPhoto,accent,bgKey,dots,totalDots,opacity:textOpacity, ...targetCfg});
     else if(mode==="features") renderFeatures(cv,{featuresTitle,features,style:featuresStyle,layout:featuresLayout,accent,bgKey,dots,totalDots,photo:textPhoto,opacity:textOpacity, ...targetCfg});
     else if(mode==="photo") renderPhotoCaption(cv,{photo:captionPhoto,caption,captionSecondary,alignment:captionAlign,accent,bgKey,dots,totalDots, ...targetCfg});
@@ -3891,11 +3918,11 @@ export default function MediaTool() {
       const thumbCv = document.createElement("canvas");
       thumbCv.width = 1080; thumbCv.height = 1080;
       const cfg = { accent, bgKey, dots, totalDots };
-      if (mode === "cover") renderCover(thumbCv, {...cfg, photo, headline, highlights, subtitle, opacity, ribbon, categoryTag, coverCtaButton, align: coverAlign, band: coverBand});
+      if (mode === "cover") renderCover(thumbCv, {...cfg, photo, headline, highlights, subtitle, opacity, ribbon, categoryTag, coverCtaButton, align: coverAlign, band: coverBand, titleScale: coverTitleScale});
       else if (mode === "list") renderList(thumbCv, {...cfg, items, listTitle, listSubtitle, photo: listPhoto, opacity: listOpacity, focalX: listFocalX, focalY: listFocalY});
       else if (mode === "stat") renderStat(thumbCv, {...cfg, statNumber, statLabel, statSub, photo: statPhoto, opacity: statOpacity, focalX: statFocalX, focalY: statFocalY});
       else if (mode === "text") renderText(thumbCv, {...cfg, textTitle, textTitleHighlights: textTitleHL, textBody, style: textStyle, band: textBand, pageNum, totalPages, photo: textPhoto, textOpacity});
-      else if (mode === "news") renderNews(thumbCv, {...cfg, newsKicker, newsHeadline, newsBody, newsBold, newsCaption, pageNum, totalPages, photo: newsPhoto, focalX: newsFocalX, focalY: newsFocalY});
+      else if (mode === "news") renderNews(thumbCv, {...cfg, newsKicker, newsHeadline, newsBody, newsBold, newsCaption, newsTheme, newsPhotoPos, newsTextScale, pageNum, totalPages, photo: newsPhoto, focalX: newsFocalX, focalY: newsFocalY});
       else if (mode === "cta") renderCTA(thumbCv, {...cfg, ctaKicker, ctaDate, ctaVenue, ctaUrl, photo: textPhoto, opacity: textOpacity});
       else if (mode === "features") renderFeatures(thumbCv, {...cfg, featuresTitle, features, style: featuresStyle, layout: featuresLayout, photo: textPhoto, opacity: textOpacity});
       else if (mode === "photo") renderPhotoCaption(thumbCv, {...cfg, photo: captionPhoto, caption, captionSecondary, alignment: captionAlign});
@@ -3989,7 +4016,7 @@ export default function MediaTool() {
     if (type === "cover") renderCover(cv, { ...common, photo: s.photo, headline: s.headline,
       highlights: s.highlights instanceof Set ? s.highlights : new Set(s.highlights || []),
       subtitle: s.subtitle, opacity: s.opacity, ribbon: s.ribbon, categoryTag: s.categoryTag,
-      coverCtaButton: s.coverCtaButton, align: s.coverAlign, band: s.coverBand, ...targetCfg });
+      coverCtaButton: s.coverCtaButton, align: s.coverAlign, band: s.coverBand, titleScale: s.coverTitleScale, ...targetCfg });
     else if (type === "list") renderList(cv, { ...common, items: s.items, bgKey: effBgKey,
       listTitle: s.listTitle, listSubtitle: s.listSubtitle, photo: s.photo, opacity: s.listOpacity, ...targetCfg });
     else if (type === "stat") renderStat(cv, { ...common, statNumber: s.statNumber,
@@ -4000,7 +4027,8 @@ export default function MediaTool() {
       textBody: s.textBody, style: s.textStyle, band: s.textBand, bgKey: effBgKey, pageNum: s.pageNum, totalPages: s.totalPages,
       photo: s.photo, textOpacity: s.textOpacity, ...targetCfg });
     else if (type === "news") renderNews(cv, { ...common, newsKicker: s.newsKicker, newsHeadline: s.newsHeadline,
-      newsBody: s.newsBody, newsBold: s.newsBold, newsCaption: s.newsCaption, bgKey: effBgKey,
+      newsBody: s.newsBody, newsBold: s.newsBold, newsCaption: s.newsCaption,
+      newsTheme: s.newsTheme, newsPhotoPos: s.newsPhotoPos, newsTextScale: s.newsTextScale, bgKey: effBgKey,
       pageNum: s.pageNum, totalPages: s.totalPages, photo: s.photo, ...targetCfg });
     else if (type === "cta") renderCTA(cv, { ...common, ctaKicker: s.ctaKicker, ctaDate: s.ctaDate,
       ctaVenue: s.ctaVenue, ctaUrl: s.ctaUrl, photo: s.photo, bgKey: effBgKey, opacity: s.textOpacity, ...targetCfg });
@@ -4054,11 +4082,11 @@ export default function MediaTool() {
   const makeSnapshot = () => {
     const common = { accent, accentKey, bgKey };
     switch (mode) {
-      case "cover": return { ...common, photo, headline, highlights, subtitle, opacity, ribbon, categoryTag, coverCtaButton, coverAlign, coverBand, coverFocalX, coverFocalY };
+      case "cover": return { ...common, photo, headline, highlights, subtitle, opacity, ribbon, categoryTag, coverCtaButton, coverAlign, coverBand, coverTitleScale, coverFocalX, coverFocalY };
       case "list": return { ...common, items: items.map(x=>({...x})), listTitle, listSubtitle, photo: listPhoto, listOpacity, listFocalX, listFocalY };
       case "stat": return { ...common, statNumber, statLabel, statSub, photo: statPhoto, statOpacity, statFocalX, statFocalY };
       case "text": return { ...common, textTitle, textTitleHL, textBody, photo: textPhoto, textOpacity, textStyle, textBand, pageNum, totalPages };
-      case "news": return { ...common, newsKicker, newsHeadline, newsBody, newsBold, newsCaption, photo: newsPhoto, newsFocalX, newsFocalY, pageNum, totalPages };
+      case "news": return { ...common, newsKicker, newsHeadline, newsBody, newsBold, newsCaption, newsTheme, newsPhotoPos, newsTextScale, photo: newsPhoto, newsFocalX, newsFocalY, pageNum, totalPages };
       case "cta": return { ...common, ctaKicker, ctaDate, ctaVenue, ctaUrl, photo: textPhoto, textOpacity };
       case "features": return { ...common, featuresTitle, features: features.map(f=>({...f})), featuresStyle, featuresLayout, photo: textPhoto, textOpacity };
       case "photo": return { ...common, photo: captionPhoto, caption, captionSecondary, captionAlign, captionFocalX, captionFocalY };
@@ -4090,6 +4118,7 @@ export default function MediaTool() {
         // when absent (older snapshots predate these fields).
         setCoverAlign(snapshot.coverAlign === "center" ? "center" : "left");
         setCoverBand(!!snapshot.coverBand);
+        setCoverTitleScale(typeof snapshot.coverTitleScale === "number" ? snapshot.coverTitleScale : 1);
         // Cover focal point — defaults to center when missing (older snapshots).
         setCoverFocalX(typeof snapshot.coverFocalX === "number" ? snapshot.coverFocalX : 0.5);
         setCoverFocalY(typeof snapshot.coverFocalY === "number" ? snapshot.coverFocalY : 0.5);
@@ -4122,6 +4151,9 @@ export default function MediaTool() {
         setNewsKicker(snapshot.newsKicker || ""); setNewsHeadline(snapshot.newsHeadline || "");
         setNewsBody(snapshot.newsBody || ""); setNewsBold(!!snapshot.newsBold);
         setNewsCaption(snapshot.newsCaption || ""); setNewsPhoto(snapshot.photo || null);
+        setNewsTheme(snapshot.newsTheme === "dark" ? "dark" : "light");
+        setNewsPhotoPos(snapshot.newsPhotoPos === "top" ? "top" : "bottom");
+        setNewsTextScale(typeof snapshot.newsTextScale === "number" ? snapshot.newsTextScale : 1);
         setNewsFocalX(typeof snapshot.newsFocalX === "number" ? snapshot.newsFocalX : 0.5);
         setNewsFocalY(typeof snapshot.newsFocalY === "number" ? snapshot.newsFocalY : 0.5);
         setPageNum(snapshot.pageNum); setTotalPages(snapshot.totalPages);
@@ -4662,6 +4694,7 @@ export default function MediaTool() {
         newsBody: String(slot.newsBody || "").trim(),
         newsBold: !!slot.newsBold,
         newsCaption: "",
+        newsTheme: "light", newsPhotoPos: "bottom", newsTextScale: 1,
         newsFocalX: 0.5, newsFocalY: 0.5,
       }};
     }
@@ -6052,6 +6085,14 @@ export default function MediaTool() {
                   <input type="checkbox" checked={coverBand} onChange={e=>setCoverBand(e.target.checked)} style={{accentColor:accent,cursor:"pointer"}}/>
                   Solid text band
                 </label>
+                <div>
+                  <label style={L}>Headline size</label>
+                  <div style={{display:"flex",gap:"3px"}}>
+                    {[["S",0.72],["M",0.86],["L",1.0],["XL",1.15]].map(([lbl,v])=>(
+                      <button key={lbl} onClick={()=>setCoverTitleScale(v)} title={`${lbl} headline`} style={{padding:"5px 11px",borderRadius:"5px",cursor:"pointer",fontSize:"0.65rem",fontWeight:700,fontFamily:"'Syne'",textTransform:"uppercase",background:Math.abs(coverTitleScale-v)<0.01?`${accent}22`:"rgba(245,240,232,0.04)",color:Math.abs(coverTitleScale-v)<0.01?accent:"rgba(245,240,232,0.4)",border:Math.abs(coverTitleScale-v)<0.01?`2px solid ${accent}55`:"2px solid transparent"}}>{lbl}</button>
+                    ))}
+                  </div>
+                </div>
               </div>
 
               {/* === ADVANCED FIELDS (collapsed by default) ===
@@ -6257,6 +6298,18 @@ export default function MediaTool() {
                 <div><label style={L}>Kicker · small eyebrow · optional</label><input value={newsKicker} onChange={e=>setNewsKicker(e.target.value)} style={I} placeholder="e.g. BREAKING · THE BIGGER PICTURE"/></div>
                 <button onClick={()=>setNewsBold(b=>!b)} title="Bold body font — good for breaking-news beats" style={{padding:"7px 12px",borderRadius:4,cursor:"pointer",fontSize:"0.6rem",fontWeight:700,fontFamily:"'Syne',sans-serif",whiteSpace:"nowrap",background:newsBold?"rgba(229,188,79,0.18)":"rgba(245,240,232,0.04)",color:newsBold?"#E5BC4F":"rgba(245,240,232,0.5)",border:newsBold?"1px solid rgba(229,188,79,0.5)":"1px solid rgba(245,240,232,0.08)"}}>B · Bold {newsBold?"ON":"OFF"}</button>
               </div>
+              {/* Layout: theme (cream/dark block), photo position, text size. */}
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0.4rem",marginBottom:"0.6rem"}}>
+                <div><label style={L}>Theme</label><div style={{display:"flex",gap:"3px"}}>
+                  {[["light","Cream"],["dark","Dark"]].map(([k,lbl])=>(<button key={k} onClick={()=>setNewsTheme(k)} style={{flex:1,padding:"5px 4px",borderRadius:4,cursor:"pointer",fontSize:"0.55rem",fontWeight:700,fontFamily:"'Syne',sans-serif",background:newsTheme===k?"rgba(229,188,79,0.18)":"rgba(245,240,232,0.04)",color:newsTheme===k?"#E5BC4F":"rgba(245,240,232,0.5)",border:newsTheme===k?"1px solid rgba(229,188,79,0.5)":"1px solid transparent"}}>{lbl}</button>))}
+                </div></div>
+                <div><label style={L}>Photo position</label><div style={{display:"flex",gap:"3px"}}>
+                  {[["bottom","Bottom"],["top","Top"]].map(([k,lbl])=>(<button key={k} onClick={()=>setNewsPhotoPos(k)} style={{flex:1,padding:"5px 4px",borderRadius:4,cursor:"pointer",fontSize:"0.55rem",fontWeight:700,fontFamily:"'Syne',sans-serif",background:newsPhotoPos===k?"rgba(229,188,79,0.18)":"rgba(245,240,232,0.04)",color:newsPhotoPos===k?"#E5BC4F":"rgba(245,240,232,0.5)",border:newsPhotoPos===k?"1px solid rgba(229,188,79,0.5)":"1px solid transparent"}}>{lbl}</button>))}
+                </div></div>
+              </div>
+              <div style={{marginBottom:"0.6rem"}}><label style={L}>Text size</label><div style={{display:"flex",gap:"3px"}}>
+                {[["S",0.8],["M",1.0],["L",1.2],["XL",1.4]].map(([lbl,v])=>(<button key={lbl} onClick={()=>setNewsTextScale(v)} title={`${lbl} text`} style={{flex:1,padding:"5px 4px",borderRadius:4,cursor:"pointer",fontSize:"0.6rem",fontWeight:700,fontFamily:"'Syne',sans-serif",background:Math.abs(newsTextScale-v)<0.01?"rgba(229,188,79,0.18)":"rgba(245,240,232,0.04)",color:Math.abs(newsTextScale-v)<0.01?"#E5BC4F":"rgba(245,240,232,0.5)",border:Math.abs(newsTextScale-v)<0.01?"1px solid rgba(229,188,79,0.5)":"1px solid transparent"}}>{lbl}</button>))}
+              </div></div>
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Heading · optional (leave blank for pure paragraphs)</label><input value={newsHeadline} onChange={e=>setNewsHeadline(e.target.value)} style={I} placeholder="e.g. Why a food fest, and why here"/></div>
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Body · your paragraphs (use blank line between paragraphs)</label><textarea value={newsBody} onChange={e=>setNewsBody(e.target.value)} style={{...I,height:130,resize:"vertical",lineHeight:1.5}}/></div>
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Background Photo</label>
