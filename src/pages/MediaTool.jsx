@@ -205,7 +205,10 @@ function drawFooter(ctx, W, H, isLight = false) {
 }
 
 function drawPageNum(ctx, W, H, current, total, accent, isLight = false) {
-  if (total <= 1) return;
+  // Guard undefined/NaN — AI-arranged slides may not carry a page number, and
+  // `undefined <= 1` is false, which used to render a literal "undefined/undefined"
+  // over the footer URL. Require real numbers and more than one page.
+  if (!Number.isFinite(total) || !Number.isFinite(current) || total <= 1) return;
   ctx.font=ff("600 16px 'DM Sans',sans-serif"); ctx.fillStyle = isLight ? "rgba(0,0,0,0.30)" : "rgba(255,255,255,0.20)";
   ctx.textBaseline = "bottom"; ctx.textAlign = "right";
   ctx.fillText(`${current}/${total}`, W-60, H-14); ctx.textAlign = "left";
