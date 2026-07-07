@@ -468,7 +468,7 @@ export async function generateRankedCovers({ apiKey, topic, voice, slotPrompts, 
 // feeds generateTemplateFill like any other sequence, so it also gets the critic pass.
 const ARRANGEABLE_SLOTS = ["cover", "text", "news", "spotlight", "stat", "features", "countdown", "cta", "photo", "poster", "press"];
 
-export async function designSequence({ apiKey, topic, context, mode, targetCount = null }) {
+export async function designSequence({ apiKey, topic, context, mode, targetCount = null, letterMode = false }) {
   if (!apiKey) throw new Error("Missing Gemini API key");
   if ((!topic || !topic.trim()) && (!context || !context.trim())) throw new Error("Add a topic or event details first");
 
@@ -481,42 +481,64 @@ export async function designSequence({ apiKey, topic, context, mode, targetCount
     ? `- EXACTLY ${wantCount} slides total (the user asked for this many — hit it: expand the story with more spotlights/beats/stats if you're short, trim the weakest if you're over).`
     : "- 4 to 10 slides total — as many as the story genuinely needs to breathe, and no more. A rich, multi-angle story SHOULD run long; a single beat stays short.";
 
+  const registerLine =
+    mode === "promo"
+      ? "Register: PROMO — this is CGE's OWN event. More energy, a confident push, real FOMO. Still curated, never a cheap flyer."
+      : mode === "story"
+        ? "Register: STORY — narrative and human. Lead with people, scenes and stakes; let the facts ride inside the story, not a list."
+        : "Register: EDITORIAL — restrained newsroom voice. Report it, frame it, don't sell it.";
+
   const prompt = [
-    "You are an Instagram art director for CGE, an NJ news-media outlet. Design the",
-    "best SLIDE SEQUENCE to tell THIS story as a carousel — which slide types, in what",
-    "order, for maximum narrative pull (hook → build → payoff → close). Do NOT use a",
-    "fixed template; design for this specific content.",
+    "You are the art director AND the editor for CGE, a New Jersey Black-culture news-media page.",
+    "Design the SLIDE SEQUENCE that tells THIS story best as an Instagram carousel.",
+    "",
+    "THINK LIKE A DIRECTOR, NOT A TEMPLATE-STITCHER. Before you pick any slide type, decide the",
+    "READER'S EMOTIONAL JOURNEY:",
+    "  1. What should they FEEL in the first 1.5s of the cover? (curiosity / disbelief / pride /",
+    "     FOMO / recognition / 'wait, what?')",
+    "  2. What unresolved tension yanks them to slide 2 — and how do you DEEPEN it before you",
+    "     start paying it off?",
+    "  3. How does that feeling ESCALATE through the middle (rising specifics, stakes, or surprise)?",
+    "  4. What emotional PAYOFF does the last slide deliver so reaching the end feels earned?",
+    "The slide types are just instruments; the arc of FEELING is the composition. Choose each slide",
+    "for the beat it creates in that arc, and order them so momentum builds toward the end.",
     "",
     ...((topic && topic.trim()) ? [`Topic: ${topic.trim()}`] : []),
     ...(context && context.trim() ? ["", "Event facts:", context.trim()] : []),
-    (mode === "promo") ? "\nRegister: PROMO (own-event push, more energy)." : "\nRegister: EDITORIAL (restrained newsroom voice).",
     "",
-    "Available slide types (use ONLY these):",
-    "- cover: the opening hook. ALWAYS slide 1.",
-    "- text: a short manifesto/thesis — the 'why it matters'.",
-    "- news: a cream news-card block (kicker + short heading + a paragraph or two of supporting copy) over a photo. USE IT for a story/backstory/breaking beat — 'here's what's actually going on', the human context, the reported detail. Prefer it over a plain 'text' slide whenever the moment calls for reported storytelling with a photo, and reach for it especially in Story register or when timely news is in play.",
-    "- spotlight: ONE venue/feature/angle per slide; use several for a listicle feel.",
-    "- stat: one big number + label — an impact/bragging beat.",
-    "- features: 3-5 emoji + concrete promises (what's included).",
-    "- countdown: urgency dial toward a date (T-minus).",
-    "- cta: the closing invite, or a directory listing (one per event in a roundup).",
-    "- photo: a recap photo caption — POST-EVENT recaps only.",
-    "- poster / press: magazine-flyer format — music/nightlife/visually-loud events.",
+    registerLine,
+    ...(letterMode ? [
+      "LETTER MODE is ON — favor a short, flowing, human arc: mostly cover + text + news beats and a",
+      "soft closing cta. AVOID rigid multi-cta directories, features grids, and stat/countdown blocks —",
+      "they shatter the one-continuous-letter voice. 4-6 slides is usually right.",
+    ] : []),
+    "",
+    "Available slide types (use ONLY these) — pick each for the FEELING it creates:",
+    "- cover: the hook. ALWAYS slide 1. Its job is to stop the scroll and open a loop.",
+    "- text: a short manifesto/thesis — the 'why this matters', the emotional stakes.",
+    "- news: a cream news-card + photo — reported backstory, human context, or a breaking detail.",
+    "  Reach for it in Story register, or whenever there's real reporting to deliver with an image.",
+    "- spotlight: ONE venue/feature/angle per slide; several in a row build a listicle rhythm.",
+    "- stat: one big number + label — a beat of impact or proof.",
+    "- features: 3-5 concrete promises — what's actually included (best for a single event with draws).",
+    "- countdown: urgency toward a date (T-minus).",
+    "- cta: the close — the invite, or a directory listing (one per event in a roundup).",
+    "- photo: a recap caption — POST-EVENT recaps only.",
+    "- poster / press: magazine-flyer look — music/nightlife/visually-loud events.",
     "",
     "Rules:",
     countRule,
     "- Slide 1 is ALWAYS 'cover'. End on a 'cta'.",
-    "- Match the mix to the STORY: a single event with many selling points → a few",
-    "  spotlights or a features slide; a multi-event roundup → several ctas; a single",
-    "  strong beat → keep it short. A PRE-event promo should NOT use 'photo'.",
-    "- Don't pad. Every slide must earn its place.",
-    "- RETENTION — build for the swipe-through: if the cover is an open-loop hook,",
-    "  make SLIDE 2 the payoff/reveal that starts answering it (not a generic thesis).",
-    "  Each slide should tease the next; escalate concrete specifics through the middle;",
-    "  end on a slide that REWARDS reaching the end (payoff + invite), not a limp CTA.",
+    "- Match the mix to the STORY AND THE FEELING, never a formula: a single event with many draws →",
+    "  a few spotlights or a features slide; a multi-event roundup → several ctas; one strong human",
+    "  beat → keep it short with text/news. A PRE-event promo must NOT use 'photo'.",
+    "- Every slide must earn its place and MOVE THE FEELING FORWARD — no flat, equal-weight lists, no padding.",
+    "- RETENTION: if the cover opens a loop, slide 2 DEEPENS it (rule out the obvious), it does NOT",
+    "  resolve it. Escalate concrete specifics through the middle; save the single biggest payoff for",
+    "  the last content slide; end on a cta that rewards reaching the end.",
     "",
     "Return JSON ONLY (no fences, no prose):",
-    `{"sequence":["cover","...","cta"],"rationale":"<1 sentence: why this arc fits this story>"}`,
+    `{"sequence":["cover","...","cta"],"rationale":"<1-2 sentences naming the emotional arc you built (what the reader feels cover → middle → end) and why this exact sequence delivers it>"}`,
   ].join("\n");
 
   const data = await geminiGenerate(apiKey, {
@@ -545,7 +567,7 @@ export async function designSequence({ apiKey, topic, context, mode, targetCount
 
 // Full "AI arranges the carousel" flow: design the sequence, then fill + polish it.
 export async function generateArrangedCarousel({ apiKey, topic, context, voice, slotPrompts, mode, targetCount = null, letterMode = false }) {
-  const design = await designSequence({ apiKey, topic, context, mode, targetCount });
+  const design = await designSequence({ apiKey, topic, context, mode, targetCount, letterMode });
   const slides = await generateTemplateFill({
     apiKey, sequence: design.sequence, topic, context, voice, slotPrompts,
     templateMeta: { name: "AI-arranged carousel", keyMove: design.rationale }, mode, letterMode,
@@ -956,7 +978,12 @@ function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, tem
       return `SLIDE ${idx + 1} (${slotType.toUpperCase()}) — no rule defined; produce reasonable defaults matching brand voice.\n${refPrefix}`;
     }
     let extra = "";
-    if (slotType === "spotlight" && spotlightCount > 1) {
+    if (letterMode) {
+      // In letter mode the directory / features-grid / spotlight-burst
+      // instructions fight the one-continuous-letter voice, so they visibly
+      // "don't work". Replace them with a paragraph-of-the-letter instruction.
+      extra = "\n\nLETTER MODE: write this slot as the NEXT PARAGRAPH of one continuous letter — carry the thought from the slide before and hand off to the next. Keep this slot's JSON fields, but the copy is a beat of the letter, NOT a standalone card, directory listing, or feature grid.";
+    } else if (slotType === "spotlight" && spotlightCount > 1) {
       // For multi-Spotlight templates (Feature Drop), tell Gemini to break
       // the context into N distinct angles and have each Spotlight cover
       // ONE angle. This is the Spotlight Burst behavior — automatic.
