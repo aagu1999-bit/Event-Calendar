@@ -9,6 +9,7 @@ import { PhotoLibraryModal } from "../shared/PhotoLibraryModal.jsx";
 import { EventToolsPanel } from "../shared/EventToolsPanel.jsx";
 import { AiSlideGeneratorModal } from "../shared/AiSlideGeneratorModal.jsx";
 import { AiTemplateFillModal } from "../shared/AiTemplateFillModal.jsx";
+import { NewsScoutModal } from "../shared/NewsScoutModal.jsx";
 
 const COLORS = {
   yellow:{name:"Yellow",hex:"#FACC15"},purple:{name:"Purple",hex:"#C084FC"},
@@ -3345,6 +3346,7 @@ export default function MediaTool() {
   // AI Template Fill modal — whole-carousel generation. Open = true
   // shows the modal; the picker inside lets the user choose template.
   const [aiFillOpen, setAiFillOpen] = useState(false);
+  const [newsScoutOpen, setNewsScoutOpen] = useState(false);
 
   // Global render flags — synced into module-level vars via useEffect.
   const [watermark, setWatermark] = useState(true);
@@ -3926,16 +3928,19 @@ export default function MediaTool() {
     // 1080×1080 and get wrapForExport-composited.
     const target = EXPORT_RATIOS[exportRatio] || EXPORT_RATIOS["1:1"];
     const focal = getModeFocal();
-    // Only the photo-hero, BOTTOM-anchored slots render directly at the
-     // target aspect: their headline/caption sits over a full-bleed photo at
-     // the frame bottom, so a taller frame just means more photo above — they
-     // fill it correctly. Every OTHER slot lays its content out top-anchored
-     // for a 1080-tall square; at 4:5 / 9:16 that content clustered at the top
-     // with dead space at the bottom ("made for 1:1, extra room below"). Those
-     // now render at 1080×1080 and get CENTERED into the target frame by
-     // wrapForExport (photo/bg extended into the margins), so the tuned 1:1
-     // layout lands where it's supposed to — vertically centered.
-     const RATIO_AWARE_MODES = new Set(["cover", "spotlight", "photo", "news"]);
+    // The photo-hero, full-bleed slots render DIRECTLY at the target aspect:
+     // their elements are anchored to the frame (title near top / centered,
+     // lists + date bar + accent edge measured from H), so a taller frame just
+     // means the photo bleeds and the anchored elements spread to fill it — no
+     // dead space, no squish. Poster + Press belong here too: both already
+     // take targetW/targetH/focal and lay out across the whole frame, but were
+     // previously (wrongly) routed through wrapForExport, which shrank the
+     // 1080² render into a centered square with photo bled around it — the
+     // "compacted as if it's still 1:1 with a 4:5 background" bug. Every OTHER
+     // slot lays its content out top-anchored for a 1080-tall square; those
+     // still render at 1080×1080 and get CENTERED into the target frame by
+     // wrapForExport (photo/bg extended into the margins).
+     const RATIO_AWARE_MODES = new Set(["cover", "spotlight", "photo", "news", "poster", "press"]);
     const isRatioAware = RATIO_AWARE_MODES.has(mode);
     const targetCfg = isRatioAware ? { targetW: target.w, targetH: target.h, focalX: focal?.x ?? 0.5, focalY: focal?.y ?? 0.5 } : {};
     if(mode==="cover") renderCover(cv,{photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,categoryTag,coverCtaButton,align:coverAlign,band:coverBand,titleScale:coverTitleScale,insetPhoto:coverInsetPhoto,insetPos:coverInsetPos,insetScale:coverInsetScale, ...targetCfg});
@@ -4128,12 +4133,12 @@ export default function MediaTool() {
       : s.bgKey;
     const common = { accent: s.accent, dots: dotsNum, totalDots: dotsTot };
     // exportTarget = { w, h } when the caller wants this slide rendered
-    // at non-1:1 dimensions (ZIP export at 4:5 / 9:16 / 3:4). Only the
-    // bottom-anchored photo-hero modes (cover/spotlight/photo) paint the
+    // at non-1:1 dimensions (ZIP export at 4:5 / 9:16 / 3:4). The full-bleed
+    // photo-hero modes (cover/spotlight/photo/news/poster/press) paint the
     // whole design at the target aspect; every other mode renders at
     // 1080×1080 and gets centered into the target frame by wrapForExport, so
     // its top-anchored layout doesn't clump at the top with dead space below.
-    const RATIO_AWARE_ZIP_MODES = new Set(["cover", "spotlight", "photo", "news"]);
+    const RATIO_AWARE_ZIP_MODES = new Set(["cover", "spotlight", "photo", "news", "poster", "press"]);
     const FOCAL_KEY_MAP = {
       cover:     ["coverFocalX",   "coverFocalY"],
       list:      ["listFocalX",    "listFocalY"],
@@ -5526,7 +5531,7 @@ export default function MediaTool() {
         // 1080×1080 and gets CENTERED into the target frame by wrapForExport,
         // so its top-anchored layout doesn't sit high with dead space below.
         const slideTarget = EXPORT_RATIOS[exportRatio] || EXPORT_RATIOS["1:1"];
-        const RATIO_AWARE_SLIDE_TYPES = new Set(["cover", "spotlight", "photo", "news"]);
+        const RATIO_AWARE_SLIDE_TYPES = new Set(["cover", "spotlight", "photo", "news", "poster", "press"]);
         const isRatioAwareSlide = RATIO_AWARE_SLIDE_TYPES.has(s.type);
         renderSlide(cv, s.type, s.snapshot, i+1, carousel.length, i, isRatioAwareSlide ? slideTarget : null);
         const exportCv = isRatioAwareSlide
@@ -6036,6 +6041,27 @@ export default function MediaTool() {
                 whiteSpace: "nowrap",
               }}
             >✨ AI Fill Template</button>
+            {/* 🗞️ News Scout — hunts the web for timely, event-based Black
+                culture/community happenings in NJ that fit the CGE beat and
+                ranks them; "Use in News slot" drops one into the News template. */}
+            <button
+              onClick={() => setNewsScoutOpen(true)}
+              title="Scan the web for timely NJ Black-culture/community events that fit CGE's beat — ranked story ideas you can drop into the News slot"
+              style={{
+                padding: "6px 10px",
+                background: "transparent",
+                color: "#63B3ED",
+                border: "1px dashed rgba(99,179,237,0.5)",
+                borderRadius: 4,
+                fontSize: "0.6rem",
+                fontWeight: 700,
+                letterSpacing: "1px",
+                textTransform: "uppercase",
+                cursor: "pointer",
+                fontFamily: "'Syne',sans-serif",
+                whiteSpace: "nowrap",
+              }}
+            >🗞️ News Scout</button>
             {carousel.length >= 2 && (
               <button
                 onClick={saveCarouselAsTemplate}
@@ -7301,6 +7327,21 @@ export default function MediaTool() {
         apiKey={geminiKey}
         onClose={() => setAiFillOpen(false)}
         onAccept={onAiTemplateAccept}
+      />
+      <NewsScoutModal
+        open={newsScoutOpen}
+        apiKey={geminiKey}
+        onClose={() => setNewsScoutOpen(false)}
+        onUse={(c) => {
+          // Drop the picked story into the News slot and switch to it, ready
+          // to edit. Headline → heading, kicker → eyebrow, body → paragraphs,
+          // when/where → the photo caption line.
+          setMode("news");
+          if (c.kicker) setNewsKicker(c.kicker);
+          setNewsHeadline(c.headline || "");
+          if (c.body) setNewsBody(c.body);
+          setNewsCaption(c.whenWhere || "");
+        }}
       />
     </div>
   );
