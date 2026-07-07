@@ -210,7 +210,7 @@ function drawPageNum(ctx, W, H, current, total, accent, isLight = false) {
 // + center focal so callers that don't pass these get the original
 // square render unchanged.
 function renderCover(canvas, cfg) {
-  const { photo, headline, highlights, accent, dots, totalDots, subtitle, opacity, ribbon, categoryTag, coverCtaButton, align = "left", band = false, titleScale = 1, targetW = 1080, targetH = 1080, focalX = 0.5, focalY = 0.5 } = cfg;
+  const { photo, headline, highlights, accent, dots, totalDots, subtitle, opacity, ribbon, categoryTag, coverCtaButton, align = "left", band = false, titleScale = 1, insetPhoto = null, insetPos = "left", insetScale = 1, targetW = 1080, targetH = 1080, focalX = 0.5, focalY = 0.5 } = cfg;
   const W = targetW, H = targetH;
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext("2d");
@@ -229,6 +229,27 @@ function renderCover(canvas, cfg) {
   const grd=ctx.createLinearGradient(0,H*0.25,0,H); grd.addColorStop(0,"transparent"); grd.addColorStop(0.3,`rgba(0,0,0,${opacity*0.6})`); grd.addColorStop(0.55,`rgba(0,0,0,${opacity*0.88})`); grd.addColorStop(1,`rgba(0,0,0,${opacity})`); ctx.fillStyle=grd; ctx.fillRect(0,0,W,H);
   drawTexture(ctx,W,H,"#FFF",0.04);
   drawLogo(ctx,accent,W); drawDots(ctx,W,dots,totalDots,accent);
+
+  // Optional CIRCLE INSET — a second photo in a white-ringed circle floating in
+  // the upper area (the news-cutout look). Center-cropped. Sits above the
+  // photo/gradient but below the bottom headline so they don't collide.
+  if (insetPhoto && insetPhoto.width > 0) {
+    const r = Math.round(W * 0.185 * (insetScale > 0 ? insetScale : 1));
+    const cx = insetPos === "right" ? (W - 96 - r) : (96 + r);
+    const cy = Math.round(H * 0.29);
+    const ring = Math.max(8, Math.round(r * 0.045));
+    ctx.save();
+    // soft shadow so the circle lifts off the photo
+    ctx.shadowColor = "rgba(0,0,0,0.45)"; ctx.shadowBlur = 26; ctx.shadowOffsetY = 8;
+    ctx.beginPath(); ctx.arc(cx, cy, r + ring, 0, Math.PI * 2); ctx.fillStyle = "#FFF"; ctx.fill();
+    ctx.restore();
+    ctx.save();
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.clip();
+    const s = Math.max((2 * r) / insetPhoto.width, (2 * r) / insetPhoto.height);
+    const dw = insetPhoto.width * s, dh = insetPhoto.height * s;
+    ctx.drawImage(insetPhoto, cx - dw / 2, cy - dh / 2, dw, dh);
+    ctx.restore();
+  }
 
   // CATEGORY TAG — editorial section label, magazine-style. Sits in the
   // top-center area just under the logo bar. Letterspaced small-caps,
@@ -3066,7 +3087,11 @@ export default function MediaTool() {
   // block for legibility over busy photos (the @theaifield treatment).
   const [coverAlign, setCoverAlign] = useState("left");
   const [coverBand, setCoverBand] = useState(false);
-  const [coverTitleScale, setCoverTitleScale] = useState(1); // headline font-size multiplier
+  const [coverTitleScale, setCoverTitleScale] = useState(1.15); // headline font-size multiplier (M)
+  // Optional circle inset — a second photo in a white ring floating on the cover.
+  const [coverInsetPhoto, setCoverInsetPhoto] = useState(null);
+  const [coverInsetPos, setCoverInsetPos] = useState("left"); // "left" | "right"
+  const [coverInsetScale, setCoverInsetScale] = useState(1);
   const [items, setItems] = useState([
     {name:"R&B Friday at Halftime",detail:"Jersey City · 8 PM",featured:true},
     {name:"Afrobeat Night",detail:"Suite 2, New Brunswick · 9 PM",featured:true},
@@ -3113,7 +3138,7 @@ export default function MediaTool() {
   const [newsCaption, setNewsCaption] = useState("");
   const [newsTheme, setNewsTheme] = useState("light");      // "light" (cream) | "dark"
   const [newsPhotoPos, setNewsPhotoPos] = useState("bottom"); // "bottom" | "top"
-  const [newsTextScale, setNewsTextScale] = useState(1);      // font-size multiplier
+  const [newsTextScale, setNewsTextScale] = useState(1.4);    // font-size multiplier (M)
   const [newsPhoto, setNewsPhoto] = useState(null);
   const [newsFocalX, setNewsFocalX] = useState(0.5);
   const [newsFocalY, setNewsFocalY] = useState(0.5);
@@ -3557,6 +3582,7 @@ export default function MediaTool() {
   const statFileRef = useRef(null);
   const listFileRef = useRef(null);
   const newsFileRef = useRef(null);
+  const coverInsetFileRef = useRef(null);
   // One file input ref per Vibe Board slot (5 max).
   // Pre-allocate file-input refs for up to 6 Vibe Board cells. Rules of
   // Hooks forbid creating refs in a loop on each render, so we declare
@@ -3683,6 +3709,7 @@ export default function MediaTool() {
   const handleNewsPhoto = makeUploadHandler((img) => {
     setNewsPhoto(img); setNewsFocalX(0.5); setNewsFocalY(0.5);
   }, "news");
+  const handleCoverInsetPhoto = makeUploadHandler((img) => setCoverInsetPhoto(img), "cover-inset");
   // Wrap each photo-having upload so a new picture resets its focal
   // point to center — the previous photo's focal is meaningless on the
   // new image, and the user shouldn't have to manually re-center.
@@ -3805,7 +3832,8 @@ export default function MediaTool() {
       editSlideWithPhoto(slideId, img);
       return;
     }
-    if (pickTarget === "cover")          setPhoto(img);
+    if (pickTarget === "cover-inset")    setCoverInsetPhoto(img);
+    else if (pickTarget === "cover")     setPhoto(img);
     else if (pickTarget === "photo")     { setCaptionPhoto(img); setCaptionFocalX(0.5); setCaptionFocalY(0.5); }
     else if (pickTarget === "stat")      { setStatPhoto(img); setStatFocalX(0.5); setStatFocalY(0.5); }
     else if (pickTarget === "list")      { setListPhoto(img); setListFocalX(0.5); setListFocalY(0.5); }
@@ -3847,7 +3875,7 @@ export default function MediaTool() {
      const RATIO_AWARE_MODES = new Set(["cover", "spotlight", "photo", "news"]);
     const isRatioAware = RATIO_AWARE_MODES.has(mode);
     const targetCfg = isRatioAware ? { targetW: target.w, targetH: target.h, focalX: focal?.x ?? 0.5, focalY: focal?.y ?? 0.5 } : {};
-    if(mode==="cover") renderCover(cv,{photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,categoryTag,coverCtaButton,align:coverAlign,band:coverBand,titleScale:coverTitleScale, ...targetCfg});
+    if(mode==="cover") renderCover(cv,{photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,categoryTag,coverCtaButton,align:coverAlign,band:coverBand,titleScale:coverTitleScale,insetPhoto:coverInsetPhoto,insetPos:coverInsetPos,insetScale:coverInsetScale, ...targetCfg});
     else if(mode==="list") renderList(cv,{items,accent,bgKey,dots,totalDots,listTitle,listSubtitle,photo:listPhoto,opacity:listOpacity, ...targetCfg});
     else if(mode==="stat") renderStat(cv,{statNumber,statLabel,statSub,photo:statPhoto,opacity:statOpacity,accent,bgKey,dots,totalDots, ...targetCfg});
     else if(mode==="text") renderText(cv,{textTitle,textTitleHighlights:textTitleHL,textBody,style:textStyle,band:textBand,accent,bgKey,dots,totalDots,pageNum,totalPages,photo:textPhoto,textOpacity, ...targetCfg});
@@ -3918,7 +3946,7 @@ export default function MediaTool() {
       const thumbCv = document.createElement("canvas");
       thumbCv.width = 1080; thumbCv.height = 1080;
       const cfg = { accent, bgKey, dots, totalDots };
-      if (mode === "cover") renderCover(thumbCv, {...cfg, photo, headline, highlights, subtitle, opacity, ribbon, categoryTag, coverCtaButton, align: coverAlign, band: coverBand, titleScale: coverTitleScale});
+      if (mode === "cover") renderCover(thumbCv, {...cfg, photo, headline, highlights, subtitle, opacity, ribbon, categoryTag, coverCtaButton, align: coverAlign, band: coverBand, titleScale: coverTitleScale, insetPhoto: coverInsetPhoto, insetPos: coverInsetPos, insetScale: coverInsetScale});
       else if (mode === "list") renderList(thumbCv, {...cfg, items, listTitle, listSubtitle, photo: listPhoto, opacity: listOpacity, focalX: listFocalX, focalY: listFocalY});
       else if (mode === "stat") renderStat(thumbCv, {...cfg, statNumber, statLabel, statSub, photo: statPhoto, opacity: statOpacity, focalX: statFocalX, focalY: statFocalY});
       else if (mode === "text") renderText(thumbCv, {...cfg, textTitle, textTitleHighlights: textTitleHL, textBody, style: textStyle, band: textBand, pageNum, totalPages, photo: textPhoto, textOpacity});
@@ -4016,7 +4044,8 @@ export default function MediaTool() {
     if (type === "cover") renderCover(cv, { ...common, photo: s.photo, headline: s.headline,
       highlights: s.highlights instanceof Set ? s.highlights : new Set(s.highlights || []),
       subtitle: s.subtitle, opacity: s.opacity, ribbon: s.ribbon, categoryTag: s.categoryTag,
-      coverCtaButton: s.coverCtaButton, align: s.coverAlign, band: s.coverBand, titleScale: s.coverTitleScale, ...targetCfg });
+      coverCtaButton: s.coverCtaButton, align: s.coverAlign, band: s.coverBand, titleScale: s.coverTitleScale,
+      insetPhoto: s.coverInsetPhoto, insetPos: s.coverInsetPos, insetScale: s.coverInsetScale, ...targetCfg });
     else if (type === "list") renderList(cv, { ...common, items: s.items, bgKey: effBgKey,
       listTitle: s.listTitle, listSubtitle: s.listSubtitle, photo: s.photo, opacity: s.listOpacity, ...targetCfg });
     else if (type === "stat") renderStat(cv, { ...common, statNumber: s.statNumber,
@@ -4082,7 +4111,7 @@ export default function MediaTool() {
   const makeSnapshot = () => {
     const common = { accent, accentKey, bgKey };
     switch (mode) {
-      case "cover": return { ...common, photo, headline, highlights, subtitle, opacity, ribbon, categoryTag, coverCtaButton, coverAlign, coverBand, coverTitleScale, coverFocalX, coverFocalY };
+      case "cover": return { ...common, photo, headline, highlights, subtitle, opacity, ribbon, categoryTag, coverCtaButton, coverAlign, coverBand, coverTitleScale, coverInsetPhoto, coverInsetPos, coverInsetScale, coverFocalX, coverFocalY };
       case "list": return { ...common, items: items.map(x=>({...x})), listTitle, listSubtitle, photo: listPhoto, listOpacity, listFocalX, listFocalY };
       case "stat": return { ...common, statNumber, statLabel, statSub, photo: statPhoto, statOpacity, statFocalX, statFocalY };
       case "text": return { ...common, textTitle, textTitleHL, textBody, photo: textPhoto, textOpacity, textStyle, textBand, pageNum, totalPages };
@@ -4119,6 +4148,9 @@ export default function MediaTool() {
         setCoverAlign(snapshot.coverAlign === "center" ? "center" : "left");
         setCoverBand(!!snapshot.coverBand);
         setCoverTitleScale(typeof snapshot.coverTitleScale === "number" ? snapshot.coverTitleScale : 1);
+        setCoverInsetPhoto(snapshot.coverInsetPhoto || null);
+        setCoverInsetPos(snapshot.coverInsetPos === "right" ? "right" : "left");
+        setCoverInsetScale(typeof snapshot.coverInsetScale === "number" ? snapshot.coverInsetScale : 1);
         // Cover focal point — defaults to center when missing (older snapshots).
         setCoverFocalX(typeof snapshot.coverFocalX === "number" ? snapshot.coverFocalX : 0.5);
         setCoverFocalY(typeof snapshot.coverFocalY === "number" ? snapshot.coverFocalY : 0.5);
@@ -4298,6 +4330,7 @@ export default function MediaTool() {
   // name here and the round-trip works automatically.
   const PHOTO_KEYS = [
     "photo",        // cover / text / cta / features / photoCaption / spotlight / countdown / savedate / savedates / poster
+    "coverInsetPhoto", // cover circle inset (second photo)
     "bgPhoto",      // scene background
     "sceneHero",    // scene center cutout
     "sceneLeft",    // scene left cutout
@@ -6088,11 +6121,32 @@ export default function MediaTool() {
                 <div>
                   <label style={L}>Headline size</label>
                   <div style={{display:"flex",gap:"3px"}}>
-                    {[["S",0.72],["M",0.86],["L",1.0],["XL",1.15]].map(([lbl,v])=>(
+                    {[["S",0.86],["M",1.15],["L",1.45],["XL",1.8]].map(([lbl,v])=>(
                       <button key={lbl} onClick={()=>setCoverTitleScale(v)} title={`${lbl} headline`} style={{padding:"5px 11px",borderRadius:"5px",cursor:"pointer",fontSize:"0.65rem",fontWeight:700,fontFamily:"'Syne'",textTransform:"uppercase",background:Math.abs(coverTitleScale-v)<0.01?`${accent}22`:"rgba(245,240,232,0.04)",color:Math.abs(coverTitleScale-v)<0.01?accent:"rgba(245,240,232,0.4)",border:Math.abs(coverTitleScale-v)<0.01?`2px solid ${accent}55`:"2px solid transparent"}}>{lbl}</button>
                     ))}
                   </div>
                 </div>
+              </div>
+
+              {/* Circle inset — a second photo in a white ring floating on the
+                  cover (the news-cutout look). Position + size shown once a
+                  photo is picked. */}
+              <div style={{marginBottom:"0.6rem"}}>
+                <label style={L}>Circle inset photo · optional</label>
+                <div style={{display:"flex",gap:"0.3rem",alignItems:"center"}}>
+                  <button onClick={()=>coverInsetFileRef.current?.click()} style={{...B,flex:1}}>{coverInsetPhoto?"✓ Inset loaded — change":"Upload circle inset"}</button>
+                  <button onClick={()=>openLibrary("cover-inset")} style={{...B,padding:"5px 10px"}} title="Pick from the library">📚</button>
+                  {coverInsetPhoto&&<button onClick={()=>setCoverInsetPhoto(null)} style={{...B,color:"rgba(251,113,133,0.5)"}}>×</button>}
+                  <input ref={coverInsetFileRef} type="file" accept="image/*" onChange={handleCoverInsetPhoto} style={{display:"none"}}/>
+                </div>
+                {coverInsetPhoto&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0.4rem",marginTop:"6px"}}>
+                  <div><label style={L}>Position</label><div style={{display:"flex",gap:"3px"}}>
+                    {[["left","Left"],["right","Right"]].map(([k,lbl])=>(<button key={k} onClick={()=>setCoverInsetPos(k)} style={{flex:1,padding:"5px 4px",borderRadius:4,cursor:"pointer",fontSize:"0.55rem",fontWeight:700,fontFamily:"'Syne',sans-serif",background:coverInsetPos===k?`${accent}22`:"rgba(245,240,232,0.04)",color:coverInsetPos===k?accent:"rgba(245,240,232,0.4)",border:coverInsetPos===k?`1px solid ${accent}55`:"1px solid transparent"}}>{lbl}</button>))}
+                  </div></div>
+                  <div><label style={L}>Size</label><div style={{display:"flex",gap:"3px"}}>
+                    {[["S",0.8],["M",1.0],["L",1.25]].map(([lbl,v])=>(<button key={lbl} onClick={()=>setCoverInsetScale(v)} style={{flex:1,padding:"5px 4px",borderRadius:4,cursor:"pointer",fontSize:"0.55rem",fontWeight:700,fontFamily:"'Syne',sans-serif",background:Math.abs(coverInsetScale-v)<0.01?`${accent}22`:"rgba(245,240,232,0.04)",color:Math.abs(coverInsetScale-v)<0.01?accent:"rgba(245,240,232,0.4)",border:Math.abs(coverInsetScale-v)<0.01?`1px solid ${accent}55`:"1px solid transparent"}}>{lbl}</button>))}
+                  </div></div>
+                </div>}
               </div>
 
               {/* === ADVANCED FIELDS (collapsed by default) ===
@@ -6308,7 +6362,7 @@ export default function MediaTool() {
                 </div></div>
               </div>
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Text size</label><div style={{display:"flex",gap:"3px"}}>
-                {[["S",0.8],["M",1.0],["L",1.2],["XL",1.4]].map(([lbl,v])=>(<button key={lbl} onClick={()=>setNewsTextScale(v)} title={`${lbl} text`} style={{flex:1,padding:"5px 4px",borderRadius:4,cursor:"pointer",fontSize:"0.6rem",fontWeight:700,fontFamily:"'Syne',sans-serif",background:Math.abs(newsTextScale-v)<0.01?"rgba(229,188,79,0.18)":"rgba(245,240,232,0.04)",color:Math.abs(newsTextScale-v)<0.01?"#E5BC4F":"rgba(245,240,232,0.5)",border:Math.abs(newsTextScale-v)<0.01?"1px solid rgba(229,188,79,0.5)":"1px solid transparent"}}>{lbl}</button>))}
+                {[["S",1.0],["M",1.4],["L",1.75],["XL",2.1]].map(([lbl,v])=>(<button key={lbl} onClick={()=>setNewsTextScale(v)} title={`${lbl} text`} style={{flex:1,padding:"5px 4px",borderRadius:4,cursor:"pointer",fontSize:"0.6rem",fontWeight:700,fontFamily:"'Syne',sans-serif",background:Math.abs(newsTextScale-v)<0.01?"rgba(229,188,79,0.18)":"rgba(245,240,232,0.04)",color:Math.abs(newsTextScale-v)<0.01?"#E5BC4F":"rgba(245,240,232,0.5)",border:Math.abs(newsTextScale-v)<0.01?"1px solid rgba(229,188,79,0.5)":"1px solid transparent"}}>{lbl}</button>))}
               </div></div>
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Heading · optional (leave blank for pure paragraphs)</label><input value={newsHeadline} onChange={e=>setNewsHeadline(e.target.value)} style={I} placeholder="e.g. Why a food fest, and why here"/></div>
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Body · your paragraphs (use blank line between paragraphs)</label><textarea value={newsBody} onChange={e=>setNewsBody(e.target.value)} style={{...I,height:130,resize:"vertical",lineHeight:1.5}}/></div>
