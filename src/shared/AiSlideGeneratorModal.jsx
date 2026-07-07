@@ -109,9 +109,13 @@ export function AiSlideGeneratorModal({ open, slotType, apiKey, initialTopic, ca
   };
   const slotLabel = SLOT_LABELS[slotType] || slotType;
 
+  // With vision on, the carousel supplies the subject, so a typed topic is optional.
+  const visionOn = hasCarousel && useCarousel;
+  const canGen = !!topic.trim() || visionOn;
+
   const handleGenerate = async () => {
     if (!apiKey) { setError("Paste your Gemini API key in the MediaTool toolbar first."); return; }
-    if (!topic.trim()) { setError("Type a topic first."); return; }
+    if (!canGen) { setError("Type a topic — or turn on 👁 Build from your carousel so it can infer one."); return; }
     setBusy(true);
     setError("");
     setOptions([]);
@@ -183,12 +187,12 @@ export function AiSlideGeneratorModal({ open, slotType, apiKey, initialTopic, ca
         </div>
 
         <label style={{ fontSize: "0.65rem", color: "rgba(245,240,232,0.65)", display: "block", marginBottom: 5, letterSpacing: 0.5 }}>
-          Topic
+          Topic{visionOn ? <span style={{ color: "rgba(99,179,237,0.75)", fontStyle: "italic" }}> · optional — it'll pull the subject from your carousel</span> : ""}
         </label>
         <textarea
           value={topic}
           onChange={(e) => setTopic(e.target.value)}
-          placeholder='e.g. "Juneteenth 2026 weekend in NJ" or "Soulja Boy at Lotus Rooftop"'
+          placeholder={visionOn ? 'Optional — leave blank to use your carousel, or add a specific angle' : 'e.g. "Juneteenth 2026 weekend in NJ" or "Soulja Boy at Lotus Rooftop"'}
           rows={2}
           style={{
             width: "100%",
@@ -277,10 +281,10 @@ export function AiSlideGeneratorModal({ open, slotType, apiKey, initialTopic, ca
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
           <button
             onClick={handleGenerate}
-            disabled={busy || !topic.trim()}
+            disabled={busy || !canGen}
             style={{
               padding: "8px 16px",
-              background: busy ? "rgba(229,188,79,0.4)" : (topic.trim() ? "#E5BC4F" : "rgba(229,188,79,0.25)"),
+              background: busy ? "rgba(229,188,79,0.4)" : (canGen ? "#E5BC4F" : "rgba(229,188,79,0.25)"),
               color: "#000",
               border: "none",
               borderRadius: 4,
@@ -288,7 +292,7 @@ export function AiSlideGeneratorModal({ open, slotType, apiKey, initialTopic, ca
               fontWeight: 700,
               letterSpacing: 1,
               textTransform: "uppercase",
-              cursor: busy ? "wait" : (topic.trim() ? "pointer" : "not-allowed"),
+              cursor: busy ? "wait" : (canGen ? "pointer" : "not-allowed"),
               fontFamily: "'Syne',sans-serif",
             }}
           >{busy ? (slotType === "cover" ? "Generating + ranking…" : "Generating…") : (options.length ? "↻ Regenerate" : (slotType === "cover" ? "✨ Generate + rank hooks" : "✨ Generate 3 options"))}</button>
