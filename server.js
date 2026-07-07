@@ -17,6 +17,7 @@ import path from "path";
 import fs from "fs/promises";
 import { existsSync } from "fs";
 import { fileURLToPath } from "url";
+import { runScout, storyKey, focusForDay } from "./scoutServer.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || "5000", 10);
@@ -1008,6 +1009,172 @@ app.get("/api/health", (_req, res) => {
   res.json({ ok: true, api: "workspaces+library+reviewSessions+weekendReview", version: 6, env: NODE_ENV });
 });
 
+// === NEWS SCOUT (autonomous) ===
+// A daily cron runs the beat search server-side and accumulates a deduped
+// inbox at data/scout/inbox.json; when new stories land it emails a digest.
+// The app reads the inbox via /api/scout/*. This only runs when the Node
+// server is alive (Reserved VM / dev) — a pure-static Replit deploy has no
+// process, so nothing scouts. Config is all env vars (documented in the
+// endpoints below and in the client status line).
+const SCOUT_DIR = path.resolve(__dirname, "data/scout");
+const SCOUT_INBOX = path.join(SCOUT_DIR, "inbox.json");
+const SCOUT_MAX_ITEMS = 60;
+const scoutKey      = () => (process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || "").trim();
+const scoutEnabled  = () => (process.env.SCOUT_ENABLED ?? "1") !== "0";
+const scoutArea     = () => (process.env.SCOUT_AREA || "New Jersey").trim();
+const scoutHour     = () => { const h = parseInt(process.env.SCOUT_HOUR || "12", 10); return Number.isFinite(h) ? Math.min(23, Math.max(0, h)) : 12; };
+const scoutEmailTo  = () => (process.env.SCOUT_EMAIL_TO || "aagu1999@gmail.com").trim();
+const emailConfigured = () => !!((process.env.GMAIL_USER || "").trim() && (process.env.GMAIL_APP_PASSWORD || "").trim());
+
+async function loadInbox() {
+  try {
+    const j = JSON.parse(await fs.readFile(SCOUT_INBOX, "utf8"));
+    return {
+      items: Array.isArray(j.items) ? j.items : [],
+      seen: Array.isArray(j.seen) ? j.seen : [],
+      lastRun: j.lastRun || null, lastRunDate: j.lastRunDate || null, lastError: j.lastError || null,
+    };
+  } catch { return { items: [], seen: [], lastRun: null, lastRunDate: null, lastError: null }; }
+}
+async function saveInbox(box) {
+  await fs.mkdir(SCOUT_DIR, { recursive: true });
+  await fs.writeFile(SCOUT_INBOX, JSON.stringify(box, null, 2));
+}
+
+function esc(s) { return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+
+// Best-effort Gmail digest. No-ops (with a log) when creds aren't set, so the
+// inbox works standalone. Requires a Gmail App Password (2FA account).
+async function sendDigest(items, to) {
+  if (!emailConfigured()) { console.log("[scout] email skipped — set GMAIL_USER + GMAIL_APP_PASSWORD to enable"); return; }
+  if (!to || !items.length) return;
+  const user = process.env.GMAIL_USER.trim();
+  const pass = process.env.GMAIL_APP_PASSWORD.trim();
+  let nodemailer;
+  try { nodemailer = (await import("nodemailer")).default; }
+  catch { console.warn("[scout] nodemailer not installed — run npm install"); return; }
+  const transport = nodemailer.createTransport({ service: "gmail", auth: { user, pass } });
+  const rows = items.map((i) => `
+    <tr><td style="padding:14px 0;border-bottom:1px solid #eee;">
+      <div style="font-size:11px;letter-spacing:1px;color:#9a6a13;text-transform:uppercase;font-weight:700;">${esc(i.kicker)}${i.kicker ? " · " : ""}fit ${esc(i.score)}</div>
+      <div style="font-size:18px;font-weight:700;margin:4px 0;color:#141414;">${esc(i.headline)}</div>
+      <div style="font-size:14px;color:#444;line-height:1.5;">${esc(i.body)}</div>
+      ${i.whenWhere ? `<div style="font-size:12px;color:#888;margin-top:5px;">📍 ${esc(i.whenWhere)}</div>` : ""}
+    </td></tr>`).join("");
+  const html = `<div style="font-family:Arial,Helvetica,sans-serif;max-width:600px;margin:0 auto;padding:8px;">
+    <h2 style="font-family:Georgia,serif;color:#141414;">🗞️ CGE News Scout — ${items.length} new ${items.length === 1 ? "story" : "stories"}</h2>
+    <p style="color:#666;font-size:13px;line-height:1.5;">Timely New Jersey Black-culture &amp; community happenings that fit the beat. Open the Media tool → <b>News Scout</b> to turn any of these into a post.</p>
+    <table style="width:100%;border-collapse:collapse;">${rows}</table>
+    <p style="color:#aaa;font-size:11px;margin-top:22px;">Sent by your CGE News Scout · ${new Date().toDateString()}</p>
+  </div>`;
+  await transport.sendMail({
+    from: `CGE News Scout <${user}>`, to,
+    subject: `🗞️ ${items.length} new NJ Black-events ${items.length === 1 ? "story" : "stories"} — ${new Date().toDateString()}`,
+    html,
+  });
+  console.log(`[scout] digest emailed to ${to} (${items.length} items)`);
+}
+
+let scoutRunning = false;
+async function runScoutCycle(reason = "cron") {
+  if (scoutRunning) return { skipped: "already-running" };
+  const box = await loadInbox();
+  const key = scoutKey();
+  if (!key) {
+    box.lastError = "No server Gemini key — set GEMINI_API_KEY in the environment.";
+    box.lastRun = new Date().toISOString();
+    await saveInbox(box);
+    return { error: box.lastError };
+  }
+  scoutRunning = true;
+  try {
+    const now = new Date();
+    const focus = focusForDay(now.getDay());
+    const { candidates } = await runScout({ apiKey: key, area: scoutArea(), focus });
+    const seen = new Set(box.seen);
+    const fresh = [];
+    for (const c of candidates) {
+      const k = storyKey(c);
+      if (!k || seen.has(k)) continue;
+      seen.add(k);
+      fresh.push({
+        id: `s_${now.getTime().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+        ...c, focus, firstSeen: now.toISOString(), read: false,
+      });
+    }
+    box.items = [...fresh, ...box.items].slice(0, SCOUT_MAX_ITEMS);
+    box.seen = [...seen].slice(-400);
+    box.lastRun = now.toISOString();
+    box.lastRunDate = now.toISOString().slice(0, 10);
+    box.lastError = null;
+    await saveInbox(box);
+    if (fresh.length) sendDigest(fresh, scoutEmailTo()).catch((e) => console.warn("[scout] email failed:", e.message));
+    console.log(`[scout] ${reason}: +${fresh.length} new (focus="${focus || "general"}")`);
+    return { added: fresh.length, total: box.items.length };
+  } catch (e) {
+    box.lastError = String(e?.message || e);
+    box.lastRun = new Date().toISOString();
+    await saveInbox(box);
+    console.warn("[scout] run failed:", box.lastError);
+    return { error: box.lastError };
+  } finally {
+    scoutRunning = false;
+  }
+}
+
+// GET the inbox + status.
+app.get("/api/scout/inbox", async (_req, res) => {
+  const box = await loadInbox();
+  res.json({
+    items: box.items,
+    unread: box.items.filter((i) => !i.read).length,
+    lastRun: box.lastRun, lastError: box.lastError,
+    enabled: scoutEnabled(), hasKey: !!scoutKey(),
+    emailTo: scoutEmailTo(), emailConfigured: emailConfigured(),
+    running: scoutRunning,
+  });
+});
+// Trigger a run now (the "Run scout now" button).
+app.post("/api/scout/run", async (_req, res) => {
+  const r = await runScoutCycle("manual");
+  const box = await loadInbox();
+  res.json({ ...r, items: box.items, unread: box.items.filter((i) => !i.read).length, lastRun: box.lastRun, lastError: box.lastError });
+});
+// Mark all items read (clears the badge).
+app.post("/api/scout/read", async (_req, res) => {
+  const box = await loadInbox();
+  box.items = box.items.map((i) => ({ ...i, read: true }));
+  await saveInbox(box);
+  res.json({ ok: true, unread: 0 });
+});
+// Dismiss one item.
+app.post("/api/scout/dismiss/:id", async (req, res) => {
+  const id = safeId(req.params.id);
+  const box = await loadInbox();
+  box.items = box.items.filter((i) => i.id !== id);
+  await saveInbox(box);
+  res.json({ ok: true, items: box.items, unread: box.items.filter((i) => !i.read).length });
+});
+
+function initScoutCron() {
+  if (!scoutEnabled()) { console.log("[scout] disabled (SCOUT_ENABLED=0)"); return; }
+  const check = async () => {
+    try {
+      const box = await loadInbox();
+      const now = new Date();
+      const todayStr = now.toISOString().slice(0, 10);
+      // Run once per day, on the first check at/after the scout hour (server
+      // local time — usually UTC on Replit; set SCOUT_HOUR accordingly).
+      if (now.getHours() >= scoutHour() && box.lastRunDate !== todayStr) {
+        await runScoutCycle("cron");
+      }
+    } catch (e) { console.warn("[scout] cron check failed:", e.message); }
+  };
+  setInterval(check, 15 * 60 * 1000);   // re-check every 15 min
+  setTimeout(check, 10 * 1000);         // and shortly after boot
+  console.log(`[scout] cron armed — daily after ${scoutHour()}:00 (server time), area="${scoutArea()}", email→${scoutEmailTo()}${emailConfigured() ? "" : " (email OFF — set GMAIL_USER + GMAIL_APP_PASSWORD)"}${scoutKey() ? "" : " (NO GEMINI KEY — set GEMINI_API_KEY)"}`);
+}
+
 // === VITE MIDDLEWARE / STATIC ===
 
 if (NODE_ENV === "production") {
@@ -1032,4 +1199,5 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`  Workspaces at ${DATA_DIR}`);
   console.log(`  Photos    at ${LIBRARY_DIRS.photos}`);
   console.log(`  Exports   at ${LIBRARY_DIRS.exports}`);
+  initScoutCron();
 });
