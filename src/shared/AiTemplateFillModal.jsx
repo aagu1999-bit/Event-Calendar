@@ -119,6 +119,18 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
   const template = allTemplates.find(t => t.id === templateId) || allTemplates[0];
   const voiceOn = (voice?.description && voice.description.trim()) ||
                   (Array.isArray(voice?.exemplars) && voice.exemplars.some(e => e && e.trim()));
+  // When either AI mode is on, the AI chooses the layout, so the manual
+  // Template dropdown is inert (greyed) and its slide count no longer applies.
+  const aiChoosesLayout = letAiPick || aiArrange;
+  // Label for the Generate button — must reflect what will actually run.
+  const genLabel = slides.length
+    ? "↻ Regenerate"
+    : aiArrange
+      ? (slideCount === "auto" ? "✨ Design + generate" : `✨ Generate ${slideCount} slides`)
+      : letAiPick
+        ? "✨ Let AI pick + generate"
+        : `✨ Generate ${template?.sequence?.length || 0} slides`;
+  const enrichCount = (researchOn ? 1 : 0) + (newsOn ? 1 : 0) + (letterMode ? 1 : 0);
 
   const handleGenerate = async () => {
     if (!apiKey) { setError("Paste your Gemini API key in the MediaTool toolbar first."); return; }
@@ -613,16 +625,16 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
           >×</button>
         </div>
 
-        <div style={{ fontSize: "0.7rem", color: "rgba(245,240,232,0.6)", marginBottom: 16, lineHeight: 1.5 }}>
-          Pick a template, type your topic + context. Gemini fills every slide in the sequence in one coherent pass — Cover headline, Text manifesto, Spotlight cards (one per angle), CTA listings (one per event). Per-slot rules from <strong>/brand → Slide Content Rules</strong> apply.
+        <div style={{ fontSize: "0.66rem", color: "rgba(245,240,232,0.55)", marginBottom: 12, lineHeight: 1.45 }}>
+          Type a topic + context; Gemini writes every slide as one coherent story. Let it pick or arrange the layout, or choose a template. Per-slot rules from <strong>/brand → Slide Content Rules</strong> apply.
         </div>
 
-        <div style={{ fontSize: "0.55rem", letterSpacing: 1.4, textTransform: "uppercase", fontWeight: 700, color: "rgba(245,240,232,0.4)", margin: "0 0 8px" }}>Generation mode</div>
+        <div style={{ fontSize: "0.55rem", letterSpacing: 1.4, textTransform: "uppercase", fontWeight: 700, color: "rgba(245,240,232,0.4)", margin: "0 0 7px" }}>Generation mode</div>
 
         {/* Let AI pick toggle — when on, Gemini chooses the best
             template from built-ins + customs based on topic + context.
             Two Gemini calls instead of one. */}
-        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.72rem", color: letAiPick ? "#E5BC4F" : "rgba(245,240,232,0.7)", cursor: "pointer", marginBottom: 12, padding: "8px 10px", background: letAiPick ? "rgba(229,188,79,0.08)" : "transparent", border: "1px solid " + (letAiPick ? "rgba(229,188,79,0.35)" : "rgba(245,240,232,0.08)"), borderRadius: 4 }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.72rem", color: letAiPick ? "#E5BC4F" : "rgba(245,240,232,0.7)", cursor: "pointer", marginBottom: 8, padding: "7px 9px", background: letAiPick ? "rgba(229,188,79,0.08)" : "transparent", border: "1px solid " + (letAiPick ? "rgba(229,188,79,0.35)" : "rgba(245,240,232,0.08)"), borderRadius: 4 }}>
           <input
             type="checkbox"
             checked={letAiPick}
@@ -638,7 +650,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
 
         {/* AI arranges — design a bespoke slot sequence for THIS story instead of
             a fixed template. Supersedes template selection + AI-pick. */}
-        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.72rem", color: aiArrange ? "#E5BC4F" : "rgba(245,240,232,0.7)", cursor: "pointer", marginBottom: 12, padding: "8px 10px", background: aiArrange ? "rgba(229,188,79,0.08)" : "transparent", border: "1px solid " + (aiArrange ? "rgba(229,188,79,0.35)" : "rgba(245,240,232,0.08)"), borderRadius: 4 }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.72rem", color: aiArrange ? "#E5BC4F" : "rgba(245,240,232,0.7)", cursor: "pointer", marginBottom: 8, padding: "7px 9px", background: aiArrange ? "rgba(229,188,79,0.08)" : "transparent", border: "1px solid " + (aiArrange ? "rgba(229,188,79,0.35)" : "rgba(245,240,232,0.08)"), borderRadius: 4 }}>
           <input
             type="checkbox"
             checked={aiArrange}
@@ -677,23 +689,28 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
           </div>
         )}
 
-        <div style={{ fontSize: "0.55rem", letterSpacing: 1.4, textTransform: "uppercase", fontWeight: 700, color: "rgba(245,240,232,0.4)", margin: "4px 0 8px" }}>Enrich &amp; voice</div>
+        <details style={{ marginBottom: 12, border: "1px solid rgba(245,240,232,0.08)", borderRadius: 6, background: "rgba(245,240,232,0.015)" }}>
+          <summary style={{ padding: "8px 10px", cursor: "pointer", fontSize: "0.55rem", letterSpacing: 1.4, textTransform: "uppercase", fontWeight: 700, color: "rgba(245,240,232,0.5)", listStyle: "none", display: "flex", alignItems: "center", gap: 8 }}>
+            <span>▸ Enrich &amp; voice</span>
+            <span style={{ marginLeft: "auto", fontSize: "0.55rem", color: enrichCount ? "#63B3ED" : "rgba(245,240,232,0.3)", letterSpacing: 0.5, textTransform: "none", fontWeight: 700 }}>{enrichCount ? `${enrichCount} on` : "web lookup · letter mode"}</span>
+          </summary>
+          <div style={{ padding: "2px 10px 6px" }}>
 
         {/* Web research — a grounded Gemini call looks the event up (Google
             Search) and feeds the background into generation, so it's not a
             black box that only knows what you typed. Opt-in: one extra call
             and it uses grounding quota. Stacks with pick/arrange/template. */}
-        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.72rem", color: researchOn ? "#63B3ED" : "rgba(245,240,232,0.7)", cursor: "pointer", marginBottom: 12, padding: "8px 10px", background: researchOn ? "rgba(99,179,237,0.08)" : "transparent", border: "1px solid " + (researchOn ? "rgba(99,179,237,0.35)" : "rgba(245,240,232,0.08)"), borderRadius: 4 }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.72rem", color: researchOn ? "#63B3ED" : "rgba(245,240,232,0.7)", cursor: "pointer", marginBottom: 8, padding: "7px 9px", background: researchOn ? "rgba(99,179,237,0.08)" : "transparent", border: "1px solid " + (researchOn ? "rgba(99,179,237,0.35)" : "rgba(245,240,232,0.08)"), borderRadius: 4 }}>
           <input
             type="checkbox"
             checked={researchOn}
             onChange={(e) => setResearchOn(e.target.checked)}
           />
           <span style={{ fontWeight: 700, letterSpacing: 0.5 }}>
-            🔎 Research the event first (web)
+            🔎 Look up this event (background)
           </span>
           <span style={{ marginLeft: "auto", fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: 0.5 }}>
-            adds real background
+            facts about an event you already named
           </span>
         </label>
 
@@ -701,17 +718,17 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
             Distinct from Research (evergreen background): this pulls dated,
             current items so you can spin a same-week "what's happening" post.
             Great paired with "AI arranges" for a from-scratch timely carousel. */}
-        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.72rem", color: newsOn ? "#63B3ED" : "rgba(245,240,232,0.7)", cursor: "pointer", marginBottom: 12, padding: "8px 10px", background: newsOn ? "rgba(99,179,237,0.08)" : "transparent", border: "1px solid " + (newsOn ? "rgba(99,179,237,0.35)" : "rgba(245,240,232,0.08)"), borderRadius: 4 }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.72rem", color: newsOn ? "#63B3ED" : "rgba(245,240,232,0.7)", cursor: "pointer", marginBottom: 8, padding: "7px 9px", background: newsOn ? "rgba(99,179,237,0.08)" : "transparent", border: "1px solid " + (newsOn ? "rgba(99,179,237,0.35)" : "rgba(245,240,232,0.08)"), borderRadius: 4 }}>
           <input
             type="checkbox"
             checked={newsOn}
             onChange={(e) => setNewsOn(e.target.checked)}
           />
           <span style={{ fontWeight: 700, letterSpacing: 0.5 }}>
-            📰 Pull recent news / what's happening (web)
+            📰 Find what's happening now (discover)
           </span>
           <span style={{ marginLeft: "auto", fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: 0.5 }}>
-            timely, dated items
+            timely, dated items to build around
           </span>
         </label>
 
@@ -719,7 +736,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
             first-person letter (the @summerblockfest "This may be the last
             one…" structure), thought carrying slide to slide. A STRUCTURE, not
             a sad-story skin — works for a celebratory arc too. */}
-        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.72rem", color: letterMode ? "#A78BFA" : "rgba(245,240,232,0.7)", cursor: "pointer", marginBottom: 12, padding: "8px 10px", background: letterMode ? "rgba(139,92,246,0.10)" : "transparent", border: "1px solid " + (letterMode ? "rgba(139,92,246,0.4)" : "rgba(245,240,232,0.08)"), borderRadius: 4 }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.72rem", color: letterMode ? "#A78BFA" : "rgba(245,240,232,0.7)", cursor: "pointer", marginBottom: 8, padding: "7px 9px", background: letterMode ? "rgba(139,92,246,0.10)" : "transparent", border: "1px solid " + (letterMode ? "rgba(139,92,246,0.4)" : "rgba(245,240,232,0.08)"), borderRadius: 4 }}>
           <input
             type="checkbox"
             checked={letterMode}
@@ -732,29 +749,31 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
             one continuous letter, swipe-to-the-end
           </span>
         </label>
+          </div>
+        </details>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
           <div>
             <label style={{ fontSize: "0.65rem", color: "rgba(245,240,232,0.65)", display: "block", marginBottom: 5, letterSpacing: 0.5 }}>
-              Template {letAiPick && <span style={{ color: "rgba(245,240,232,0.4)", fontStyle: "italic", textTransform: "none", letterSpacing: 0 }}>(AI will pick)</span>}
+              Template {aiChoosesLayout && <span style={{ color: "rgba(245,240,232,0.4)", fontStyle: "italic", textTransform: "none", letterSpacing: 0 }}>({aiArrange ? "AI will design" : "AI will pick"})</span>}
             </label>
             <select
               value={templateId}
               onChange={(e) => setTemplateId(e.target.value)}
-              disabled={letAiPick}
+              disabled={aiChoosesLayout}
               style={{
                 width: "100%",
                 padding: "8px 10px",
                 background: "#111",
                 border: "1px solid rgba(245,240,232,0.08)",
                 borderRadius: 4,
-                color: letAiPick ? "rgba(245,240,232,0.35)" : "#F5F0E8",
+                color: aiChoosesLayout ? "rgba(245,240,232,0.35)" : "#F5F0E8",
                 fontFamily: "inherit",
                 fontSize: "0.78rem",
                 outline: "none",
                 boxSizing: "border-box",
-                opacity: letAiPick ? 0.5 : 1,
-                cursor: letAiPick ? "not-allowed" : "pointer",
+                opacity: aiChoosesLayout ? 0.5 : 1,
+                cursor: aiChoosesLayout ? "not-allowed" : "pointer",
               }}
             >
               <optgroup label="Built-in" style={{ color: "#000" }}>
@@ -770,23 +789,9 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
                 </optgroup>
               )}
             </select>
-            {template && !letAiPick && (
-              <div style={{ marginTop: 4 }}>
-                <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.45)", letterSpacing: 0.5 }}>
-                  {template.sequence.join(" → ")}
-                </div>
-                {template.bestFor && (
-                  <div style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.55)", marginTop: 6, lineHeight: 1.4 }}>
-                    <span style={{ color: "rgba(250,204,21,0.85)", fontWeight: 700, letterSpacing: 0.5 }}>Best for: </span>
-                    {template.bestFor}
-                  </div>
-                )}
-                {template.notFor && (
-                  <div style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.40)", marginTop: 3, lineHeight: 1.4 }}>
-                    <span style={{ color: "rgba(251,113,133,0.65)", fontWeight: 700, letterSpacing: 0.5 }}>Not for: </span>
-                    {template.notFor}
-                  </div>
-                )}
+            {template && !aiChoosesLayout && (
+              <div style={{ marginTop: 4, fontSize: "0.55rem", color: "rgba(245,240,232,0.45)", letterSpacing: 0.5 }}>
+                {template.sequence.join(" → ")}
               </div>
             )}
           </div>
@@ -817,7 +822,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
         <label style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.5)", display: "block", marginBottom: 6, letterSpacing: 1.2, textTransform: "uppercase", fontWeight: 700 }}>
           Register
         </label>
-        <div style={{ display: "flex", gap: 4, marginBottom: 14, padding: 3, background: "rgba(0,0,0,0.28)", borderRadius: 9, border: "1px solid rgba(245,240,232,0.06)" }}>
+        <div style={{ display: "flex", gap: 4, marginBottom: 10, padding: 3, background: "rgba(0,0,0,0.28)", borderRadius: 9, border: "1px solid rgba(245,240,232,0.06)" }}>
           {[["editorial", "📰", "Editorial", "restrained newsroom voice"], ["promo", "📣", "Promo", "own-event push, more energy"], ["story", "📖", "Story", "narrative, human, scene-driven"]].map(([m, ic, lbl, hint]) => (
             <button
               key={m}
@@ -864,7 +869,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
         <textarea
           value={context}
           onChange={(e) => setContext(e.target.value)}
-          rows={6}
+          rows={5}
           placeholder='For Feature Drop: "Live DJ, Bachata lessons, DJ JdaBachata and DJ Carlita, Luzz Pickleball Paddle 2025 Glider giveaway, gift baskets, 100+ singles, Pickleball HQ Aberdeen, July 11"
 
 For Editorial Roundup: 5 events with name · day · time · venue · URL each, one per line.'
@@ -901,13 +906,7 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
               cursor: busy ? "wait" : (topic.trim() ? "pointer" : "not-allowed"),
               fontFamily: "'Syne',sans-serif",
             }}
-          >{busy
-              ? (busyLabel || "Generating…")
-              : (slides.length
-                  ? "↻ Regenerate"
-                  : (letAiPick
-                      ? "✨ Let AI pick + generate"
-                      : `✨ Generate ${template?.sequence?.length || 0} slides`))}</button>
+          >{busy ? (busyLabel || "Generating…") : genLabel}</button>
 
           <span style={{ fontSize: "0.6rem", color: voiceOn ? "#34D399" : "rgba(245,240,232,0.4)", letterSpacing: 1, textTransform: "uppercase", fontFamily: "'Syne',sans-serif", fontWeight: 700 }}>
             {voiceOn ? "🎙 Voice: ON" : "🎙 Voice: off"}
