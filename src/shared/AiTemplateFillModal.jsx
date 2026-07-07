@@ -27,7 +27,7 @@ const CONTEXT_SCAFFOLD = [
 //   onClose()
 //   onAccept(slides)   — slides array matching the template's sequence
 
-export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, onAccept }) {
+export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTopic = "", initialContext = "", initialArrange = false, onClose, onAccept }) {
   const voice = useBrandStore((s) => s.voice);
   const slotPrompts = useBrandStore((s) => s.slotPrompts);
   const addExemplar = useBrandStore((s) => s.addExemplar);
@@ -96,8 +96,15 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, onClose, 
       setNewsFound(null);
       setLetterMode(false);
       if (initialTemplateId) setTemplateId(initialTemplateId);
+      // Seed topic/context when a caller opens us with a story (e.g. the News
+      // Scout's "Build carousel"). Only overwrite when a non-empty seed is
+      // given, so the plain ✨ AI Fill button preserves the last topic. A
+      // seeded open also flips on "AI arranges" so it designs a full carousel.
+      if (initialTopic) setTopic(initialTopic);
+      if (initialContext) setContext(initialContext);
+      if (initialArrange) setAiArrange(true);
     }
-  }, [open, initialTemplateId]);
+  }, [open, initialTemplateId, initialTopic, initialContext, initialArrange]);
 
   // Every freshly generated batch starts fully kept — but a single-slot
   // re-roll (same array length, one entry swapped) must NOT wipe the user's

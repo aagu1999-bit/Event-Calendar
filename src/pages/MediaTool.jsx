@@ -55,6 +55,10 @@ const EXPORT_RATIOS = {
 let _displayFont = "Syne";
 let _bodyFont = "DM Sans";
 let _watermark = true;
+// Background print — the faint diagonal grid of brand letters (drawTexture).
+// Separate from _watermark so the user can keep the bottom footer/logo
+// watermark while clearing the background print for a cleaner post.
+let _bgPrint = true;
 // Brand identity — synced from useBrandStore via useEffect inside the
 // component. Renderers read these so watermark text follows whatever
 // the user set in Brand Kit (defaults to CGE values for back-compat).
@@ -102,6 +106,7 @@ function wrapToLines(ctx, text, maxW) {
 
 const setActiveFonts = (d, b) => { _displayFont = d; _bodyFont = b; };
 const setActiveWatermark = (w) => { _watermark = w; };
+const setActiveBgPrint = (b) => { _bgPrint = b; };
 const setActiveBrand = (b) => { _brand = { ..._brand, ...b }; };
 
 const FONT_PAIRS = {
@@ -112,7 +117,10 @@ const FONT_PAIRS = {
 };
 
 function drawTexture(ctx, W, H, color, alpha, startY = 0) {
-  if (!_watermark) return;
+  // The background print obeys BOTH toggles: the master watermark switch AND
+  // its own bgPrint switch, so you can clear the background while the bottom
+  // footer/logo watermark stays.
+  if (!_watermark || !_bgPrint) return;
   ctx.save();
   if (startY > 0) { ctx.beginPath(); ctx.rect(0, startY, W, H - startY); ctx.clip(); }
   ctx.translate(W/2, H*0.6); ctx.rotate(-5*Math.PI/180); ctx.translate(-W/2, -H*0.6);
@@ -772,7 +780,7 @@ function renderNews(canvas, cfg) {
   const dark = newsTheme === "dark";
   const inkColor = dark ? "#f5f0e8" : "#16130d";
   const bodyInk  = dark ? "rgba(245,240,232,0.84)" : "#3a352c";
-  const blockBg  = dark ? "#111014" : "#F5F0E8";
+  const blockBg  = dark ? "#000000" : "#F5F0E8";
   const kickColor = dark ? accent : "#9a6a13";
   const photoOnTop = newsPhotoPos === "top";
   const sc = (typeof newsTextScale === "number" && newsTextScale > 0) ? newsTextScale : 1;
@@ -3347,14 +3355,22 @@ export default function MediaTool() {
   // shows the modal; the picker inside lets the user choose template.
   const [aiFillOpen, setAiFillOpen] = useState(false);
   const [newsScoutOpen, setNewsScoutOpen] = useState(false);
+  // Seed for AI Fill Template. Set by the News Scout's "Build carousel" so the
+  // modal opens pre-filled with a story (and AI-arrange on); the plain ✨ AI
+  // Fill button clears it so it opens blank.
+  const [aiFillSeed, setAiFillSeed] = useState({ topic: "", context: "", arrange: false });
 
   // Global render flags — synced into module-level vars via useEffect.
   const [watermark, setWatermark] = useState(true);
+  // Background print (the faint diagonal brand-letter grid). On by default;
+  // turn it off to keep only the bottom footer/logo watermark over a clean bg.
+  const [bgPrint, setBgPrint] = useState(true);
   const [fontPairKey, setFontPairKey] = useState("default");
   // Aspect ratio applied at export time — preview stays 1:1 since the
   // renderers are coded for 1080×1080.
   const [exportRatio, setExportRatio] = useState("1:1");
   useEffect(() => { setActiveWatermark(watermark); }, [watermark]);
+  useEffect(() => { setActiveBgPrint(bgPrint); }, [bgPrint]);
 
   // Alternate-colors wiring — when on, every odd-indexed carousel slide
   // overrides its bgKey to alternateBgKey at render time. Live previews
@@ -4532,7 +4548,7 @@ export default function MediaTool() {
   const makeMediaExportSnapshot = (kind /* "single" | "carousel" */) => {
     if (kind === "carousel") {
       return {
-        v: 1, kind: "carousel", exportRatio, fontPairKey, watermark,
+        v: 1, kind: "carousel", exportRatio, fontPairKey, watermark, bgPrint,
         carousel: carousel.map(s => ({
           id: s.id, type: s.type, thumb: s.thumb,
           snapshot: serializeSnap(s.snapshot),
@@ -4541,7 +4557,7 @@ export default function MediaTool() {
     }
     return {
       v: 1, kind: "single",
-      mode, exportRatio, fontPairKey, watermark,
+      mode, exportRatio, fontPairKey, watermark, bgPrint,
       dots, totalDots,
       snapshot: serializeSnap(makeSnapshot()),
     };
@@ -4557,6 +4573,7 @@ export default function MediaTool() {
         if (snap.exportRatio) setExportRatio(snap.exportRatio);
         if (snap.fontPairKey) setFontPairKey(snap.fontPairKey);
         if (typeof snap.watermark === "boolean") setWatermark(snap.watermark);
+        if (typeof snap.bgPrint === "boolean") setBgPrint(snap.bgPrint);
         if (snap.kind === "carousel" && Array.isArray(snap.carousel)) {
           const rebuilt = await Promise.all(snap.carousel.map(async s => ({
             id: s.id || `s_${Math.random().toString(36).slice(2,8)}`,
@@ -5677,6 +5694,15 @@ export default function MediaTool() {
             title="Toggle CGE logo + footer text on/off"
             style={{padding:"6px 12px",borderRadius:"5px",fontSize:"0.6rem",fontWeight:700,cursor:"pointer",border:watermark?"2px solid #34D399":"2px solid rgba(245,240,232,0.1)",background:watermark?"rgba(52,211,153,0.12)":"transparent",color:watermark?"#34D399":"rgba(245,240,232,0.4)",fontFamily:"'Syne',sans-serif",letterSpacing:"1.5px",textTransform:"uppercase"}}
           >{watermark ? "✓ Watermark" : "○ Watermark"}</button>
+          {/* Background print — the faint diagonal brand-letter grid. Off keeps
+              only the bottom footer/logo watermark over a clean background.
+              Disabled (and greyed) when the master Watermark is off. */}
+          <button
+            onClick={()=>setBgPrint(v=>!v)}
+            disabled={!watermark}
+            title="Toggle the faint brand-letter background print. Turn OFF to keep the bottom watermark but clear the background."
+            style={{padding:"6px 12px",borderRadius:"5px",fontSize:"0.6rem",fontWeight:700,cursor:watermark?"pointer":"not-allowed",opacity:watermark?1:0.4,border:(watermark&&bgPrint)?"2px solid #34D399":"2px solid rgba(245,240,232,0.1)",background:(watermark&&bgPrint)?"rgba(52,211,153,0.12)":"transparent",color:(watermark&&bgPrint)?"#34D399":"rgba(245,240,232,0.4)",fontFamily:"'Syne',sans-serif",letterSpacing:"1.5px",textTransform:"uppercase"}}
+          >{bgPrint ? "✓ BG print" : "○ BG print"}</button>
           <select
             value={fontPairKey}
             onChange={e=>setFontPairKey(e.target.value)}
@@ -6024,7 +6050,7 @@ export default function MediaTool() {
                 + slot prompts. Pair this with the From Template dropdown
                 (manual fill) — both compose with the same templates. */}
             <button
-              onClick={() => setAiFillOpen(true)}
+              onClick={() => { setAiFillSeed({ topic: "", context: "", arrange: false }); setAiFillOpen(true); }}
               title="AI-fill the whole template in one call — type topic + context, get every slide back (Cover + Text + N×Spotlight or N×CTA + Closer)"
               style={{
                 padding: "6px 10px",
@@ -7325,6 +7351,9 @@ export default function MediaTool() {
       <AiTemplateFillModal
         open={aiFillOpen}
         apiKey={geminiKey}
+        initialTopic={aiFillSeed.topic}
+        initialContext={aiFillSeed.context}
+        initialArrange={aiFillSeed.arrange}
         onClose={() => setAiFillOpen(false)}
         onAccept={onAiTemplateAccept}
       />
@@ -7332,6 +7361,20 @@ export default function MediaTool() {
         open={newsScoutOpen}
         apiKey={geminiKey}
         onClose={() => setNewsScoutOpen(false)}
+        onBuildCarousel={(c) => {
+          // Seed AI Fill Template with the story and let it design a full
+          // news carousel. Context carries the angle + substance + when/where.
+          setAiFillSeed({
+            topic: c.headline || "",
+            context: [
+              c.kicker ? `Angle: ${c.kicker}` : "",
+              c.body || "",
+              c.whenWhere ? `When / where: ${c.whenWhere}` : "",
+            ].filter(Boolean).join("\n"),
+            arrange: true,
+          });
+          setAiFillOpen(true);
+        }}
         onUse={(c) => {
           // Drop the picked story into the News slot and switch to it, ready
           // to edit. Headline → heading, kicker → eyebrow, body → paragraphs,
