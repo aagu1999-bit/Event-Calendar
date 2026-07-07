@@ -3359,6 +3359,17 @@ export default function MediaTool() {
   // modal opens pre-filled with a story (and AI-arrange on); the plain ✨ AI
   // Fill button clears it so it opens blank.
   const [aiFillSeed, setAiFillSeed] = useState({ topic: "", context: "", arrange: false });
+  // Unread count from the server scout inbox → badge on the News Scout button.
+  // Refetches when the scout modal closes (opening it marks everything read).
+  const [scoutUnread, setScoutUnread] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/scout/inbox", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => { if (alive && j) setScoutUnread(j.unread || 0); })
+      .catch(() => {}); // no server (static deploy) — no badge
+    return () => { alive = false; };
+  }, [newsScoutOpen]);
 
   // Global render flags — synced into module-level vars via useEffect.
   const [watermark, setWatermark] = useState(true);
@@ -6087,7 +6098,7 @@ export default function MediaTool() {
                 fontFamily: "'Syne',sans-serif",
                 whiteSpace: "nowrap",
               }}
-            >🗞️ News Scout</button>
+            >🗞️ News Scout{scoutUnread > 0 ? ` · ${scoutUnread} new` : ""}</button>
             {carousel.length >= 2 && (
               <button
                 onClick={saveCarouselAsTemplate}
