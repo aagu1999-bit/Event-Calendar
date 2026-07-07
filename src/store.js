@@ -280,6 +280,20 @@ Requirements:
 
 Return JSON ONLY in this exact shape (3 different variations):
 {"options":[{"kicker":"...","mainLine":"...","subLine":"..."},{...},{...}]}`,
+
+        news: `Generate ONE News-slide (supporting explainer) for a CGE editorial carousel.
+
+The News slide is a SUPPORTING beat that sits in the MIDDLE of a carousel — the "here's the story / the backstory / why it matters / breaking update" slide. It's a cream (or dark) news-card block over a photo. It carries the substance the Cover promised, in a calm reporter's register.
+
+Requirements:
+- newsKicker: a short ALL-CAPS eyebrow labeling the beat. Examples: "THE BIGGER PICTURE", "BREAKING", "THE BACKSTORY", "WHY IT MATTERS", "WHAT WE KNOW". 1-4 words. Never a hype word.
+- newsHeadline: an OPTIONAL short heading (3-7 words) — a mini news-headline for this beat. Leave "" (empty) when the paragraphs read better on their own (pure-paragraph mode).
+- newsBody: 1-2 tight paragraphs (use "\\n\\n" between them). Reported, specific, NJ-grounded — what happened / what's changing and why it matters. Three-beat sentences welcome. NOT flyer copy, NOT a summary of the carousel. This is the substance a reader swiped in for.
+- newsBold: true ONLY for a breaking/urgent beat (renders the body bold); otherwise false.
+- Match the brand voice (editorial, NJ-first, concrete). Every claim should feel verifiable — never invent a stat/date/quote.
+
+Return JSON ONLY in this exact shape:
+{"newsKicker":"...","newsHeadline":"...","newsBody":"...paragraph 1...\\n\\n...paragraph 2...","newsBold":false}`,
       },
 
       // Setters — accept either a value or a function (parity with React setState)
@@ -335,9 +349,13 @@ Return JSON ONLY in this exact shape (3 different variations):
       // shallow persist merge fall back to the new code defaults; voice,
       // palette, creator, defaults and exemplars are all preserved. The one
       // cost: a hand-edited slot rule (if any) resets to its new default.
-      version: 3,
+      // v4 (2026-07): add the `news` slot rule (the News slide produced empty
+      // content in AI Fill because slotPrompts had no `news` key, so
+      // buildTemplatePrompt fell into its "no rule defined" branch). Same
+      // drop-slotPrompts move so the new default reaches existing users.
+      version: 4,
       migrate: (persisted, version) => {
-        if (version < 3 && persisted && typeof persisted === "object") {
+        if (version < 4 && persisted && typeof persisted === "object") {
           const { slotPrompts, ...rest } = persisted;
           return rest;
         }
@@ -376,6 +394,7 @@ export const SLOT_OUTPUT_SHAPES = {
   poster:    '{"topLine":"...","hosts":"...","kicker":"...","title":"...","subtitle":"...","leftList":"...","rightList":"...","dressCode":"...","dateLine":"..."}',
   press:     '{"pressTopMeta":["...","...","...","..."],"pressTitle":"...","pressBadge":"...","pressLineup":"...","pressGenres":"...","pressDateLine":"..."}',
   features:  '{"featuresTitle":"...","features":[{"emoji":"...","headline":"...","sub":"..."}]}',
+  news:      '{"newsKicker":"...","newsHeadline":"...","newsBody":"...","newsBold":false}',
 };
 
 // Per-slot reference metadata — augments the user-editable slotPrompts
@@ -524,6 +543,20 @@ export const SLOT_META = {
       "Never write 'RSVP NOW', 'DON'T MISS', 'LIMITED SPOTS' — that's flyer panic, not editorial closer.",
       "Avoid generic 'see you there' — be specific about WHAT the reader does next.",
       "When CTA is a directory listing (multi-CTA template), kicker must be empty — event name carries the slot.",
+    ],
+  },
+  news: {
+    audience: "A reader who swiped past the cover and now wants the substance — the story, the backstory, the 'why it matters'. They'll read a short reported paragraph if it earns it. Calm reporter register, not a flyer.",
+    examples: [
+      `{"newsKicker":"THE BIGGER PICTURE","newsHeadline":"Why A Food Fest, And Why Here","newsBody":"For a decade this strip mall was the block everyone drove past. Nutrition Fest is the first thing to fill it in years — and it's not a pop-up.\\n\\nIt's a bet that teaching people how food actually fuels them, out in the open, can bring a forgotten corner of Irvington back to life.","newsBold":false}`,
+      `{"newsKicker":"BREAKING","newsHeadline":"","newsBody":"Newark's oldest Black-owned jazz room just confirmed it's reopening this fall, three years after the fire. The same family, the same corner, a new stage.\\n\\nFirst residency lands in October. The lineup drops next week.","newsBold":true}`,
+    ],
+    antiPatterns: [
+      "Not a flyer and not a summary of the carousel — this is the reported substance the cover promised.",
+      "newsKicker is a short ALL-CAPS beat label (THE BACKSTORY, WHY IT MATTERS, BREAKING) — never a hype word or a full sentence.",
+      "Leave newsHeadline empty when the paragraphs read better on their own — don't force a heading.",
+      "Never invent a stat, date, quote or venue to sound authoritative. If it can't be grounded, don't claim it.",
+      "newsBold=true only for genuine breaking/urgent beats; the default is false.",
     ],
   },
 };

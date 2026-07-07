@@ -229,6 +229,120 @@ export async function researchNews({ apiKey, topic, context, today = null }) {
   return { brief: (extractResponseText(data) || "").trim(), sources: extractGroundingSources(data) };
 }
 
+// === NEWS SCOUT — beat-aware story discovery (v1 of the "news agent") ===
+// On demand, hunt the web for TIMELY, EVENT-BASED, Black-culture / Black-
+// community happenings in New Jersey that fit what Central Group Events
+// covers, then return a RANKED shortlist of story candidates the user can
+// drop straight into a News slide. Two steps, because Google Search grounding
+// can't be combined with a forced-JSON response:
+//   1. Grounded discovery (gemini-2.5-flash + google_search) — several angle
+//      searches across the beat → a bulleted brief + REAL source links.
+//   2. Structuring pass (flash-lite, JSON mode) — score each candidate against
+//      an explicit beat rubric and return clean, ranked cards.
+// `area` narrows the geography; `focus` is an optional one-run steer
+// ("Juneteenth", "Newark", "day parties"); `today` anchors recency.
+const CGE_BEAT = [
+  "Central Group Events (CGE) covers Black culture, Black community, and",
+  "Black-owned / Black-led happenings across New Jersey — festivals, day",
+  "parties, brunches, cookouts, concerts, comedy, markets, art, cultural",
+  "celebrations (Juneteenth, Caribbean/African diaspora, HBCU), new Black-owned",
+  "venue/restaurant openings, and community milestones. The vibe is exciting,",
+  "social, celebratory and share-worthy — the kind of thing you stop scrolling",
+  "for and tag a friend in.",
+].join(" ");
+
+export async function scoutNews({ apiKey, area = "New Jersey", focus = "", today = null } = {}) {
+  if (!apiKey) throw new Error("Missing Gemini API key");
+  const stamp = today || (() => { try { return new Date().toISOString().slice(0, 10); } catch { return null; } })();
+  const areaLine = (area || "").trim() || "New Jersey";
+  const focusLine = (focus || "").trim();
+
+  // --- Step 1: grounded discovery across the beat ---
+  const searchPrompt = [
+    "You are a local-culture news scout for a Black events media page in New Jersey.",
+    "Run SEVERAL distinct web searches (not just one) to find TIMELY, EVENT-BASED happenings that fit this beat:",
+    CGE_BEAT,
+    "",
+    `AREA FOCUS: ${areaLine}.`,
+    ...(focusLine ? [`EXTRA FOCUS THIS RUN: ${focusLine}.`] : []),
+    ...(stamp ? ["", `TODAY: ${stamp}. Only surface items announced/happening within roughly the last 10 days, or UPCOMING within ~4 weeks. Skip stale items.`] : []),
+    "",
+    "SEARCH THESE ANGLES (adapt the wording; run each as its own search):",
+    "- \"Black events New Jersey this weekend / this month\"",
+    "- \"<NJ city> Black-owned OR day party OR brunch OR festival\"",
+    "- \"Juneteenth OR Caribbean OR African OR HBCU culture event New Jersey\"",
+    "- \"new Black-owned restaurant OR venue opening New Jersey\"",
+    "- \"things to do Newark / Jersey City / Montclair / East Orange / Trenton this week\"",
+    "",
+    "Return 8-14 plain-text bullets, each a DISTINCT happening. For each bullet give:",
+    "WHAT is happening, WHERE (venue + town), WHEN in [brackets] e.g. [Jul 12], a one-line WHY IT",
+    "MATTERS, and the SOURCE (site/publication name).",
+    "",
+    "RULES:",
+    "- Every bullet must trace to a REAL search result. Never invent a date/venue/price — if unconfirmed, say so.",
+    "- Prefer NJ / Garden State and the named area. Rank by timeliness first, then beat-fit.",
+    "- Merge duplicates. Plain-text bullets only — no preamble, no markdown headers.",
+  ].join("\n");
+
+  const searchData = await geminiGenerate(apiKey, {
+    contents: [{ parts: [{ text: searchPrompt }] }],
+    tools: [{ google_search: {} }],
+    generationConfig: { temperature: 0.35 },
+  }, { model: "gemini-2.5-flash" });
+  const brief = (extractResponseText(searchData) || "").trim();
+  const sources = extractGroundingSources(searchData);
+  if (!brief) return { candidates: [], sources, brief: "" };
+
+  // --- Step 2: score + structure against the beat rubric ---
+  const rubricPrompt = [
+    "Below is a research brief of New Jersey happenings. Turn it into a RANKED shortlist of story",
+    "candidates for a Black events/culture Instagram page (Central Group Events).",
+    "",
+    "THE BEAT: " + CGE_BEAT,
+    "",
+    "Score each candidate 0-100 on FIT for this beat, weighing:",
+    "- Black culture / community / Black-owned relevance (most important)",
+    "- Event-based AND in New Jersey",
+    "- Timeliness (happening soon / just announced)",
+    "- Excitement / share-worthiness (would people stop scrolling and tag a friend?)",
+    "DROP anything that clearly isn't a fit (generic national news, non-NJ, not event/culture).",
+    "",
+    "For each surviving candidate return:",
+    "- headline: a punchy 4-9 word hook, Title Case, no ending period",
+    "- kicker: a 1-3 word ALL-CAPS eyebrow (e.g. THIS WEEKEND, JUST OPENED, BREAKING)",
+    "- body: 1-2 tight sentences — what it is + why it matters, ready to drop into a slide",
+    "- whenWhere: a short 'venue · town · [date]' line, or \"\" if unknown",
+    "- score: the 0-100 number",
+    "Rank best-first. Return 5-10 candidates.",
+    "",
+    "BRIEF:",
+    brief,
+    "",
+    'Return ONLY JSON in this exact shape: {"candidates":[{"headline":"...","kicker":"...","body":"...","whenWhere":"...","score":88}]}',
+  ].join("\n");
+
+  let candidates = [];
+  try {
+    const data = await geminiGenerate(apiKey, {
+      contents: [{ parts: [{ text: rubricPrompt }] }],
+      generationConfig: { responseMimeType: "application/json", temperature: 0.4 },
+    });
+    const parsed = extractJson(extractResponseText(data));
+    candidates = Array.isArray(parsed?.candidates) ? parsed.candidates : [];
+  } catch { candidates = []; }
+  candidates = candidates
+    .filter(c => c && (c.headline || c.body))
+    .map(c => ({
+      headline: String(c.headline || "").trim(),
+      kicker: String(c.kicker || "").trim(),
+      body: String(c.body || "").trim(),
+      whenWhere: String(c.whenWhere || "").trim(),
+      score: typeof c.score === "number" ? c.score : Number(c.score) || 0,
+    }))
+    .sort((a, b) => b.score - a.score);
+  return { candidates, sources, brief };
+}
+
 export async function generateSlideContent({ apiKey, slotType, topic, voice, slotPrompts, count = 3, context, mode }) {
   if (!apiKey) throw new Error("Missing Gemini API key");
   if (!slotType) throw new Error("Missing slotType");
