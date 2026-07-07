@@ -14,10 +14,12 @@ import { scoutNews } from "./aiContent.js";
 //   onClose()
 //   onUse(candidate) — { headline, kicker, body, whenWhere, score }; the parent
 //                      maps it into the News slot and switches to News mode.
+//   onBuildCarousel(candidate) — hands the story to AI Fill Template so a
+//                      whole news carousel gets generated from it.
 
 const AREA_CHIPS = ["New Jersey", "Newark", "Jersey City", "Essex County", "East Orange", "Montclair", "Trenton", "Atlantic City"];
 
-export function NewsScoutModal({ open, apiKey, onClose, onUse }) {
+export function NewsScoutModal({ open, apiKey, onClose, onUse, onBuildCarousel }) {
   const [area, setArea] = useState("New Jersey");
   const [focus, setFocus] = useState("");
   const [busy, setBusy] = useState(false);
@@ -126,10 +128,18 @@ export function NewsScoutModal({ open, apiKey, onClose, onUse }) {
                   <div style={{ fontSize: "0.92rem", fontFamily: "'Syne',sans-serif", fontWeight: 700, lineHeight: 1.2, marginBottom: 5 }}>{c.headline}</div>
                   {c.body && <div style={{ fontSize: "0.72rem", color: "rgba(245,240,232,0.75)", lineHeight: 1.5, marginBottom: 6 }}>{c.body}</div>}
                   {c.whenWhere && <div style={{ fontSize: "0.62rem", color: "rgba(245,240,232,0.45)", marginBottom: 8 }}>📍 {c.whenWhere}</div>}
-                  <button
-                    onClick={() => { onUse?.(c); onClose?.(); }}
-                    style={{ padding: "6px 12px", background: "rgba(229,188,79,0.16)", color: "#E5BC4F", border: "1px solid rgba(229,188,79,0.4)", borderRadius: 4, fontSize: "0.64rem", fontWeight: 700, letterSpacing: 0.5, fontFamily: "'Syne',sans-serif", cursor: "pointer", textTransform: "uppercase" }}
-                  >Use in News slot →</button>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    <button
+                      onClick={() => { onUse?.(c); onClose?.(); }}
+                      title="Drop this story into a single News slide, ready to edit"
+                      style={{ padding: "6px 12px", background: "rgba(229,188,79,0.16)", color: "#E5BC4F", border: "1px solid rgba(229,188,79,0.4)", borderRadius: 4, fontSize: "0.64rem", fontWeight: 700, letterSpacing: 0.5, fontFamily: "'Syne',sans-serif", cursor: "pointer", textTransform: "uppercase" }}
+                    >Use in News slot →</button>
+                    <button
+                      onClick={() => { onBuildCarousel?.(c); onClose?.(); }}
+                      title="Send this story to AI Fill Template to generate a whole news carousel"
+                      style={{ padding: "6px 12px", background: "transparent", color: "#63B3ED", border: "1px solid rgba(99,179,237,0.45)", borderRadius: 4, fontSize: "0.64rem", fontWeight: 700, letterSpacing: 0.5, fontFamily: "'Syne',sans-serif", cursor: "pointer", textTransform: "uppercase" }}
+                    >✨ Build carousel →</button>
+                  </div>
                 </div>
               ))}
             </div>
