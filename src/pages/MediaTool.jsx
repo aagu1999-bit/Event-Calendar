@@ -7353,6 +7353,8 @@ export default function MediaTool() {
         slotType={aiSlotOpen || "cover"}
         apiKey={geminiKey}
         initialTopic={getAiInitialTopicFor(aiSlotOpen)}
+        carouselContext={aggregateCarouselContext(carousel)?.carouselSummary || ""}
+        carouselCount={carousel.length}
         onClose={() => setAiSlotOpen(null)}
         onAccept={(opt) => applyAiOptionToMode(aiSlotOpen, opt)}
       />

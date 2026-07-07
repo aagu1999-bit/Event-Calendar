@@ -14,7 +14,7 @@ import { generateSlideContent, generateRankedCovers } from "./aiContent.js";
 //   onClose()
 //   onAccept(option) — option matches the slot's schema
 
-export function AiSlideGeneratorModal({ open, slotType, apiKey, initialTopic, onClose, onAccept }) {
+export function AiSlideGeneratorModal({ open, slotType, apiKey, initialTopic, carouselContext = "", carouselCount = 0, onClose, onAccept }) {
   const voice = useBrandStore((s) => s.voice);
   const slotPrompts = useBrandStore((s) => s.slotPrompts);
   const addExemplar = useBrandStore((s) => s.addExemplar);
@@ -22,6 +22,10 @@ export function AiSlideGeneratorModal({ open, slotType, apiKey, initialTopic, on
   const [topic, setTopic] = useState(initialTopic || "");
   const [context, setContext] = useState("");
   const [coverMode, setCoverMode] = useState("editorial");
+  // "Vision" — read the CURRENT carousel and write this slot to fit it. On by
+  // default whenever there are slides to read.
+  const hasCarousel = !!(carouselContext && carouselContext.trim()) && carouselCount > 0;
+  const [useCarousel, setUseCarousel] = useState(true);
   const [options, setOptions] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -40,6 +44,7 @@ export function AiSlideGeneratorModal({ open, slotType, apiKey, initialTopic, on
       setError("");
       setBusy(false);
       setSavedIdx(new Set());
+      setUseCarousel(true);
     }
   }, [open, slotType, initialTopic]);
 
@@ -111,9 +116,15 @@ export function AiSlideGeneratorModal({ open, slotType, apiKey, initialTopic, on
     setError("");
     setOptions([]);
     try {
+      // Vision: fold the current carousel into the context so the slot is
+      // written to FIT the existing post rather than in a vacuum.
+      const carouselBlock = (hasCarousel && useCarousel)
+        ? "CURRENT CAROUSEL — write this slide to FIT this existing post: match its voice, topic and specifics, continue the story/arc, and do NOT repeat or contradict what's already there:\n" + carouselContext.trim()
+        : "";
+      const fullContext = [context.trim(), carouselBlock].filter(Boolean).join("\n\n");
       const opts = slotType === "cover"
-        ? await generateRankedCovers({ apiKey, topic, voice, slotPrompts, context, mode: coverMode })
-        : await generateSlideContent({ apiKey, slotType, topic, voice, slotPrompts, context });
+        ? await generateRankedCovers({ apiKey, topic, voice, slotPrompts, context: fullContext, mode: coverMode })
+        : await generateSlideContent({ apiKey, slotType, topic, voice, slotPrompts, context: fullContext });
       setOptions(opts);
     } catch (err) {
       console.error(err);
@@ -168,7 +179,7 @@ export function AiSlideGeneratorModal({ open, slotType, apiKey, initialTopic, on
         </div>
 
         <div style={{ fontSize: "0.7rem", color: "rgba(245,240,232,0.6)", marginBottom: 14, lineHeight: 1.5 }}>
-          Type the topic of this carousel. Gemini will write {slotType === "cover" ? "6 options across different hook archetypes, then rank them down to the 3 strongest," : "3 options"} using your Brand Kit voice + the {slotLabel} content rule. Edit the rule in <strong>/brand → Slide Content Rules</strong>.
+          Type the topic of this carousel. Gemini will write {slotType === "cover" ? "6 options across different hook archetypes, then rank them down to the 3 strongest," : "3 options"} using your Brand Kit voice + the {slotLabel} content rule. Edit the rule in <strong>/brand → Slide Content Rules</strong>.{hasCarousel ? " It can also read your current carousel (toggle below) and write this slide to match its story." : ""}
         </div>
 
         <label style={{ fontSize: "0.65rem", color: "rgba(245,240,232,0.65)", display: "block", marginBottom: 5, letterSpacing: 0.5 }}>
@@ -220,6 +231,26 @@ export function AiSlideGeneratorModal({ open, slotType, apiKey, initialTopic, on
             marginBottom: 10,
           }}
         />
+
+        {/* Vision — read the current carousel and build this slot to fit it. */}
+        {hasCarousel && (
+          <button
+            onClick={() => setUseCarousel((v) => !v)}
+            title="Read the slides already in your carousel and write this one to fit — same voice, topic, and story arc"
+            style={{
+              display: "flex", alignItems: "center", gap: 8, width: "100%",
+              padding: "8px 10px", marginBottom: 12, borderRadius: 4, cursor: "pointer",
+              textAlign: "left", fontFamily: "'DM Sans',sans-serif", fontSize: "0.72rem", fontWeight: 700,
+              background: useCarousel ? "rgba(99,179,237,0.10)" : "rgba(245,240,232,0.03)",
+              border: "1px solid " + (useCarousel ? "rgba(99,179,237,0.4)" : "rgba(245,240,232,0.08)"),
+              color: useCarousel ? "#63B3ED" : "rgba(245,240,232,0.6)",
+            }}
+          >
+            <span style={{ fontSize: "0.95rem" }}>👁</span>
+            <span>{useCarousel ? `Building from your carousel (${carouselCount} slide${carouselCount === 1 ? "" : "s"})` : "Not reading your carousel"}</span>
+            <span style={{ marginLeft: "auto", fontSize: "0.55rem", letterSpacing: 0.5, textTransform: "uppercase", color: useCarousel ? "rgba(99,179,237,0.7)" : "rgba(245,240,232,0.35)" }}>{useCarousel ? "ON" : "OFF"}</span>
+          </button>
+        )}
 
         {slotType === "cover" && (
           <div style={{ marginBottom: 14 }}>
