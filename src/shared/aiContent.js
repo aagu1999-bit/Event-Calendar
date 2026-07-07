@@ -346,7 +346,11 @@ export async function scoutNews({ apiKey, area = "New Jersey", focus = "", today
 export async function generateSlideContent({ apiKey, slotType, topic, voice, slotPrompts, count = 3, context, mode }) {
   if (!apiKey) throw new Error("Missing Gemini API key");
   if (!slotType) throw new Error("Missing slotType");
-  if (!topic || !topic.trim()) throw new Error("Missing topic");
+  // Topic OR context is enough — when "Build from your carousel" is on, the
+  // carousel arrives as context and the subject is inferred from it.
+  if ((!topic || !topic.trim()) && (!context || !context.trim())) {
+    throw new Error("Add a topic — or turn on 'Build from your carousel' so it can infer one");
+  }
 
   const slotRule = slotPrompts?.[slotType];
   if (!slotRule) throw new Error(`No prompt defined for slot type "${slotType}"`);
@@ -524,7 +528,12 @@ export async function designSequence({ apiKey, topic, context, mode, targetCount
     "- countdown: urgency toward a date (T-minus).",
     "- cta: the close — the invite, or a directory listing (one per event in a roundup).",
     "- photo: a recap caption — POST-EVENT recaps only.",
-    "- poster / press: magazine-flyer look — music/nightlife/visually-loud events.",
+    "- poster: an editorial event FLYER — a giant stacked title with venue, host, an agenda/menu list,",
+    "  dress code and date. Use when you're ANNOUNCING one event that has lots of concrete details to lay",
+    "  out (a brunch, wellness fair, day party, dinner, mixer). The draw is the EVENT and its specifics.",
+    "- press: a music-NIGHT flyer — a one-word brand title + the DJ/artist LINEUP + genre tags + a date bar.",
+    "  Reach for it ONLY when the real draw is the LINEUP (who's performing/spinning). If there's no actual",
+    "  lineup to name, do NOT use press.",
     "",
     "Rules:",
     countRule,
@@ -532,6 +541,12 @@ export async function designSequence({ apiKey, topic, context, mode, targetCount
     "- Match the mix to the STORY AND THE FEELING, never a formula: a single event with many draws →",
     "  a few spotlights or a features slide; a multi-event roundup → several ctas; one strong human",
     "  beat → keep it short with text/news. A PRE-event promo must NOT use 'photo'.",
+    "- poster vs press is a PURPOSE call, not a coin flip: poster = a details-rich event flyer; press =",
+    "  a lineup-driven music night. Pick the one the story actually needs, and don't reach for press just",
+    "  because it looks cool — only when there's a genuine lineup.",
+    "- VARY YOUR CHOICES. Don't fall back on the same safe shape (cover → text → 3×spotlight → cta) every",
+    "  time. When the specific story genuinely fits a less-common slide — a stat beat, a countdown, a news",
+    "  card, a poster — use it. Two carousels about different events should look meaningfully different.",
     "- Every slide must earn its place and MOVE THE FEELING FORWARD — no flat, equal-weight lists, no padding.",
     "- RETENTION: if the cover opens a loop, slide 2 DEEPENS it (rule out the obvious), it does NOT",
     "  resolve it. Escalate concrete specifics through the middle; save the single biggest payoff for",
@@ -543,7 +558,9 @@ export async function designSequence({ apiKey, topic, context, mode, targetCount
 
   const data = await geminiGenerate(apiKey, {
     contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: { responseMimeType: "application/json", temperature: 0.5 },
+    // Slightly higher temperature for genuine variety in the arrangement — the
+    // low-temp version kept returning the same safe cover/text/spotlight shape.
+    generationConfig: { responseMimeType: "application/json", temperature: 0.75 },
   });
   const raw = extractResponseText(data);
   const parsed = extractJson(raw);
@@ -1109,8 +1126,9 @@ function buildPrompt({ slotType, topic, voice, slotRule, count = 3, context, mod
     ...voiceBlock,
     `You are generating content for a ${slotType.toUpperCase()} slide in a CGE social media carousel.`,
     "",
-    `Topic: ${topic.trim()}`,
-    "",
+    ...((topic && topic.trim())
+      ? [`Topic: ${topic.trim()}`, ""]
+      : ["No explicit topic was typed — INFER the subject from the details / current carousel below, and write this slide to fit that SAME story (same event, voice, and specifics).", ""]),
     ...((context && context.trim()) ? [
       "Event details / facts — ground every option in THESE specifics (names,",
       "dates, numbers, history). This turns a generic hook into a concrete one,",
