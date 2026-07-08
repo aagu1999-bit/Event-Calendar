@@ -343,6 +343,121 @@ export async function scoutNews({ apiKey, area = "New Jersey", focus = "", today
   return { candidates, sources, brief };
 }
 
+// === CONNECT THE DOTS — thesis + evidence carousel ===
+// The njdotcom "Is the Trump sports curse real? Here's the evidence" pattern:
+// ONE claim/pattern, welded together from several SEPARATE real, dated news
+// events (the "dots"). Two grounded steps:
+//   1. Gather the dots (gemini-2.5-flash + google_search). If a thesis is
+//      given, find 3-5 real events that illustrate it; if not (discover), the
+//      model proposes a thread from current beat news and gathers its evidence.
+//   2. Structure into a carousel plan (flash-lite, JSON): a claim-as-question
+//      cover, one News beat per dot, a verdict beat, and a closing cta.
+// Guardrail: the FRAMING may be a playful/observational lens (a "curse", a
+// "moment", a "trend"), but every dot must be a REAL, sourced event and it must
+// never assert fabricated causation.
+export async function connectDots({ apiKey, thesis = "", area = "New Jersey", beat = CGE_BEAT, today = null } = {}) {
+  if (!apiKey) throw new Error("Missing Gemini API key");
+  const stamp = today || (() => { try { return new Date().toISOString().slice(0, 10); } catch { return null; } })();
+  const seed = (thesis || "").trim();
+  const areaLine = (area || "").trim() || "New Jersey";
+
+  // --- Step 1: gather the dots (grounded) ---
+  const searchPrompt = [
+    "You are building a CONNECT-THE-DOTS evidence carousel — a single THESIS backed by several",
+    "SEPARATE, REAL, DATED news events. (Model: 'Is the Trump sports curse real? Here's the evidence' →",
+    "three different games he attended or predicted that went wrong, each its own headline.)",
+    "Do SEVERAL distinct web searches — not one.",
+    "",
+    seed
+      ? `THE THESIS / PATTERN to support: "${seed}". Gather 3-5 REAL, dated events that illustrate it.`
+      : [
+          "No thesis was given — DISCOVER one. Scan CURRENT news for a PATTERN worth a carousel: a claim you",
+          "can back with 3-5 real, dated events. Propose ONE thread, then gather its evidence.",
+          `BEAT to hunt in: ${beat}`,
+          `AREA: ${areaLine}.`,
+        ].join("\n"),
+    ...(stamp ? ["", `TODAY: ${stamp}. Prefer events from the last several months; each must be real and dated.`] : []),
+    "",
+    "For EACH dot give: WHAT happened, WHERE, WHEN [date], the SOURCE (publication), and one line on HOW IT",
+    "CONNECTS to the thesis.",
+    "",
+    "RULES:",
+    "- Every dot MUST trace to a real search result — never invent an event, date, score, or quote.",
+    "- The THESIS may be a playful/observational LENS (a 'curse', a 'moment', a 'trend', a 'takeover'), but",
+    "  the events must be TRUE and you must NOT assert fabricated causation — it's a pattern, not a lie.",
+    "- If you can't find at least 3 real dots, say so plainly instead of padding.",
+    "- Plain-text only, no markdown headers.",
+  ].join("\n");
+
+  const searchData = await geminiGenerate(apiKey, {
+    contents: [{ parts: [{ text: searchPrompt }] }],
+    tools: [{ google_search: {} }],
+    generationConfig: { temperature: 0.4 },
+  }, { model: "gemini-2.5-flash" });
+  const brief = (extractResponseText(searchData) || "").trim();
+  const sources = extractGroundingSources(searchData);
+  if (!brief) return { thesis: seed, cover: null, dots: [], verdict: null, cta: null, sources, brief: "" };
+
+  // --- Step 2: structure into a carousel plan ---
+  const planPrompt = [
+    "Turn this research brief into a CONNECT-THE-DOTS carousel plan for a CGE Instagram post.",
+    seed ? `The thesis is: "${seed}".` : "First settle on the THESIS the brief best supports.",
+    "",
+    "Shape it exactly like the reference format:",
+    "- cover: a CLAIM-AS-QUESTION hook. headline = the question ('Is the Trump sports curse real?'),",
+    "  subtitle = a short 'Here's the evidence' style promise, accentWord = the most charged word in the headline.",
+    "- dots: 3-5 items, one per real event, in escalating order. Each = { kicker (1-3 word ALL-CAPS label like",
+    "  'EXHIBIT A', 'THE EVIDENCE', 'DOT ONE'), body, whenWhere }. body = SHORT STACKED LINES (one thought per",
+    "  line, '\\n' between; a blank '\\n\\n' before the payoff) — what happened + how it fits the pattern, ending",
+    "  in ONE line wrapped in *asterisks* to bold it. Reported and true; no invented specifics.",
+    "- verdict: { kicker (e.g. 'THE VERDICT', 'SO…'), body (short stacked lines — does the pattern hold? what it",
+    "  actually means, honestly; a pattern/observation, not proven causation) }.",
+    "- cta: { kicker (1-3 word pill), line (a short closing statement), sub (one line inviting a reaction/follow) }.",
+    "",
+    "BRIEF:",
+    brief,
+    "",
+    'Return ONLY JSON: {"thesis":"...","cover":{"headline":"...","subtitle":"...","accentWord":"..."},"dots":[{"kicker":"...","body":"...","whenWhere":"..."}],"verdict":{"kicker":"...","body":"..."},"cta":{"kicker":"...","line":"...","sub":"..."}}',
+  ].join("\n");
+
+  let plan = {};
+  try {
+    const data = await geminiGenerate(apiKey, {
+      contents: [{ parts: [{ text: planPrompt }] }],
+      generationConfig: { responseMimeType: "application/json", temperature: 0.5 },
+    });
+    plan = extractJson(extractResponseText(data)) || {};
+  } catch { plan = {}; }
+
+  const dots = (Array.isArray(plan.dots) ? plan.dots : [])
+    .map(d => ({ kicker: String(d?.kicker || "").trim(), body: String(d?.body || "").trim(), whenWhere: String(d?.whenWhere || "").trim() }))
+    .filter(d => d.body);
+  return {
+    thesis: String(plan.thesis || seed || "").trim(),
+    cover: plan.cover ? { headline: String(plan.cover.headline || "").trim(), subtitle: String(plan.cover.subtitle || "").trim(), accentWord: String(plan.cover.accentWord || "").trim() } : null,
+    dots,
+    verdict: plan.verdict ? { kicker: String(plan.verdict.kicker || "").trim(), body: String(plan.verdict.body || "").trim() } : null,
+    cta: plan.cta ? { kicker: String(plan.cta.kicker || "").trim(), line: String(plan.cta.line || "").trim(), sub: String(plan.cta.sub || "").trim() } : null,
+    sources, brief,
+  };
+}
+
+// Map a connectDots() plan into the slide array shape onAccept expects:
+// cover → N news dots → a verdict news beat → cta.
+export function dotsPlanToSlides(plan) {
+  if (!plan) return [];
+  const slides = [];
+  if (plan.cover) slides.push({ type: "cover", headline: plan.cover.headline, subtitle: plan.cover.subtitle, accentWord: plan.cover.accentWord });
+  for (const d of plan.dots || []) {
+    slides.push({ type: "news", newsKicker: d.kicker || "THE EVIDENCE", newsHeadline: "", newsBody: d.body, newsBold: false, newsCaption: d.whenWhere || "" });
+  }
+  if (plan.verdict && plan.verdict.body) {
+    slides.push({ type: "news", newsKicker: plan.verdict.kicker || "THE VERDICT", newsHeadline: "", newsBody: plan.verdict.body, newsBold: false });
+  }
+  if (plan.cta) slides.push({ type: "cta", ctaKicker: plan.cta.kicker || "", ctaDate: plan.cta.line || "", ctaVenue: plan.cta.sub || "", ctaUrl: "" });
+  return slides;
+}
+
 export async function generateSlideContent({ apiKey, slotType, topic, voice, slotPrompts, count = 3, context, mode }) {
   if (!apiKey) throw new Error("Missing Gemini API key");
   if (!slotType) throw new Error("Missing slotType");
