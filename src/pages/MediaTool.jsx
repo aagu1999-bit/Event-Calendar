@@ -4309,6 +4309,10 @@ export default function MediaTool() {
   };
 
   const loadSnapshot = (snapshot, type) => {
+    // A News video is session-only (never saved into a snapshot), so it belongs
+    // ONLY to the live form it was inserted on. Clear it whenever we load a
+    // different slide, otherwise the clip bleeds onto every News slide you open.
+    clearNewsVideo();
     setMode(type);
     if (snapshot.accentKey) setAccentKey(snapshot.accentKey);
     if (snapshot.bgKey) setBgKey(snapshot.bgKey);
@@ -4681,6 +4685,9 @@ export default function MediaTool() {
     if (templateQueue) {
       const nextProgress = templateQueue.progress + 1;
       if (nextProgress < templateQueue.sequence.length) {
+        // Advancing to a fresh blank slot — drop the session video so it doesn't
+        // carry onto the next slide (videos aren't part of a slide's snapshot).
+        clearNewsVideo();
         setMode(templateQueue.sequence[nextProgress]);
         setTemplateQueue({ ...templateQueue, progress: nextProgress });
       } else {
