@@ -886,10 +886,26 @@ function renderNews(canvas, cfg) {
     y += gapHead;
   }
   if (hasBody) {
-    ctx.fillStyle = bodyInk; ctx.font = ff(`${bodyWeight} ${bodyFs}px 'DM Sans',sans-serif`); ctx.letterSpacing = "0px";
+    ctx.letterSpacing = "0px"; ctx.textAlign = "left";
+    // Render *bold* emphasis inline (heavier weight + brighter ink) so a punchy
+    // payoff line can pop, instead of stripping the asterisks. Wrap widths were
+    // measured with asterisks removed, so segment widths line up.
+    const normalW = bodyWeight;                               // "400" or "700" (newsBold)
+    const boldW = bodyWeight === "700" ? "800" : "700";
     bodyLines.forEach((ln) => {
       if (ln === "") { y += Math.round(bodyFs * 0.55); return; }
-      ctx.fillText(ln.replace(/\*/g, ""), px, y);
+      let x = px;
+      for (const part of ln.split(/(\*[^*]+\*)/g)) {
+        if (!part) continue;
+        if (part.length > 2 && part.startsWith("*") && part.endsWith("*")) {
+          const inner = part.slice(1, -1);
+          ctx.font = ff(`${boldW} ${bodyFs}px 'DM Sans',sans-serif`); ctx.fillStyle = inkColor;
+          ctx.fillText(inner, x, y); x += ctx.measureText(inner).width;
+        } else {
+          ctx.font = ff(`${normalW} ${bodyFs}px 'DM Sans',sans-serif`); ctx.fillStyle = bodyInk;
+          ctx.fillText(part, x, y); x += ctx.measureText(part).width;
+        }
+      }
       y += bodyLH(bodyFs);
     });
   }
