@@ -847,8 +847,9 @@ function renderNews(canvas, cfg) {
   // Photo/VIDEO (or solid bg) fills its region, focal-aware, clipped. A video
   // element exposes videoWidth/videoHeight rather than width/height, so read
   // whichever is present — that lets the News slot draw live video frames.
-  const pw = photo ? (photo.videoWidth || photo.width) : 0;
-  const phh = photo ? (photo.videoHeight || photo.height) : 0;
+  // videoWidth (video), naturalWidth (a hidden <img>/GIF whose layout width is 0), then width.
+  const pw = photo ? (photo.videoWidth || photo.naturalWidth || photo.width) : 0;
+  const phh = photo ? (photo.videoHeight || photo.naturalHeight || photo.height) : 0;
   if (photo && pw && phh) {
     const s = Math.max(W / pw, photoH / phh);
     const dw = pw * s, dh = phh * s;
@@ -3169,12 +3170,15 @@ export default function MediaTool() {
   const [newsTheme, setNewsTheme] = useState("light");      // "light" (cream) | "dark"
   const [newsPhotoPos, setNewsPhotoPos] = useState("bottom"); // "bottom" | "top"
   const [newsTextScale, setNewsTextScale] = useState(1.4);    // font-size multiplier (M)
-  // Optional VIDEO for the News slot — plays behind the block in the preview and
-  // exports as a real .webm (block over the playing video). Session-only (not
-  // saved into snapshots/drafts, which hold images only).
+  // Optional MOTION media for the News slot — a VIDEO or an animated GIF that
+  // plays behind the block in the preview and exports as a real .webm. Session-
+  // only (not saved into snapshots/drafts, which hold images only). newsMotionKind
+  // routes drawing to the <video> (video) or <img> (gif) element.
   const [newsVideoUrl, setNewsVideoUrl] = useState(null);
+  const [newsMotionKind, setNewsMotionKind] = useState(null); // "video" | "gif" | null
   const [newsRecording, setNewsRecording] = useState(false);
   const newsVideoRef = useRef(null);
+  const newsGifRef = useRef(null);
   const [newsPhoto, setNewsPhoto] = useState(null);
   const [newsFocalX, setNewsFocalX] = useState(0.5);
   const [newsFocalY, setNewsFocalY] = useState(0.5);
@@ -3739,10 +3743,14 @@ export default function MediaTool() {
     if (mode !== "news" || !newsVideoUrl) return;
     let raf = 0;
     const loop = () => {
-      const cv = cvRef.current, v = newsVideoRef.current;
-      if (cv && v && (v.videoWidth || 0)) {
+      const cv = cvRef.current;
+      // The GIF animates in a hidden <img>; the video plays in a <video>.
+      // drawImage samples whatever frame each element currently shows.
+      const src = newsMotionKind === "gif" ? newsGifRef.current : newsVideoRef.current;
+      const ready = src && (src.videoWidth || src.naturalWidth || 0);
+      if (cv && ready) {
         const snap = makeSnapshot();
-        snap.photo = v;                       // draw the live frame, not a still
+        snap.photo = src;                     // draw the live frame, not a still
         renderSlide(cv, "news", snap, dots, totalDots, 0);
       }
       raf = requestAnimationFrame(loop);
@@ -3750,7 +3758,7 @@ export default function MediaTool() {
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, newsVideoUrl]);
+  }, [mode, newsVideoUrl, newsMotionKind]);
 
   // Revoke the video object URL when the component unmounts so we don't leak
   // the blob. (Swapping/clearing videos revokes the prior URL inline.)
@@ -3803,20 +3811,27 @@ export default function MediaTool() {
     e.target.value = "";
     if (!file) return;
     setNewsVideoUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return null; });
+    // Clear whichever element held the previous clip.
+    const oldV = newsVideoRef.current; if (oldV) { try { oldV.pause(); } catch {} oldV.removeAttribute("src"); oldV.load(); }
+    const oldG = newsGifRef.current; if (oldG) oldG.removeAttribute("src");
+    const isGif = file.type === "image/gif" || /\.gif$/i.test(file.name || "");
     const url = URL.createObjectURL(file);
     setNewsVideoUrl(url);
+    setNewsMotionKind(isGif ? "gif" : "video");
     setNewsFocalX(0.5); setNewsFocalY(0.5);
-    const v = newsVideoRef.current;
-    if (v) {
-      v.src = url;
-      v.load();
-      v.play().catch(() => {});
+    if (isGif) {
+      const g = newsGifRef.current; if (g) g.src = url;   // <img> animates on its own
+    } else {
+      const v = newsVideoRef.current;
+      if (v) { v.src = url; v.load(); v.play().catch(() => {}); }
     }
   };
   const clearNewsVideo = () => {
     setNewsVideoUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return null; });
+    setNewsMotionKind(null);
     const v = newsVideoRef.current;
     if (v) { try { v.pause(); } catch {} v.removeAttribute("src"); v.load(); }
+    const g = newsGifRef.current; if (g) g.removeAttribute("src");
   };
   const handleCoverInsetPhoto = makeUploadHandler((img) => setCoverInsetPhoto(img), "cover-inset");
   // Wrap each photo-having upload so a new picture resets its focal
@@ -4045,34 +4060,38 @@ export default function MediaTool() {
   // Reuses the ReelTool MediaRecorder(canvas.captureStream) pattern. News is a
   // ratio-aware slot, so we render straight at the export target dims.
   const dlNewsVideo = () => {
-    const v = newsVideoRef.current;
-    if (!v || !newsVideoUrl) { alert("Add a video to the News slot first (Upload Video)."); return; }
+    const isGif = newsMotionKind === "gif";
+    const src = isGif ? newsGifRef.current : newsVideoRef.current;
+    if (!src || !newsVideoUrl) { alert("Add a video or GIF to the News slot first."); return; }
     const target = EXPORT_RATIOS[exportRatio] || EXPORT_RATIOS["1:1"];
     const focal = getModeFocal();
     const cv = document.createElement("canvas");
     cv.width = target.w; cv.height = target.h;
     const drawFrame = () => renderNews(cv, {
       newsKicker, newsHeadline, newsBody, newsBold, newsCaption, newsTheme, newsPhotoPos, newsTextScale,
-      accent, bgKey, dots, totalDots, pageNum, totalPages, photo: v,
+      accent, bgKey, dots, totalDots, pageNum, totalPages, photo: src,
       targetW: target.w, targetH: target.h, focalX: focal?.x ?? 0.5, focalY: focal?.y ?? 0.5,
     });
     try {
       const canvasStream = cv.captureStream(30);
-      // Best-effort: pull the clip's audio into the recording if present.
+      // Best-effort: pull the clip's audio into the recording if present (video only).
       let audioTracks = [];
-      try {
-        const vStream = v.captureStream ? v.captureStream()
-          : (v.mozCaptureStream ? v.mozCaptureStream() : null);
-        if (vStream) audioTracks = vStream.getAudioTracks();
-      } catch { /* no audio / not permitted — silent .webm is fine */ }
+      if (!isGif) {
+        try {
+          const vStream = src.captureStream ? src.captureStream()
+            : (src.mozCaptureStream ? src.mozCaptureStream() : null);
+          if (vStream) audioTracks = vStream.getAudioTracks();
+        } catch { /* no audio / not permitted — silent .webm is fine */ }
+      }
       const outStream = new MediaStream([...canvasStream.getVideoTracks(), ...audioTracks]);
       const chunks = [];
       const rec = new MediaRecorder(outStream, { mimeType: "video/webm;codecs=vp9" });
-      let raf = 0;
+      let raf = 0, gifTimer = 0;
       rec.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
       rec.onstop = () => {
         cancelAnimationFrame(raf);
-        v.loop = true;                       // restore preview looping
+        if (gifTimer) clearTimeout(gifTimer);
+        if (!isGif) src.loop = true;         // restore preview looping
         const blob = new Blob(chunks, { type: "video/webm" });
         const filename = `CGE_news_slide_${exportRatio.replace(":", "x")}.webm`;
         const url = URL.createObjectURL(blob);
@@ -4086,17 +4105,21 @@ export default function MediaTool() {
           .catch(err => console.warn("Export archive failed:", err));
       };
       const loop = () => { drawFrame(); raf = requestAnimationFrame(loop); };
-      // Record exactly one pass, top to bottom.
-      v.loop = false;
-      v.currentTime = 0;
       setNewsRecording(true);
-      const onEnded = () => {
-        v.removeEventListener("ended", onEnded);
-        if (rec.state === "recording") rec.stop();
-      };
-      v.addEventListener("ended", onEnded);
-      const begin = () => { rec.start(); raf = requestAnimationFrame(loop); };
-      v.play().then(begin).catch(begin);     // autoplay blocked → record anyway
+      if (isGif) {
+        // A GIF has no "ended" event and no exposed frame timing — record a
+        // fixed window of the looping animation (long enough for a couple loops).
+        rec.start(); raf = requestAnimationFrame(loop);
+        gifTimer = setTimeout(() => { if (rec.state === "recording") rec.stop(); }, 5000);
+      } else {
+        // Video: record exactly one pass, top to bottom, with its audio.
+        src.loop = false;
+        src.currentTime = 0;
+        const onEnded = () => { src.removeEventListener("ended", onEnded); if (rec.state === "recording") rec.stop(); };
+        src.addEventListener("ended", onEnded);
+        const begin = () => { rec.start(); raf = requestAnimationFrame(loop); };
+        src.play().then(begin).catch(begin); // autoplay blocked → record anyway
+      }
     } catch (err) {
       setNewsRecording(false);
       alert("Video recording isn't supported in this browser. Try Chrome, or screen-record the preview.");
@@ -6597,22 +6620,23 @@ export default function MediaTool() {
               />}
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Photo caption · optional (one line, shows over the photo)</label><input value={newsCaption} onChange={e=>setNewsCaption(e.target.value)} style={I} placeholder="e.g. Valley Mall · Irvington, NJ"/></div>
 
-              {/* VIDEO INSERT — drop a clip into the photo area and export the
-                  whole slide as a real .webm (block over the playing video).
-                  Session-only: the clip isn't saved into drafts/snapshots. */}
+              {/* MOTION INSERT — drop a video OR animated GIF into the photo area
+                  and export the whole slide as a real .webm (block over the moving
+                  media). Session-only: not saved into drafts/snapshots. */}
               <div style={{marginBottom:"0.6rem",padding:"0.55rem 0.6rem",background:"rgba(229,188,79,0.05)",border:"1px solid rgba(229,188,79,0.15)",borderRadius:"6px"}}>
-                <div style={{fontSize:"0.55rem",color:"#E5BC4F",letterSpacing:"1px",textTransform:"uppercase",fontWeight:700,fontFamily:"'Syne',sans-serif",marginBottom:"4px"}}>🎬 Video insert · optional</div>
-                <p style={{fontSize:"0.5rem",color:"rgba(245,240,232,0.4)",lineHeight:1.4,margin:"0 0 6px"}}>Drop a clip into the photo area — the block stays put and the video plays behind it. Export it as a real <b style={{color:"rgba(245,240,232,0.6)"}}>.webm</b> below (with the clip's audio). Overrides the still photo while loaded.</p>
+                <div style={{fontSize:"0.55rem",color:"#E5BC4F",letterSpacing:"1px",textTransform:"uppercase",fontWeight:700,fontFamily:"'Syne',sans-serif",marginBottom:"4px"}}>🎬 Video / GIF insert · optional</div>
+                <p style={{fontSize:"0.5rem",color:"rgba(245,240,232,0.4)",lineHeight:1.4,margin:"0 0 6px"}}>Drop a video or animated GIF into the photo area — the block stays put and it plays behind. Export the slide as a real <b style={{color:"rgba(245,240,232,0.6)"}}>.webm</b> below (video keeps its audio; a GIF records a 5-second loop). Overrides the still photo while loaded.</p>
                 <div style={{display:"flex",gap:"0.3rem",alignItems:"center",marginBottom:newsVideoUrl?"6px":0}}>
-                  <button onClick={()=>newsVideoFileRef.current?.click()} style={{...B,flex:1}}>{newsVideoUrl?"✓ Video loaded — change":"Upload Video"}</button>
+                  <button onClick={()=>newsVideoFileRef.current?.click()} style={{...B,flex:1}}>{newsVideoUrl?`✓ ${newsMotionKind==="gif"?"GIF":"Video"} loaded — change`:"Upload Video / GIF"}</button>
                   {newsVideoUrl&&<button onClick={clearNewsVideo} style={{...B,color:"rgba(251,113,133,0.5)"}}>×</button>}
-                  <input ref={newsVideoFileRef} type="file" accept="video/*" onChange={handleNewsVideo} style={{display:"none"}}/>
+                  <input ref={newsVideoFileRef} type="file" accept="video/*,image/gif" onChange={handleNewsVideo} style={{display:"none"}}/>
                 </div>
-                {newsVideoUrl&&<button onClick={dlNewsVideo} disabled={newsRecording} style={{width:"100%",padding:"9px",background:"rgba(229,188,79,0.14)",color:"#E5BC4F",border:"1px solid rgba(229,188,79,0.28)",borderRadius:"6px",fontSize:"0.7rem",fontWeight:700,fontFamily:"'Syne',sans-serif",cursor:newsRecording?"not-allowed":"pointer",opacity:newsRecording?0.55:1}}>{newsRecording?"● Recording… (plays once)":"⬇ Download News video (.webm)"}</button>}
+                {newsVideoUrl&&<button onClick={dlNewsVideo} disabled={newsRecording} style={{width:"100%",padding:"9px",background:"rgba(229,188,79,0.14)",color:"#E5BC4F",border:"1px solid rgba(229,188,79,0.28)",borderRadius:"6px",fontSize:"0.7rem",fontWeight:700,fontFamily:"'Syne',sans-serif",cursor:newsRecording?"not-allowed":"pointer",opacity:newsRecording?0.55:1}}>{newsRecording?"● Recording…":`⬇ Download News ${newsMotionKind==="gif"?"GIF clip":"video"} (.webm)`}</button>}
               </div>
-              {/* Hidden playback element that feeds both the live preview loop
-                  and the export recorder. muted+playsInline so it autoplays. */}
+              {/* Hidden playback elements that feed the preview loop + recorder:
+                  <video> for clips, <img> for animated GIFs. */}
               <video ref={newsVideoRef} muted loop playsInline style={{display:"none"}}/>
+              <img ref={newsGifRef} alt="" style={{display:"none"}}/>
             </>}
 
             {mode==="cta"&&<>
