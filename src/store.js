@@ -283,17 +283,22 @@ Return JSON ONLY in this exact shape (3 different variations):
 
         news: `Generate ONE News-slide (supporting explainer) for a CGE editorial carousel.
 
-The News slide is a SUPPORTING beat that sits in the MIDDLE of a carousel — the "here's the story / the backstory / why it matters / breaking update" slide. It's a cream (or dark) news-card block over a photo. It carries the substance the Cover promised, in a calm reporter's register.
+The News slide is a SUPPORTING beat in the MIDDLE of a carousel — the "here's the story / the backstory / why it matters / breaking update" slide. It's a cream (or dark) news-card block over a photo, and it carries the substance the Cover promised.
 
-Requirements:
-- newsKicker: a short ALL-CAPS eyebrow labeling the beat. Examples: "THE BIGGER PICTURE", "BREAKING", "THE BACKSTORY", "WHY IT MATTERS", "WHAT WE KNOW". 1-4 words. Never a hype word.
-- newsHeadline: an OPTIONAL short heading (3-7 words) — a mini news-headline for this beat. Leave "" (empty) when the paragraphs read better on their own (pure-paragraph mode).
-- newsBody: 1-2 tight paragraphs (use "\\n\\n" between them). Reported, specific, NJ-grounded — what happened / what's changing and why it matters. Three-beat sentences welcome. NOT flyer copy, NOT a summary of the carousel. This is the substance a reader swiped in for.
-- newsBold: true ONLY for a breaking/urgent beat (renders the body bold); otherwise false.
-- Match the brand voice (editorial, NJ-first, concrete). Every claim should feel verifiable — never invent a stat/date/quote.
+WRITE IT IN THE HIGH-RETENTION FORMAT — the same craft that makes a great carousel slide: open a small loop, hold a beat of tension, then land the payoff. NOT a dense paragraph.
+- SHORT STACKED LINES, not a wall of prose. One thought per line. Put each line on its own row with a single line break "\\n"; use a blank line "\\n\\n" only to separate the setup from the payoff.
+- THREE-BEAT RHYTHM is a signature ("Dark since 2016. Packed again Saturday."). Punchy, declarative.
+- SETUP → PAYOFF within the slide: the first lines set up a small tension or open a mini-loop; the LAST line delivers the payoff or the "so what". Wrap that ONE payoff line in *asterisks* so it renders bold. Exactly one bold payoff — don't bold everything.
+- Reported and TRUE — real specifics (names, dates, venues, numbers), NJ-grounded. Never invent a stat/date/quote to sound punchy. Curiosity from real facts, never manufactured drama.
+
+Fields:
+- newsKicker: a short ALL-CAPS eyebrow labeling the beat ("THE BIGGER PICTURE", "BREAKING", "THE BACKSTORY", "WHY IT MATTERS"). 1-4 words. Never a hype word.
+- newsHeadline: an OPTIONAL short heading (3-7 words). Leave "" when the stacked lines read better alone.
+- newsBody: the stacked lines described above (single "\\n" between lines, "\\n\\n" before the payoff). 4-8 short lines total.
+- newsBold: true ONLY for a genuinely breaking/urgent beat (sets the whole body bold); otherwise false — the *payoff* line still bolds on its own.
 
 Return JSON ONLY in this exact shape:
-{"newsKicker":"...","newsHeadline":"...","newsBody":"...paragraph 1...\\n\\n...paragraph 2...","newsBold":false}`,
+{"newsKicker":"...","newsHeadline":"...","newsBody":"Short line.\\nAnother short line.\\nOne more.\\n\\n*The payoff line.*","newsBold":false}`,
       },
 
       // Setters — accept either a value or a function (parity with React setState)
@@ -353,9 +358,12 @@ Return JSON ONLY in this exact shape:
       // content in AI Fill because slotPrompts had no `news` key, so
       // buildTemplatePrompt fell into its "no rule defined" branch). Same
       // drop-slotPrompts move so the new default reaches existing users.
-      version: 4,
+      // v5 (2026-07): rewrite the `news` rule to the high-retention punchy
+      // format (short stacked lines, open loop → *bold* payoff). Drop
+      // slotPrompts again so the new default reaches existing users.
+      version: 5,
       migrate: (persisted, version) => {
-        if (version < 4 && persisted && typeof persisted === "object") {
+        if (version < 5 && persisted && typeof persisted === "object") {
           const { slotPrompts, ...rest } = persisted;
           return rest;
         }
@@ -546,17 +554,17 @@ export const SLOT_META = {
     ],
   },
   news: {
-    audience: "A reader who swiped past the cover and now wants the substance — the story, the backstory, the 'why it matters'. They'll read a short reported paragraph if it earns it. Calm reporter register, not a flyer.",
+    audience: "A reader who swiped past the cover and wants the substance — the story, the backstory, the 'why it matters'. Give it to them in short stacked lines that open a small loop and land a payoff, not a wall of prose. Calm reporter register, punchy rhythm.",
     examples: [
-      `{"newsKicker":"THE BIGGER PICTURE","newsHeadline":"Why A Food Fest, And Why Here","newsBody":"For a decade this strip mall was the block everyone drove past. Nutrition Fest is the first thing to fill it in years — and it's not a pop-up.\\n\\nIt's a bet that teaching people how food actually fuels them, out in the open, can bring a forgotten corner of Irvington back to life.","newsBold":false}`,
-      `{"newsKicker":"BREAKING","newsHeadline":"","newsBody":"Newark's oldest Black-owned jazz room just confirmed it's reopening this fall, three years after the fire. The same family, the same corner, a new stage.\\n\\nFirst residency lands in October. The lineup drops next week.","newsBold":true}`,
+      `{"newsKicker":"THE BIGGER PICTURE","newsHeadline":"","newsBody":"For a decade, everyone drove past this strip mall.\\nClinic. Nail salon. Empty glass.\\n\\nNutrition Fest is the first thing to fill it in years.\\n\\n*And it isn't a pop-up.*","newsBold":false}`,
+      `{"newsKicker":"BREAKING","newsHeadline":"","newsBody":"Three years after the fire.\\nSame family. Same corner. New stage.\\n\\nNewark's oldest Black-owned jazz room reopens this fall.\\n\\n*First residency lands in October.*","newsBold":true}`,
     ],
     antiPatterns: [
-      "Not a flyer and not a summary of the carousel — this is the reported substance the cover promised.",
-      "newsKicker is a short ALL-CAPS beat label (THE BACKSTORY, WHY IT MATTERS, BREAKING) — never a hype word or a full sentence.",
-      "Leave newsHeadline empty when the paragraphs read better on their own — don't force a heading.",
-      "Never invent a stat, date, quote or venue to sound authoritative. If it can't be grounded, don't claim it.",
-      "newsBold=true only for genuine breaking/urgent beats; the default is false.",
+      "NOT a dense paragraph — short stacked lines, one thought per line, a blank line before the payoff.",
+      "Exactly ONE *bold* payoff line (the last one). Don't bold every line, and don't leave the payoff un-bolded.",
+      "newsKicker is a short ALL-CAPS beat label (THE BACKSTORY, WHY IT MATTERS, BREAKING) — never a hype word or a sentence.",
+      "Never invent a stat, date, quote or venue to sound punchy. Curiosity from real facts, never manufactured drama.",
+      "newsBold=true only for genuine breaking/urgent beats; the *payoff* line still bolds on its own.",
     ],
   },
 };
