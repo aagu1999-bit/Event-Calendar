@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useBrandStore, useCarouselTemplatesStore, BUILTIN_CAROUSEL_TEMPLATES } from "../store";
-import { generateTemplateFill, pickTemplate, generateArrangedCarousel, researchEvent, researchNews } from "./aiContent.js";
+import { generateTemplateFill, pickTemplate, generateArrangedCarousel, researchEvent, researchNews, connectDots, dotsPlanToSlides } from "./aiContent.js";
 
 // Scaffold that primes the Context box with the ingredients a strong hook
 // (esp. an open loop) needs: the TWIST is the curiosity gap, PROOF + WHAT
@@ -48,6 +48,10 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
   // in the result panel so the user knows what was chosen.
   const [letAiPick, setLetAiPick] = useState(false);
   const [aiArrange, setAiArrange] = useState(false);
+  // Connect-the-dots mode — a thesis + several real-news "dots" welded into one
+  // evidence carousel. dotsDiscover lets the AI propose the thread itself.
+  const [dotsMode, setDotsMode] = useState(false);
+  const [dotsDiscover, setDotsDiscover] = useState(false);
   // Target slide count for "AI arranges" — "auto" lets Gemini size the arc to
   // the story; a number pins it. Ignored by fixed-length template fill.
   const [slideCount, setSlideCount] = useState("auto");
@@ -91,6 +95,8 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
       setSavedIdx(new Set());
       setMode("editorial");
       setAiArrange(false);
+      setDotsMode(false);
+      setDotsDiscover(false);
       setSlideCount("auto");
       setNewsOn(false);
       setNewsFound(null);
@@ -121,21 +127,26 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
                   (Array.isArray(voice?.exemplars) && voice.exemplars.some(e => e && e.trim()));
   // When either AI mode is on, the AI chooses the layout, so the manual
   // Template dropdown is inert (greyed) and its slide count no longer applies.
-  const aiChoosesLayout = letAiPick || aiArrange;
+  const aiChoosesLayout = letAiPick || aiArrange || dotsMode;
   // Label for the Generate button — must reflect what will actually run.
   const genLabel = slides.length
     ? "↻ Regenerate"
-    : aiArrange
-      ? (slideCount === "auto" ? "✨ Design + generate" : `✨ Generate ${slideCount} slides`)
-      : letAiPick
-        ? "✨ Let AI pick + generate"
-        : `✨ Generate ${template?.sequence?.length || 0} slides`;
+    : dotsMode
+      ? (dotsDiscover ? "🧵 Find a thread + build" : "🧵 Connect the dots")
+      : aiArrange
+        ? (slideCount === "auto" ? "✨ Design + generate" : `✨ Generate ${slideCount} slides`)
+        : letAiPick
+          ? "✨ Let AI pick + generate"
+          : `✨ Generate ${template?.sequence?.length || 0} slides`;
   const enrichCount = (researchOn ? 1 : 0) + (newsOn ? 1 : 0) + (letterMode ? 1 : 0);
+  // Dots + "let AI find the thread" needs no typed input; everything else needs a topic/context.
+  const canGenerate = (dotsMode && dotsDiscover) || !!topic.trim() || !!context.trim();
 
   const handleGenerate = async () => {
     if (!apiKey) { setError("Paste your Gemini API key in the MediaTool toolbar first."); return; }
-    if (!aiArrange && !letAiPick && !template) { setError("Pick a template first, or toggle 'Let AI pick' / 'AI arranges'."); return; }
-    if (!topic.trim() && !context.trim()) { setError("Add a topic or some event details first."); return; }
+    if (!dotsMode && !aiArrange && !letAiPick && !template) { setError("Pick a template first, or toggle 'Let AI pick' / 'AI arranges'."); return; }
+    // Dots mode with "let AI find the thread" needs no input; otherwise require a thesis/topic.
+    if (!(dotsMode && dotsDiscover) && !topic.trim() && !context.trim()) { setError(dotsMode ? "Type the thesis/pattern to connect — or toggle 'Let AI find the thread'." : "Add a topic or some event details first."); return; }
     setBusy(true);
     setError("");
     setSlides([]);
@@ -176,6 +187,19 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
         } catch (e) {
           console.warn("News lookup failed, continuing without it:", e?.message || e);
         }
+      }
+      // "Connect the dots" — a thesis + several real-news dots, welded into an
+      // evidence carousel. Supersedes template/arrange.
+      if (dotsMode) {
+        setBusyLabel(dotsDiscover ? "Finding a thread…" : "Gathering the evidence…");
+        const plan = await connectDots({ apiKey, thesis: dotsDiscover ? "" : topic, area: "New Jersey" });
+        const dotsSlides = dotsPlanToSlides(plan);
+        if (!dotsSlides.length) { setError("Couldn't find enough real dots for that thread. Try a clearer thesis, or toggle 'Let AI find the thread'."); return; }
+        setNewsFound({ brief: plan.brief, sources: plan.sources });
+        setPickedTemplate({ id: "connect-the-dots", name: `Connect the dots${plan.thesis ? ` — ${plan.thesis}` : ""}`, sequence: dotsSlides.map(s => s.type), custom: true });
+        setPickReasoning(plan.thesis ? `Thesis: ${plan.thesis}` : "");
+        setSlides(dotsSlides);
+        return;
       }
       // "AI arranges" — design a bespoke slot sequence for this story, then
       // fill + polish it. Supersedes template selection.
@@ -437,6 +461,31 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
         </div>
       );
     }
+    if (slot.type === "news") {
+      return (
+        <div>
+          <div style={{ fontSize: "0.5rem", color: "#E5BC4F", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 4 }}>
+            Slide {num} · News
+          </div>
+          {slot.newsKicker && (
+            <div style={{ fontSize: "0.55rem", color: "#E5BC4F", letterSpacing: 1.2, textTransform: "uppercase", fontWeight: 800, marginBottom: 4 }}>{slot.newsKicker}</div>
+          )}
+          {slot.newsHeadline && (
+            <div style={{ fontFamily: "'Syne',sans-serif", fontSize: "0.95rem", fontWeight: 800, marginBottom: 4 }}>{slot.newsHeadline}</div>
+          )}
+          <div style={{ fontSize: "0.72rem", color: "rgba(245,240,232,0.78)", lineHeight: 1.5, whiteSpace: "pre-wrap" }}>
+            {String(slot.newsBody || "").split(/(\*[^*]+\*)/g).map((p, i) =>
+              (p.length > 2 && p.startsWith("*") && p.endsWith("*"))
+                ? <b key={i} style={{ color: "#F5F0E8" }}>{p.slice(1, -1)}</b>
+                : <span key={i}>{p}</span>
+            )}
+          </div>
+          {slot.newsCaption && (
+            <div style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.45)", marginTop: 5 }}>📍 {slot.newsCaption}</div>
+          )}
+        </div>
+      );
+    }
     if (slot.type === "photo") {
       return (
         <div>
@@ -638,7 +687,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
           <input
             type="checkbox"
             checked={letAiPick}
-            onChange={(e) => { setLetAiPick(e.target.checked); if (e.target.checked) setAiArrange(false); }}
+            onChange={(e) => { setLetAiPick(e.target.checked); if (e.target.checked) { setAiArrange(false); setDotsMode(false); } }}
           />
           <span style={{ fontWeight: 700, letterSpacing: 0.5 }}>
             ✨ Let AI pick the best template
@@ -654,7 +703,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
           <input
             type="checkbox"
             checked={aiArrange}
-            onChange={(e) => { setAiArrange(e.target.checked); if (e.target.checked) setLetAiPick(false); }}
+            onChange={(e) => { setAiArrange(e.target.checked); if (e.target.checked) { setLetAiPick(false); setDotsMode(false); } }}
           />
           <span style={{ fontWeight: 700, letterSpacing: 0.5 }}>
             🪄 Let AI arrange the carousel
@@ -686,6 +735,28 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
                 >{c === "auto" ? "✨ Auto" : c}</button>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* Connect the dots — a thesis backed by several real news "dots". */}
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.72rem", color: dotsMode ? "#A78BFA" : "rgba(245,240,232,0.7)", cursor: "pointer", marginBottom: 8, padding: "7px 9px", background: dotsMode ? "rgba(139,92,246,0.10)" : "transparent", border: "1px solid " + (dotsMode ? "rgba(139,92,246,0.4)" : "rgba(245,240,232,0.08)"), borderRadius: 4 }}>
+          <input
+            type="checkbox"
+            checked={dotsMode}
+            onChange={(e) => { setDotsMode(e.target.checked); if (e.target.checked) { setLetAiPick(false); setAiArrange(false); } }}
+          />
+          <span style={{ fontWeight: 700, letterSpacing: 0.5 }}>🧵 Connect the dots</span>
+          <span style={{ marginLeft: "auto", fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: 0.5 }}>thesis + real-news evidence</span>
+        </label>
+        {dotsMode && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, padding: "8px 10px", background: "rgba(139,92,246,0.05)", border: "1px solid rgba(139,92,246,0.18)", borderRadius: 4 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.65rem", color: dotsDiscover ? "#A78BFA" : "rgba(245,240,232,0.7)", cursor: "pointer", fontWeight: 700 }}>
+              <input type="checkbox" checked={dotsDiscover} onChange={(e) => setDotsDiscover(e.target.checked)} />
+              Let AI find the thread
+            </label>
+            <span style={{ marginLeft: "auto", fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: 0.5, textAlign: "right", lineHeight: 1.3 }}>
+              {dotsDiscover ? "AI proposes the pattern from current news" : "type your thesis in the Topic box below"}
+            </span>
           </div>
         )}
 
@@ -755,7 +826,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
           <div>
             <label style={{ fontSize: "0.65rem", color: "rgba(245,240,232,0.65)", display: "block", marginBottom: 5, letterSpacing: 0.5 }}>
-              Template {aiChoosesLayout && <span style={{ color: "rgba(245,240,232,0.4)", fontStyle: "italic", textTransform: "none", letterSpacing: 0 }}>({aiArrange ? "AI will design" : "AI will pick"})</span>}
+              Template {aiChoosesLayout && <span style={{ color: "rgba(245,240,232,0.4)", fontStyle: "italic", textTransform: "none", letterSpacing: 0 }}>({dotsMode ? "connect the dots" : aiArrange ? "AI will design" : "AI will pick"})</span>}
             </label>
             <select
               value={templateId}
@@ -797,7 +868,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
           </div>
           <div>
             <label style={{ fontSize: "0.65rem", color: "rgba(245,240,232,0.65)", display: "block", marginBottom: 5, letterSpacing: 0.5 }}>
-              Topic (carousel headline subject)
+              {dotsMode ? (dotsDiscover ? "Thesis (optional — AI will find one)" : "Thesis / pattern to connect") : "Topic (carousel headline subject)"}
             </label>
             <input
               value={topic}
@@ -892,10 +963,10 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
           <button
             onClick={handleGenerate}
-            disabled={busy || !topic.trim()}
+            disabled={busy || (!canGenerate)}
             style={{
               padding: "9px 18px",
-              background: busy ? "rgba(229,188,79,0.4)" : (topic.trim() ? "#E5BC4F" : "rgba(229,188,79,0.25)"),
+              background: busy ? "rgba(229,188,79,0.4)" : (canGenerate ? "#E5BC4F" : "rgba(229,188,79,0.25)"),
               color: "#000",
               border: "none",
               borderRadius: 4,
@@ -903,7 +974,7 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
               fontWeight: 700,
               letterSpacing: 1,
               textTransform: "uppercase",
-              cursor: busy ? "wait" : (topic.trim() ? "pointer" : "not-allowed"),
+              cursor: busy ? "wait" : (canGenerate ? "pointer" : "not-allowed"),
               fontFamily: "'Syne',sans-serif",
             }}
           >{busy ? (busyLabel || "Generating…") : genLabel}</button>
