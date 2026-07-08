@@ -411,6 +411,38 @@ app.post("/api/library/import-url", express.json({ limit: "1mb" }), async (req, 
   }
 });
 
+// === STOCK PHOTO SEARCH (Pexels) ===
+// Free-license candidate photos for a story (used by the News Scout to attach
+// an atmospheric backdrop to a News slide). Needs a free PEXELS_API_KEY. Returns
+// { photos:[{id,thumb,url,alt,photographer}], configured } — `url` is the full
+// image the client imports through /api/library/import-url (same-origin, so the
+// canvas export doesn't taint). Portrait orientation fits the News layout.
+app.get("/api/photos/search", async (req, res) => {
+  const key = (process.env.PEXELS_API_KEY || "").trim();
+  const q = String(req.query.q || "").trim().slice(0, 120);
+  const n = Math.min(Math.max(parseInt(req.query.n || "8", 10) || 8, 1), 15);
+  if (!key) return res.json({ photos: [], configured: false });
+  if (!q) return res.json({ photos: [], configured: true });
+  try {
+    const r = await fetch(
+      `https://api.pexels.com/v1/search?query=${encodeURIComponent(q)}&per_page=${n}&orientation=portrait`,
+      { headers: { Authorization: key }, signal: AbortSignal.timeout(15_000) }
+    );
+    if (!r.ok) return res.status(502).json({ error: `Pexels ${r.status}`, photos: [], configured: true });
+    const j = await r.json();
+    const photos = (Array.isArray(j.photos) ? j.photos : []).map((p) => ({
+      id: p.id,
+      thumb: p.src?.medium || p.src?.small || p.src?.tiny || "",
+      url: p.src?.large2x || p.src?.large || p.src?.original || "",
+      alt: p.alt || "",
+      photographer: p.photographer || "",
+    })).filter((p) => p.url);
+    res.json({ photos, configured: true });
+  } catch (e) {
+    res.status(500).json({ error: String(e?.message || e), photos: [], configured: true });
+  }
+});
+
 // === REVIEW SESSIONS ===
 // Named snapshots of the Review tab's working state (events list +
 // approvals + filter). Same shape as workspaces — list / get / put /

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { scoutNews } from "./aiContent.js";
+import { savePhotoAndNotify } from "./photoLibrary.js";
 
 // News Scout (the "news agent"). Two halves:
 //   • INBOX — the autonomous server cron accumulates ranked, deduped stories
@@ -13,7 +14,7 @@ import { scoutNews } from "./aiContent.js";
 //
 // Props:
 //   open, apiKey, onClose()
-//   onUse(candidate)           — map into the News slot, switch to News mode
+//   onUse(candidate, photoImg) — map into the News slot (+ optional stock photo)
 //   onBuildCarousel(candidate) — hand to AI Fill Template for a full carousel
 
 const AREA_CHIPS = ["New Jersey", "Newark", "Jersey City", "Essex County", "East Orange", "Montclair", "Trenton", "Atlantic City"];
@@ -27,6 +28,10 @@ export function NewsScoutModal({ open, apiKey, onClose, onUse, onBuildCarousel }
 
   const [inbox, setInbox] = useState(null);      // server inbox: { items, unread, lastRun, ... }
   const [inboxBusy, setInboxBusy] = useState(false);
+  // Per-story stock-photo picker state, keyed by the card's key:
+  // { open, loading, error, photos:[{thumb,url,alt}], picking:url|null, picked:{url,img} }
+  const [photoMap, setPhotoMap] = useState({});
+  const setPh = (key, patch) => setPhotoMap((m) => ({ ...m, [key]: { ...(m[key] || {}), ...patch } }));
 
   // Load the server inbox each time the modal opens; clear its unread badge.
   // Fails silently when there's no server (static deploy) — inbox stays hidden.
@@ -81,8 +86,59 @@ export function NewsScoutModal({ open, apiKey, onClose, onUse, onBuildCarousel }
     } catch { /* ignore */ }
   };
 
+  // Build a Pexels query from a story — its headline plus the town, if we can
+  // pull one out of the "venue · town · [date]" line.
+  const photoQuery = (c) => {
+    const town = (c.whenWhere || "").split("·")[1]?.trim() || "";
+    return [c.headline, town].map((s) => (s || "").trim()).filter(Boolean).join(" ").slice(0, 120) || (c.headline || "");
+  };
+
+  // Fetch free-license candidate photos for a story (server-side Pexels).
+  const findPhotos = async (key, c) => {
+    setPh(key, { open: true, loading: true, error: "" });
+    try {
+      const r = await fetch(`/api/photos/search?q=${encodeURIComponent(photoQuery(c))}`);
+      const j = await r.json();
+      if (j.configured === false) {
+        setPh(key, { loading: false, photos: [], error: "Stock photos aren't set up yet — add a free PEXELS_API_KEY on the server." });
+        return;
+      }
+      const photos = Array.isArray(j.photos) ? j.photos : [];
+      setPh(key, { loading: false, photos, error: photos.length ? "" : "No photos found — try a simpler search on the slide itself." });
+    } catch {
+      setPh(key, { loading: false, photos: [], error: "Photo search failed (is the server running?)." });
+    }
+  };
+
+  // Import a chosen photo through the same-origin proxy (so canvas export won't
+  // taint), save it to the library, and hold the loaded Image for the handoff.
+  const pickPhoto = async (key, cand) => {
+    setPh(key, { picking: cand.url, error: "" });
+    try {
+      const res = await fetch("/api/library/import-url", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: cand.url }),
+      });
+      const j = await res.json();
+      if (!res.ok || j.kind !== "image") throw new Error(j.error || "import failed");
+      const bin = atob(j.data);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const blob = new Blob([bytes], { type: j.mime });
+      savePhotoAndNotify(new File([blob], j.name || "pexels.jpg", { type: j.mime }), { sourceTool: "scout", sourceMode: "news" }).catch(() => {});
+      const url = URL.createObjectURL(blob);
+      const img = await new Promise((resolve, reject) => { const im = new Image(); im.onload = () => resolve(im); im.onerror = reject; im.src = url; });
+      setPh(key, { picking: null, picked: { url: cand.url, img } });
+    } catch {
+      setPh(key, { picking: null, error: "Couldn't load that photo — pick another." });
+    }
+  };
+
   // One story card, shared by the inbox and the on-demand scan.
-  const Card = (c, key, onDismiss) => (
+  const Card = (c, key, onDismiss) => {
+    const ps = photoMap[key] || {};
+    const pickedImg = ps.picked?.img || null;
+    return (
     <div key={key} style={{ padding: "12px 14px", background: "rgba(245,240,232,0.03)", border: "1px solid rgba(245,240,232,0.08)", borderRadius: 6 }}>
       <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 4 }}>
         {c.kicker && <span style={{ fontSize: "0.55rem", letterSpacing: 1.2, textTransform: "uppercase", fontWeight: 800, color: "#E5BC4F" }}>{c.kicker}</span>}
@@ -92,14 +148,46 @@ export function NewsScoutModal({ open, apiKey, onClose, onUse, onBuildCarousel }
       {c.body && <div style={{ fontSize: "0.72rem", color: "rgba(245,240,232,0.75)", lineHeight: 1.5, marginBottom: 6 }}>{c.body}</div>}
       {c.whenWhere && <div style={{ fontSize: "0.62rem", color: "rgba(245,240,232,0.45)", marginBottom: 8 }}>📍 {c.whenWhere}</div>}
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-        <button onClick={() => { onUse?.(c); onClose?.(); }} title="Drop this story into a single News slide, ready to edit"
-          style={{ padding: "6px 12px", background: "rgba(229,188,79,0.16)", color: "#E5BC4F", border: "1px solid rgba(229,188,79,0.4)", borderRadius: 4, fontSize: "0.64rem", fontWeight: 700, letterSpacing: 0.5, fontFamily: "'Syne',sans-serif", cursor: "pointer", textTransform: "uppercase" }}>Use in News slot →</button>
+        <button onClick={() => { onUse?.(c, pickedImg); onClose?.(); }} title={pickedImg ? "Drop this story + the chosen photo into a News slide" : "Drop this story into a single News slide, ready to edit"}
+          style={{ padding: "6px 12px", background: "rgba(229,188,79,0.16)", color: "#E5BC4F", border: "1px solid rgba(229,188,79,0.4)", borderRadius: 4, fontSize: "0.64rem", fontWeight: 700, letterSpacing: 0.5, fontFamily: "'Syne',sans-serif", cursor: "pointer", textTransform: "uppercase" }}>Use in News slot{pickedImg ? " + photo" : ""} →</button>
         <button onClick={() => { onBuildCarousel?.(c); onClose?.(); }} title="Send this story to AI Fill Template to generate a whole news carousel"
           style={{ padding: "6px 12px", background: "transparent", color: "#63B3ED", border: "1px solid rgba(99,179,237,0.45)", borderRadius: 4, fontSize: "0.64rem", fontWeight: 700, letterSpacing: 0.5, fontFamily: "'Syne',sans-serif", cursor: "pointer", textTransform: "uppercase" }}>✨ Build carousel →</button>
+        <button onClick={() => (ps.open ? setPh(key, { open: false }) : findPhotos(key, c))} title="Find free stock photos that fit this story"
+          style={{ padding: "6px 10px", background: ps.open ? "rgba(99,179,237,0.14)" : "transparent", color: "#63B3ED", border: "1px solid rgba(99,179,237,0.35)", borderRadius: 4, fontSize: "0.64rem", fontWeight: 700, letterSpacing: 0.5, fontFamily: "'Syne',sans-serif", cursor: "pointer" }}>🖼 {ps.open ? "Hide" : "Photos"}</button>
         {onDismiss && <button onClick={onDismiss} title="Dismiss from inbox" style={{ marginLeft: "auto", padding: "6px 9px", background: "transparent", color: "rgba(251,113,133,0.6)", border: "1px solid rgba(251,113,133,0.25)", borderRadius: 4, fontSize: "0.64rem", fontWeight: 700, cursor: "pointer" }}>✕</button>}
       </div>
+
+      {/* Stock photo candidates for this story (Pexels, free-license). */}
+      {ps.open && (
+        <div style={{ marginTop: 10 }}>
+          {ps.loading && <div style={{ fontSize: "0.62rem", color: "rgba(245,240,232,0.5)" }}>🔎 Finding photos…</div>}
+          {ps.error && <div style={{ fontSize: "0.62rem", color: "#FB7185", lineHeight: 1.4 }}>{ps.error}</div>}
+          {ps.photos?.length > 0 && (
+            <>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 }}>
+                {ps.photos.map((p) => {
+                  const isPicked = ps.picked?.url === p.url;
+                  const isPicking = ps.picking === p.url;
+                  return (
+                    <button key={p.id} onClick={() => pickPhoto(key, p)} title={p.alt || (p.photographer ? `Photo: ${p.photographer}` : "Use this photo")}
+                      style={{ position: "relative", padding: 0, border: isPicked ? "2px solid #63B3ED" : "2px solid transparent", borderRadius: 5, overflow: "hidden", cursor: "pointer", aspectRatio: "3 / 4", background: "#000" }}>
+                      <img src={p.thumb} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", opacity: isPicking ? 0.5 : 1 }} />
+                      {isPicked && <span style={{ position: "absolute", top: 3, right: 4, fontSize: "0.7rem" }}>✓</span>}
+                      {isPicking && <span style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", fontSize: "0.6rem", color: "#fff" }}>…</span>}
+                    </button>
+                  );
+                })}
+              </div>
+              <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", marginTop: 5, lineHeight: 1.4 }}>
+                {ps.picked ? "Photo selected — it'll attach when you hit “Use in News slot”." : "Tap a photo to attach it. Free-license (Pexels); it's also saved to your library."}
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
-  );
+    );
+  };
 
   const fmtWhen = (iso) => { try { return new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); } catch { return ""; } };
 

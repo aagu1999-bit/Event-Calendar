@@ -7412,15 +7412,17 @@ export default function MediaTool() {
           });
           setAiFillOpen(true);
         }}
-        onUse={(c) => {
+        onUse={(c, photoImg) => {
           // Drop the picked story into the News slot and switch to it, ready
           // to edit. Headline → heading, kicker → eyebrow, body → paragraphs,
-          // when/where → the photo caption line.
+          // when/where → the photo caption line. An optional stock photo from
+          // the scout attaches as the News background (center focal).
           setMode("news");
           if (c.kicker) setNewsKicker(c.kicker);
           setNewsHeadline(c.headline || "");
           if (c.body) setNewsBody(c.body);
           setNewsCaption(c.whenWhere || "");
+          if (photoImg) { setNewsPhoto(photoImg); setNewsFocalX(0.5); setNewsFocalY(0.5); }
         }}
       />
     </div>
