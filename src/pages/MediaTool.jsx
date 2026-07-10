@@ -50,6 +50,14 @@ const EXPORT_RATIOS = {
   "9:16": { w: 1080, h: 1920, label: "9:16 · Story/Reel" },
 };
 
+// Export supersampling factor. Renderers lay out in logical 1080-space; at
+// export we render into a 2× backing store so photos land at ~2160px instead
+// of 1080px — crisp instead of soft. 2× is the sweet spot: a visible sharpness
+// jump at 4× the pixels (~8MP for a 9:16 frame), which a modern browser
+// encodes to PNG in a fraction of a second. It's applied ONLY at export, so
+// live editing/preview stays at 1× and takes no performance hit.
+const EXPORT_SCALE = 2;
+
 // Module-level state for fonts + watermark, synced from the React component.
 // Renderers read these so we don't have to thread them through every cfg.
 let _displayFont = "Syne";
@@ -213,6 +221,31 @@ function drawPageNum(ctx, W, H, current, total, accent, isLight = false) {
 }
 
 // === COVER RENDERER ===
+// Shared canvas setup for every renderer. Two jobs:
+//   1. Supersampling — cfg.renderScale (default 1) multiplies the backing
+//      store, so an export at scale 2 renders into a 2160px canvas while all
+//      the layout code keeps working in logical 1080 coordinates (ctx.scale
+//      does the mapping). That's the fix for "exported photos look blurry":
+//      a high-res source photo is now rasterized at 2× the pixels instead of
+//      being crushed to 1080. The live preview passes NO renderScale (stays
+//      1×), so editing stays snappy — only the actual export pays the
+//      4×-pixels cost, which keeps the performance hit contained.
+//   2. imageSmoothingQuality:"high" — browsers default to "low", a fast
+//      box-ish filter that softens any downscaled photo even at 1×. "high"
+//      uses a proper multi-tap filter. Free, applies everywhere.
+// Renderers read W/H (not canvas.width) for all layout, so scaling the
+// backing store never shifts anything.
+function setupCanvas(canvas, W, H, cfg) {
+  const s = Math.max(1, Math.min(4, (cfg && cfg.renderScale) || 1));
+  canvas.width = Math.round(W * s);
+  canvas.height = Math.round(H * s);
+  const ctx = canvas.getContext("2d");
+  if (s !== 1) ctx.scale(s, s);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  return ctx;
+}
+
 // Ratio-aware: pass targetW/targetH in cfg to render at non-1:1 aspects
 // (4:5, 3:4, 9:16). Photo, watermark grid, logo, footer, and headline
 // all extend to fill the full target canvas — no more "design baked at
@@ -222,8 +255,7 @@ function drawPageNum(ctx, W, H, current, total, accent, isLight = false) {
 function renderCover(canvas, cfg) {
   const { photo, headline, highlights, accent, dots, totalDots, subtitle, opacity, ribbon, categoryTag, coverCtaButton, align = "left", band = false, titleScale = 1, insetPhoto = null, insetPos = "left", insetScale = 1, targetW = 1080, targetH = 1080, focalX = 0.5, focalY = 0.5 } = cfg;
   const W = targetW, H = targetH;
-  canvas.width = W; canvas.height = H;
-  const ctx = canvas.getContext("2d");
+  const ctx = setupCanvas(canvas, W, H, cfg);
   if (photo) {
     // Cover-fit + focal-aware anchor — same math as wrapForExport's
     // PATH A but applied at render time so the photo fills the full
@@ -403,8 +435,8 @@ function renderList(canvas, cfg) {
   const { items, accent, bgKey, dots, totalDots, listTitle, listSubtitle,
           photo, opacity, focalX = 0.5, focalY = 0.5,
           targetW = 1080, targetH = 1080 } = cfg;
-  const W = targetW, H = targetH; canvas.width=W; canvas.height=H;
-  const ctx=canvas.getContext("2d");
+  const W = targetW, H = targetH;
+  const ctx = setupCanvas(canvas, W, H, cfg);
   const bg=BG_COLORS[bgKey]||BG_COLORS.black;
   // With a photo the dark wash carries the text + cards, so force day-mode
   // off (white text on the photo) — matches the other photo slots.
@@ -468,8 +500,8 @@ function renderStat(canvas, cfg) {
   const { statNumber, statLabel, statSub, accent, bgKey, dots, totalDots,
           photo, opacity, focalX = 0.5, focalY = 0.5,
           targetW = 1080, targetH = 1080 } = cfg;
-  const W = targetW, H = targetH; canvas.width=W; canvas.height=H;
-  const ctx=canvas.getContext("2d");
+  const W = targetW, H = targetH;
+  const ctx = setupCanvas(canvas, W, H, cfg);
   const bg=BG_COLORS[bgKey]||BG_COLORS.purple;
   // With a photo the dark wash always carries the text, so force day-mode
   // off and render white text on the photo (matches the other photo slots).
@@ -526,8 +558,8 @@ function renderText(canvas, cfg) {
   const { textTitle, textTitleHighlights, textBody, accent, bgKey, dots, totalDots, pageNum, totalPages, photo, textOpacity,
           style = "manifesto", band = false,
           targetW = 1080, targetH = 1080, focalX = 0.5, focalY = 0.5 } = cfg;
-  const W = targetW, H = targetH; canvas.width=W; canvas.height=H;
-  const ctx=canvas.getContext("2d");
+  const W = targetW, H = targetH;
+  const ctx = setupCanvas(canvas, W, H, cfg);
 
   // NEWS CARD — headline on a solid CGE-cream bar up top, photo/graphic
   // filling below (the @blackmillionaires layout, in Syne instead of serif).
@@ -772,8 +804,8 @@ function renderNews(canvas, cfg) {
           newsTheme = "light", newsPhotoPos = "bottom", newsTextScale = 1,
           photo, accent, bgKey, dots, totalDots, pageNum, totalPages,
           targetW = 1080, targetH = 1080, focalX = 0.5, focalY = 0.5 } = cfg;
-  const W = targetW, H = targetH; canvas.width = W; canvas.height = H;
-  const ctx = canvas.getContext("2d");
+  const W = targetW, H = targetH;
+  const ctx = setupCanvas(canvas, W, H, cfg);
 
   // Theme: light = cream block + dark ink (default); dark = near-black block +
   // cream ink. Accent (gold) works on both, so kicker uses accent on dark and
@@ -939,8 +971,8 @@ function renderNews(canvas, cfg) {
 function renderCTA(canvas, cfg) {
   const { ctaKicker, ctaDate, ctaVenue, ctaUrl, photo, accent, bgKey, dots, totalDots, opacity,
           targetW = 1080, targetH = 1080, focalX = 0.5, focalY = 0.5 } = cfg;
-  const W = targetW, H = targetH; canvas.width=W; canvas.height=H;
-  const ctx = canvas.getContext("2d");
+  const W = targetW, H = targetH;
+  const ctx = setupCanvas(canvas, W, H, cfg);
 
   const bg = BG_COLORS[bgKey]||BG_COLORS.black;
   const isLight = !photo && !!bg.isLight;
@@ -1036,8 +1068,8 @@ function renderCTA(canvas, cfg) {
 function renderPhotoCaption(canvas, cfg) {
   const { photo, caption, captionSecondary, alignment, accent, bgKey, dots, totalDots,
           targetW = 1080, targetH = 1080, focalX = 0.5, focalY = 0.5 } = cfg;
-  const W = targetW, H = targetH; canvas.width=W; canvas.height=H;
-  const ctx = canvas.getContext("2d");
+  const W = targetW, H = targetH;
+  const ctx = setupCanvas(canvas, W, H, cfg);
 
   const bg=BG_COLORS[bgKey]||BG_COLORS.black;
   const isLight = !photo && !!bg.isLight;
@@ -1128,8 +1160,7 @@ function renderPhotoCaption(canvas, cfg) {
 function renderSpotlight(canvas, cfg) {
   const { photo, spotName, spotNameHighlights, spotMeta, spotTime, spotPrice, spotCta, spotNumber, align = "left", band = false, accent, bgKey, dots, totalDots, targetW = 1080, targetH = 1080, focalX = 0.5, focalY = 0.5 } = cfg;
   const W = targetW, H = targetH;
-  canvas.width = W; canvas.height = H;
-  const ctx = canvas.getContext("2d");
+  const ctx = setupCanvas(canvas, W, H, cfg);
 
   // Day mode applies only when there's no photo. With a photo, the dark
   // gradient at the bottom always carries the text — irrespective of bg
@@ -1356,8 +1387,7 @@ function renderCountdown(canvas, cfg) {
     targetW = 1080, targetH = 1080, focalX = 0.5, focalY = 0.5,
   } = cfg;
   const W = targetW, H = targetH;
-  canvas.width = W; canvas.height = H;
-  const ctx = canvas.getContext("2d");
+  const ctx = setupCanvas(canvas, W, H, cfg);
 
   // Day mode only kicks in when there's no photo (photo always carries
   // a dark overlay → keeps white-text register).
@@ -1480,8 +1510,7 @@ function renderSaveDate(canvas, cfg) {
     targetW = 1080, targetH = 1080, focalX = 0.5, focalY = 0.5,
   } = cfg;
   const W = targetW, H = targetH;
-  canvas.width = W; canvas.height = H;
-  const ctx = canvas.getContext("2d");
+  const ctx = setupCanvas(canvas, W, H, cfg);
 
   const bg = BG_COLORS[bgKey] || BG_COLORS.black;
   const isLight = !photo && !!bg.isLight;
@@ -1612,8 +1641,7 @@ function renderSaveDates(canvas, cfg) {
     targetW = 1080, targetH = 1080, focalX = 0.5, focalY = 0.5,
   } = cfg;
   const W = targetW, H = targetH;
-  canvas.width = W; canvas.height = H;
-  const ctx = canvas.getContext("2d");
+  const ctx = setupCanvas(canvas, W, H, cfg);
 
   const bg = BG_COLORS[bgKey] || BG_COLORS.black;
   const isLight = !photo && !!bg.isLight;
@@ -1878,8 +1906,7 @@ function renderScene(canvas, cfg) {
     targetW = 1080, targetH = 1080, focalX = 0.5, focalY = 0.5,
   } = cfg;
   const W = targetW, H = targetH;
-  canvas.width = W; canvas.height = H;
-  const ctx = canvas.getContext("2d");
+  const ctx = setupCanvas(canvas, W, H, cfg);
 
   // 1. BACKGROUND (photo focal-aware, OR solid color)
   if (bgPhoto) {
@@ -2051,8 +2078,7 @@ function renderPoster(canvas, cfg) {
     targetW = 1080, targetH = 1080, focalX = 0.5, focalY = 0.5,
   } = cfg;
   const W = targetW, H = targetH;
-  canvas.width = W; canvas.height = H;
-  const ctx = canvas.getContext("2d");
+  const ctx = setupCanvas(canvas, W, H, cfg);
 
   // 1. BACKGROUND — photo cover-fit + light wash, or solid bg color fallback
   if (photo) {
@@ -2284,8 +2310,7 @@ function renderPress(canvas, cfg) {
     targetW = 1080, targetH = 1080, focalX = 0.5, focalY = 0.5,
   } = cfg;
   const W = targetW, H = targetH;
-  canvas.width = W; canvas.height = H;
-  const ctx = canvas.getContext("2d");
+  const ctx = setupCanvas(canvas, W, H, cfg);
 
   // 1. BACKGROUND — photo full-bleed (focal-aware) or solid fallback.
   if (photo) {
@@ -2460,8 +2485,7 @@ function renderVibeBoard(canvas, cfg) {
   const { vibePhotos, vibeHeadline, vibeLabels, accent, bgKey, dots, totalDots,
           targetW = 1080, targetH = 1080 } = cfg;
   const W = targetW, H = targetH;
-  canvas.width = W; canvas.height = H;
-  const ctx = canvas.getContext("2d");
+  const ctx = setupCanvas(canvas, W, H, cfg);
 
   const bg = BG_COLORS[bgKey] || BG_COLORS.black;
   const isLight = !!bg.isLight;
@@ -2598,8 +2622,8 @@ function renderFeatures(canvas, cfg) {
   const { featuresTitle, features, accent, bgKey, dots, totalDots, photo, opacity,
           style = "icon", layout = "grid",
           targetW = 1080, targetH = 1080, focalX = 0.5, focalY = 0.5 } = cfg;
-  const W = targetW, H = targetH; canvas.width=W; canvas.height=H;
-  const ctx = canvas.getContext("2d");
+  const W = targetW, H = targetH;
+  const ctx = setupCanvas(canvas, W, H, cfg);
 
   const bg=BG_COLORS[bgKey]||BG_COLORS.black;
   const isLight = !photo && !!bg.isLight;
@@ -3167,8 +3191,8 @@ export default function MediaTool() {
   const [newsBody, setNewsBody] = useState("For a decade this strip mall was the block everyone drove past. The Nutrition Fest is the first thing to fill it in years — and it's not a pop-up. It's a bet that teaching people how food actually fuels them, out in the open, can bring a forgotten corner back to life.");
   const [newsBold, setNewsBold] = useState(false);
   const [newsCaption, setNewsCaption] = useState("");
-  const [newsTheme, setNewsTheme] = useState("light");      // "light" (cream) | "dark"
-  const [newsPhotoPos, setNewsPhotoPos] = useState("bottom"); // "bottom" | "top"
+  const [newsTheme, setNewsTheme] = useState("dark");       // "light" (cream) | "dark"
+  const [newsPhotoPos, setNewsPhotoPos] = useState("top");  // "bottom" | "top"
   const [newsTextScale, setNewsTextScale] = useState(1.4);    // font-size multiplier (M)
   // Optional MOTION media for the News slot — a VIDEO or an animated GIF that
   // plays behind the block in the preview and exports as a real .webm. Session-
@@ -4013,7 +4037,13 @@ export default function MediaTool() {
      // wrapForExport (photo/bg extended into the margins).
      const RATIO_AWARE_MODES = new Set(["cover", "spotlight", "photo", "news", "poster", "press", "features"]);
     const isRatioAware = RATIO_AWARE_MODES.has(mode);
-    const targetCfg = isRatioAware ? { targetW: target.w, targetH: target.h, focalX: focal?.x ?? 0.5, focalY: focal?.y ?? 0.5 } : {};
+    // renderScale supersamples the export (crisp photos). Ratio-aware modes
+    // render directly at the target aspect; the rest render 1080² and get
+    // composited by wrapForExport, which we hand the same scale so its output
+    // (and photo bleed) is high-res too.
+    const targetCfg = isRatioAware
+      ? { targetW: target.w, targetH: target.h, focalX: focal?.x ?? 0.5, focalY: focal?.y ?? 0.5, renderScale: EXPORT_SCALE }
+      : { renderScale: EXPORT_SCALE };
     if(mode==="cover") renderCover(cv,{photo,headline,highlights,accent,dots,totalDots,subtitle,opacity,ribbon,categoryTag,coverCtaButton,align:coverAlign,band:coverBand,titleScale:coverTitleScale,insetPhoto:coverInsetPhoto,insetPos:coverInsetPos,insetScale:coverInsetScale, ...targetCfg});
     else if(mode==="list") renderList(cv,{items,accent,bgKey,dots,totalDots,listTitle,listSubtitle,photo:listPhoto,opacity:listOpacity, ...targetCfg});
     else if(mode==="stat") renderStat(cv,{statNumber,statLabel,statSub,photo:statPhoto,opacity:statOpacity,accent,bgKey,dots,totalDots, ...targetCfg});
@@ -4033,7 +4063,7 @@ export default function MediaTool() {
     // Ratio-aware modes already rendered at target dims; skip the wrap
     // (which would re-composite onto another canvas). Other modes still
     // render at 1080×1080 and get center/focal-aware composited.
-    const exportCv = isRatioAware ? cv : wrapForExport(cv, exportRatio, getModePrimaryPhoto(), focal);
+    const exportCv = isRatioAware ? cv : wrapForExport(cv, exportRatio, getModePrimaryPhoto(), focal, EXPORT_SCALE);
     exportCv.toBlob(async (blob) => {
       // Pre-generate the export id so the PNG tag and the cloud record
       // share it. Tag the blob FIRST so the downloaded file is the tagged
@@ -4203,7 +4233,7 @@ export default function MediaTool() {
   const [isAutoGen, setIsAutoGen] = useState(false);
 
   // === CAROUSEL COMPOSER ===
-  const renderSlide = (cv, type, s, dotsNum, dotsTot, slideIdx = 0, exportTarget = null) => {
+  const renderSlide = (cv, type, s, dotsNum, dotsTot, slideIdx = 0, exportTarget = null, renderScale = 1) => {
     // Effective bgKey — apply Brand Kit's alternateColors swap on odd
     // carousel slides. Live previews call with idx=0 so they aren't
     // affected; thumbnails + export pass the real index.
@@ -4250,6 +4280,9 @@ export default function MediaTool() {
         cfg.targetW = exportTarget.w;
         cfg.targetH = exportTarget.h;
       }
+      // Only the ZIP export opts into supersampling; preview + thumbnails
+      // pass renderScale 1 and stay light.
+      if (renderScale && renderScale !== 1) cfg.renderScale = renderScale;
       return cfg;
     };
     const targetCfg = buildTargetCfg();
@@ -4947,7 +4980,7 @@ export default function MediaTool() {
         newsBody: String(slot.newsBody || "").trim(),
         newsBold: !!slot.newsBold,
         newsCaption: "",
-        newsTheme: "light", newsPhotoPos: "bottom", newsTextScale: 1,
+        newsTheme: "dark", newsPhotoPos: "top", newsTextScale: 1,
         newsFocalX: 0.5, newsFocalY: 0.5,
       }};
     }
@@ -5516,8 +5549,12 @@ export default function MediaTool() {
     return { x: typeof x === "number" ? x : 0.5, y: typeof y === "number" ? y : 0.5 };
   };
 
-  const wrapForExport = (baseCanvas, ratio, sourcePhoto = null, focal = null) => {
-    const target = EXPORT_RATIOS[ratio] || EXPORT_RATIOS["1:1"];
+  const wrapForExport = (baseCanvas, ratio, sourcePhoto = null, focal = null, scale = 1) => {
+    const base = EXPORT_RATIOS[ratio] || EXPORT_RATIOS["1:1"];
+    // Target dims are supersampled by `scale`; the incoming baseCanvas was
+    // already rendered at the same scale (2160² for scale 2), so everything
+    // below composites at high res and stays pixel-aligned.
+    const target = { w: Math.round(base.w * scale), h: Math.round(base.h * scale) };
     if (ratio === "1:1" || (target.w === baseCanvas.width && target.h === baseCanvas.height)) {
       return baseCanvas;
     }
@@ -5532,6 +5569,8 @@ export default function MediaTool() {
     out.width = target.w;
     out.height = target.h;
     const ctx = out.getContext("2d");
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
     // Solid fallback bg in case neither path below paints every pixel
     // (defensive — both paths do paint full target, but belt + suspenders).
     ctx.fillStyle = (BG_COLORS[bgKey] && BG_COLORS[bgKey].hex) || "#000000";
@@ -5620,10 +5659,10 @@ export default function MediaTool() {
         const slideTarget = EXPORT_RATIOS[exportRatio] || EXPORT_RATIOS["1:1"];
         const RATIO_AWARE_SLIDE_TYPES = new Set(["cover", "spotlight", "photo", "news", "poster", "press", "features"]);
         const isRatioAwareSlide = RATIO_AWARE_SLIDE_TYPES.has(s.type);
-        renderSlide(cv, s.type, s.snapshot, i+1, carousel.length, i, isRatioAwareSlide ? slideTarget : null);
+        renderSlide(cv, s.type, s.snapshot, i+1, carousel.length, i, isRatioAwareSlide ? slideTarget : null, EXPORT_SCALE);
         const exportCv = isRatioAwareSlide
           ? cv
-          : wrapForExport(cv, exportRatio, getSnapshotPrimaryPhoto(s.type, s.snapshot), getSnapshotFocal(s.type, s.snapshot));
+          : wrapForExport(cv, exportRatio, getSnapshotPrimaryPhoto(s.type, s.snapshot), getSnapshotFocal(s.type, s.snapshot), EXPORT_SCALE);
         const blob = await new Promise(r => exportCv.toBlob(r, "image/png"));
         zip.file(`CGE_carousel_${String(i+1).padStart(2,"0")}_${s.type}_${exportRatio.replace(":","x")}.png`, blob);
       }
