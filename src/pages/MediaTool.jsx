@@ -58,6 +58,22 @@ const EXPORT_RATIOS = {
 // live editing/preview stays at 1× and takes no performance hit.
 const EXPORT_SCALE = 2;
 
+// Parking style for the hidden News <video>/<img> motion sources. They must be
+// genuinely painted (in the viewport, opacity > 0) or the browser stops
+// decoding the video / stops advancing the GIF's frames — which is exactly
+// what froze motion and hung recording before. 2×2px at ~1% opacity in the
+// corner is imperceptible but keeps the compositor feeding live frames.
+const NEWS_MEDIA_PARK = {
+  position: "fixed",
+  left: 0,
+  top: 0,
+  width: 2,
+  height: 2,
+  opacity: 0.01,
+  pointerEvents: "none",
+  zIndex: 2147483647, // on top so it's never occluded → compositor keeps it live
+};
+
 // Module-level state for fonts + watermark, synced from the React component.
 // Renderers read these so we don't have to thread them through every cfg.
 let _displayFont = "Syne";
@@ -4156,9 +4172,14 @@ export default function MediaTool() {
       } else {
         // Video: record exactly one pass, top to bottom, with its audio.
         src.loop = false;
-        src.currentTime = 0;
+        try { src.currentTime = 0; } catch {}
         const onEnded = () => { src.removeEventListener("ended", onEnded); if (rec.state === "recording") rec.stop(); };
         src.addEventListener("ended", onEnded);
+        // Safety cap — if "ended" never fires (stalled decode, live stream,
+        // unknown duration) the recording must still terminate so the button
+        // can't stick on "Recording…". Cap at the clip length + margin, else 10s.
+        const dur = (isFinite(src.duration) && src.duration > 0) ? src.duration : 10;
+        gifTimer = setTimeout(() => { if (rec.state === "recording") rec.stop(); }, Math.min(dur * 1000 + 2000, 60000));
         const begin = () => { rec.start(); raf = requestAnimationFrame(loop); };
         src.play().then(begin).catch(begin); // autoplay blocked → record anyway
       }
@@ -6688,12 +6709,16 @@ export default function MediaTool() {
                 {newsVideoUrl&&<button onClick={dlNewsVideo} disabled={newsRecording} style={{width:"100%",padding:"9px",background:"rgba(229,188,79,0.14)",color:"#E5BC4F",border:"1px solid rgba(229,188,79,0.28)",borderRadius:"6px",fontSize:"0.7rem",fontWeight:700,fontFamily:"'Syne',sans-serif",cursor:newsRecording?"not-allowed":"pointer",opacity:newsRecording?0.55:1}}>{newsRecording?"● Recording…":`⬇ Download News ${newsMotionKind==="gif"?"GIF clip":"video"} (.webm)`}</button>}
               </div>
               {/* Hidden playback elements that feed the preview loop + recorder:
-                  <video> for clips, <img> for animated GIFs. */}
-              <video ref={newsVideoRef} muted loop playsInline style={{display:"none"}}/>
-              {/* A GIF must stay IN the render tree to keep animating and to be
-                  decoded for drawImage — display:none freezes/undecodes it (blank
-                  canvas). Park it off-screen + invisible instead of hidden. */}
-              <img ref={newsGifRef} alt="" aria-hidden="true" style={{position:"fixed",left:"-9999px",top:0,width:2,height:2,opacity:0,pointerEvents:"none"}}/>
+                  <video> for clips, <img> for animated GIFs.
+
+                  CRITICAL: these must be PAINTED to keep moving. Chrome stops
+                  decoding a display:none <video> (play() stalls, "ended" never
+                  fires → recording hangs) and pauses an off-screen / opacity:0
+                  GIF's frame advancement (decodes frame 1, then freezes → no
+                  motion). So park both in-viewport at 2×2px with a hair of
+                  opacity — imperceptible, but the compositor keeps them live. */}
+              <video ref={newsVideoRef} muted loop playsInline style={NEWS_MEDIA_PARK}/>
+              <img ref={newsGifRef} alt="" aria-hidden="true" style={NEWS_MEDIA_PARK}/>
             </>}
 
             {mode==="cta"&&<>
