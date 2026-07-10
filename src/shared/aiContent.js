@@ -355,35 +355,43 @@ export async function scoutNews({ apiKey, area = "New Jersey", focus = "", today
 // Guardrail: the FRAMING may be a playful/observational lens (a "curse", a
 // "moment", a "trend"), but every dot must be a REAL, sourced event and it must
 // never assert fabricated causation.
-export async function connectDots({ apiKey, thesis = "", area = "New Jersey", beat = CGE_BEAT, today = null } = {}) {
+export async function connectDots({ apiKey, thesis = "", area = "New Jersey", beat = CGE_BEAT, anchorEvent = "", today = null } = {}) {
   if (!apiKey) throw new Error("Missing Gemini API key");
   const stamp = today || (() => { try { return new Date().toISOString().slice(0, 10); } catch { return null; } })();
   const seed = (thesis || "").trim();
+  const anchor = (anchorEvent || "").trim();
   const areaLine = (area || "").trim() || "New Jersey";
 
   // --- Step 1: gather the dots (grounded) ---
   const searchPrompt = [
-    "You are building a CONNECT-THE-DOTS evidence carousel — a single THESIS backed by several",
-    "SEPARATE, REAL, DATED news events. (Model: 'Is the Trump sports curse real? Here's the evidence' →",
-    "three different games he attended or predicted that went wrong, each its own headline.)",
-    "Do SEVERAL distinct web searches — not one.",
+    anchor
+      ? "You are building a PROBLEM → SOLUTION promo carousel disguised as coverage: surface a real TREND / DEMAND / TENSION with several separate real, dated events (the SETUP), so THE USER'S OWN EVENT can land as the answer to it. Do SEVERAL distinct web searches — not one."
+      : "You are building a CONNECT-THE-DOTS evidence carousel — a single THESIS backed by several SEPARATE, REAL, DATED news events. (Model: 'Is the Trump sports curse real? Here's the evidence' → three different games he attended or predicted that went wrong, each its own headline.) Do SEVERAL distinct web searches — not one.",
     "",
-    seed
-      ? `THE THESIS / PATTERN to support: "${seed}". Gather 3-5 REAL, dated events that illustrate it.`
-      : [
-          "No thesis was given — DISCOVER one. Scan CURRENT news for a PATTERN worth a carousel: a claim you",
-          "can back with 3-5 real, dated events. Propose ONE thread, then gather its evidence.",
-          `BEAT to hunt in: ${beat}`,
-          `AREA: ${areaLine}.`,
-        ].join("\n"),
+    ...(anchor ? [
+      `THE EVENT WE'RE ULTIMATELY PROMOTING (the ANSWER — do NOT treat it as a dot, do NOT search for it): ${anchor}`,
+      seed
+        ? `Gather 3-5 REAL, dated events/signals that prove the TREND OR DEMAND this event answers: "${seed}".`
+        : "Figure out the TREND / DEMAND / GAP this event is the answer to, then gather 3-5 REAL, dated events/signals that prove that demand is real and rising.",
+      "The dots are the SETUP that makes the reader want exactly what this event offers — they must NOT include or describe the event itself.",
+    ] : [
+      seed
+        ? `THE THESIS / PATTERN to support: "${seed}". Gather 3-5 REAL, dated events that illustrate it.`
+        : [
+            "No thesis was given — DISCOVER one. Scan CURRENT news for a PATTERN worth a carousel: a claim you",
+            "can back with 3-5 real, dated events. Propose ONE thread, then gather its evidence.",
+            `BEAT to hunt in: ${beat}`,
+            `AREA: ${areaLine}.`,
+          ].join("\n"),
+    ]),
     ...(stamp ? ["", `TODAY: ${stamp}. Prefer events from the last several months; each must be real and dated.`] : []),
     "",
     "For EACH dot give: WHAT happened, WHERE, WHEN [date], the SOURCE (publication), and one line on HOW IT",
-    "CONNECTS to the thesis.",
+    anchor ? "FEEDS THE DEMAND the event answers." : "CONNECTS to the thesis.",
     "",
     "RULES:",
     "- Every dot MUST trace to a real search result — never invent an event, date, score, or quote.",
-    "- The THESIS may be a playful/observational LENS (a 'curse', a 'moment', a 'trend', a 'takeover'), but",
+    "- The framing may be a playful/observational LENS (a 'curse', a 'moment', a 'trend', a 'takeover'), but",
     "  the events must be TRUE and you must NOT assert fabricated causation — it's a pattern, not a lie.",
     "- If you can't find at least 3 real dots, say so plainly instead of padding.",
     "- Plain-text only, no markdown headers.",
@@ -400,19 +408,25 @@ export async function connectDots({ apiKey, thesis = "", area = "New Jersey", be
 
   // --- Step 2: structure into a carousel plan ---
   const planPrompt = [
-    "Turn this research brief into a CONNECT-THE-DOTS carousel plan for a CGE Instagram post.",
-    seed ? `The thesis is: "${seed}".` : "First settle on the THESIS the brief best supports.",
+    anchor
+      ? "Turn this research brief into a PROBLEM → SOLUTION promo carousel for a CGE Instagram post: the dots build the demand, and THE EVENT is the answer that brings it home."
+      : "Turn this research brief into a CONNECT-THE-DOTS carousel plan for a CGE Instagram post.",
+    seed ? `The trend/thesis is: "${seed}".` : "First settle on the trend/thesis the brief best supports.",
+    ...(anchor ? [`THE EVENT TO PROMOTE (the ANSWER — this is the destination, NOT a dot): ${anchor}`] : []),
     "",
-    "Shape it exactly like the reference format:",
-    "- cover: a CLAIM-AS-QUESTION hook. headline = the question ('Is the Trump sports curse real?'),",
+    "Shape it:",
+    "- cover: a CLAIM-AS-QUESTION hook. headline = the question ('Is the Y2K revival taking over nightlife?'),",
     "  subtitle = a short 'Here's the evidence' style promise, accentWord = the most charged word in the headline.",
-    "- dots: 3-5 items, one per real event, in escalating order. Each = { kicker (1-3 word ALL-CAPS label like",
+    "- dots: 3-5 items, one per real event/signal, in escalating order. Each = { kicker (1-3 word ALL-CAPS label like",
     "  'EXHIBIT A', 'THE EVIDENCE', 'DOT ONE'), body, whenWhere }. body = SHORT STACKED LINES (one thought per",
-    "  line, '\\n' between; a blank '\\n\\n' before the payoff) — what happened + how it fits the pattern, ending",
-    "  in ONE line wrapped in *asterisks* to bold it. Reported and true; no invented specifics.",
-    "- verdict: { kicker (e.g. 'THE VERDICT', 'SO…'), body (short stacked lines — does the pattern hold? what it",
-    "  actually means, honestly; a pattern/observation, not proven causation) }.",
-    "- cta: { kicker (1-3 word pill), line (a short closing statement), sub (one line inviting a reaction/follow) }.",
+    "  line, '\\n' between; a blank '\\n\\n' before the payoff) — what happened + how it fits, ending in ONE line",
+    "  wrapped in *asterisks* to bold it. Reported and true; no invented specifics." + (anchor ? " Do NOT put the promoted event here — the dots are only the setup/demand." : ""),
+    anchor
+      ? "- verdict: THE ANSWER. { kicker (e.g. 'THE ANSWER', 'SO WE'RE DOING IT', 'ENTER'), body (short stacked lines that REVEAL the promoted event as the solution to everything the dots set up — name it, say why it's THE one, end on a *bold* line). This is the turn where coverage becomes promo. }"
+      : "- verdict: { kicker (e.g. 'THE VERDICT', 'SO…'), body (short stacked lines — does the pattern hold? what it actually means, honestly; a pattern/observation, not proven causation) }.",
+    anchor
+      ? "- cta: drive to the event. { kicker (1-3 word pill like 'PULL UP', 'TICKETS', 'THIS SATURDAY'), line (the event name or the date, big and bold), sub (venue + how to get in — date · venue · @handle · link, pulled from the event details above; invent nothing) }."
+      : "- cta: { kicker (1-3 word pill), line (a short closing statement), sub (one line inviting a reaction/follow) }.",
     "",
     "BRIEF:",
     brief,
