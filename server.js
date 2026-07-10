@@ -18,6 +18,7 @@ import fs from "fs/promises";
 import { existsSync } from "fs";
 import { fileURLToPath } from "url";
 import { runScout, storyKey, focusForDay } from "./scoutServer.js";
+import { createSessionStore, normalizeSession } from "./reviewSessionStore.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || "5000", 10);
@@ -454,47 +455,30 @@ app.get("/api/photos/search", async (req, res) => {
 // (e.g. one per weekend). Last write wins per session name.
 const SESSIONS_DIR = path.resolve(__dirname, "data/review-sessions");
 
-// Same filename guard as workspaces — strip path traversal, leading
-// dots, excessive length.
+// The store picks Replit DB (truly cross-device) when REPLIT_DB_URL is set,
+// else falls back to the filesystem dir above. It also runs a one-time,
+// best-effort migration of any legacy on-disk sessions into the DB.
+const sessionStore = createSessionStore(SESSIONS_DIR);
+
+// Same name guard as workspaces — strip path traversal, leading dots,
+// excessive length. Returns the bare base name (no extension) — the store
+// owns the on-disk / key encoding.
 function safeSessionName(raw) {
   const base = path.basename(String(raw || "").replace(/\.json$/i, ""));
   if (!base || base.startsWith(".") || base.includes("..") || base.length > 100) return null;
-  return base + ".json";
+  return base;
 }
 
-// List every session in the dir, newest first, with name + size + mtime
-// + event count peeked from the JSON. The peek is cheap because review
-// sessions are small JSON.
+// Lightweight status probe so the UI can show whether sessions are really
+// in the cloud (Replit DB) or just on this instance's disk (filesystem).
+app.get("/api/review-sessions-status", (_req, res) => {
+  res.json({ ok: true, backend: sessionStore.backend });
+});
+
+// List every session, newest first, with name + savedAt + counts.
 app.get("/api/review-sessions", async (_req, res) => {
   try {
-    await fs.mkdir(SESSIONS_DIR, { recursive: true });
-    const files = await fs.readdir(SESSIONS_DIR);
-    const out = [];
-    for (const f of files) {
-      if (!f.endsWith(".json")) continue;
-      try {
-        const st = await fs.stat(path.join(SESSIONS_DIR, f));
-        let eventCount = 0, approvalCount = 0, vettedCount = 0, savedAt = st.mtimeMs;
-        try {
-          const data = JSON.parse(await fs.readFile(path.join(SESSIONS_DIR, f), "utf8"));
-          eventCount = Array.isArray(data.events) ? data.events.length : 0;
-          approvalCount = data.approvals ? Object.values(data.approvals).filter(Boolean).length : 0;
-          vettedCount = Array.isArray(data.vetted) ? data.vetted.length : 0;
-          if (data.savedAt) savedAt = data.savedAt;
-        } catch { /* corrupt — surface as 0 counts */ }
-        out.push({
-          name: f.replace(/\.json$/, ""),
-          size: st.size,
-          mtime: st.mtimeMs,
-          savedAt,
-          eventCount,
-          approvalCount,
-          vettedCount,
-        });
-      } catch { /* vanished mid-list */ }
-    }
-    out.sort((a, b) => b.savedAt - a.savedAt);
-    res.json(out);
+    res.json(await sessionStore.list());
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -503,10 +487,9 @@ app.get("/api/review-sessions", async (_req, res) => {
 app.get("/api/review-sessions/:name", async (req, res) => {
   const name = safeSessionName(req.params.name);
   if (!name) return res.status(400).json({ error: "Invalid name" });
-  const full = path.join(SESSIONS_DIR, name);
-  if (!existsSync(full)) return res.status(404).json({ error: "Not found" });
   try {
-    const data = JSON.parse(await fs.readFile(full, "utf8"));
+    const data = await sessionStore.get(name);
+    if (data == null) return res.status(404).json({ error: "Not found" });
     res.json(data);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -517,18 +500,9 @@ app.put("/api/review-sessions/:name", express.json({ limit: "10mb" }), async (re
   const name = safeSessionName(req.params.name);
   if (!name) return res.status(400).json({ error: "Invalid name" });
   try {
-    const body = req.body || {};
-    const data = {
-      events: Array.isArray(body.events) ? body.events : [],
-      approvals: body.approvals && typeof body.approvals === "object" ? body.approvals : {},
-      vetted: Array.isArray(body.vetted) ? body.vetted : [],
-      filter: typeof body.filter === "string" ? body.filter : "",
-      sortByTag: typeof body.sortByTag === "string" ? body.sortByTag : null,
-      savedAt: Date.now(),
-    };
-    await fs.mkdir(SESSIONS_DIR, { recursive: true });
-    await fs.writeFile(path.join(SESSIONS_DIR, name), JSON.stringify(data));
-    res.json({ ok: true, savedAt: data.savedAt });
+    const data = normalizeSession(req.body);
+    await sessionStore.put(name, data);
+    res.json({ ok: true, savedAt: data.savedAt, backend: sessionStore.backend });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -538,10 +512,10 @@ app.delete("/api/review-sessions/:name", async (req, res) => {
   const name = safeSessionName(req.params.name);
   if (!name) return res.status(400).json({ error: "Invalid name" });
   try {
-    await fs.unlink(path.join(SESSIONS_DIR, name));
+    const removed = await sessionStore.del(name);
+    if (!removed) return res.status(404).json({ error: "Not found" });
     res.json({ ok: true });
   } catch (err) {
-    if (err.code === "ENOENT") return res.status(404).json({ error: "Not found" });
     res.status(500).json({ error: err.message });
   }
 });
@@ -1038,7 +1012,7 @@ app.post("/api/weekend-review/bulk-update", express.json({ limit: "10mb" }), asy
 // the cloud buttons. Returns version so we can tell apart old servers if
 // the API ever changes.
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, api: "workspaces+library+reviewSessions+weekendReview", version: 6, env: NODE_ENV });
+  res.json({ ok: true, api: "workspaces+library+reviewSessions+weekendReview", version: 6, env: NODE_ENV, sessionBackend: sessionStore.backend });
 });
 
 // === NEWS SCOUT (autonomous) ===

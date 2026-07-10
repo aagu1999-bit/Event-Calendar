@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { createPortal } from "react-dom";
-import { listSessions, loadSession, saveSession, deleteSession } from "./reviewSessions.js";
+import { listSessions, loadSession, saveSession, deleteSession, sessionBackend } from "./reviewSessions.js";
 
 // Download an object as a pretty-printed JSON file. Pure client-side — no
 // backend involved, so this works even when the app is served statically
@@ -17,12 +17,6 @@ function downloadJson(obj, filename) {
   URL.revokeObjectURL(url);
 }
 
-function formatBytes(n) {
-  if (!n) return "0 B";
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / 1024 / 1024).toFixed(1)} MB`;
-}
 function formatWhen(ts) {
   const d = new Date(ts);
   const days = Math.floor((Date.now() - ts) / 86400000);
@@ -51,6 +45,9 @@ export function ReviewSessionsModal({
   const [items, setItems] = useState([]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
+  // Which backend is storing sessions: "replit-db" (truly cross-device),
+  // "filesystem" (this instance's disk only), or null (server unreachable).
+  const [backend, setBackend] = useState(undefined);
   const fileInputRef = useRef(null);
 
   // Export the current review state to a downloadable .json file. Unlike the
@@ -111,7 +108,11 @@ export function ReviewSessionsModal({
     }
   };
 
-  useEffect(() => { if (open) reload(); }, [open]);
+  useEffect(() => {
+    if (!open) return;
+    reload();
+    sessionBackend().then(setBackend);
+  }, [open]);
 
   if (!open) return null;
 
@@ -210,6 +211,33 @@ export function ReviewSessionsModal({
           <div className="cge-modal-subtitle" style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.45)", letterSpacing: "1px", textTransform: "uppercase" }}>
             {mode === "save" ? "Save the current events + approvals as a named snapshot" : "Click a session to load · save the current state as a new snapshot"}
           </div>
+          {backend !== undefined && (() => {
+            const cloud = backend === "replit-db";
+            const offline = backend === null;
+            const c = cloud ? "#34D399" : offline ? "rgba(245,240,232,0.4)" : "#FBBF24";
+            const label = cloud
+              ? "☁️ Cloud sessions: on"
+              : offline
+                ? "⚠️ Sessions server offline"
+                : "⚠️ Local only — won't cross devices";
+            const tip = cloud
+              ? "Sessions are stored in Replit DB — they sync across every device and browser that opens this app, and survive redeploys."
+              : offline
+                ? "The session server isn't reachable. Use Import/Export File to move sessions by hand until it's back."
+                : "Sessions are on THIS instance's local disk only. They won't reliably appear on another device or after a redeploy. To fix: run on a Reserved VM with Replit DB (REPLIT_DB_URL) set. Meanwhile use Export/Import File to hand sessions off.";
+            return (
+              <div
+                title={tip}
+                style={{
+                  padding: "3px 9px", borderRadius: "999px",
+                  background: `${c}1a`, color: c,
+                  border: `1px solid ${c}66`,
+                  fontSize: "0.5rem", fontWeight: 800, letterSpacing: "1px",
+                  textTransform: "uppercase", whiteSpace: "nowrap", cursor: "help",
+                }}
+              >{label}</div>
+            );
+          })()}
           <div style={{ flex: 1 }} />
           <input
             ref={fileInputRef}
@@ -284,7 +312,7 @@ export function ReviewSessionsModal({
             <div
               key={s.name}
               onClick={() => onPickLoad(s.name)}
-              title={`${s.name} · ${s.eventCount} events total · ${s.vettedCount || 0} vetted · ${s.approvalCount} selected · ${formatBytes(s.size)}`}
+              title={`${s.name} · ${s.eventCount} events total · ${s.vettedCount || 0} vetted · ${s.approvalCount} selected`}
               style={{
                 display: "flex", alignItems: "center", gap: "12px",
                 padding: "12px 14px", marginBottom: "6px",
