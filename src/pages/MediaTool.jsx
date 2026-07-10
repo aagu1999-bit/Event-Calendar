@@ -74,6 +74,13 @@ const NEWS_MEDIA_PARK = {
   zIndex: 2147483647, // on top so it's never occluded → compositor keeps it live
 };
 
+// Templates that accept a video / animated-GIF motion insert (a moving
+// source drawn in place of the still background photo, exportable as .webm).
+// All of these render a full-bleed photo their text sits over, so a clip
+// works the same way a still would. Others (list/stat/poster/etc.) either
+// have no single bg photo or a layout a moving bg wouldn't suit.
+const MOTION_MODES = new Set(["news", "cover", "spotlight", "cta", "text"]);
+
 // Row styling for the Download ▾ dropdown menu (unified action bar).
 const DL_MENU_ITEM = {
   display: "flex", width: "100%", alignItems: "center", gap: "10px",
@@ -3226,15 +3233,17 @@ export default function MediaTool() {
   const [newsTheme, setNewsTheme] = useState("dark");       // "light" (cream) | "dark"
   const [newsPhotoPos, setNewsPhotoPos] = useState("top");  // "bottom" | "top"
   const [newsTextScale, setNewsTextScale] = useState(1.4);    // font-size multiplier (M)
-  // Optional MOTION media for the News slot — a VIDEO or an animated GIF that
-  // plays behind the block in the preview and exports as a real .webm. Session-
-  // only (not saved into snapshots/drafts, which hold images only). newsMotionKind
-  // routes drawing to the <video> (video) or <img> (gif) element.
-  const [newsVideoUrl, setNewsVideoUrl] = useState(null);
-  const [newsMotionKind, setNewsMotionKind] = useState(null); // "video" | "gif" | null
-  const [newsRecording, setNewsRecording] = useState(false);
-  const newsVideoRef = useRef(null);
-  const newsGifRef = useRef(null);
+  // Optional MOTION media (shared across every MOTION_MODES template — News,
+  // Cover, Spotlight, CTA, Text) — a VIDEO or animated GIF that plays behind
+  // the text in the preview and exports as a real .webm. Session-only (not
+  // saved into snapshots/drafts, which hold images only). motionKind routes
+  // drawing to the <video> (video) or <img> (gif) element. Only ONE clip at a
+  // time; it overrides whichever template's still photo while loaded.
+  const [motionUrl, setMotionUrl] = useState(null);
+  const [motionKind, setMotionKind] = useState(null); // "video" | "gif" | null
+  const [motionRecording, setMotionRecording] = useState(false);
+  const motionVideoRef = useRef(null);
+  const motionGifRef = useRef(null);
   const [newsPhoto, setNewsPhoto] = useState(null);
   const [newsFocalX, setNewsFocalX] = useState(0.5);
   const [newsFocalY, setNewsFocalY] = useState(0.5);
@@ -3710,7 +3719,7 @@ export default function MediaTool() {
   const statFileRef = useRef(null);
   const listFileRef = useRef(null);
   const newsFileRef = useRef(null);
-  const newsVideoFileRef = useRef(null);
+  const motionFileRef = useRef(null);
   const coverInsetFileRef = useRef(null);
   // One file input ref per Vibe Board slot (5 max).
   // Pre-allocate file-input refs for up to 6 Vibe Board cells. Rules of
@@ -3801,36 +3810,38 @@ export default function MediaTool() {
     return ()=>clearTimeout(t);
   });
 
-  // Live video preview — while the News slot holds a video insert, drive a
-  // rAF loop that repaints the canvas each frame with the playing <video>
-  // element standing in for the photo, so the preview shows real motion. The
-  // debounced render() above only fires on state changes, which would freeze
-  // the video on a single frame; this loop keeps it moving. It runs ONLY in
-  // News mode with a video loaded, and tears down cleanly otherwise.
+  // Live video preview — while a motion clip is loaded on a motion-capable
+  // template, drive a rAF loop that repaints the canvas each frame with the
+  // playing <video>/<img> standing in for the still photo, so the preview
+  // shows real motion. The debounced render() above only fires on state
+  // changes, which would freeze the clip on one frame; this loop keeps it
+  // moving. Runs ONLY in a MOTION_MODES template with a clip loaded; the same
+  // makeSnapshot→renderSlide path used for stills draws the live frame because
+  // every template stamps its bg image at snap.photo.
   useEffect(() => {
-    if (mode !== "news" || !newsVideoUrl) return;
+    if (!MOTION_MODES.has(mode) || !motionUrl) return;
     let raf = 0;
     const loop = () => {
       const cv = cvRef.current;
       // The GIF animates in a hidden <img>; the video plays in a <video>.
       // drawImage samples whatever frame each element currently shows.
-      const src = newsMotionKind === "gif" ? newsGifRef.current : newsVideoRef.current;
+      const src = motionKind === "gif" ? motionGifRef.current : motionVideoRef.current;
       const ready = src && (src.videoWidth || src.naturalWidth || 0);
       if (cv && ready) {
         const snap = makeSnapshot();
         snap.photo = src;                     // draw the live frame, not a still
-        renderSlide(cv, "news", snap, dots, totalDots, 0);
+        renderSlide(cv, mode, snap, dots, totalDots, 0);
       }
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, newsVideoUrl, newsMotionKind]);
+  }, [mode, motionUrl, motionKind]);
 
   // Revoke the video object URL when the component unmounts so we don't leak
   // the blob. (Swapping/clearing videos revokes the prior URL inline.)
-  useEffect(() => () => { if (newsVideoUrl) URL.revokeObjectURL(newsVideoUrl); },
+  useEffect(() => () => { if (motionUrl) URL.revokeObjectURL(motionUrl); },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     []);
 
@@ -3871,17 +3882,19 @@ export default function MediaTool() {
   const handleNewsPhoto = makeUploadHandler((img) => {
     setNewsPhoto(img); setNewsFocalX(0.5); setNewsFocalY(0.5);
   }, "news");
-  // News VIDEO insert — load a local clip into the hidden <video>, play it
+  // MOTION insert — load a local clip into the hidden <video>, play it
   // (muted + looping so the live preview animates), and remember its object
   // URL so the export can record real motion. Revoke any previous URL first.
-  const handleNewsVideo = (e) => {
+  // Shared by every MOTION_MODES template; the clip overrides whatever the
+  // active template's still photo is, in the preview and the .webm export.
+  const handleMotionUpload = (e) => {
     const file = e.target.files && e.target.files[0];
     e.target.value = "";
     if (!file) return;
-    setNewsVideoUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return null; });
+    setMotionUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return null; });
     // Clear whichever element held the previous clip.
-    const oldV = newsVideoRef.current; if (oldV) { try { oldV.pause(); } catch {} oldV.removeAttribute("src"); oldV.load(); }
-    const oldG = newsGifRef.current; if (oldG) oldG.removeAttribute("src");
+    const oldV = motionVideoRef.current; if (oldV) { try { oldV.pause(); } catch {} oldV.removeAttribute("src"); oldV.load(); }
+    const oldG = motionGifRef.current; if (oldG) oldG.removeAttribute("src");
     const name = file.name || "";
     const type = file.type || "";
     // Only TIFF/HEIC genuinely can't render in a browser (silent blank) — block
@@ -3896,22 +3909,21 @@ export default function MediaTool() {
     // images is why animated WebP "GIFs" (Giphy/Tenor) now work too.
     const isVideo = type.startsWith("video/") || /\.(mp4|mov|webm|m4v|avi|mkv|ogv)$/i.test(name);
     const url = URL.createObjectURL(file);
-    setNewsVideoUrl(url);
-    setNewsMotionKind(isVideo ? "video" : "gif");
-    setNewsFocalX(0.5); setNewsFocalY(0.5);
+    setMotionUrl(url);
+    setMotionKind(isVideo ? "video" : "gif");
     if (!isVideo) {
-      const g = newsGifRef.current; if (g) g.src = url;   // <img> animates on its own
+      const g = motionGifRef.current; if (g) g.src = url;   // <img> animates on its own
     } else {
-      const v = newsVideoRef.current;
+      const v = motionVideoRef.current;
       if (v) { v.src = url; v.load(); v.play().catch(() => {}); }
     }
   };
-  const clearNewsVideo = () => {
-    setNewsVideoUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return null; });
-    setNewsMotionKind(null);
-    const v = newsVideoRef.current;
+  const clearMotion = () => {
+    setMotionUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return null; });
+    setMotionKind(null);
+    const v = motionVideoRef.current;
     if (v) { try { v.pause(); } catch {} v.removeAttribute("src"); v.load(); }
-    const g = newsGifRef.current; if (g) g.removeAttribute("src");
+    const g = motionGifRef.current; if (g) g.removeAttribute("src");
   };
   const handleCoverInsetPhoto = makeUploadHandler((img) => setCoverInsetPhoto(img), "cover-inset");
   // Wrap each photo-having upload so a new picture resets its focal
@@ -4145,25 +4157,36 @@ export default function MediaTool() {
     }, "image/png");
   };
 
-  // === NEWS VIDEO EXPORT ===
-  // When the News slot holds a video insert, export the slide as a real .webm:
-  // record the canvas (the cream/dark block composited over the PLAYING video)
-  // for exactly one pass of the clip, muxing in the clip's own audio track.
-  // Reuses the ReelTool MediaRecorder(canvas.captureStream) pattern. News is a
-  // ratio-aware slot, so we render straight at the export target dims.
-  const dlNewsVideo = () => {
-    const isGif = newsMotionKind === "gif";
-    const src = isGif ? newsGifRef.current : newsVideoRef.current;
-    if (!src || !newsVideoUrl) { alert("Add a video or GIF to the News slot first."); return; }
+  // Draw ONE motion frame for the active template at the export target dims,
+  // with `src` (the playing <video>/<img>) standing in for the still photo.
+  // Mirrors the single-slide `dl()` per-mode dispatch, so the recorded .webm
+  // matches what a still PNG of the same template would look like. Every
+  // MOTION_MODES template accepts targetW/H/focal, so we render straight at
+  // the target aspect (no wrapForExport needed for the video path).
+  const renderMotionFrame = (cv, src, target, focal) => {
+    const t = { targetW: target.w, targetH: target.h, focalX: focal?.x ?? 0.5, focalY: focal?.y ?? 0.5 };
+    if (mode === "news") renderNews(cv, { newsKicker, newsHeadline, newsBody, newsBold, newsCaption, newsTheme, newsPhotoPos, newsTextScale, accent, bgKey, dots, totalDots, pageNum, totalPages, photo: src, ...t });
+    else if (mode === "cover") renderCover(cv, { photo: src, headline, highlights, accent, dots, totalDots, subtitle, opacity, ribbon, categoryTag, coverCtaButton, align: coverAlign, band: coverBand, titleScale: coverTitleScale, insetPhoto: coverInsetPhoto, insetPos: coverInsetPos, insetScale: coverInsetScale, ...t });
+    else if (mode === "spotlight") renderSpotlight(cv, { photo: src, spotName, spotNameHighlights: spotNameHL, spotMeta, spotTime, spotPrice, spotCta, spotNumber, align: spotAlign, band: spotBand, accent, bgKey, dots, totalDots, ...t });
+    else if (mode === "cta") renderCTA(cv, { ctaKicker, ctaDate, ctaVenue, ctaUrl, photo: src, accent, bgKey, dots, totalDots, opacity: textOpacity, ...t });
+    else if (mode === "text") renderText(cv, { textTitle, textTitleHighlights: textTitleHL, textBody, style: textStyle, band: textBand, accent, bgKey, dots, totalDots, pageNum, totalPages, photo: src, textOpacity, ...t });
+  };
+
+  // === MOTION VIDEO EXPORT ===
+  // When a motion clip is loaded on a motion-capable template, export the slide
+  // as a real .webm: record the canvas (the template's text/graphics composited
+  // over the PLAYING clip) for one pass of a video (with its audio) or a fixed
+  // 5s window of a GIF. Reuses the ReelTool MediaRecorder(canvas.captureStream)
+  // pattern; renders straight at the export target dims.
+  const dlMotionVideo = () => {
+    const isGif = motionKind === "gif";
+    const src = isGif ? motionGifRef.current : motionVideoRef.current;
+    if (!src || !motionUrl) { alert("Add a video or GIF first."); return; }
     const target = EXPORT_RATIOS[exportRatio] || EXPORT_RATIOS["1:1"];
     const focal = getModeFocal();
     const cv = document.createElement("canvas");
     cv.width = target.w; cv.height = target.h;
-    const drawFrame = () => renderNews(cv, {
-      newsKicker, newsHeadline, newsBody, newsBold, newsCaption, newsTheme, newsPhotoPos, newsTextScale,
-      accent, bgKey, dots, totalDots, pageNum, totalPages, photo: src,
-      targetW: target.w, targetH: target.h, focalX: focal?.x ?? 0.5, focalY: focal?.y ?? 0.5,
-    });
+    const drawFrame = () => renderMotionFrame(cv, src, target, focal);
     try {
       const canvasStream = cv.captureStream(30);
       // Best-effort: pull the clip's audio into the recording if present (video only).
@@ -4185,19 +4208,19 @@ export default function MediaTool() {
         if (gifTimer) clearTimeout(gifTimer);
         if (!isGif) src.loop = true;         // restore preview looping
         const blob = new Blob(chunks, { type: "video/webm" });
-        const filename = `CGE_news_slide_${exportRatio.replace(":", "x")}.webm`;
+        const filename = `CGE_${mode}_slide_${exportRatio.replace(":", "x")}.webm`;
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.download = filename; a.href = url;
         document.body.appendChild(a); a.click(); document.body.removeChild(a);
         URL.revokeObjectURL(url);
         canvasStream.getTracks().forEach(t => t.stop());
-        setNewsRecording(false);
-        saveExport(blob, { sourceTool: "media", sourceMode: `news-${exportRatio}`, name: filename, kind: "archive" })
+        setMotionRecording(false);
+        saveExport(blob, { sourceTool: "media", sourceMode: `${mode}-${exportRatio}`, name: filename, kind: "archive" })
           .catch(err => console.warn("Export archive failed:", err));
       };
       const loop = () => { drawFrame(); raf = requestAnimationFrame(loop); };
-      setNewsRecording(true);
+      setMotionRecording(true);
       if (isGif) {
         // A GIF has no "ended" event and no exposed frame timing — record a
         // fixed window of the looping animation (long enough for a couple loops).
@@ -4218,7 +4241,7 @@ export default function MediaTool() {
         src.play().then(begin).catch(begin); // autoplay blocked → record anyway
       }
     } catch (err) {
-      setNewsRecording(false);
+      setMotionRecording(false);
       alert("Video recording isn't supported in this browser. Try Chrome, or screen-record the preview.");
     }
   };
@@ -4432,10 +4455,10 @@ export default function MediaTool() {
   };
 
   const loadSnapshot = (snapshot, type) => {
-    // A News video is session-only (never saved into a snapshot), so it belongs
+    // A motion clip is session-only (never saved into a snapshot), so it belongs
     // ONLY to the live form it was inserted on. Clear it whenever we load a
-    // different slide, otherwise the clip bleeds onto every News slide you open.
-    clearNewsVideo();
+    // different slide, otherwise the clip bleeds onto every slide you open.
+    clearMotion();
     setMode(type);
     if (snapshot.accentKey) setAccentKey(snapshot.accentKey);
     if (snapshot.bgKey) setBgKey(snapshot.bgKey);
@@ -4808,9 +4831,9 @@ export default function MediaTool() {
     if (templateQueue) {
       const nextProgress = templateQueue.progress + 1;
       if (nextProgress < templateQueue.sequence.length) {
-        // Advancing to a fresh blank slot — drop the session video so it doesn't
-        // carry onto the next slide (videos aren't part of a slide's snapshot).
-        clearNewsVideo();
+        // Advancing to a fresh blank slot — drop the session clip so it doesn't
+        // carry onto the next slide (clips aren't part of a slide's snapshot).
+        clearMotion();
         setMode(templateQueue.sequence[nextProgress]);
         setTemplateQueue({ ...templateQueue, progress: nextProgress });
       } else {
@@ -5794,8 +5817,35 @@ export default function MediaTool() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [alternateColors, alternateBgKey]);
 
+  // Reusable "Video / GIF insert" panel — dropped into every MOTION_MODES
+  // template's form (News, Cover, Spotlight, CTA, Text). Upload/clear only;
+  // the actual .webm export lives in the Download ▾ menu. The hidden playback
+  // elements + file input are rendered once, globally (below), so a single
+  // shared clip works no matter which template is active.
+  const motionInsertBlock = (
+    <div style={{marginBottom:"0.6rem",padding:"0.55rem 0.6rem",background:"rgba(229,188,79,0.05)",border:"1px solid rgba(229,188,79,0.15)",borderRadius:"6px"}}>
+      <div style={{fontSize:"0.55rem",color:"#E5BC4F",letterSpacing:"1px",textTransform:"uppercase",fontWeight:700,fontFamily:"'Syne',sans-serif",marginBottom:"4px"}}>🎬 Video / GIF insert · optional</div>
+      <p style={{fontSize:"0.5rem",color:"rgba(245,240,232,0.4)",lineHeight:1.4,margin:"0 0 6px"}}>Drop a video or animated GIF/WebP into the photo area — the text stays put and it plays behind, overriding the still photo while loaded. Export as a real <b style={{color:"rgba(245,240,232,0.6)"}}>.webm</b> from <b style={{color:"rgba(245,240,232,0.6)"}}>⬇ Download ▾ → Video clip</b> (a video keeps its audio; a GIF records a 5-second loop).</p>
+      <div style={{display:"flex",gap:"0.3rem",alignItems:"center"}}>
+        <button onClick={()=>motionFileRef.current?.click()} style={{...B,flex:1}}>{motionUrl?`✓ ${motionKind==="gif"?"GIF":"Video"} loaded — change`:"Upload Video / GIF"}</button>
+        {motionUrl&&<button onClick={clearMotion} title="Remove the clip" style={{...B,color:"rgba(251,113,133,0.5)"}}>×</button>}
+      </div>
+    </div>
+  );
+
   return(
     <div style={{minHeight:"calc(100vh - 60px)",background:"#080808",color:"#F5F0E8",fontFamily:"'DM Sans',sans-serif",overflowX:"hidden"}}>
+      {/* Shared motion-clip plumbing — rendered ONCE for the whole tool so a
+          single video/GIF works across every MOTION_MODES template. One file
+          input (broad accept so the OS picker never greys out a valid clip;
+          handleMotionUpload routes by kind). The <video>/<img> must stay
+          PAINTED to keep moving: Chrome stops decoding a display:none <video>
+          (play() stalls, "ended" never fires → recording hangs) and freezes an
+          off-screen/opacity:0 GIF after frame 1. Parked in-viewport at 2×2px
+          with a hair of opacity — imperceptible, but kept live. */}
+      <input ref={motionFileRef} type="file" accept="video/*,image/*" onChange={handleMotionUpload} style={{display:"none"}}/>
+      <video ref={motionVideoRef} muted loop playsInline style={NEWS_MEDIA_PARK}/>
+      <img ref={motionGifRef} alt="" aria-hidden="true" style={NEWS_MEDIA_PARK}/>
       <div style={{maxWidth:1150,margin:"0 auto",padding:"1.25rem",width:"100%",boxSizing:"border-box"}}>
         <div style={{display:"flex",alignItems:"center",gap:"0.75rem",marginBottom:"1rem"}}>
           <h1 style={{fontFamily:"'Syne',sans-serif",fontSize:"1.2rem",fontWeight:800,textTransform:"uppercase"}}>CGE Media Template</h1>
@@ -6405,6 +6455,7 @@ export default function MediaTool() {
                 focalY={coverFocalY}
                 onChange={(x, y) => { setCoverFocalX(x); setCoverFocalY(y); }}
               />
+              {motionInsertBlock}
               {/* Headline first — the hero of the slide. */}
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Headline</label><textarea value={headline} onChange={e=>setHeadline(e.target.value)} style={{...I,height:55,resize:"vertical"}} placeholder="Type headline..."/></div>
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Click words to highlight</label>
@@ -6656,6 +6707,7 @@ export default function MediaTool() {
                       </div>
                     </div>}
                   </div>
+                  {motionInsertBlock}
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0.4rem",marginBottom:"0.6rem"}}>
                     <div><label style={L}>Page #</label><input type="number" min="1" value={pageNum} onChange={e=>setPageNum(parseInt(e.target.value)||1)} style={{...I,textAlign:"center",fontWeight:700}}/></div>
                     <div><label style={L}>Total pages</label><input type="number" min="1" value={totalPages} onChange={e=>setTotalPages(parseInt(e.target.value)||1)} style={{...I,textAlign:"center",fontWeight:700}}/></div>
@@ -6702,33 +6754,7 @@ export default function MediaTool() {
               />}
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Photo caption · optional (one line, shows over the photo)</label><input value={newsCaption} onChange={e=>setNewsCaption(e.target.value)} style={I} placeholder="e.g. Valley Mall · Irvington, NJ"/></div>
 
-              {/* MOTION INSERT — drop a video OR animated GIF into the photo area
-                  and export the whole slide as a real .webm (block over the moving
-                  media). Session-only: not saved into drafts/snapshots. */}
-              <div style={{marginBottom:"0.6rem",padding:"0.55rem 0.6rem",background:"rgba(229,188,79,0.05)",border:"1px solid rgba(229,188,79,0.15)",borderRadius:"6px"}}>
-                <div style={{fontSize:"0.55rem",color:"#E5BC4F",letterSpacing:"1px",textTransform:"uppercase",fontWeight:700,fontFamily:"'Syne',sans-serif",marginBottom:"4px"}}>🎬 Video / GIF insert · optional</div>
-                <p style={{fontSize:"0.5rem",color:"rgba(245,240,232,0.4)",lineHeight:1.4,margin:"0 0 6px"}}>Drop a video or animated GIF/WebP into the photo area — the block stays put and it plays behind. Export the slide as a real <b style={{color:"rgba(245,240,232,0.6)"}}>.webm</b> below (video keeps its audio; a GIF records a 5-second loop). Overrides the still photo while loaded.</p>
-                <div style={{display:"flex",gap:"0.3rem",alignItems:"center",marginBottom:newsVideoUrl?"6px":0}}>
-                  <button onClick={()=>newsVideoFileRef.current?.click()} style={{...B,flex:1}}>{newsVideoUrl?`✓ ${newsMotionKind==="gif"?"GIF":"Video"} loaded — change`:"Upload Video / GIF"}</button>
-                  {newsVideoUrl&&<button onClick={clearNewsVideo} style={{...B,color:"rgba(251,113,133,0.5)"}}>×</button>}
-                  {/* Broad accept so the OS picker never greys out a valid file
-                      (many "GIFs" are animated WebP/MP4); handleNewsVideo routes
-                      by kind and rejects only the unrenderable ones. */}
-                  <input ref={newsVideoFileRef} type="file" accept="video/*,image/*" onChange={handleNewsVideo} style={{display:"none"}}/>
-                </div>
-                {newsVideoUrl&&<button onClick={dlNewsVideo} disabled={newsRecording} style={{width:"100%",padding:"9px",background:"rgba(229,188,79,0.14)",color:"#E5BC4F",border:"1px solid rgba(229,188,79,0.28)",borderRadius:"6px",fontSize:"0.7rem",fontWeight:700,fontFamily:"'Syne',sans-serif",cursor:newsRecording?"not-allowed":"pointer",opacity:newsRecording?0.55:1}}>{newsRecording?"● Recording…":`⬇ Download News ${newsMotionKind==="gif"?"GIF clip":"video"} (.webm)`}</button>}
-              </div>
-              {/* Hidden playback elements that feed the preview loop + recorder:
-                  <video> for clips, <img> for animated GIFs.
-
-                  CRITICAL: these must be PAINTED to keep moving. Chrome stops
-                  decoding a display:none <video> (play() stalls, "ended" never
-                  fires → recording hangs) and pauses an off-screen / opacity:0
-                  GIF's frame advancement (decodes frame 1, then freezes → no
-                  motion). So park both in-viewport at 2×2px with a hair of
-                  opacity — imperceptible, but the compositor keeps them live. */}
-              <video ref={newsVideoRef} muted loop playsInline style={NEWS_MEDIA_PARK}/>
-              <img ref={newsGifRef} alt="" aria-hidden="true" style={NEWS_MEDIA_PARK}/>
+              {motionInsertBlock}
             </>}
 
             {mode==="cta"&&<>
@@ -6765,6 +6791,7 @@ export default function MediaTool() {
                       </div>
                     </div>}
                   </div>
+                  {motionInsertBlock}
                   {!textPhoto&&<div><label style={L}>Background Color</label><div style={{display:"flex",gap:"3px"}}>
                     {Object.entries(BG_COLORS).map(([k,v])=><button key={k} onClick={()=>setBgKey(k)} style={{width:28,height:28,borderRadius:"5px",cursor:"pointer",background:v.hex,border:bgKey===k?"2px solid #FFF":"2px solid transparent",boxShadow:bgKey===k?"0 0 6px rgba(255,255,255,0.3)":"none"}} title={v.name}/>)}</div></div>}
                 </div>
@@ -6823,6 +6850,7 @@ export default function MediaTool() {
                 focalY={spotFocalY}
                 onChange={(x, y) => { setSpotFocalX(x); setSpotFocalY(y); }}
               />
+              {motionInsertBlock}
               <div style={{marginBottom:"0.6rem"}}><label style={L}>Venue / event name (headline)</label>
                 <textarea value={spotName} onChange={e=>setSpotName(e.target.value)} style={{...I,height:55,resize:"vertical",fontFamily:"'Syne'"}} placeholder="e.g. ROOFTOP NIGHT AT THE STANDARD"/>
               </div>
@@ -7485,7 +7513,7 @@ export default function MediaTool() {
                   style={{width:40,height:40,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:"7px",fontSize:"1rem",cursor:isDrafting?"wait":"pointer",border:"1px solid rgba(192,132,252,0.28)",background:"rgba(192,132,252,0.1)",color:"#C084FC",opacity:isDrafting?0.6:1}}
                 >{isDrafting ? "…" : "💾"}</button>
                 {/* Download ▾ split button — left half = default PNG, caret opens
-                    the rest (Carousel ZIP, and News clip on a News video slide). */}
+                    the rest (Carousel ZIP, and Video clip on a motion slide). */}
                 <div ref={dlMenuRef} style={{display:"flex",position:"relative"}}>
                   <button
                     onClick={()=>{ setDlMenuOpen(false); dl(); }}
@@ -7509,12 +7537,12 @@ export default function MediaTool() {
                         <span style={{width:22,textAlign:"center"}}>🗂️</span>
                         <span><span style={DL_MENU_TITLE}>{isAutoGen ? "Exporting ZIP…" : "Carousel ZIP"}</span><span style={DL_MENU_SUB}>{carousel.length ? `All ${carousel.length} slides · ${exportRatio} · numbered PNGs` : "Add slides to the carousel first"}</span></span>
                       </button>
-                      {mode==="news" && newsVideoUrl && (
+                      {MOTION_MODES.has(mode) && motionUrl && (
                         <>
                           <div style={{height:1,background:"rgba(245,240,232,0.06)",margin:"4px 6px"}} />
-                          <button role="menuitem" onClick={()=>{ if(!newsRecording){ setDlMenuOpen(false); dlNewsVideo(); } }} disabled={newsRecording} style={{...DL_MENU_ITEM, opacity:newsRecording?0.5:1, cursor:newsRecording?"wait":"pointer"}}>
+                          <button role="menuitem" onClick={()=>{ if(!motionRecording){ setDlMenuOpen(false); dlMotionVideo(); } }} disabled={motionRecording} style={{...DL_MENU_ITEM, opacity:motionRecording?0.5:1, cursor:motionRecording?"wait":"pointer"}}>
                             <span style={{width:22,textAlign:"center"}}>🎬</span>
-                            <span><span style={{...DL_MENU_TITLE, color:"#E5BC4F"}}>{newsRecording ? "Recording…" : "News clip (.webm)"}</span><span style={DL_MENU_SUB}>{newsMotionKind==="gif" ? "5-second loop of the GIF" : "One pass of the video, with audio"}</span></span>
+                            <span><span style={{...DL_MENU_TITLE, color:"#E5BC4F"}}>{motionRecording ? "Recording…" : "Video clip (.webm)"}</span><span style={DL_MENU_SUB}>{motionKind==="gif" ? "5-second loop of the GIF" : "One pass of the video, with audio"}</span></span>
                           </button>
                         </>
                       )}
