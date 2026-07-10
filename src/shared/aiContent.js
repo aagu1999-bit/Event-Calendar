@@ -370,10 +370,11 @@ export async function connectDots({ apiKey, thesis = "", area = "New Jersey", be
     "",
     ...(anchor ? [
       `THE EVENT WE'RE ULTIMATELY PROMOTING (the ANSWER — do NOT treat it as a dot, do NOT search for it): ${anchor}`,
+      "It may be written loosely — read its genre/theme (the vibe, the music, the crowd) so the trend you hunt is COHERENTLY tied to it.",
       seed
         ? `Gather 3-5 REAL, dated events/signals that prove the TREND OR DEMAND this event answers: "${seed}".`
-        : "Figure out the TREND / DEMAND / GAP this event is the answer to, then gather 3-5 REAL, dated events/signals that prove that demand is real and rising.",
-      "The dots are the SETUP that makes the reader want exactly what this event offers — they must NOT include or describe the event itself.",
+        : "Figure out the TREND / DEMAND / GAP this event is the answer to — one genuinely connected to its genre, not a stretch — then gather 3-5 REAL, dated events/signals that prove that demand is real and rising.",
+      "The dots are the SETUP that makes the reader want exactly what this event offers — they must NOT include or describe the event itself, and every dot should point toward the SAME need the event fills.",
     ] : [
       seed
         ? `THE THESIS / PATTERN to support: "${seed}". Gather 3-5 REAL, dated events that illustrate it.`
@@ -412,7 +413,14 @@ export async function connectDots({ apiKey, thesis = "", area = "New Jersey", be
       ? "Turn this research brief into a PROBLEM → SOLUTION promo carousel for a CGE Instagram post: the dots build the demand, and THE EVENT is the answer that brings it home."
       : "Turn this research brief into a CONNECT-THE-DOTS carousel plan for a CGE Instagram post.",
     seed ? `The trend/thesis is: "${seed}".` : "First settle on the trend/thesis the brief best supports.",
-    ...(anchor ? [`THE EVENT TO PROMOTE (the ANSWER — this is the destination, NOT a dot): ${anchor}`] : []),
+    ...(anchor ? [
+      `THE EVENT TO PROMOTE (the ANSWER — this is the destination, NOT a dot): ${anchor}`,
+      "The event may be written as a loose DESCRIPTION — piece its real details together (name, date, time,",
+      "venue, city, @handle, ticket link) and use them exactly; invent nothing that isn't stated.",
+      "COHERENCE IS EVERYTHING: the trend and the event must be ONE throughline. The trend you build has to be",
+      "genuinely tied to THIS event's genre/theme (a Y2K night → the Y2K-fashion wave, not a random pattern),",
+      "so the reveal feels inevitable — 'of course THIS is the answer' — not a bolted-on pivot.",
+    ] : []),
     "",
     "Shape it:",
     "- cover: a CLAIM-AS-QUESTION hook. headline = the question ('Is the Y2K revival taking over nightlife?'),",
@@ -983,10 +991,13 @@ function registerBlock(mode) {
     "  destination. EVERY slide serves it (its angle, its draw, its details, its vibe). Do NOT wander into",
     "  covering other events, venues, or an abstract trend; if you reference a wider moment, it's only a hook",
     "  that hands straight back to THIS event.",
+    "- PIECE THE EVENT TOGETHER FROM THE DESCRIPTION. The details may be written loosely in the context /",
+    "  facts — read it and pull out the event's NAME, DATE, TIME, VENUE, CITY, @handle, and TICKET LINK, then",
+    "  use them EXACTLY. If a detail isn't stated, leave it out — never invent a date, price, or venue.",
     "- Voice: warm, direct, second-person ('you', 'your weekend'). Speak TO the reader.",
     "- Energy: higher. Use a time pull ('this Saturday', 'doors at 8') and a soft, confident invite.",
     "- BRING IT HOME. The closer makes the next step obvious and carries the event's REAL details",
-    "  (date · venue · @handle · link) — never a generic 'tag a friend' with no event attached.",
+    "  (date · venue · @handle · link, as pulled from the description) — never a generic 'tag a friend'.",
     "- Still honest and editorial-grade — NEVER 'don't miss out!', 'link in bio!!!', or hype-spam.",
     "─────────────────────────────",
     "",

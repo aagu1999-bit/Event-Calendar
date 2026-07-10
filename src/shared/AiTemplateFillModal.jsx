@@ -940,7 +940,9 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
 
         <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 5, flexWrap: "wrap" }}>
           <label style={{ fontSize: "0.65rem", color: "rgba(245,240,232,0.65)", letterSpacing: 0.5 }}>
-            Context — the raw material for the hook (give it the twist, not a description)
+            {mode === "promo"
+              ? "Describe your event — details get pulled from this (name · date · time · venue · city · @handle · tickets)"
+              : "Context — the raw material for the hook (the twist, the proof, why now)"}
           </label>
           <div style={{ flex: 1 }} />
           <button
@@ -963,9 +965,13 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
           value={context}
           onChange={(e) => setContext(e.target.value)}
           rows={5}
-          placeholder='For Feature Drop: "Live DJ, Bachata lessons, DJ JdaBachata and DJ Carlita, Luzz Pickleball Paddle 2025 Glider giveaway, gift baskets, 100+ singles, Pickleball HQ Aberdeen, July 11"
+          placeholder={mode === "promo"
+            ? `Just describe your event — write it naturally and the AI pieces the details together:
 
-For Editorial Roundup: 5 events with name · day · time · venue · URL each, one per line.'
+"Y2K Nights at Music Farm in Newark, Sat July 17. 90s/2000s R&B + Hip-Hop, live DJ, throwback fits encouraged. Doors 9. @cge, tix in bio."`
+            : `For Feature Drop: "Live DJ, Bachata lessons, DJ JdaBachata and DJ Carlita, Luzz Pickleball Paddle 2025 Glider giveaway, gift baskets, 100+ singles, Pickleball HQ Aberdeen, July 11"
+
+For Editorial Roundup: 5 events with name · day · time · venue · URL each, one per line.`}
           style={{
             width: "100%",
             padding: "8px 10px",
