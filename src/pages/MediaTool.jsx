@@ -4051,7 +4051,13 @@ export default function MediaTool() {
      // slot lays its content out top-anchored for a 1080-tall square; those
      // still render at 1080×1080 and get CENTERED into the target frame by
      // wrapForExport (photo/bg extended into the margins).
-     const RATIO_AWARE_MODES = new Set(["cover", "spotlight", "photo", "news", "poster", "press", "features"]);
+     // Countdown belongs here too: it lays out proportionally (H*0.36 … H*0.74)
+     // and takes targetW/H/focal, so it renders the full 4:5 frame directly.
+     // Routing it through wrapForExport instead left its full-frame dark scrim
+     // trapped in the centered 1080² square while the bled top/bottom bars only
+     // got wrapForExport's light 0.32 wash — the "shading isn't applied all
+     // throughout" bug (bright strips above/below the darkened center).
+     const RATIO_AWARE_MODES = new Set(["cover", "spotlight", "photo", "news", "poster", "press", "features", "countdown"]);
     const isRatioAware = RATIO_AWARE_MODES.has(mode);
     // renderScale supersamples the export (crisp photos). Ratio-aware modes
     // render directly at the target aspect; the rest render 1080² and get
@@ -4268,7 +4274,7 @@ export default function MediaTool() {
     // whole design at the target aspect; every other mode renders at
     // 1080×1080 and gets centered into the target frame by wrapForExport, so
     // its top-anchored layout doesn't clump at the top with dead space below.
-    const RATIO_AWARE_ZIP_MODES = new Set(["cover", "spotlight", "photo", "news", "poster", "press", "features"]);
+    const RATIO_AWARE_ZIP_MODES = new Set(["cover", "spotlight", "photo", "news", "poster", "press", "features", "countdown"]);
     const FOCAL_KEY_MAP = {
       cover:     ["coverFocalX",   "coverFocalY"],
       list:      ["listFocalX",    "listFocalY"],
@@ -5678,7 +5684,7 @@ export default function MediaTool() {
         // 1080×1080 and gets CENTERED into the target frame by wrapForExport,
         // so its top-anchored layout doesn't sit high with dead space below.
         const slideTarget = EXPORT_RATIOS[exportRatio] || EXPORT_RATIOS["1:1"];
-        const RATIO_AWARE_SLIDE_TYPES = new Set(["cover", "spotlight", "photo", "news", "poster", "press", "features"]);
+        const RATIO_AWARE_SLIDE_TYPES = new Set(["cover", "spotlight", "photo", "news", "poster", "press", "features", "countdown"]);
         const isRatioAwareSlide = RATIO_AWARE_SLIDE_TYPES.has(s.type);
         renderSlide(cv, s.type, s.snapshot, i+1, carousel.length, i, isRatioAwareSlide ? slideTarget : null, EXPORT_SCALE);
         const exportCv = isRatioAwareSlide
