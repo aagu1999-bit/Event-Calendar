@@ -3814,7 +3814,18 @@ export default function MediaTool() {
     // Clear whichever element held the previous clip.
     const oldV = newsVideoRef.current; if (oldV) { try { oldV.pause(); } catch {} oldV.removeAttribute("src"); oldV.load(); }
     const oldG = newsGifRef.current; if (oldG) oldG.removeAttribute("src");
-    const isGif = file.type === "image/gif" || /\.gif$/i.test(file.name || "");
+    const name = file.name || "";
+    const isGif = file.type === "image/gif" || /\.gif$/i.test(name);
+    const isVideo = (file.type || "").startsWith("video/") || /\.(mp4|mov|webm|m4v|avi|mkv)$/i.test(name);
+    // Guard unsupported formats (TIFF, HEIC, etc.) — routing them to the <video>
+    // element just yields a silent blank. Only videos and GIFs animate here.
+    if (!isGif && !isVideo) {
+      const looksTiff = /tiff?|heic|heif/i.test(file.type || "") || /\.(tiff?|heic|heif)$/i.test(name);
+      alert(looksTiff
+        ? "TIFF / HEIC files can't be shown in the browser — they come out blank. Convert it to MP4/GIF (for motion) or JPG/PNG (for a still photo) first."
+        : "That file won't play here — use a video (MP4 / MOV / WebM) or an animated GIF. A still image goes in the Photo upload above (JPG / PNG).");
+      return;
+    }
     const url = URL.createObjectURL(file);
     setNewsVideoUrl(url);
     setNewsMotionKind(isGif ? "gif" : "video");
@@ -6636,7 +6647,10 @@ export default function MediaTool() {
               {/* Hidden playback elements that feed the preview loop + recorder:
                   <video> for clips, <img> for animated GIFs. */}
               <video ref={newsVideoRef} muted loop playsInline style={{display:"none"}}/>
-              <img ref={newsGifRef} alt="" style={{display:"none"}}/>
+              {/* A GIF must stay IN the render tree to keep animating and to be
+                  decoded for drawImage — display:none freezes/undecodes it (blank
+                  canvas). Park it off-screen + invisible instead of hidden. */}
+              <img ref={newsGifRef} alt="" aria-hidden="true" style={{position:"fixed",left:"-9999px",top:0,width:2,height:2,opacity:0,pointerEvents:"none"}}/>
             </>}
 
             {mode==="cta"&&<>
