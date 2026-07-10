@@ -52,6 +52,9 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
   // evidence carousel. dotsDiscover lets the AI propose the thread itself.
   const [dotsMode, setDotsMode] = useState(false);
   const [dotsDiscover, setDotsDiscover] = useState(false);
+  // Anchor event — when set, the dots become the problem/demand and THIS event
+  // is the answer (verdict) + the CTA. Turns coverage into problem→solution promo.
+  const [dotsAnchor, setDotsAnchor] = useState("");
   // Target slide count for "AI arranges" — "auto" lets Gemini size the arc to
   // the story; a number pins it. Ignored by fixed-length template fill.
   const [slideCount, setSlideCount] = useState("auto");
@@ -97,6 +100,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
       setAiArrange(false);
       setDotsMode(false);
       setDotsDiscover(false);
+      setDotsAnchor("");
       setSlideCount("auto");
       setNewsOn(false);
       setNewsFound(null);
@@ -132,21 +136,21 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
   const genLabel = slides.length
     ? "↻ Regenerate"
     : dotsMode
-      ? (dotsDiscover ? "🧵 Find a thread + build" : "🧵 Connect the dots")
+      ? (dotsAnchor.trim() ? "🧵 Build the case for my event" : dotsDiscover ? "🧵 Find a thread + build" : "🧵 Connect the dots")
       : aiArrange
         ? (slideCount === "auto" ? "✨ Design + generate" : `✨ Generate ${slideCount} slides`)
         : letAiPick
           ? "✨ Let AI pick + generate"
           : `✨ Generate ${template?.sequence?.length || 0} slides`;
   const enrichCount = (researchOn ? 1 : 0) + (newsOn ? 1 : 0) + (letterMode ? 1 : 0);
-  // Dots + "let AI find the thread" needs no typed input; everything else needs a topic/context.
-  const canGenerate = (dotsMode && dotsDiscover) || !!topic.trim() || !!context.trim();
+  // Dots with "find the thread" or an anchor event needs no thesis typed; everything else needs a topic/context.
+  const canGenerate = (dotsMode && (dotsDiscover || !!dotsAnchor.trim())) || !!topic.trim() || !!context.trim();
 
   const handleGenerate = async () => {
     if (!apiKey) { setError("Paste your Gemini API key in the MediaTool toolbar first."); return; }
     if (!dotsMode && !aiArrange && !letAiPick && !template) { setError("Pick a template first, or toggle 'Let AI pick' / 'AI arranges'."); return; }
-    // Dots mode with "let AI find the thread" needs no input; otherwise require a thesis/topic.
-    if (!(dotsMode && dotsDiscover) && !topic.trim() && !context.trim()) { setError(dotsMode ? "Type the thesis/pattern to connect — or toggle 'Let AI find the thread'." : "Add a topic or some event details first."); return; }
+    // Dots mode with "find the thread" or an anchor event needs no thesis; otherwise require a thesis/topic.
+    if (!(dotsMode && (dotsDiscover || dotsAnchor.trim())) && !topic.trim() && !context.trim()) { setError(dotsMode ? "Type the thesis/pattern — or add an anchor event, or toggle 'Let AI find the thread'." : "Add a topic or some event details first."); return; }
     setBusy(true);
     setError("");
     setSlides([]);
@@ -191,8 +195,8 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
       // "Connect the dots" — a thesis + several real-news dots, welded into an
       // evidence carousel. Supersedes template/arrange.
       if (dotsMode) {
-        setBusyLabel(dotsDiscover ? "Finding a thread…" : "Gathering the evidence…");
-        const plan = await connectDots({ apiKey, thesis: dotsDiscover ? "" : topic, area: "New Jersey" });
+        setBusyLabel(dotsAnchor.trim() ? "Building the case for your event…" : dotsDiscover ? "Finding a thread…" : "Gathering the evidence…");
+        const plan = await connectDots({ apiKey, thesis: dotsDiscover ? "" : topic, area: "New Jersey", anchorEvent: dotsAnchor });
         const dotsSlides = dotsPlanToSlides(plan);
         if (!dotsSlides.length) { setError("Couldn't find enough real dots for that thread. Try a clearer thesis, or toggle 'Let AI find the thread'."); return; }
         setNewsFound({ brief: plan.brief, sources: plan.sources });
@@ -749,14 +753,32 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
           <span style={{ marginLeft: "auto", fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: 0.5 }}>thesis + real-news evidence</span>
         </label>
         {dotsMode && (
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, padding: "8px 10px", background: "rgba(139,92,246,0.05)", border: "1px solid rgba(139,92,246,0.18)", borderRadius: 4 }}>
-            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.65rem", color: dotsDiscover ? "#A78BFA" : "rgba(245,240,232,0.7)", cursor: "pointer", fontWeight: 700 }}>
-              <input type="checkbox" checked={dotsDiscover} onChange={(e) => setDotsDiscover(e.target.checked)} />
-              Let AI find the thread
+          <div style={{ marginBottom: 12, padding: "8px 10px", background: "rgba(139,92,246,0.05)", border: "1px solid rgba(139,92,246,0.18)", borderRadius: 4 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.65rem", color: dotsDiscover ? "#A78BFA" : "rgba(245,240,232,0.7)", cursor: "pointer", fontWeight: 700 }}>
+                <input type="checkbox" checked={dotsDiscover} onChange={(e) => setDotsDiscover(e.target.checked)} />
+                Let AI find the thread
+              </label>
+              <span style={{ marginLeft: "auto", fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: 0.5, textAlign: "right", lineHeight: 1.3 }}>
+                {dotsDiscover ? "AI proposes the pattern from current news" : "type your thesis in the Topic box below"}
+              </span>
+            </div>
+            {/* Anchor event — flips coverage into problem→solution promo. */}
+            <label style={{ fontSize: "0.58rem", color: "#A78BFA", letterSpacing: 0.5, textTransform: "uppercase", fontWeight: 700, display: "block", marginBottom: 4 }}>
+              🎯 Anchor event · optional — makes it promo
             </label>
-            <span style={{ marginLeft: "auto", fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: 0.5, textAlign: "right", lineHeight: 1.3 }}>
-              {dotsDiscover ? "AI proposes the pattern from current news" : "type your thesis in the Topic box below"}
-            </span>
+            <textarea
+              value={dotsAnchor}
+              onChange={(e) => setDotsAnchor(e.target.value)}
+              rows={2}
+              placeholder="Your event as THE answer: name · date · venue · @handle · ticket link. e.g. 'Y2K Nights — Sat July 17, Music Farm Newark, @cge, tix in bio'"
+              style={{ width: "100%", padding: "7px 9px", background: "#111", border: "1px solid rgba(139,92,246,0.25)", borderRadius: 4, color: "#F5F0E8", fontFamily: "inherit", fontSize: "0.72rem", outline: "none", boxSizing: "border-box", resize: "vertical" }}
+            />
+            <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", marginTop: 4, lineHeight: 1.4 }}>
+              {dotsAnchor.trim()
+                ? "Problem → solution: the dots build the demand, your event lands as the answer, and the close drives to it."
+                : "Leave blank for pure coverage (verdict = an insight). Fill it in and the dots become the setup for your event."}
+            </div>
           </div>
         )}
 
