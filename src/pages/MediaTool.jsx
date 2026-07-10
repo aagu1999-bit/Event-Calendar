@@ -74,6 +74,22 @@ const NEWS_MEDIA_PARK = {
   zIndex: 2147483647, // on top so it's never occluded → compositor keeps it live
 };
 
+// Row styling for the Download ▾ dropdown menu (unified action bar).
+const DL_MENU_ITEM = {
+  display: "flex", width: "100%", alignItems: "center", gap: "10px",
+  background: "transparent", border: "none", color: "#F5F0E8",
+  textAlign: "left", padding: "9px 10px", borderRadius: "6px",
+  cursor: "pointer", fontFamily: "'DM Sans',sans-serif",
+};
+const DL_MENU_TITLE = {
+  display: "block", fontWeight: 700, fontSize: "0.66rem",
+  letterSpacing: "0.5px", textTransform: "uppercase",
+};
+const DL_MENU_SUB = {
+  display: "block", fontSize: "0.58rem", color: "rgba(245,240,232,0.4)",
+  marginTop: "1px",
+};
+
 // Module-level state for fonts + watermark, synced from the React component.
 // Renderers read these so we don't have to thread them through every cfg.
 let _displayFont = "Syne";
@@ -3441,6 +3457,18 @@ export default function MediaTool() {
   // Aspect ratio applied at export time — preview stays 1:1 since the
   // renderers are coded for 1080×1080.
   const [exportRatio, setExportRatio] = useState("1:1");
+  // Download ▾ split-button menu (in the unified bottom action bar). The left
+  // half downloads the default PNG; the caret opens ZIP / News-clip options.
+  const [dlMenuOpen, setDlMenuOpen] = useState(false);
+  const dlMenuRef = useRef(null);
+  useEffect(() => {
+    if (!dlMenuOpen) return;
+    const onDoc = (e) => { if (dlMenuRef.current && !dlMenuRef.current.contains(e.target)) setDlMenuOpen(false); };
+    const onKey = (e) => { if (e.key === "Escape") setDlMenuOpen(false); };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("mousedown", onDoc); document.removeEventListener("keydown", onKey); };
+  }, [dlMenuOpen]);
   useEffect(() => { setActiveWatermark(watermark); }, [watermark]);
   useEffect(() => { setActiveBgPrint(bgPrint); }, [bgPrint]);
 
@@ -3626,7 +3654,7 @@ export default function MediaTool() {
     if (useVision && carousel.length === 0) {
       setCaptionsError(
         "Vision mode reads your actual rendered slide images. Add slides to the carousel first " +
-        "(hit \"+ Add Current Slide\" after each one), then try again. Or turn Vision OFF to write " +
+        "(hit \"+ Add to carousel\" after each one), then try again. Or turn Vision OFF to write " +
         "captions from the current form fields."
       );
       return;
@@ -5814,14 +5842,8 @@ export default function MediaTool() {
               >{k}</button>
             ))}
           </div>
-          {/* Save draft — icon-only action (tooltip carries the label) so it
-              stops competing with the mode/appearance controls for width. */}
-          <button
-            onClick={saveDraft}
-            disabled={isDrafting}
-            title="Save draft — snapshot the current state to come back to later. Lives in Library → Exports with a DRAFT badge."
-            style={{width:34,height:34,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:"5px",fontSize:"0.85rem",cursor:isDrafting?"wait":"pointer",border:"1px solid rgba(192,132,252,0.25)",background:"rgba(192,132,252,0.08)",color:"#C084FC",opacity:isDrafting?0.6:1}}
-          >{isDrafting ? "…" : "💾"}</button>
+          {/* Save draft moved to the unified action bar at the bottom of the
+              form (grouped with Add-to-carousel + Download). */}
           {/* Branding cluster — Watermark (master) + BG print (child) as ONE
               segmented control. BG print greys when the master is off, so the
               parent/child relationship reads at a glance instead of being
@@ -6119,23 +6141,8 @@ export default function MediaTool() {
           borderRadius: "6px",
         }}>
           <div style={{display:"flex",alignItems:"center",gap:"0.5rem",marginBottom: carousel.length > 0 ? "8px" : "0",flexWrap:"wrap"}}>
-            <button
-              onClick={addToCarousel}
-              style={{padding:"6px 12px",background:"#A855F7",color:"#FFF",border:"none",borderRadius:"4px",fontSize:"0.6rem",fontWeight:700,letterSpacing:"1px",textTransform:"uppercase",cursor:"pointer",fontFamily:"'Syne',sans-serif",whiteSpace:"nowrap"}}
-              title={editingSlideId ? "Add the current form as a NEW slide (a copy)" : "Snapshot the current form and add it to the carousel"}
-            >{editingSlideId && carousel.some(s=>s.id===editingSlideId) ? "+ Add as New" : "+ Add Current Slide"}</button>
-            {editingSlideId && carousel.some(s=>s.id===editingSlideId) && (
-              <div style={{display:"flex",alignItems:"center",gap:"6px",flex:"0 0 auto"}}>
-                <span style={{fontSize:"0.52rem",color:"#63B3ED",letterSpacing:"1px",textTransform:"uppercase",fontWeight:700}}>
-                  ✎ Editing slide {carousel.findIndex(s=>s.id===editingSlideId)+1} · saves live
-                </span>
-                <button
-                  onClick={()=>setEditingSlideId(null)}
-                  title="Stop editing that slide and compose a fresh one — your edits are already saved to it"
-                  style={{padding:"4px 8px",background:"transparent",color:"rgba(99,179,237,0.85)",border:"1px solid rgba(99,179,237,0.4)",borderRadius:"3px",fontSize:"0.5rem",fontWeight:700,letterSpacing:"0.5px",textTransform:"uppercase",cursor:"pointer",fontFamily:"'Syne',sans-serif",whiteSpace:"nowrap"}}
-                >＋ New slide</button>
-              </div>
-            )}
+            {/* Add-to-carousel + its "editing slide N" indicator moved to the
+                unified action bar at the bottom of the form. */}
             {/* From Template picker — built-ins first, customs second.
                 Picking re-starts the queue from slide 1 of that template. */}
             <select
@@ -6276,11 +6283,7 @@ export default function MediaTool() {
               </button>
             )}
             {carousel.length > 0 && <>
-              <button
-                onClick={exportCarouselZip}
-                disabled={isAutoGen}
-                style={{padding:"6px 12px",background:isAutoGen?"rgba(168,85,247,0.4)":"#7C3AED",color:"#FFF",border:"none",borderRadius:"4px",fontSize:"0.6rem",fontWeight:700,letterSpacing:"1px",textTransform:"uppercase",cursor:isAutoGen?"wait":"pointer",fontFamily:"'Syne',sans-serif",whiteSpace:"nowrap"}}
-              >{isAutoGen ? "Exporting…" : `Export ZIP (${carousel.length})`}</button>
+              {/* Export ZIP moved into the Download ▾ menu in the bottom action bar. */}
               <button
                 onClick={clearCarousel}
                 style={{padding:"6px 12px",background:"transparent",color:"rgba(251,113,133,0.8)",border:"1px solid rgba(251,113,133,0.4)",borderRadius:"4px",fontSize:"0.6rem",fontWeight:700,letterSpacing:"1px",textTransform:"uppercase",cursor:"pointer",fontFamily:"'Syne',sans-serif",whiteSpace:"nowrap"}}
@@ -7449,8 +7452,77 @@ export default function MediaTool() {
               <div><label style={L}>This slide #</label><input type="number" min="1" max="20" value={dots} onChange={e=>setDots(Math.max(1,parseInt(e.target.value)||1))} style={{...I,textAlign:"center",fontWeight:700}}/></div>
               <div><label style={L}>Total slides</label><input type="number" min="1" max="20" value={totalDots} onChange={e=>setTotalDots(Math.max(1,parseInt(e.target.value)||1))} style={{...I,textAlign:"center",fontWeight:700}}/></div>
             </div>
-            <button onClick={dl} style={{width:"100%",padding:"12px",background:accent,color:"#000",border:"none",borderRadius:"6px",fontSize:"0.85rem",fontWeight:700,cursor:"pointer"}}>Download {mode.charAt(0).toUpperCase()+mode.slice(1)} Slide (PNG · {exportRatio})</button>
-            <p style={{fontSize:"0.55rem",color:"rgba(245,240,232,0.18)",marginTop:"6px",lineHeight:1.5}}>{EXPORT_RATIOS[exportRatio].w}×{EXPORT_RATIOS[exportRatio].h}px · Syne 800 + DM Sans · CGE branded</p>
+            {/* === UNIFIED ACTION BAR ===
+                One place to "finish": Add to carousel · Save draft · Download.
+                Sticky to the bottom of the form column so it's always in reach.
+                Every handler here is the same one that ran when these buttons
+                were scattered across the top row, carousel block, and form
+                footer — this is pure relocation, no behavior change. */}
+            <div style={{position:"sticky",bottom:0,zIndex:5,marginTop:"6px",paddingTop:"10px",paddingBottom:"4px",background:"linear-gradient(180deg,rgba(8,8,8,0) 0%,#080808 24%)"}}>
+              <div style={{display:"flex",alignItems:"center",gap:"8px",flexWrap:"wrap",padding:"10px 12px",borderRadius:"10px",border:"1px solid rgba(245,240,232,0.1)",background:"#0e0e0e",boxShadow:"0 8px 24px rgba(0,0,0,0.4)"}}>
+                <button
+                  onClick={addToCarousel}
+                  title={editingSlideId && carousel.some(s=>s.id===editingSlideId) ? "Add the current form as a NEW slide (a copy)" : "Snapshot the current form and add it to the carousel"}
+                  style={{padding:"10px 14px",background:"#A855F7",color:"#FFF",border:"none",borderRadius:"7px",fontSize:"0.62rem",fontWeight:800,letterSpacing:"1px",textTransform:"uppercase",cursor:"pointer",fontFamily:"'Syne',sans-serif",whiteSpace:"nowrap"}}
+                >{editingSlideId && carousel.some(s=>s.id===editingSlideId) ? "+ Add as New" : "+ Add to carousel"}</button>
+                {editingSlideId && carousel.some(s=>s.id===editingSlideId) && (
+                  <>
+                    <span style={{fontSize:"0.5rem",color:"#63B3ED",letterSpacing:"1px",textTransform:"uppercase",fontWeight:700,whiteSpace:"nowrap"}}>
+                      ✎ Editing slide {carousel.findIndex(s=>s.id===editingSlideId)+1} · saves live
+                    </span>
+                    <button
+                      onClick={()=>setEditingSlideId(null)}
+                      title="Stop editing that slide and compose a fresh one — your edits are already saved to it"
+                      style={{padding:"5px 8px",background:"transparent",color:"rgba(99,179,237,0.85)",border:"1px solid rgba(99,179,237,0.4)",borderRadius:"4px",fontSize:"0.5rem",fontWeight:700,letterSpacing:"0.5px",textTransform:"uppercase",cursor:"pointer",fontFamily:"'Syne',sans-serif",whiteSpace:"nowrap"}}
+                    >＋ New slide</button>
+                  </>
+                )}
+                <span style={{flex:"1 1 8px"}} />
+                <button
+                  onClick={saveDraft}
+                  disabled={isDrafting}
+                  title="Save draft — snapshot the current state to come back to later. Lives in Library → Exports with a DRAFT badge."
+                  style={{width:40,height:40,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:"7px",fontSize:"1rem",cursor:isDrafting?"wait":"pointer",border:"1px solid rgba(192,132,252,0.28)",background:"rgba(192,132,252,0.1)",color:"#C084FC",opacity:isDrafting?0.6:1}}
+                >{isDrafting ? "…" : "💾"}</button>
+                {/* Download ▾ split button — left half = default PNG, caret opens
+                    the rest (Carousel ZIP, and News clip on a News video slide). */}
+                <div ref={dlMenuRef} style={{display:"flex",position:"relative"}}>
+                  <button
+                    onClick={()=>{ setDlMenuOpen(false); dl(); }}
+                    title={`Download this ${mode} slide as PNG (${EXPORT_RATIOS[exportRatio].w}×${EXPORT_RATIOS[exportRatio].h})`}
+                    style={{background:accent,color:"#0a0a0a",border:"none",borderRadius:"7px 0 0 7px",fontSize:"0.72rem",fontWeight:800,letterSpacing:"0.5px",textTransform:"uppercase",padding:"11px 16px",cursor:"pointer",fontFamily:"'Syne',sans-serif",whiteSpace:"nowrap"}}
+                  >⬇ Download</button>
+                  <button
+                    onClick={()=>setDlMenuOpen(o=>!o)}
+                    aria-haspopup="true"
+                    aria-expanded={dlMenuOpen}
+                    aria-label="More download options"
+                    style={{background:"#E5BC4F",color:"#0a0a0a",border:"none",borderLeft:"1px solid rgba(0,0,0,0.25)",borderRadius:"0 7px 7px 0",padding:"0 11px",cursor:"pointer",fontSize:"0.72rem",fontWeight:800}}
+                  >▾</button>
+                  {dlMenuOpen && (
+                    <div role="menu" style={{position:"absolute",right:0,bottom:"calc(100% + 8px)",minWidth:"236px",background:"#0c0c0c",border:"1px solid rgba(245,240,232,0.12)",borderRadius:"9px",padding:"6px",boxShadow:"0 18px 40px rgba(0,0,0,0.6)",zIndex:20}}>
+                      <button role="menuitem" onClick={()=>{ setDlMenuOpen(false); dl(); }} style={DL_MENU_ITEM}>
+                        <span style={{width:22,textAlign:"center"}}>🖼️</span>
+                        <span><span style={DL_MENU_TITLE}>PNG — this slide</span><span style={DL_MENU_SUB}>The single {mode} slide · {exportRatio} · 2× sharp</span></span>
+                      </button>
+                      <button role="menuitem" onClick={()=>{ if(carousel.length && !isAutoGen){ setDlMenuOpen(false); exportCarouselZip(); } }} disabled={!carousel.length || isAutoGen} style={{...DL_MENU_ITEM, opacity:(!carousel.length||isAutoGen)?0.4:1, cursor:(!carousel.length||isAutoGen)?"not-allowed":"pointer"}}>
+                        <span style={{width:22,textAlign:"center"}}>🗂️</span>
+                        <span><span style={DL_MENU_TITLE}>{isAutoGen ? "Exporting ZIP…" : "Carousel ZIP"}</span><span style={DL_MENU_SUB}>{carousel.length ? `All ${carousel.length} slides · ${exportRatio} · numbered PNGs` : "Add slides to the carousel first"}</span></span>
+                      </button>
+                      {mode==="news" && newsVideoUrl && (
+                        <>
+                          <div style={{height:1,background:"rgba(245,240,232,0.06)",margin:"4px 6px"}} />
+                          <button role="menuitem" onClick={()=>{ if(!newsRecording){ setDlMenuOpen(false); dlNewsVideo(); } }} disabled={newsRecording} style={{...DL_MENU_ITEM, opacity:newsRecording?0.5:1, cursor:newsRecording?"wait":"pointer"}}>
+                            <span style={{width:22,textAlign:"center"}}>🎬</span>
+                            <span><span style={{...DL_MENU_TITLE, color:"#E5BC4F"}}>{newsRecording ? "Recording…" : "News clip (.webm)"}</span><span style={DL_MENU_SUB}>{newsMotionKind==="gif" ? "5-second loop of the GIF" : "One pass of the video, with audio"}</span></span>
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
           {/* === LEFT COLUMN END === */}
