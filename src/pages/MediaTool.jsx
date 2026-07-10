@@ -5814,31 +5814,32 @@ export default function MediaTool() {
               >{k}</button>
             ))}
           </div>
-          {/* Save Draft — restyled as a flat action button. The earlier
-              2px purple border was reading as a mode toggle next to the
-              ratio chips. Now matches the workspace-dropdown treatment
-              (subtle bg, no border) so it visually groups with "actions"
-              not "modes". */}
+          {/* Save draft — icon-only action (tooltip carries the label) so it
+              stops competing with the mode/appearance controls for width. */}
           <button
             onClick={saveDraft}
             disabled={isDrafting}
-            title="Save the current state as a draft you can come back to. Lives in Library → Exports with a DRAFT badge."
-            style={{padding:"6px 12px",borderRadius:"4px",fontSize:"0.6rem",fontWeight:700,cursor:isDrafting?"wait":"pointer",border:"1px solid rgba(192,132,252,0.25)",background:"rgba(192,132,252,0.08)",color:"#C084FC",fontFamily:"inherit",letterSpacing:"1px",textTransform:"uppercase",opacity:isDrafting?0.6:1,whiteSpace:"nowrap"}}
-          >💾 {isDrafting ? "Saving…" : "Save draft"}</button>
-          <button
-            onClick={()=>setWatermark(v=>!v)}
-            title="Toggle CGE logo + footer text on/off"
-            style={{padding:"6px 12px",borderRadius:"5px",fontSize:"0.6rem",fontWeight:700,cursor:"pointer",border:watermark?"2px solid #34D399":"2px solid rgba(245,240,232,0.1)",background:watermark?"rgba(52,211,153,0.12)":"transparent",color:watermark?"#34D399":"rgba(245,240,232,0.4)",fontFamily:"'Syne',sans-serif",letterSpacing:"1.5px",textTransform:"uppercase"}}
-          >{watermark ? "✓ Watermark" : "○ Watermark"}</button>
-          {/* Background print — the faint diagonal brand-letter grid. Off keeps
-              only the bottom footer/logo watermark over a clean background.
-              Disabled (and greyed) when the master Watermark is off. */}
-          <button
-            onClick={()=>setBgPrint(v=>!v)}
-            disabled={!watermark}
-            title="Toggle the faint brand-letter background print. Turn OFF to keep the bottom watermark but clear the background."
-            style={{padding:"6px 12px",borderRadius:"5px",fontSize:"0.6rem",fontWeight:700,cursor:watermark?"pointer":"not-allowed",opacity:watermark?1:0.4,border:(watermark&&bgPrint)?"2px solid #34D399":"2px solid rgba(245,240,232,0.1)",background:(watermark&&bgPrint)?"rgba(52,211,153,0.12)":"transparent",color:(watermark&&bgPrint)?"#34D399":"rgba(245,240,232,0.4)",fontFamily:"'Syne',sans-serif",letterSpacing:"1.5px",textTransform:"uppercase"}}
-          >{bgPrint ? "✓ BG print" : "○ BG print"}</button>
+            title="Save draft — snapshot the current state to come back to later. Lives in Library → Exports with a DRAFT badge."
+            style={{width:34,height:34,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:"5px",fontSize:"0.85rem",cursor:isDrafting?"wait":"pointer",border:"1px solid rgba(192,132,252,0.25)",background:"rgba(192,132,252,0.08)",color:"#C084FC",opacity:isDrafting?0.6:1}}
+          >{isDrafting ? "…" : "💾"}</button>
+          {/* Branding cluster — Watermark (master) + BG print (child) as ONE
+              segmented control. BG print greys when the master is off, so the
+              parent/child relationship reads at a glance instead of being
+              discovered by clicking. Same bordered-box treatment as the ratio
+              group next to it. */}
+          <div style={{display:"flex",gap:"3px",alignItems:"center",padding:"2px",border:"2px solid rgba(245,240,232,0.1)",borderRadius:"5px"}} title="Branding — logo/footer watermark + the faint brand-letter background print">
+            <button
+              onClick={()=>setWatermark(v=>!v)}
+              title="Watermark — toggle the CGE logo + footer text on/off"
+              style={{padding:"4px 10px",borderRadius:"3px",fontSize:"0.6rem",fontWeight:700,cursor:"pointer",border:"none",background:watermark?"#34D399":"transparent",color:watermark?"#0a0a0a":"rgba(245,240,232,0.4)",fontFamily:"'Syne',sans-serif",letterSpacing:"1px",textTransform:"uppercase"}}
+            >◈ Mark</button>
+            <button
+              onClick={()=>setBgPrint(v=>!v)}
+              disabled={!watermark}
+              title="BG print — the faint brand-letter background grid. Turn OFF to keep the bottom watermark but clear the background. (Needs Watermark on.)"
+              style={{padding:"4px 10px",borderRadius:"3px",fontSize:"0.6rem",fontWeight:700,cursor:watermark?"pointer":"not-allowed",opacity:watermark?1:0.4,border:"none",background:(watermark&&bgPrint)?"#34D399":"transparent",color:(watermark&&bgPrint)?"#0a0a0a":"rgba(245,240,232,0.4)",fontFamily:"'Syne',sans-serif",letterSpacing:"1px",textTransform:"uppercase"}}
+            >▦ BG</button>
+          </div>
           <select
             value={fontPairKey}
             onChange={e=>setFontPairKey(e.target.value)}
