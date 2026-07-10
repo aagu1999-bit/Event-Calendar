@@ -71,6 +71,7 @@ function summarize(name, data, fallbackSavedAt = 0) {
     eventCount: Array.isArray(d.events) ? d.events.length : 0,
     approvalCount: d.approvals ? Object.values(d.approvals).filter(Boolean).length : 0,
     vettedCount: Array.isArray(d.vetted) ? d.vetted.length : 0,
+    pendingCount: Array.isArray(d.pending) ? d.pending.length : 0,
   };
 }
 
@@ -82,6 +83,9 @@ export function normalizeSession(body) {
     events: Array.isArray(b.events) ? b.events : [],
     approvals: b.approvals && typeof b.approvals === "object" ? b.approvals : {},
     vetted: Array.isArray(b.vetted) ? b.vetted : [],
+    // The in-progress triage queue (flagged/clean/conflicting rows). Persisted
+    // so a session saved mid-sweep resumes the whole queue on another device.
+    pending: Array.isArray(b.pending) ? b.pending : [],
     filter: typeof b.filter === "string" ? b.filter : "",
     sortByTag: typeof b.sortByTag === "string" ? b.sortByTag : null,
     savedAt: Date.now(),

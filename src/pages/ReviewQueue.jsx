@@ -162,6 +162,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
         if (Array.isArray(payload?.events)) setEvents(payload.events);
         if (payload?.approvals && typeof payload.approvals === "object") setApprovals(payload.approvals);
         if (Array.isArray(payload?.vetted)) setVettedArr(payload.vetted);
+        if (Array.isArray(payload?.pending)) setPending(payload.pending);
         setLastSessionName(name);
       } catch (err) {
         // Session was deleted or Repl offline — clear the pointer so we
@@ -177,13 +178,17 @@ export default function ReviewQueue({ betaMode = false } = {}) {
   // Build the payload Review Sessions snapshots — captures the full
   // working state so loading a session puts you back exactly where you
   // were: every event (worked-on OR not), the ✓ vetted markers, the
-  // selection checkboxes, the filter + sort. Flagged status is computed
-  // from the events themselves at render time, so it doesn't need to be
-  // persisted explicitly.
+  // selection checkboxes, the filter + sort, AND the `pending` triage list.
+  // `pending` is the crux for resuming a sweep: flagged / clean / conflicting
+  // are all derived from computeWarnings(pending), so once the pending list is
+  // restored those statuses recompute identically — no need to persist the
+  // flags themselves. Before, pending lived only in localStorage, so a session
+  // saved mid-sweep lost the whole triage queue when reopened on another device.
   const getSessionPayload = () => ({
     events,
     approvals,
     vetted: vettedArr,
+    pending,
     filter,
     sortByTag,
   });
@@ -195,6 +200,10 @@ export default function ReviewQueue({ betaMode = false } = {}) {
     if (Array.isArray(payload?.events)) setEvents(payload.events);
     if (payload?.approvals && typeof payload.approvals === "object") setApprovals(payload.approvals);
     if (Array.isArray(payload?.vetted)) setVettedArr(payload.vetted);
+    // Restore the triage queue so a mid-sweep session resumes with the same
+    // flagged/clean/conflicting rows. Older sessions have no `pending` key —
+    // leave the current queue untouched rather than blanking it.
+    if (Array.isArray(payload?.pending)) setPending(payload.pending);
     if (typeof payload?.filter === "string") setFilter(payload.filter);
     if (typeof payload?.sortByTag === "string" || payload?.sortByTag === null) setSortByTag(payload?.sortByTag || null);
     rememberLastSession(name);
