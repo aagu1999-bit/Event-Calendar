@@ -142,7 +142,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
         : letAiPick
           ? "✨ Let AI pick + generate"
           : `✨ Generate ${template?.sequence?.length || 0} slides`;
-  const enrichCount = (researchOn ? 1 : 0) + (newsOn ? 1 : 0) + (letterMode ? 1 : 0);
+  const enrichCount = (researchOn ? 1 : 0) + (newsOn ? 1 : 0);
   // Dots with "find the thread" or an anchor event needs no thesis typed; everything else needs a topic/context.
   const canGenerate = (dotsMode && (dotsDiscover || !!dotsAnchor.trim())) || !!topic.trim() || !!context.trim();
 
@@ -785,7 +785,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
         <details style={{ marginBottom: 12, border: "1px solid rgba(245,240,232,0.08)", borderRadius: 6, background: "rgba(245,240,232,0.015)" }}>
           <summary style={{ padding: "8px 10px", cursor: "pointer", fontSize: "0.55rem", letterSpacing: 1.4, textTransform: "uppercase", fontWeight: 700, color: "rgba(245,240,232,0.5)", listStyle: "none", display: "flex", alignItems: "center", gap: 8 }}>
             <span>▸ Enrich &amp; voice</span>
-            <span style={{ marginLeft: "auto", fontSize: "0.55rem", color: enrichCount ? "#63B3ED" : "rgba(245,240,232,0.3)", letterSpacing: 0.5, textTransform: "none", fontWeight: 700 }}>{enrichCount ? `${enrichCount} on` : "web lookup · letter mode"}</span>
+            <span style={{ marginLeft: "auto", fontSize: "0.55rem", color: enrichCount ? "#63B3ED" : "rgba(245,240,232,0.3)", letterSpacing: 0.5, textTransform: "none", fontWeight: 700 }}>{enrichCount ? `${enrichCount} on` : "web lookup"}</span>
           </summary>
           <div style={{ padding: "2px 10px 6px" }}>
 
@@ -825,23 +825,6 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
           </span>
         </label>
 
-        {/* Letter / manifesto mode — write the whole carousel as ONE continuous
-            first-person letter (the @summerblockfest "This may be the last
-            one…" structure), thought carrying slide to slide. A STRUCTURE, not
-            a sad-story skin — works for a celebratory arc too. */}
-        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.72rem", color: letterMode ? "#A78BFA" : "rgba(245,240,232,0.7)", cursor: "pointer", marginBottom: 8, padding: "7px 9px", background: letterMode ? "rgba(139,92,246,0.10)" : "transparent", border: "1px solid " + (letterMode ? "rgba(139,92,246,0.4)" : "rgba(245,240,232,0.08)"), borderRadius: 4 }}>
-          <input
-            type="checkbox"
-            checked={letterMode}
-            onChange={(e) => setLetterMode(e.target.checked)}
-          />
-          <span style={{ fontWeight: 700, letterSpacing: 0.5 }}>
-            ✉️ Letter / manifesto mode
-          </span>
-          <span style={{ marginLeft: "auto", fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: 0.5 }}>
-            one continuous letter, swipe-to-the-end
-          </span>
-        </label>
           </div>
         </details>
 
@@ -919,7 +902,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
           {[["editorial", "📰", "Editorial", "report the scene, don't sell"], ["promo", "📣", "Promo", "centered on your event"], ["story", "📖", "Story", "narrative, human, scene-driven"]].map(([m, ic, lbl, hint]) => (
             <button
               key={m}
-              onClick={() => setMode(m)}
+              onClick={() => { setMode(m); if (m !== "story") setLetterMode(false); }}
               title={hint}
               style={{
                 flex: 1, padding: "9px 8px", borderRadius: 7, cursor: "pointer",
@@ -937,6 +920,24 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
             </button>
           ))}
         </div>
+
+        {/* Each register surfaces its own optional TECHNIQUE. Story → Manifesto
+            (one continuous letter); Promo/Editorial → a nudge toward Connect the
+            dots (trend-as-promo / pure coverage), which lives up in Generation mode. */}
+        {mode === "story" && (
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.68rem", color: letterMode ? "#A78BFA" : "rgba(245,240,232,0.7)", cursor: "pointer", marginBottom: 12, padding: "7px 9px", background: letterMode ? "rgba(139,92,246,0.10)" : "rgba(139,92,246,0.04)", border: "1px solid " + (letterMode ? "rgba(139,92,246,0.4)" : "rgba(139,92,246,0.18)"), borderRadius: 4 }}>
+            <input type="checkbox" checked={letterMode} onChange={(e) => setLetterMode(e.target.checked)} />
+            <span style={{ fontWeight: 700, letterSpacing: 0.5 }}>✉️ As one continuous letter (Manifesto)</span>
+            <span style={{ marginLeft: "auto", fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: 0.5 }}>a Story technique · swipe-to-the-end</span>
+          </label>
+        )}
+        {mode !== "story" && (
+          <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", marginBottom: 12, lineHeight: 1.4, padding: "0 2px" }}>
+            {mode === "promo"
+              ? "Tip: add 🧵 Connect the dots (Generation mode) + an anchor to promote via a trend — the wave sets up, your event is the answer."
+              : "Tip: 🧵 Connect the dots (Generation mode) = pure coverage here; turn on ▸ Enrich & voice → research / news for sourced reporting."}
+          </div>
+        )}
 
         <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 5, flexWrap: "wrap" }}>
           <label style={{ fontSize: "0.65rem", color: "rgba(245,240,232,0.65)", letterSpacing: 0.5 }}>

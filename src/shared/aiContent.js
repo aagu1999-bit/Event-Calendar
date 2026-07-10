@@ -420,6 +420,10 @@ export async function connectDots({ apiKey, thesis = "", area = "New Jersey", be
       "COHERENCE IS EVERYTHING: the trend and the event must be ONE throughline. The trend you build has to be",
       "genuinely tied to THIS event's genre/theme (a Y2K night → the Y2K-fashion wave, not a random pattern),",
       "so the reveal feels inevitable — 'of course THIS is the answer' — not a bolted-on pivot.",
+      "RELEASE VALVE — do NOT force it: if there's no honest trend that truly fits this event, say the",
+      "connection is thin and lean on the event's OWN strength instead. A stretched or overstated trend is",
+      "worse than none. Keep the dots MODEST so the event still lands as the payoff — the buildup must not",
+      "outshine the reveal.",
     ] : []),
     "",
     "Shape it:",
@@ -665,6 +669,19 @@ export async function designSequence({ apiKey, topic, context, mode, targetCount
       "spotlight/features for the draws → optionally countdown/stat → a cta that closes on the event's real",
       "date · venue · @handle · link. Do NOT drift into covering OTHER events or an abstract trend — if you",
       "borrow a wider moment, it's only a hook that hands right back to this event. Bring it home.",
+    ] : []),
+    ...(mode === "story" ? [
+      "TELL IT AS A STORY (story). The hero is a PERSON, a MOMENT, or a CHANGE — not logistics. Commit to a",
+      "real ARC: open on a scene/person → tension or the turn → payoff → what it MEANS. Every slide is a BEAT,",
+      "not a bullet. Favor cover → news/text beats (this is their home) → a quiet closing beat; hold event",
+      "logistics (date/venue) until the very end, if at all. NO MANUFACTURED EMOTION — the feeling must be true",
+      "to what actually happened; if there's no real emotional beat, tell it plainer rather than faking one.",
+    ] : []),
+    ...(mode === "editorial" ? [
+      "REPORT IT (editorial). The hero is a DEVELOPMENT or a QUESTION; the destination is UNDERSTANDING, not a",
+      "sale. Structure: lead (what's happening) → context (how we got here) → significance (why it matters) →",
+      "what's next. NO cta pressure, no 'you should go', no selling. Curiosity comes from concrete specifics and",
+      "real sourcing, never enthusiasm. This is the natural home for a coverage/evidence arc and web research.",
     ] : []),
     ...(letterMode ? [
       "LETTER MODE is ON — favor a short, flowing, human arc: mostly cover + text + news beats and a",
@@ -977,11 +994,13 @@ function variationDirective() {
 function registerBlock(mode) {
   if (mode === "story") return [
     "REGISTER: STORY — tell this like a STORY, not a listing or a pitch.",
-    "- Voice: narrative and human — first- or close-third person ('we', 'here's what happened', 'the room went quiet'). Open on a scene, a moment, or a turn.",
-    "- Arc over facts: set up → tension / stakes → turn → payoff. Each slide is a BEAT in that arc, not a bullet.",
-    "- Emotional truth over both hype and dry reporting — let the reader FEEL the thing before any invite.",
+    "- Hero is a PERSON, a MOMENT, or a CHANGE — not logistics. Open on a scene, a moment, or a turn.",
+    "- Voice: narrative and human — first- or close-third person ('we', 'here's what happened').",
+    "- Arc over facts: set up → tension / stakes → turn → payoff → what it MEANS. Each slide is a BEAT, not a bullet.",
+    "- NO MANUFACTURED EMOTION: the feeling must be true to what actually happened. Don't invent 'the room went",
+    "  quiet' beats or sentiment the facts don't support — if there's no real emotional turn, tell it plainer.",
     "- Concrete and honest: real details, real people, real stakes; the story must be true to the event.",
-    "- Leans into the News slide and Letter mode — 'here's the story behind it'.",
+    "- Leans into the News slide and Letter/Manifesto mode — 'here's the story behind it'. Logistics last, if at all.",
     "─────────────────────────────",
     "",
   ];
@@ -1004,9 +1023,12 @@ function registerBlock(mode) {
   ];
   return [
     "REGISTER: EDITORIAL — we are the newsroom reporting on the scene, not selling it.",
+    "- Destination is UNDERSTANDING, not a sale. Structure: lead → context → significance → what's next.",
     "- Voice: third-person, observational, understated. Report; don't invite.",
-    "- Energy: restrained. NO urgency words, NO CTA pressure, NO 'you should go'.",
-    "- The hook pulls through curiosity and concrete specifics, never enthusiasm.",
+    "- REFUSE THE CTA: NO urgency words, NO ticket push, NO 'you should go' / 'pull up' / 'RSVP'. A closing",
+    "  editorial slide lands on the takeaway or what's next — never a sell. If the sequence ends in a 'cta'",
+    "  slot, treat it as a closing NOTE, not an invite.",
+    "- The hook pulls through curiosity and concrete specifics + real sourcing, never enthusiasm.",
     "- Reads like a magazine dek, not a flyer.",
     "─────────────────────────────",
     "",
