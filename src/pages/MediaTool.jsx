@@ -3815,22 +3815,23 @@ export default function MediaTool() {
     const oldV = newsVideoRef.current; if (oldV) { try { oldV.pause(); } catch {} oldV.removeAttribute("src"); oldV.load(); }
     const oldG = newsGifRef.current; if (oldG) oldG.removeAttribute("src");
     const name = file.name || "";
-    const isGif = file.type === "image/gif" || /\.gif$/i.test(name);
-    const isVideo = (file.type || "").startsWith("video/") || /\.(mp4|mov|webm|m4v|avi|mkv)$/i.test(name);
-    // Guard unsupported formats (TIFF, HEIC, etc.) — routing them to the <video>
-    // element just yields a silent blank. Only videos and GIFs animate here.
-    if (!isGif && !isVideo) {
-      const looksTiff = /tiff?|heic|heif/i.test(file.type || "") || /\.(tiff?|heic|heif)$/i.test(name);
-      alert(looksTiff
-        ? "TIFF / HEIC files can't be shown in the browser — they come out blank. Convert it to MP4/GIF (for motion) or JPG/PNG (for a still photo) first."
-        : "That file won't play here — use a video (MP4 / MOV / WebM) or an animated GIF. A still image goes in the Photo upload above (JPG / PNG).");
+    const type = file.type || "";
+    // Only TIFF/HEIC genuinely can't render in a browser (silent blank) — block
+    // those with a clear message. Everything else the browser can draw is fine.
+    if (/tiff?|heic|heif/i.test(type) || /\.(tiff?|heic|heif)$/i.test(name)) {
+      alert("TIFF / HEIC files can't be shown in the browser — they come out blank.\nConvert it to MP4/GIF (for motion) or JPG/PNG (for a still photo) first.");
       return;
     }
+    // Route by kind: video → <video>; ANY other image (gif, animated WebP/APNG,
+    // even a still png/jpg) → the <img> element, which animates it if it's
+    // animated and just draws a still if not. Using the <img> path for all
+    // images is why animated WebP "GIFs" (Giphy/Tenor) now work too.
+    const isVideo = type.startsWith("video/") || /\.(mp4|mov|webm|m4v|avi|mkv|ogv)$/i.test(name);
     const url = URL.createObjectURL(file);
     setNewsVideoUrl(url);
-    setNewsMotionKind(isGif ? "gif" : "video");
+    setNewsMotionKind(isVideo ? "video" : "gif");
     setNewsFocalX(0.5); setNewsFocalY(0.5);
-    if (isGif) {
+    if (!isVideo) {
       const g = newsGifRef.current; if (g) g.src = url;   // <img> animates on its own
     } else {
       const v = newsVideoRef.current;
@@ -6636,11 +6637,14 @@ export default function MediaTool() {
                   media). Session-only: not saved into drafts/snapshots. */}
               <div style={{marginBottom:"0.6rem",padding:"0.55rem 0.6rem",background:"rgba(229,188,79,0.05)",border:"1px solid rgba(229,188,79,0.15)",borderRadius:"6px"}}>
                 <div style={{fontSize:"0.55rem",color:"#E5BC4F",letterSpacing:"1px",textTransform:"uppercase",fontWeight:700,fontFamily:"'Syne',sans-serif",marginBottom:"4px"}}>🎬 Video / GIF insert · optional</div>
-                <p style={{fontSize:"0.5rem",color:"rgba(245,240,232,0.4)",lineHeight:1.4,margin:"0 0 6px"}}>Drop a video or animated GIF into the photo area — the block stays put and it plays behind. Export the slide as a real <b style={{color:"rgba(245,240,232,0.6)"}}>.webm</b> below (video keeps its audio; a GIF records a 5-second loop). Overrides the still photo while loaded.</p>
+                <p style={{fontSize:"0.5rem",color:"rgba(245,240,232,0.4)",lineHeight:1.4,margin:"0 0 6px"}}>Drop a video or animated GIF/WebP into the photo area — the block stays put and it plays behind. Export the slide as a real <b style={{color:"rgba(245,240,232,0.6)"}}>.webm</b> below (video keeps its audio; a GIF records a 5-second loop). Overrides the still photo while loaded.</p>
                 <div style={{display:"flex",gap:"0.3rem",alignItems:"center",marginBottom:newsVideoUrl?"6px":0}}>
                   <button onClick={()=>newsVideoFileRef.current?.click()} style={{...B,flex:1}}>{newsVideoUrl?`✓ ${newsMotionKind==="gif"?"GIF":"Video"} loaded — change`:"Upload Video / GIF"}</button>
                   {newsVideoUrl&&<button onClick={clearNewsVideo} style={{...B,color:"rgba(251,113,133,0.5)"}}>×</button>}
-                  <input ref={newsVideoFileRef} type="file" accept="video/*,image/gif" onChange={handleNewsVideo} style={{display:"none"}}/>
+                  {/* Broad accept so the OS picker never greys out a valid file
+                      (many "GIFs" are animated WebP/MP4); handleNewsVideo routes
+                      by kind and rejects only the unrenderable ones. */}
+                  <input ref={newsVideoFileRef} type="file" accept="video/*,image/*" onChange={handleNewsVideo} style={{display:"none"}}/>
                 </div>
                 {newsVideoUrl&&<button onClick={dlNewsVideo} disabled={newsRecording} style={{width:"100%",padding:"9px",background:"rgba(229,188,79,0.14)",color:"#E5BC4F",border:"1px solid rgba(229,188,79,0.28)",borderRadius:"6px",fontSize:"0.7rem",fontWeight:700,fontFamily:"'Syne',sans-serif",cursor:newsRecording?"not-allowed":"pointer",opacity:newsRecording?0.55:1}}>{newsRecording?"● Recording…":`⬇ Download News ${newsMotionKind==="gif"?"GIF clip":"video"} (.webm)`}</button>}
               </div>
