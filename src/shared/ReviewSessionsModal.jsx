@@ -65,6 +65,7 @@ export function ReviewSessionsModal({
         events: Array.isArray(cur.events) ? cur.events : [],
         approvals: cur.approvals && typeof cur.approvals === "object" ? cur.approvals : {},
         vetted: Array.isArray(cur.vetted) ? cur.vetted : [],
+        pending: Array.isArray(cur.pending) ? cur.pending : [],
         filter: typeof cur.filter === "string" ? cur.filter : "",
         sortByTag: typeof cur.sortByTag === "string" ? cur.sortByTag : null,
       };
@@ -151,7 +152,8 @@ export function ReviewSessionsModal({
         `Saved "${name}":\n` +
         `· ${cur.events?.length || 0} events total (including untouched, flagged, and worked-on)\n` +
         `· ${(cur.vetted?.length) || 0} marked ✓ vetted\n` +
-        `· ${Object.values(cur.approvals || {}).filter(Boolean).length} ☑ selected`
+        `· ${Object.values(cur.approvals || {}).filter(Boolean).length} ☑ selected` +
+        (cur.pending?.length ? `\n· ${cur.pending.length} in the triage queue (flagged / clean / conflicting)` : "")
       );
     } catch (e) {
       alert("Save failed: " + (e.message || e));
@@ -312,7 +314,7 @@ export function ReviewSessionsModal({
             <div
               key={s.name}
               onClick={() => onPickLoad(s.name)}
-              title={`${s.name} · ${s.eventCount} events total · ${s.vettedCount || 0} vetted · ${s.approvalCount} selected`}
+              title={`${s.name} · ${s.eventCount} events total · ${s.vettedCount || 0} vetted · ${s.approvalCount} selected${s.pendingCount ? ` · ${s.pendingCount} in triage` : ""}`}
               style={{
                 display: "flex", alignItems: "center", gap: "12px",
                 padding: "12px 14px", marginBottom: "6px",
@@ -328,7 +330,7 @@ export function ReviewSessionsModal({
                   {s.name}
                 </div>
                 <div style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.5)", letterSpacing: "0.5px", textTransform: "uppercase", marginTop: "3px" }}>
-                  {s.eventCount} event{s.eventCount === 1 ? "" : "s"} total · {s.vettedCount || 0} ✓ vetted · {s.approvalCount} ☑ selected · saved {formatWhen(s.savedAt || s.mtime)}
+                  {s.eventCount} event{s.eventCount === 1 ? "" : "s"} total · {s.vettedCount || 0} ✓ vetted · {s.approvalCount} ☑ selected{s.pendingCount ? ` · ${s.pendingCount} in triage` : ""} · saved {formatWhen(s.savedAt || s.mtime)}
                 </div>
               </div>
               <button
