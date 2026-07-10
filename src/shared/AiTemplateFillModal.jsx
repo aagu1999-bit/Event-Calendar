@@ -195,8 +195,11 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
       // "Connect the dots" — a thesis + several real-news dots, welded into an
       // evidence carousel. Supersedes template/arrange.
       if (dotsMode) {
-        setBusyLabel(dotsAnchor.trim() ? "Building the case for your event…" : dotsDiscover ? "Finding a thread…" : "Gathering the evidence…");
-        const plan = await connectDots({ apiKey, thesis: dotsDiscover ? "" : topic, area: "New Jersey", anchorEvent: dotsAnchor });
+        // Anchor is a Promo technique; discover is an Editorial one.
+        const anchorForRun = mode === "promo" ? dotsAnchor : "";
+        const discoverForRun = mode === "editorial" ? dotsDiscover : false;
+        setBusyLabel(anchorForRun.trim() ? "Building the case for your event…" : discoverForRun ? "Finding a thread…" : "Gathering the evidence…");
+        const plan = await connectDots({ apiKey, thesis: discoverForRun ? "" : topic, area: "New Jersey", anchorEvent: anchorForRun });
         const dotsSlides = dotsPlanToSlides(plan);
         if (!dotsSlides.length) { setError("Couldn't find enough real dots for that thread. Try a clearer thesis, or toggle 'Let AI find the thread'."); return; }
         setNewsFound({ brief: plan.brief, sources: plan.sources });
@@ -742,45 +745,6 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
           </div>
         )}
 
-        {/* Connect the dots — a thesis backed by several real news "dots". */}
-        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.72rem", color: dotsMode ? "#A78BFA" : "rgba(245,240,232,0.7)", cursor: "pointer", marginBottom: 8, padding: "7px 9px", background: dotsMode ? "rgba(139,92,246,0.10)" : "transparent", border: "1px solid " + (dotsMode ? "rgba(139,92,246,0.4)" : "rgba(245,240,232,0.08)"), borderRadius: 4 }}>
-          <input
-            type="checkbox"
-            checked={dotsMode}
-            onChange={(e) => { setDotsMode(e.target.checked); if (e.target.checked) { setLetAiPick(false); setAiArrange(false); } }}
-          />
-          <span style={{ fontWeight: 700, letterSpacing: 0.5 }}>🧵 Connect the dots</span>
-          <span style={{ marginLeft: "auto", fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: 0.5 }}>thesis + real-news evidence</span>
-        </label>
-        {dotsMode && (
-          <div style={{ marginBottom: 12, padding: "8px 10px", background: "rgba(139,92,246,0.05)", border: "1px solid rgba(139,92,246,0.18)", borderRadius: 4 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.65rem", color: dotsDiscover ? "#A78BFA" : "rgba(245,240,232,0.7)", cursor: "pointer", fontWeight: 700 }}>
-                <input type="checkbox" checked={dotsDiscover} onChange={(e) => setDotsDiscover(e.target.checked)} />
-                Let AI find the thread
-              </label>
-              <span style={{ marginLeft: "auto", fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: 0.5, textAlign: "right", lineHeight: 1.3 }}>
-                {dotsDiscover ? "AI proposes the pattern from current news" : "type your thesis in the Topic box below"}
-              </span>
-            </div>
-            {/* Anchor event — flips coverage into problem→solution promo. */}
-            <label style={{ fontSize: "0.58rem", color: "#A78BFA", letterSpacing: 0.5, textTransform: "uppercase", fontWeight: 700, display: "block", marginBottom: 4 }}>
-              🎯 Anchor event · optional — makes it promo
-            </label>
-            <textarea
-              value={dotsAnchor}
-              onChange={(e) => setDotsAnchor(e.target.value)}
-              rows={2}
-              placeholder="Your event as THE answer: name · date · venue · @handle · ticket link. e.g. 'Y2K Nights — Sat July 17, Music Farm Newark, @cge, tix in bio'"
-              style={{ width: "100%", padding: "7px 9px", background: "#111", border: "1px solid rgba(139,92,246,0.25)", borderRadius: 4, color: "#F5F0E8", fontFamily: "inherit", fontSize: "0.72rem", outline: "none", boxSizing: "border-box", resize: "vertical" }}
-            />
-            <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", marginTop: 4, lineHeight: 1.4 }}>
-              {dotsAnchor.trim()
-                ? "Problem → solution: the dots build the demand, your event lands as the answer, and the close drives to it."
-                : "Leave blank for pure coverage (verdict = an insight). Fill it in and the dots become the setup for your event."}
-            </div>
-          </div>
-        )}
 
         <details style={{ marginBottom: 12, border: "1px solid rgba(245,240,232,0.08)", borderRadius: 6, background: "rgba(245,240,232,0.015)" }}>
           <summary style={{ padding: "8px 10px", cursor: "pointer", fontSize: "0.55rem", letterSpacing: 1.4, textTransform: "uppercase", fontWeight: 700, color: "rgba(245,240,232,0.5)", listStyle: "none", display: "flex", alignItems: "center", gap: 8 }}>
@@ -902,7 +866,14 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
           {[["editorial", "📰", "Editorial", "report the scene, don't sell"], ["promo", "📣", "Promo", "centered on your event"], ["story", "📖", "Story", "narrative, human, scene-driven"]].map(([m, ic, lbl, hint]) => (
             <button
               key={m}
-              onClick={() => { setMode(m); if (m !== "story") setLetterMode(false); }}
+              onClick={() => {
+                setMode(m);
+                // Each technique belongs to its register — clear the others'.
+                if (m !== "story") setLetterMode(false);   // Manifesto is a Story technique
+                if (m === "story") setDotsMode(false);      // dots isn't a Story technique
+                if (m !== "promo") setDotsAnchor("");        // anchor only under Promo
+                if (m !== "editorial") setDotsDiscover(false); // discover only under Editorial
+              }}
               title={hint}
               style={{
                 flex: 1, padding: "9px 8px", borderRadius: 7, cursor: "pointer",
@@ -921,9 +892,10 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
           ))}
         </div>
 
-        {/* Each register surfaces its own optional TECHNIQUE. Story → Manifesto
-            (one continuous letter); Promo/Editorial → a nudge toward Connect the
-            dots (trend-as-promo / pure coverage), which lives up in Generation mode. */}
+        {/* Each register surfaces its own optional TECHNIQUE right here — the
+            pathway first, then the move that walks it. Story → Manifesto;
+            Promo/Editorial → Connect the dots (with an anchor field that pops up
+            only under Promo, turning coverage into problem→solution promo). */}
         {mode === "story" && (
           <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.68rem", color: letterMode ? "#A78BFA" : "rgba(245,240,232,0.7)", cursor: "pointer", marginBottom: 12, padding: "7px 9px", background: letterMode ? "rgba(139,92,246,0.10)" : "rgba(139,92,246,0.04)", border: "1px solid " + (letterMode ? "rgba(139,92,246,0.4)" : "rgba(139,92,246,0.18)"), borderRadius: 4 }}>
             <input type="checkbox" checked={letterMode} onChange={(e) => setLetterMode(e.target.checked)} />
@@ -931,12 +903,49 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
             <span style={{ marginLeft: "auto", fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: 0.5 }}>a Story technique · swipe-to-the-end</span>
           </label>
         )}
-        {mode !== "story" && (
-          <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", marginBottom: 12, lineHeight: 1.4, padding: "0 2px" }}>
-            {mode === "promo"
-              ? "Tip: add 🧵 Connect the dots (Generation mode) + an anchor to promote via a trend — the wave sets up, your event is the answer."
-              : "Tip: 🧵 Connect the dots (Generation mode) = pure coverage here; turn on ▸ Enrich & voice → research / news for sourced reporting."}
-          </div>
+        {(mode === "promo" || mode === "editorial") && (
+          <>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.68rem", color: dotsMode ? "#A78BFA" : "rgba(245,240,232,0.7)", cursor: "pointer", marginBottom: dotsMode ? 0 : 12, padding: "7px 9px", background: dotsMode ? "rgba(139,92,246,0.10)" : "rgba(139,92,246,0.04)", border: "1px solid " + (dotsMode ? "rgba(139,92,246,0.4)" : "rgba(139,92,246,0.18)"), borderRadius: 4 }}>
+              <input type="checkbox" checked={dotsMode} onChange={(e) => { setDotsMode(e.target.checked); if (e.target.checked) { setLetAiPick(false); setAiArrange(false); } }} />
+              <span style={{ fontWeight: 700, letterSpacing: 0.5 }}>🧵 Connect the dots</span>
+              <span style={{ marginLeft: "auto", fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: 0.5 }}>
+                {mode === "promo" ? "a Promo technique · trend → your event" : "an Editorial technique · pure coverage"}
+              </span>
+            </label>
+            {dotsMode && (
+              <div style={{ marginBottom: 12, padding: "8px 10px", background: "rgba(139,92,246,0.05)", border: "1px solid rgba(139,92,246,0.18)", borderTop: "none", borderRadius: "0 0 4px 4px" }}>
+                {mode === "promo" ? (
+                  <>
+                    <label style={{ fontSize: "0.58rem", color: "#A78BFA", letterSpacing: 0.5, textTransform: "uppercase", fontWeight: 700, display: "block", marginBottom: 4 }}>
+                      🎯 Anchor event — your event is the answer
+                    </label>
+                    <textarea
+                      value={dotsAnchor}
+                      onChange={(e) => setDotsAnchor(e.target.value)}
+                      rows={2}
+                      placeholder="Describe your event as THE answer — name · date · venue · @handle · tickets. e.g. 'Y2K Nights — Sat July 17, Music Farm Newark, @cge, tix in bio'"
+                      style={{ width: "100%", padding: "7px 9px", background: "#111", border: "1px solid rgba(139,92,246,0.25)", borderRadius: 4, color: "#F5F0E8", fontFamily: "inherit", fontSize: "0.72rem", outline: "none", boxSizing: "border-box", resize: "vertical" }}
+                    />
+                    <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", marginTop: 4, lineHeight: 1.4 }}>
+                      {dotsAnchor.trim()
+                        ? "Problem → solution: the trend builds the demand, your event lands as the answer, and the close drives to it."
+                        : "Fill this in — the dots become the setup, and your event is the payoff. (Blank = it just reports the trend.)"}
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.65rem", color: dotsDiscover ? "#A78BFA" : "rgba(245,240,232,0.7)", cursor: "pointer", fontWeight: 700 }}>
+                      <input type="checkbox" checked={dotsDiscover} onChange={(e) => setDotsDiscover(e.target.checked)} />
+                      Let AI find the thread
+                    </label>
+                    <span style={{ marginLeft: "auto", fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: 0.5, textAlign: "right", lineHeight: 1.3 }}>
+                      {dotsDiscover ? "AI proposes the pattern from current news" : "type your thesis in the box below"}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+          </>
         )}
 
         <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 5, flexWrap: "wrap" }}>
