@@ -916,7 +916,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
           Register
         </label>
         <div style={{ display: "flex", gap: 4, marginBottom: 10, padding: 3, background: "rgba(0,0,0,0.28)", borderRadius: 9, border: "1px solid rgba(245,240,232,0.06)" }}>
-          {[["editorial", "📰", "Editorial", "restrained newsroom voice"], ["promo", "📣", "Promo", "own-event push, more energy"], ["story", "📖", "Story", "narrative, human, scene-driven"]].map(([m, ic, lbl, hint]) => (
+          {[["editorial", "📰", "Editorial", "report the scene, don't sell"], ["promo", "📣", "Promo", "centered on your event"], ["story", "📖", "Story", "narrative, human, scene-driven"]].map(([m, ic, lbl, hint]) => (
             <button
               key={m}
               onClick={() => setMode(m)}

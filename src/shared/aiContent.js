@@ -650,6 +650,14 @@ export async function designSequence({ apiKey, topic, context, mode, targetCount
     ...(context && context.trim() ? ["", "Event facts:", context.trim()] : []),
     "",
     registerLine,
+    ...(mode === "promo" ? [
+      "CENTER ON THE EVENT (promo). This carousel is about ONE specific event — it is the hero and the",
+      "destination. EVERY slide serves THIS event: its hook, its draws, its concrete specifics (lineup /",
+      "what's included / date / venue), its vibe. Favor cover → (a text/news 'why this one' beat) →",
+      "spotlight/features for the draws → optionally countdown/stat → a cta that closes on the event's real",
+      "date · venue · @handle · link. Do NOT drift into covering OTHER events or an abstract trend — if you",
+      "borrow a wider moment, it's only a hook that hands right back to this event. Bring it home.",
+    ] : []),
     ...(letterMode ? [
       "LETTER MODE is ON — favor a short, flowing, human arc: mostly cover + text + news beats and a",
       "soft closing cta. AVOID rigid multi-cta directories, features grids, and stat/countdown blocks —",
@@ -971,9 +979,14 @@ function registerBlock(mode) {
   ];
   if (mode === "promo") return [
     "REGISTER: PROMO — this is OUR event and we want people to COME.",
+    "- CENTER ON THE EVENT. This whole carousel is about ONE specific event — it is the hero and the",
+    "  destination. EVERY slide serves it (its angle, its draw, its details, its vibe). Do NOT wander into",
+    "  covering other events, venues, or an abstract trend; if you reference a wider moment, it's only a hook",
+    "  that hands straight back to THIS event.",
     "- Voice: warm, direct, second-person ('you', 'your weekend'). Speak TO the reader.",
     "- Energy: higher. Use a time pull ('this Saturday', 'doors at 8') and a soft, confident invite.",
-    "- The closer makes the next step obvious (RSVP, pull up, save the date).",
+    "- BRING IT HOME. The closer makes the next step obvious and carries the event's REAL details",
+    "  (date · venue · @handle · link) — never a generic 'tag a friend' with no event attached.",
     "- Still honest and editorial-grade — NEVER 'don't miss out!', 'link in bio!!!', or hype-spam.",
     "─────────────────────────────",
     "",
