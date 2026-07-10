@@ -37,6 +37,23 @@ export async function listSessions() {
   return res.json();
 }
 
+// Which backend is storing sessions right now: "replit-db" (truly
+// cross-device — survives redeploys, shared across every instance) or
+// "filesystem" (this instance's local disk only — NOT reliable across
+// devices/URLs). Returns null when the server/endpoint isn't reachable
+// (e.g. static deploy with no Node process). Used to show the "☁️ Cloud
+// sessions" indicator so the user knows whether hand-offs will work.
+export async function sessionBackend() {
+  try {
+    const res = await retryFetch(`${API}-status`);
+    if (!res.ok) return null;
+    const j = await res.json();
+    return j?.backend || null;
+  } catch {
+    return null;
+  }
+}
+
 export async function loadSession(name) {
   const res = await api(`/${encodeURIComponent(safeName(name))}`);
   return res.json();
