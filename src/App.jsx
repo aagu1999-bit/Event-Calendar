@@ -43,21 +43,71 @@ function deriveDisplayUrl(ev) {
   return "";
 }
 
-function exportEventsCsv(events) {
-  if (!events.length) return;
-  // `date` (M/D) and `displayUrl` are first-class columns now — older
-  // exports were dropping the calendar date entirely (only day-of-week
-  // survived) and forcing the user to reassemble a clickable URL from
-  // `link` + `igHandle` themselves.
+// Canonical CSV — the app's fixed column shape. Used when the events weren't
+// imported from a sheet (nothing carries an original schema to honor).
+// `date` (M/D) and `displayUrl` are first-class columns; older exports dropped
+// the calendar date (only day-of-week survived) and forced the user to
+// reassemble a clickable URL from `link` + `igHandle` themselves.
+function buildCanonicalCsv(events) {
   const cols = ["date", "day", "time", "name", "venue", "area", "region", "type", "link", "igHandle", "displayUrl", "featured", "emoji"];
   const lines = [cols.join(",")];
   for (const ev of events) {
-    lines.push(cols.map(c => {
-      const v = c === "displayUrl" ? deriveDisplayUrl(ev) : ev[c];
-      return csvCell(v);
-    }).join(","));
+    lines.push(cols.map(c => csvCell(c === "displayUrl" ? deriveDisplayUrl(ev) : ev[c])).join(","));
   }
-  const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
+  return lines.join("\n");
+}
+
+// Faithful CSV — reproduce the EXACT columns the events were imported with, in
+// their original order, values verbatim. The ONLY cells that differ from the
+// original sheet are fields the user actually edited during review; every other
+// column — including ones the app doesn't use (notes, price, whatever) — round-
+// trips untouched. This is what makes "export from Calendar == the sheet you
+// imported" hold. Events carry their original row on `_src` (set by
+// buildSrcRow at import). Manually-added events (no `_src`) drop their known
+// fields into the matching original columns and leave the rest blank.
+function buildFaithfulCsv(events) {
+  const srcEvents = events.filter(e => e && e._src && Array.isArray(e._src.cols) && Array.isArray(e._src.row));
+  // Master column list = union of every imported event's columns, first-seen
+  // order (a single import is the common case → its exact order, unchanged).
+  const cols = [], seen = new Set();
+  for (const e of srcEvents) for (const c of e._src.cols) if (!seen.has(c)) { seen.add(c); cols.push(c); }
+  // colName → appField (from the first imported event's mapping) so a manually
+  // added event can still place its known fields in the right columns.
+  const colToField = {};
+  const firstMap = srcEvents[0]._src.map || {}, firstCols = srcEvents[0]._src.cols || [];
+  for (const [field, idx] of Object.entries(firstMap)) {
+    const cn = firstCols[idx];
+    if (cn != null && !(cn in colToField)) colToField[cn] = field;
+  }
+  const lines = [cols.map(csvCell).join(",")];
+  for (const ev of events) {
+    const rowObj = {};
+    if (ev._src && Array.isArray(ev._src.cols)) {
+      ev._src.cols.forEach((c, i) => { rowObj[c] = ev._src.row[i] ?? ""; });
+      // Overlay ONLY fields edited since import; untouched columns stay verbatim.
+      // Skip fields the event doesn't actually carry, so a missing key can never
+      // blank out its original column.
+      const base = ev._src.base || {};
+      for (const [field, idx] of Object.entries(ev._src.map || {})) {
+        const cn = ev._src.cols[idx];
+        if (cn == null || !(field in ev)) continue;
+        if (String(ev[field] ?? "") !== String(base[field] ?? "")) rowObj[cn] = ev[field] ?? "";
+      }
+    } else {
+      for (const c of cols) { const f = colToField[c]; rowObj[c] = f ? (ev[f] ?? "") : ""; }
+    }
+    lines.push(cols.map(c => csvCell(rowObj[c])).join(","));
+  }
+  return lines.join("\n");
+}
+
+function exportEventsCsv(events) {
+  if (!events.length) return;
+  // If any event carries an original imported row, honor that exact schema so
+  // the Calendar export round-trips the input; otherwise use the app shape.
+  const faithful = events.some(e => e && e._src && Array.isArray(e._src.cols) && e._src.cols.length);
+  const csv = faithful ? buildFaithfulCsv(events) : buildCanonicalCsv(events);
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;

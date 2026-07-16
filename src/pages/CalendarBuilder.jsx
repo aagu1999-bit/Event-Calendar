@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import * as XLSX from "xlsx";
 import { useEventsStore, useRestoreStore } from "../store";
-import { EMOJI_MAP, getEmoji as getEmojiShared, parseRegion as parseRegionShared, normalizeHandle } from "../shared/parseEvents";
+import { EMOJI_MAP, getEmoji as getEmojiShared, parseRegion as parseRegionShared, normalizeHandle, buildSrcRow } from "../shared/parseEvents";
 import { UInput, UTextarea, todaysFridayMD } from "../shared/inputs.jsx";
 import { savePhotoAndNotify, saveExport } from "../shared/photoLibrary.js";
 import { tagPngWithCgeExport } from "../shared/pngMetadata.js";
@@ -1416,7 +1416,15 @@ export default function CalendarBuilder() {
         if (igMatch && !igHandle) igHandle = igMatch[1];
         else if (!link) link = display;
       }
-      return { id: Date.now() + Math.random() * 100000, day, time: formatTime(g("time")), name: g("name"), venue: g("venue"), area: g("area"), region, type, emoji: getEmoji(type), link, igHandle, featured: false };
+      const evObj = { id: Date.now() + Math.random() * 100000, day, time: formatTime(g("time")), name: g("name"), venue: g("venue"), area: g("area"), region, type, emoji: getEmoji(type), link, igHandle, featured: false };
+      // Preserve the verbatim original row so the Calendar CSV export round-trips
+      // the exact imported schema (see buildFaithfulCsv in App.jsx).
+      evObj._src = buildSrcRow(r, rawRows[0], fm, {
+        name: evObj.name, day: evObj.day, time: evObj.time, venue: evObj.venue,
+        area: evObj.area, region: evObj.region, type: evObj.type,
+        link: evObj.link, igHandle: evObj.igHandle,
+      });
+      return evObj;
     }).filter(e => e.name && e.day !== null);
     if (parsed.length === 0) { alert("No valid events found with this mapping."); return; }
     const { added, skipped } = addEvents(parsed);
