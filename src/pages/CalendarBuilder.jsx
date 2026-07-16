@@ -1672,7 +1672,12 @@ export default function CalendarBuilder() {
           Add, edit, and tag events here, scroll down for the preview, and tap <strong>Download</strong> to save the full 1080×1350 PNG to your phone. Complex editing (per-day colors, photo BG, themes) is still easier on desktop.
         </div>
 
-        <div className="cge-cal-layout" style={{ display: "grid", gridTemplateColumns: "1fr 410px", gap: "1.5rem", alignItems: "start" }}>
+        {/* minmax(0,1fr) — NOT plain 1fr — so the event-list column can shrink
+            below its content's min-width. With plain 1fr the column grew to the
+            widest row, the flex name never truncated, and the row's ★/✎/×
+            buttons overflowed off-screen (clipped by body overflow-x:hidden),
+            forcing a zoom-out to tap them. */}
+        <div className="cge-cal-layout" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 410px", gap: "1.5rem", alignItems: "start" }}>
           {/* LEFT PANEL */}
           <div>
             {/* Mode toggle */}
@@ -2037,13 +2042,13 @@ export default function CalendarBuilder() {
 
           {/* RIGHT: CANVAS PREVIEW */}
           <div className="cge-cal-canvas">
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.4rem" }}>
+            <div className="cge-cal-preview-head" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.4rem" }}>
               {mode === "preview" ? (
                 <label style={{ ...L, marginBottom: 0 }}>Week Preview — {pgDay}{pgIsCont ? " (cont.)" : ""}{bgImage ? " + Photo" : ""}</label>
               ) : (
                 <label style={{ ...L, marginBottom: 0 }}>{pgDay}{pgIsCont ? " (cont.)" : ""} ({COLORS[activeColor].name})</label>
               )}
-              {pages > 1 && <div style={{ display: "flex", gap: "0.2rem", flexWrap: "wrap" }}>
+              {pages > 1 && <div className="cge-cal-page-tabs" style={{ display: "flex", gap: "0.2rem", flexWrap: "wrap" }}>
                 {allPages.map((p, i) => {
                   const pColor = mode === "preview" ? COLORS[previewColor] : COLORS[dayColors[p.day] || "purple"];
                   return (

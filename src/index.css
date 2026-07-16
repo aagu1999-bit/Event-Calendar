@@ -131,7 +131,10 @@ body {
     display: block !important;
   }
   .cge-cal-layout {
-    grid-template-columns: 1fr !important;
+    /* minmax(0,1fr), not 1fr — lets the column shrink to the viewport so the
+       event rows truncate instead of overflowing their action buttons off the
+       right edge (which forced a zoom-out to reach ★/✎/×). */
+    grid-template-columns: minmax(0, 1fr) !important;
   }
   /* Shrink the outer page padding so the event list claims the full
      width — gains ~30px on either side on a phone. */
@@ -156,14 +159,45 @@ body {
     max-height: 60vh !important;
   }
   /* The event list row's right-edge buttons (★ ✎ ×) are tiny — bump
-     their hit area for thumbs. */
+     their hit area for thumbs and keep them from being pushed off-screen. */
   .cge-cal-event-row {
     padding: 8px 6px !important;
     font-size: 0.7rem !important;
   }
   .cge-cal-event-row button {
-    min-width: 28px;
-    min-height: 28px;
+    min-width: 34px;
+    min-height: 34px;
+    font-size: 0.9rem !important;
+  }
+  /* The ★ / ✎ / × action cluster must never shrink or wrap off the edge —
+     the event name column absorbs the squeeze instead. */
+  .cge-cal-event-row > button {
+    flex: 0 0 auto;
+  }
+
+  /* Day-page tabs (Fri / Fri+ / Sat+ …). On a phone they used to wrap into a
+     cramped grid squeezed next to the label, forcing a zoom to tap one. Stack
+     the label above and give the tabs their own full-width row that scrolls
+     sideways, with thumb-sized targets. */
+  .cge-cal-preview-head {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 6px !important;
+  }
+  .cge-cal-page-tabs {
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    width: 100%;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 3px;
+    gap: 6px !important;
+  }
+  .cge-cal-page-tabs button {
+    flex: 0 0 auto;
+    min-height: 36px;
+    min-width: 46px;
+    font-size: 0.72rem !important;
+    padding: 6px 12px !important;
   }
 
   /* ---------- LIBRARY (Recap tab) ---------- */
