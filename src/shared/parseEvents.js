@@ -275,6 +275,36 @@ export const TARGET_FIELDS = [
   { key: "igHandle", label: "Instagram Handle" },
 ];
 
+// Capture the verbatim original row + column order on each parsed event so a
+// downstream Calendar CSV export can reproduce the EXACT schema the events were
+// imported with (round-trip fidelity). Returns { cols, row, map, base }:
+//   cols — original header names in order (synthesized "Column N" if headerless)
+//   row  — original cell values in order, verbatim (untrimmed, unnormalized)
+//   map  — { appField: colIndex } so the exporter knows which original column
+//          each app field came from (to overlay edits back into the right cell)
+//   base — the parsed app values at import time; the exporter compares against
+//          these to change ONLY cells the user actually edited later, leaving
+//          every untouched column verbatim.
+export function buildSrcRow(rawRow, headerRow, fm, base) {
+  const n = Math.max(headerRow ? headerRow.length : 0, rawRow ? rawRow.length : 0);
+  const cols = [], row = [], usedNames = new Set();
+  for (let i = 0; i < n; i++) {
+    let name = headerRow && headerRow[i] != null && String(headerRow[i]).trim() !== ""
+      ? String(headerRow[i]).trim()
+      : `Column ${i + 1}`;
+    // De-dup identical header names so column values never collide by key.
+    if (usedNames.has(name)) { let k = 2; while (usedNames.has(`${name} (${k})`)) k++; name = `${name} (${k})`; }
+    usedNames.add(name);
+    cols.push(name);
+    row.push(rawRow && rawRow[i] != null ? String(rawRow[i]) : "");
+  }
+  const map = {};
+  for (const [f, idx] of Object.entries(fm || {})) {
+    if (typeof idx === "number" && idx >= 0 && idx < cols.length) map[f] = idx;
+  }
+  return { cols, row, map, base: base || {} };
+}
+
 // Top-level: take 2D rows (header row + data rows, like xlsx sheet_to_json with
 // header:1, or pasted CSV/TSV split into rows) and return parsed Event[].
 // `defaultRegion` is used when a row has no region cell.
@@ -302,17 +332,20 @@ export function parseRows(rows, defaultRegionOrOpts = "North", maybeOpts) {
 
   if (!rows || !rows.length) return [];
 
-  let fm, dataRows;
+  let fm, dataRows, headerRow = null;
   if (columnMap) {
     // Explicit mapping from the column-mapper modal.
     fm = columnMap;
-    dataRows = hasHeaderRow === false ? rows : rows.slice(1);
+    const headed = hasHeaderRow !== false;
+    dataRows = headed ? rows.slice(1) : rows;
+    headerRow = headed ? rows[0] : null;
   } else {
     // Auto-detect (original behavior, kept for non-UI callers).
     const firstRow = rows[0].map(c => String(c ?? "").trim());
     const colMap = matchColumns(firstRow);
     const hasHeaders = Object.keys(colMap).length >= 2;
     dataRows = hasHeaders ? rows.slice(1) : rows;
+    headerRow = hasHeaders ? rows[0] : null;
     fm = hasHeaders ? colMap : { day: 0, time: 1, name: 2, venue: 3, area: 4, region: 5 };
 
     // Headers but no name column? Take the first unmapped column as name.
@@ -361,7 +394,7 @@ export function parseRows(rows, defaultRegionOrOpts = "North", maybeOpts) {
       if (!day) day = "Fri";
 
       const type = get("type");
-      return {
+      const evObj = {
         id: Date.now() + Math.random() * 1e5,
         day,
         date,
@@ -376,6 +409,15 @@ export function parseRows(rows, defaultRegionOrOpts = "North", maybeOpts) {
         igHandle: normalizeHandle(get("igHandle")),
         featured: false,
       };
+      // Keep the verbatim original row so a Calendar CSV export can round-trip
+      // the exact imported schema. base = the parsed values, so the exporter
+      // only overrides cells the user later edited (rest stay verbatim).
+      evObj._src = buildSrcRow(r, headerRow, fm, {
+        name: evObj.name, date: evObj.date, day: evObj.day, time: evObj.time,
+        venue: evObj.venue, area: evObj.area, region: evObj.region,
+        type: evObj.type, link: evObj.link, igHandle: evObj.igHandle,
+      });
+      return evObj;
     })
     .filter(e => e.name);
 }
