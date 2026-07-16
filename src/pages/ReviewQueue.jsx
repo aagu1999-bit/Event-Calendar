@@ -561,6 +561,24 @@ export default function ReviewQueue({ betaMode = false } = {}) {
   };
   const rejectAll = () => setApprovals(Object.fromEntries(pending.map(e => [e.id, false])));
 
+  // Empty the whole review triage list. This is the "clear all events" the
+  // filter/selection "Clear" buttons DON'T do — those only unselect. Clears
+  // the pending queue + its selection/vetted marks. Does NOT touch events
+  // already added to the Calendar (that has its own Clear All), and doesn't
+  // forget the saved session, so a re-upload or session load can restore.
+  const clearReview = () => {
+    if (pending.length === 0) return;
+    if (!window.confirm(
+      `Clear all ${pending.length} event${pending.length === 1 ? "" : "s"} from the review list?\n\n` +
+      `This empties the triage queue here. It does NOT remove events you already added to the Calendar. ` +
+      `Re-upload the sheet (or load a session) to bring them back.`
+    )) return;
+    setPending([]);
+    setApprovals({});
+    setVettedArr([]);
+    setSearchQuery("");
+  };
+
   // Direct-add: push a single event to the events store immediately, no
   // queue / no "import" step. User asked for an explicit + Add button per
   // row that bypasses the selection model.
@@ -1279,8 +1297,9 @@ export default function ReviewQueue({ betaMode = false } = {}) {
               {[["all", "All"], ["clean", "Clean"], ["flagged", "Flagged"], ["approved", "Approved"], ["unapproved", "Unselected"]].map(([k, lbl]) => (
                 <button
                   key={k}
-                  onClick={() => setFilter(k)}
-                  style={filter === k ? { ...B, background: "rgba(229,188,79,0.15)", borderColor: "#E5BC4F", color: "#E5BC4F" } : B}
+                  // Click an active filter again to toggle it back to "All".
+                  onClick={() => { setFilter(f => f === k ? "all" : k); if (rowsRef.current) rowsRef.current.scrollIntoView({ block: "start", behavior: "smooth" }); }}
+                  style={filter === k ? { ...B, background: "rgba(229,188,79,0.2)", borderColor: "#E5BC4F", color: "#E5BC4F", fontWeight: 800 } : B}
                 >{lbl}</button>
               ))}
               {sortByTag && (
@@ -1293,7 +1312,14 @@ export default function ReviewQueue({ betaMode = false } = {}) {
               <div className="cge-toolbar-spacer" style={{ flex: 1 }} />
               <button onClick={approveClean} style={B} title="Select all clean (no warnings) rows for bulk action">Select clean</button>
               <button onClick={approveAll} style={B} title="Select every row">Select all</button>
-              <button onClick={rejectAll} style={B} title="Clear selection">Clear selection</button>
+              <button onClick={rejectAll} style={B} title="Unselect every row (doesn't delete anything)">Deselect</button>
+              {pending.length > 0 && (
+                <button
+                  onClick={clearReview}
+                  style={{ ...B, background: "rgba(251,113,133,0.12)", borderColor: "rgba(251,113,133,0.4)", color: "#FB7185", fontWeight: 700 }}
+                  title="Empty the whole review list (all imported events here). Does not touch the Calendar."
+                >🗑 Clear all {pending.length}</button>
+              )}
             </div>
 
             {/* Bulk action bar — appears when something is selected. Selection
@@ -1344,7 +1370,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
                   >
                     ✕ Delete {approvedCount} selected
                   </button>
-                  <button onClick={rejectAll} style={B} title="Unselect all">Clear</button>
+                  <button onClick={rejectAll} style={B} title="Unselect all (doesn't delete anything)">Deselect</button>
                 </>
               )}
             </div>
