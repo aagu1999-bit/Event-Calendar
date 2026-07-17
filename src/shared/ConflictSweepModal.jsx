@@ -519,98 +519,123 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
             (a venue-collision group could have 30+ events; rendering all
             at once was crashing mobile Safari). User can expand. */}
         <div style={{ flex: 1, overflowY: "auto", padding: "12px 16px" }}>
-          {/* === COMPARE VIEW — every event in the group as a compact row so
-              you can scan all differences at once and keep whichever one you
-              want (not just the first). === */}
-          {viewMode === "compare" && (
-            <div style={{ fontSize: "0.62rem", color: "rgba(245,240,232,0.55)", marginBottom: 10, lineHeight: 1.5 }}>
-              Comparing <strong style={{ color: "#E5BC4F" }}>{groupEvents.length}</strong> events — <span style={{ color: "#FB923C", fontWeight: 700 }}>orange</span> marks a field that differs. Tap <strong style={{ color: "#E5BC4F" }}>★ Keep only this</strong> on the one to keep.
-            </div>
-          )}
-          {viewMode === "compare" && (showAllCards ? groupEvents : groupEvents.slice(0, MAX_CARDS_INITIAL)).map((ev, i) => {
-            const decision = decisions[ev.id];
-            const isEditing = editingId === ev.id;
-            const fieldColor = (field) => {
-              const myVal = normField(ev[field]);
-              if (!myVal) return "rgba(245,240,232,0.30)";
-              return fieldConflict[field] ? "#FB923C" : "#34D399";
+          {/* === COMPARE VIEW — a comparison MATRIX: one COLUMN per event
+              (headed by its name + Keep-only), the fields going DOWN the rows,
+              so you scan across a row to see which value differs. === */}
+          {viewMode === "compare" && (() => {
+            const cols = showAllCards ? groupEvents : groupEvents.slice(0, MAX_CARDS_INITIAL);
+            // Per-field majority value so the ODD ONE OUT pops: in a differing
+            // field, cells matching the majority read neutral, the outlier orange.
+            const fieldMajority = {};
+            for (const f of FIELDS_TO_ANALYZE) {
+              const counts = {};
+              cols.forEach(e => { const v = normField(e[f]); if (v) counts[v] = (counts[v] || 0) + 1; });
+              let best = null, bestN = 0, tie = false;
+              Object.entries(counts).forEach(([v, n]) => { if (n > bestN) { best = v; bestN = n; tie = false; } else if (n === bestN) { tie = true; } });
+              fieldMajority[f] = tie ? null : best;
+            }
+            const isOutlier = (f, ev) => {
+              const v = normField(ev[f]);
+              return !!v && fieldConflict[f] && (!fieldMajority[f] || v !== fieldMajority[f]);
             };
-            const sep = <span style={{ color: "rgba(245,240,232,0.25)" }}> · </span>;
+            const cellColor = (f, ev) => {
+              const v = normField(ev[f]);
+              if (!v) return "rgba(245,240,232,0.28)";           // empty
+              if (!fieldConflict[f]) return "#34D399";           // whole field agrees → green
+              return isOutlier(f, ev) ? "#FB923C" : "rgba(245,240,232,0.85)"; // outlier orange, majority neutral
+            };
+            const ROWS = [["day", "Day"], ["time", "Time"], ["venue", "Venue"], ["area", "City"], ["region", "Region"], ["type", "Type"]];
+            const COL_W = 150, LABEL_W = 60, LABEL_BG = "#141414";
+            const headTint = (d) => d === "delete" ? "rgba(251,113,133,0.10)" : d === "keep" ? "rgba(52,211,153,0.12)" : "rgba(245,240,232,0.03)";
+            const cellTint = (d) => d === "delete" ? "rgba(251,113,133,0.04)" : d === "keep" ? "rgba(52,211,153,0.05)" : "transparent";
             return (
-              <div key={ev.id} style={{
-                display: "flex", gap: 10, alignItems: "flex-start",
-                padding: "10px 12px", marginBottom: 8, borderRadius: 8,
-                background: decision === "delete" ? "rgba(251,113,133,0.06)" : decision === "keep" ? "rgba(52,211,153,0.09)" : "rgba(245,240,232,0.03)",
-                border: "1.5px solid " + (decision === "delete" ? "rgba(251,113,133,0.4)" : decision === "keep" ? "rgba(52,211,153,0.5)" : "rgba(245,240,232,0.08)"),
-                opacity: decision === "delete" ? 0.6 : 1,
-                transition: "all 0.15s",
-              }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: "0.5rem", color: "rgba(245,240,232,0.4)", letterSpacing: 1, textTransform: "uppercase", marginBottom: 4, fontWeight: 600 }}>
-                    Event {i + 1}{i === 0 ? " · first" : ""}
-                    {decision === "keep" && <span style={{ color: "#34D399" }}> · ✓ keeping</span>}
-                    {decision === "delete" && <span style={{ color: "#FB7185" }}> · ✗ deleting</span>}
-                  </div>
-                  {isEditing ? (
-                    <div style={{ display: "grid", gridTemplateColumns: "56px 1fr", gap: "6px 8px", alignItems: "center" }}>
-                      {EDIT_FIELDS.map(([key, label]) => (
-                        <div key={key} style={{ display: "contents" }}>
-                          <label style={{ color: "rgba(245,240,232,0.5)", fontSize: "0.55rem", letterSpacing: "0.5px", textTransform: "uppercase" }}>{label}</label>
-                          {key === "day" ? (
-                            <select value={editDraft.day || ""} onChange={e => setEditDraft(d => ({ ...d, day: e.target.value }))} style={{ ...EDIT_INPUT_STYLE, fontSize: "0.72rem", padding: "4px 6px" }}>
-                              <option value="">—</option>
-                              {EDIT_DAY_OPTS.map(o => <option key={o} value={o}>{o}</option>)}
-                            </select>
-                          ) : key === "region" ? (
-                            <select value={editDraft.region || ""} onChange={e => setEditDraft(d => ({ ...d, region: e.target.value }))} style={{ ...EDIT_INPUT_STYLE, fontSize: "0.72rem", padding: "4px 6px" }}>
-                              <option value="">—</option>
-                              {EDIT_REGION_OPTS.map(o => <option key={o} value={o}>{o}</option>)}
-                            </select>
-                          ) : (
-                            <input value={editDraft[key] || ""} onChange={e => setEditDraft(d => ({ ...d, [key]: e.target.value }))} style={{ ...EDIT_INPUT_STYLE, fontSize: "0.72rem", padding: "4px 6px" }} />
-                          )}
-                        </div>
+              <>
+                <div style={{ fontSize: "0.62rem", color: "rgba(245,240,232,0.55)", marginBottom: 10, lineHeight: 1.5 }}>
+                  Comparing <strong style={{ color: "#E5BC4F" }}>{cols.length}</strong> events — each column is one event, fields go down. <span style={{ color: "#FB923C", fontWeight: 700 }}>Orange</span> = the value that differs.{cols.length > 2 && <span style={{ opacity: 0.7 }}> Scroll sideways to see them all →</span>}
+                </div>
+                <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch", paddingBottom: 4 }}>
+                  <table style={{ borderCollapse: "separate", borderSpacing: 0, tableLayout: "fixed" }}>
+                    <colgroup>
+                      <col style={{ width: LABEL_W }} />
+                      {cols.map(ev => <col key={ev.id} style={{ width: COL_W }} />)}
+                    </colgroup>
+                    <thead>
+                      <tr>
+                        <th style={{ position: "sticky", left: 0, zIndex: 2, background: LABEL_BG }} />
+                        {cols.map((ev, i) => {
+                          const decision = decisions[ev.id];
+                          const isEditing = editingId === ev.id;
+                          return (
+                            <th key={ev.id} style={{ verticalAlign: "top", textAlign: "left", padding: "8px 8px 10px", background: headTint(decision), borderBottom: "1.5px solid rgba(245,240,232,0.12)", borderLeft: "1px solid rgba(245,240,232,0.06)" }}>
+                              <div style={{ fontSize: "0.48rem", color: "rgba(245,240,232,0.4)", letterSpacing: 1, textTransform: "uppercase", fontWeight: 700, marginBottom: 3 }}>
+                                Event {i + 1}{i === 0 ? " · first" : ""}
+                                {decision === "keep" && <span style={{ color: "#34D399" }}> ✓</span>}
+                                {decision === "delete" && <span style={{ color: "#FB7185" }}> ✗</span>}
+                              </div>
+                              {isEditing ? (
+                                <input value={editDraft.name || ""} onChange={e => setEditDraft(d => ({ ...d, name: e.target.value }))} placeholder="Name" style={{ ...EDIT_INPUT_STYLE, fontSize: "0.72rem", padding: "4px 6px", marginBottom: 6 }} />
+                              ) : (
+                                <div title={ev.name || ""} style={{ fontFamily: SWEEP_TITLE_FONT, fontSize: "0.98rem", fontWeight: 600, letterSpacing: "0.3px", lineHeight: 1.05, color: cellColor("name", ev), marginBottom: 8, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
+                                  {ev.name || "(no name)"}
+                                </div>
+                              )}
+                              {isEditing ? (
+                                <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                                  <button onClick={saveEditCard} style={miniActionBtn("#63B3ED", true)}>Save ✓</button>
+                                  <button onClick={cancelEditCard} style={miniActionBtn("#9CA3AF", false)}>Cancel</button>
+                                </div>
+                              ) : (
+                                <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                                  <button onClick={() => keepOnly(ev.id)} title="Keep THIS event and delete the others in this group" style={keepOnlyBtnStyle}>★ Keep only</button>
+                                  <div style={{ display: "flex", gap: 4 }}>
+                                    <button onClick={() => setDecisionWithHistory(ev.id, "keep")} title="Keep" style={miniIconBtn(decision === "keep", "#34D399")}>✓</button>
+                                    <button onClick={() => setDecisionWithHistory(ev.id, "delete")} title="Delete" style={miniIconBtn(decision === "delete", "#FB7185")}>✗</button>
+                                    <button onClick={() => startEditCard(ev)} title="Edit" style={miniIconBtn(false, "#A78BFA")}>✎</button>
+                                    {linkForEvent(ev) && (
+                                      <a href={linkForEvent(ev)} target="_blank" rel="noopener noreferrer" title="Open source / IG" style={{ ...miniIconBtn(false, "#63B3ED"), display: "inline-flex", alignItems: "center", justifyContent: "center", textDecoration: "none" }}>↗</a>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                            </th>
+                          );
+                        })}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ROWS.map(([f, label]) => (
+                        <tr key={f}>
+                          <td style={{ position: "sticky", left: 0, zIndex: 1, background: LABEL_BG, fontSize: "0.5rem", color: "rgba(245,240,232,0.5)", letterSpacing: 0.5, textTransform: "uppercase", fontWeight: 700, padding: "8px 6px", borderBottom: "1px solid rgba(245,240,232,0.05)", verticalAlign: "top" }}>{label}</td>
+                          {cols.map(ev => {
+                            const isEditing = editingId === ev.id;
+                            return (
+                              <td key={ev.id} style={{ padding: "7px 8px", borderBottom: "1px solid rgba(245,240,232,0.05)", borderLeft: "1px solid rgba(245,240,232,0.05)", fontSize: "0.72rem", verticalAlign: "top", background: cellTint(decisions[ev.id]) }}>
+                                {isEditing ? (
+                                  f === "day" ? (
+                                    <select value={editDraft.day || ""} onChange={e => setEditDraft(d => ({ ...d, day: e.target.value }))} style={{ ...EDIT_INPUT_STYLE, fontSize: "0.7rem", padding: "3px 4px" }}>
+                                      <option value="">—</option>{EDIT_DAY_OPTS.map(o => <option key={o} value={o}>{o}</option>)}
+                                    </select>
+                                  ) : f === "region" ? (
+                                    <select value={editDraft.region || ""} onChange={e => setEditDraft(d => ({ ...d, region: e.target.value }))} style={{ ...EDIT_INPUT_STYLE, fontSize: "0.7rem", padding: "3px 4px" }}>
+                                      <option value="">—</option>{EDIT_REGION_OPTS.map(o => <option key={o} value={o}>{o}</option>)}
+                                    </select>
+                                  ) : (
+                                    <input value={editDraft[f] || ""} onChange={e => setEditDraft(d => ({ ...d, [f]: e.target.value }))} style={{ ...EDIT_INPUT_STYLE, fontSize: "0.7rem", padding: "3px 4px" }} />
+                                  )
+                                ) : (
+                                  <span style={{ color: cellColor(f, ev), fontWeight: isOutlier(f, ev) ? 700 : 400 }}>{ev[f] || "—"}</span>
+                                )}
+                              </td>
+                            );
+                          })}
+                        </tr>
                       ))}
-                    </div>
-                  ) : (
-                    <>
-                      <div style={{ fontFamily: SWEEP_TITLE_FONT, fontSize: "1.05rem", fontWeight: 600, letterSpacing: "0.3px", lineHeight: 1.1, color: fieldColor("name"), marginBottom: 4 }}>
-                        {ev.name || "(no name)"}
-                      </div>
-                      <div style={{ fontSize: "0.72rem", lineHeight: 1.55 }}>
-                        <span style={{ color: fieldColor("day") }}>{ev.day || "—"}</span>{sep}
-                        <span style={{ color: fieldColor("time") }}>{ev.time || "—"}</span>{sep}
-                        <span style={{ color: fieldColor("venue") }}>{ev.venue || "—"}</span>{sep}
-                        <span style={{ color: fieldColor("area") }}>{ev.area || "—"}</span>{sep}
-                        <span style={{ color: fieldColor("region") }}>{ev.region || "—"}</span>
-                        {ev.type && <>{sep}<span style={{ color: fieldColor("type") }}>{ev.type}</span></>}
-                      </div>
-                    </>
-                  )}
+                    </tbody>
+                  </table>
                 </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 5, flex: "0 0 auto", width: 116 }}>
-                  {isEditing ? (
-                    <>
-                      <button onClick={saveEditCard} style={miniActionBtn("#63B3ED", true)}>Save ✓</button>
-                      <button onClick={cancelEditCard} style={miniActionBtn("#9CA3AF", false)}>Cancel</button>
-                    </>
-                  ) : (
-                    <>
-                      <button onClick={() => keepOnly(ev.id)} title="Keep THIS event and delete the others in this group" style={keepOnlyBtnStyle}>★ Keep only this</button>
-                      <div style={{ display: "flex", gap: 4 }}>
-                        <button onClick={() => setDecisionWithHistory(ev.id, "keep")} title="Keep" style={miniIconBtn(decision === "keep", "#34D399")}>✓</button>
-                        <button onClick={() => setDecisionWithHistory(ev.id, "delete")} title="Delete" style={miniIconBtn(decision === "delete", "#FB7185")}>✗</button>
-                        <button onClick={() => startEditCard(ev)} title="Edit" style={miniIconBtn(false, "#A78BFA")}>✎</button>
-                        {linkForEvent(ev) && (
-                          <a href={linkForEvent(ev)} target="_blank" rel="noopener noreferrer" title="Open source / IG" style={{ ...miniIconBtn(false, "#63B3ED"), display: "inline-flex", alignItems: "center", justifyContent: "center", textDecoration: "none" }}>↗</a>
-                        )}
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
+              </>
             );
-          })}
+          })()}
           {viewMode === "cards" && (showAllCards ? groupEvents : groupEvents.slice(0, MAX_CARDS_INITIAL)).map((ev, i) => {
             const decision = decisions[ev.id];
             const isSwiping = swipingId === ev.id;
