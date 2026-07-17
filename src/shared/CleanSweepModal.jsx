@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
+import { FlyerPreview } from "./FlyerPreview.jsx";
 
 // Clean Sweep — one-clean-event-at-a-time keep/cut triage.
 //
@@ -302,6 +303,13 @@ export function CleanSweepModal({ open, events, onClose, onApply, onEdit }) {
                   </div>
                 ) : (
                   <>
+                    {/* Flyer preview leads the card — read the poster to judge
+                        if the event is on-brand before keep/cut. */}
+                    {current.flyerUrl && (
+                      <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
+                        <FlyerPreview flyerUrl={current.flyerUrl} postUrl={linkForEvent(current)} size="hero" />
+                      </div>
+                    )}
                     {/* Event name — condensed readable title font, sweep-only */}
                     <div style={{
                       fontFamily: TITLE_FONT, fontWeight: 600, fontSize: "1.7rem",
