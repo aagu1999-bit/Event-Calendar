@@ -194,6 +194,18 @@ export function FixFlagsModal({ open, events, warnings, onEdit, onApply, onClose
   const swipeStartRef = useRef({});
   const rafRef = useRef(null);
 
+  // View: "table" = every flagged event listed at once (fix fields inline +
+  // approve/delete per row, no swiping); "cards" = the original one-at-a-time
+  // swipe flow. Table is the default — it's what "see them all at once" means.
+  const [viewMode, setViewMode] = useState(() => {
+    try { return localStorage.getItem("cge-flagsweep-view") === "cards" ? "cards" : "table"; } catch { return "table"; }
+  });
+  const changeView = (m) => { setViewMode(m); try { localStorage.setItem("cge-flagsweep-view", m); } catch {} };
+  // How many rows to render initially in table mode (flagged lists can be
+  // hundreds; a "show more" reveals the rest so we don't jank on open).
+  const MAX_ROWS_INITIAL = 12;
+  const [showAllRows, setShowAllRows] = useState(false);
+
   // Reset on open
   useEffect(() => {
     if (open) {
@@ -298,6 +310,7 @@ export function FixFlagsModal({ open, events, warnings, onEdit, onApply, onClose
   // or navigates. ===
   const prevStateRef = useRef({ idx: 0, hasDecision: false });
   useEffect(() => {
+    if (viewMode !== "cards") return; // table view has no "current card" to advance
     const hasDecision = !!(currentEvent && decisions[currentEvent.id]);
     const prev = prevStateRef.current;
     prevStateRef.current = { idx: currentIdx, hasDecision };
@@ -392,6 +405,19 @@ export function FixFlagsModal({ open, events, warnings, onEdit, onApply, onClose
     );
   }
 
+  // Per-event flag info — used by the Table view to render each flagged row
+  // (its warnings, which required fields still need filling, whether Approve
+  // is unlocked). Same logic the card view computes for the current event.
+  const flagInfo = (ev) => {
+    const all = warnings[ev.id] || [];
+    const warns = all.filter(w => !isPartnerConflict(w.msg));
+    const partners = all.filter(w => isPartnerConflict(w.msg));
+    const required = fieldsNeedingFix(warns);
+    const allFilled = Array.from(required).every(f => String(ev[f] || "").trim() !== "");
+    const softOnly = warns.length > 0 && warns.every(w => isSoftWarning(w.msg));
+    return { warns, partners, required, approveEnabled: allFilled || softOnly, allFilled, softOnly };
+  };
+
   const dx = swipingId === currentEvent.id ? swipeX : 0;
   const decision = decisions[currentEvent.id];
   const swipeRatio = Math.max(-1, Math.min(1, dx / SWIPE_THRESHOLD));
@@ -410,17 +436,30 @@ export function FixFlagsModal({ open, events, warnings, onEdit, onApply, onClose
       <div onClick={(e) => e.stopPropagation()} style={modalStyle}>
         {/* Header — big centered primary flag, profile-name style */}
         <div style={{ padding: "12px 16px 16px", borderBottom: "1px solid rgba(245,240,232,0.08)" }}>
-          {/* Top row — tiny counter + close button */}
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-            <div style={{ flex: 1, fontSize: "0.55rem", color: "rgba(245,240,232,0.45)", letterSpacing: 1.5, textTransform: "uppercase", fontWeight: 700, fontFamily: "'Syne',sans-serif" }}>
-              Fix Flags · {currentIdx + 1} of {queueIds.length}
+          {/* Top row — counter + view toggle + close button */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+            <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.45)", letterSpacing: 1.5, textTransform: "uppercase", fontWeight: 700, fontFamily: "'Syne',sans-serif" }}>
+              Fix Flags · {viewMode === "table" ? `${queueIds.length} flagged` : `${currentIdx + 1} of ${queueIds.length}`}
             </div>
+            <div style={{ display: "flex", border: "1px solid rgba(245,240,232,0.12)", borderRadius: 5, overflow: "hidden" }}>
+              {[["table", "▤ List"], ["cards", "▢ Cards"]].map(([k, lbl]) => (
+                <button key={k} onClick={() => changeView(k)} style={{ padding: "4px 10px", border: "none", cursor: "pointer", fontSize: "0.5rem", fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", fontFamily: "'Syne',sans-serif", background: viewMode === k ? "rgba(229,188,79,0.2)" : "transparent", color: viewMode === k ? "#E5BC4F" : "rgba(245,240,232,0.4)" }}>{lbl}</button>
+              ))}
+            </div>
+            <div style={{ flex: 1 }} />
             <button onClick={onClose} style={closeBtnStyle} title="Close (decisions discarded unless you Apply)">×</button>
           </div>
+          {/* Table-mode one-liner (the big per-event flag hero below is
+              cards-only — meaningless when every event is listed at once). */}
+          {viewMode === "table" && (
+            <div style={{ fontSize: "0.62rem", color: "rgba(245,240,232,0.55)", lineHeight: 1.5 }}>
+              Fill the <span style={{ color: "#FB7185", fontWeight: 700 }}>red missing fields</span> right in each row, then <span style={{ color: "#34D399", fontWeight: 700 }}>✓ Approve</span> — or <span style={{ color: "#FB7185", fontWeight: 700 }}>✗ Delete</span>. Soft warnings (WRONG DAY?, …) approve as-is.
+            </div>
+          )}
           {/* PRIMARY FLAG — big, centered, color-coded by severity. This
               is the "what am I looking at" hero of the card, so it reads
               instantly on a quick mobile glance. */}
-          {primaryFlag && (
+          {viewMode === "cards" && primaryFlag && (
             <>
               <div style={{
                 textAlign: "center",
@@ -451,7 +490,7 @@ export function FixFlagsModal({ open, events, warnings, onEdit, onApply, onClose
               extras render below as small pills (centered to match the
               hero treatment above). The primary is excluded so it
               doesn't duplicate. */}
-          {otherFlags.length > 0 && (
+          {viewMode === "cards" && otherFlags.length > 0 && (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 4, justifyContent: "center", marginBottom: newPartnerConflicts.length > 0 ? 8 : 0 }}>
               {otherFlags.map((w, i) => {
                 const severity = w.type === "red" ? "#FB7185"
@@ -479,7 +518,7 @@ export function FixFlagsModal({ open, events, warnings, onEdit, onApply, onClose
               Shown as a distinct gray banner so they know the change
               made things complicated. Resolving the new conflict is a
               Sweep concern, not Fix Flags — hint clearly says so. */}
-          {newPartnerConflicts.length > 0 && (
+          {viewMode === "cards" && newPartnerConflicts.length > 0 && (
             <div style={{
               marginTop: 6,
               padding: "8px 10px",
@@ -506,14 +545,100 @@ export function FixFlagsModal({ open, events, warnings, onEdit, onApply, onClose
           }} />
         </div>
 
-        {/* Swipe hint — only first event */}
-        {currentIdx === 0 && (
+        {/* Swipe hint — only first event, cards view */}
+        {viewMode === "cards" && currentIdx === 0 && (
           <div style={{ padding: "8px 16px", fontSize: "0.6rem", color: "rgba(245,240,232,0.5)", textAlign: "center", borderBottom: "1px solid rgba(245,240,232,0.05)", letterSpacing: 0.5 }}>
             💡 Edit highlighted fields. Swipe <strong style={{ color: "#34D399" }}>right</strong> to approve · <strong style={{ color: "#FB7185" }}>left</strong> to delete
           </div>
         )}
 
-        {/* Editable card — fills the body */}
+        {/* === TABLE VIEW — every flagged event as a row: its flags, inline
+            inputs for the missing fields, and per-row Approve/Delete. Rip
+            through them all without swiping one at a time. === */}
+        {viewMode === "table" && (
+          <div style={{ flex: 1, overflowY: "auto", padding: "12px 16px" }}>
+            {(showAllRows ? queueIds : queueIds.slice(0, MAX_ROWS_INITIAL)).map((id, i) => {
+              const ev = eventsById.get(String(id));
+              if (!ev) return null;
+              const info = flagInfo(ev);
+              const dec = decisions[ev.id];
+              const src = (ev.link && ev.link.trim()) || (ev.igHandle && `https://instagram.com/${String(ev.igHandle).replace(/^@+/, "").trim()}`) || "";
+              // Read-only context line of the fields that AREN'T being fixed inline.
+              const ctxFields = ["day", "time", "venue", "area", "region", "type"].filter(f => !info.required.has(f));
+              return (
+                <div key={id} style={{
+                  marginBottom: 10, padding: "11px 12px", borderRadius: 8,
+                  background: dec === "delete" ? "rgba(251,113,133,0.06)" : dec === "approve" ? "rgba(52,211,153,0.08)" : "rgba(245,240,232,0.03)",
+                  border: "1.5px solid " + (dec === "delete" ? "rgba(251,113,133,0.4)" : dec === "approve" ? "rgba(52,211,153,0.5)" : "rgba(245,240,232,0.08)"),
+                  opacity: dec === "delete" ? 0.62 : 1,
+                }}>
+                  <div style={{ fontSize: "0.48rem", color: "rgba(245,240,232,0.4)", letterSpacing: 1, textTransform: "uppercase", fontWeight: 700, marginBottom: 4 }}>
+                    #{i + 1}
+                    {dec === "approve" && <span style={{ color: "#34D399" }}> · ✓ approving</span>}
+                    {dec === "delete" && <span style={{ color: "#FB7185" }}> · ✗ deleting</span>}
+                  </div>
+                  <div style={{ fontFamily: "'Syne',sans-serif", fontSize: "0.95rem", fontWeight: 800, letterSpacing: 0.3, lineHeight: 1.15, color: info.required.has("name") ? "#FB7185" : "#F5F0E8", marginBottom: 6 }}>
+                    {ev.name || "(no name)"}
+                  </div>
+                  {/* Flag badges */}
+                  {info.warns.length > 0 && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: info.required.size > 0 || ctxFields.length ? 8 : 0 }}>
+                      {info.warns.map((w, wi) => {
+                        const c = w.type === "red" ? "#FB7185" : w.type === "yellow" ? "#E5BC4F" : "rgba(245,240,232,0.55)";
+                        return <span key={wi} style={{ padding: "2px 6px", background: `${c}18`, color: c, border: `1px solid ${c}55`, borderRadius: 3, fontSize: "0.5rem", fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", fontFamily: "'Syne',sans-serif" }}>{w.msg}</span>;
+                      })}
+                    </div>
+                  )}
+                  {/* Inline fix — one control per MISSING required field */}
+                  {info.required.size > 0 && (
+                    <div style={{ display: "grid", gridTemplateColumns: "58px 1fr", gap: "6px 8px", alignItems: "center", marginBottom: 8 }}>
+                      {[...info.required].map(field => {
+                        const opts = FIELD_OPTIONS[field];
+                        return (
+                          <div key={field} style={{ display: "contents" }}>
+                            <label style={{ color: "#FB7185", fontSize: "0.55rem", letterSpacing: 0.5, textTransform: "uppercase", fontWeight: 700 }}>{FIELD_LABEL[field]} ⚠</label>
+                            {FIELD_TYPE[field] === "select" ? (
+                              <select value={ev[field] || ""} onChange={e => onEdit(ev.id, { [field]: e.target.value })} style={{ ...inputStyle(true), padding: "6px 8px", fontSize: "0.78rem" }}>
+                                <option value="" style={{ color: "#000" }}>—</option>
+                                {opts.map(o => <option key={o} value={o} style={{ color: "#000" }}>{o}</option>)}
+                              </select>
+                            ) : (
+                              <input value={ev[field] || ""} onChange={e => onEdit(ev.id, { [field]: e.target.value })} placeholder={FIELD_FOR_FLAG[`NO ${FIELD_LABEL[field].toUpperCase()}`]?.placeholder || ""} style={{ ...inputStyle(true), padding: "6px 8px", fontSize: "0.78rem" }} />
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {/* Context line — the fields that are already filled */}
+                  {ctxFields.length > 0 && (
+                    <div style={{ fontSize: "0.68rem", color: "rgba(245,240,232,0.45)", marginBottom: 9, lineHeight: 1.5 }}>
+                      {ctxFields.map((f, fi) => (
+                        <span key={f}>{fi > 0 && <span style={{ opacity: 0.4 }}> · </span>}<span style={{ color: String(ev[f] || "").trim() ? "rgba(245,240,232,0.7)" : "rgba(245,240,232,0.28)" }}>{String(ev[f] || "").trim() || "—"}</span></span>
+                      ))}
+                    </div>
+                  )}
+                  {/* Per-row actions */}
+                  <div style={{ display: "flex", gap: 6, alignItems: "stretch" }}>
+                    <button onClick={() => setDecisionWithHistory(ev.id, "delete")} style={{ ...bottomActionBtnStyle(dec === "delete", "#FB7185"), flex: 1 }} title="Delete this event">✗ Delete</button>
+                    <button onClick={() => info.approveEnabled && setDecisionWithHistory(ev.id, "approve")} disabled={!info.approveEnabled} style={{ ...bottomActionBtnStyle(dec === "approve", "#34D399"), flex: 1, opacity: info.approveEnabled ? 1 : 0.4, cursor: info.approveEnabled ? "pointer" : "not-allowed" }} title={info.approveEnabled ? "Approve as fixed" : "Fill the red fields first"}>
+                      {info.approveEnabled ? "✓ Approve" : `${info.required.size} left`}
+                    </button>
+                    {src && <a href={src} target="_blank" rel="noopener noreferrer" title="Open source / IG" style={{ padding: "0 12px", display: "inline-flex", alignItems: "center", justifyContent: "center", background: "transparent", color: "#63B3ED", border: "1.5px solid rgba(99,179,237,0.4)", borderRadius: 6, fontSize: "0.75rem", fontWeight: 800, textDecoration: "none", fontFamily: "'Syne',sans-serif" }}>↗</a>}
+                  </div>
+                </div>
+              );
+            })}
+            {!showAllRows && queueIds.length > MAX_ROWS_INITIAL && (
+              <button onClick={() => setShowAllRows(true)} style={{ width: "100%", padding: "10px 14px", background: "rgba(192,132,252,0.08)", color: "#C084FC", border: "1px dashed rgba(192,132,252,0.45)", borderRadius: 6, fontSize: "0.7rem", fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", cursor: "pointer", fontFamily: "'Syne',sans-serif" }}>
+                Show {queueIds.length - MAX_ROWS_INITIAL} more flagged events
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Editable card — fills the body (cards view only) */}
+        {viewMode === "cards" && (
         <div
           onTouchStart={onTouchStart(currentEvent.id)}
           onTouchMove={onTouchMove(currentEvent.id)}
@@ -621,8 +746,11 @@ export function FixFlagsModal({ open, events, warnings, onEdit, onApply, onClose
             );
           })}
         </div>
+        )}
 
-        {/* Footer — Back / Undo / Delete / Approve */}
+        {/* Footer — cards view: Back / Undo / Delete / Approve on the current
+            event. Table view approves/deletes per row, so it just needs Undo. */}
+        {viewMode === "cards" ? (
         <div style={{ padding: "10px 12px", borderTop: "1px solid rgba(245,240,232,0.08)", display: "grid", gridTemplateColumns: "auto auto 1fr 1fr", gap: 6, alignItems: "stretch" }}>
           <button
             onClick={() => currentIdx > 0 && setCurrentIdx(i => i - 1)}
@@ -657,6 +785,14 @@ export function FixFlagsModal({ open, events, warnings, onEdit, onApply, onClose
             title={approveEnabled ? "Approve as fixed" : "Fill the highlighted fields first"}
           >{approveLabel}</button>
         </div>
+        ) : (
+          <div style={{ padding: "10px 12px", borderTop: "1px solid rgba(245,240,232,0.08)", display: "flex", gap: 6, alignItems: "center" }}>
+            <button onClick={undoLast} disabled={history.length === 0} style={{ ...iconBtnStyle(history.length === 0), width: "auto", padding: "10px 14px", background: history.length === 0 ? "transparent" : "rgba(192,132,252,0.08)", color: history.length === 0 ? "rgba(245,240,232,0.25)" : "#C084FC", borderColor: history.length === 0 ? "rgba(245,240,232,0.12)" : "rgba(192,132,252,0.4)" }} title="Undo the most recent Approve/Delete">↶ Undo</button>
+            <div style={{ flex: 1, textAlign: "center", fontSize: "0.6rem", color: "rgba(245,240,232,0.5)", letterSpacing: 0.5 }}>
+              {decidedCount === 0 ? "Approve or delete each flagged event above" : <><span style={{ color: "#34D399" }}>{approveCount} approve</span> · <span style={{ color: "#FB7185" }}>{deleteCount} delete</span></>}
+            </div>
+          </div>
+        )}
 
         {/* Apply bar — shows up once the user has decided on at least
             one event. Gives them a way to commit + close without
