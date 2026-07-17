@@ -172,6 +172,33 @@ export function sortEv(evts) {
   });
 }
 
+// A yearless day-rank for chronological review ordering. Prefers the real
+// calendar date ("M/D") when present so the sweep flows earliest → latest;
+// falls back to the Fri/Sat/Sun weekly model, then dumps undated rows last.
+// month*31+day keeps M/D comparable without a year (review batches never
+// straddle a December→January boundary), and lands dated events (≥32) after
+// the 0–2 weekly ranks so a mixed batch stays sensible.
+function chronoDayRank(ev) {
+  const md = String(ev?.date || "").match(/(\d{1,2})\s*[/\-]\s*(\d{1,2})/);
+  if (md) return 100 + parseInt(md[1], 10) * 31 + parseInt(md[2], 10);
+  const d = DAY_ORDER[ev?.day];
+  if (d != null) return d;
+  return 1e6;
+}
+
+// Compare two events earliest → latest: first by day (calendar date when
+// known, else weekday), then by start time. Shared by the review list and
+// every sweep so the user tracks events in one consistent chronological order.
+export function chronoCompare(a, b) {
+  const ra = chronoDayRank(a), rb = chronoDayRank(b);
+  if (ra !== rb) return ra - rb;
+  return parseTime(a?.time) - parseTime(b?.time);
+}
+
+export function sortChrono(evts) {
+  return [...(evts || [])].sort(chronoCompare);
+}
+
 // Split a single pasted line into cells. Handles tab, pipe, and CSV (with quotes).
 export function parseLine(line) {
   if (line.includes("\t")) return line.split("\t").map(s => s.trim());

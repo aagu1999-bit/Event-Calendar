@@ -1,7 +1,7 @@
 import { useState, useRef, useMemo, useEffect, Fragment } from "react";
 import * as XLSX from "xlsx";
 import { useEventsStore, useRegularsStore, useScraperIntakeStore } from "../store";
-import { parseRows, DAYFUL, getEmoji } from "../shared/parseEvents";
+import { parseRows, DAYFUL, getEmoji, sortChrono } from "../shared/parseEvents";
 import { computeWarnings, findFlagPartners } from "../shared/validateEvents";
 import { detectRegulars } from "../shared/regulars";
 import { normalizeHandle } from "../shared/parseEvents";
@@ -653,6 +653,11 @@ export default function ReviewQueue({ betaMode = false } = {}) {
     else if (filter === "approved") list = pending.filter(e => approvedSet.has(e.id));
     else if (filter === "unapproved") list = pending.filter(e => !approvals[e.id]);
     else list = pending;
+
+    // Base order: earliest → latest (day, then time) so the list reads
+    // chronologically. The tag/group float-sorts below are stable, so they
+    // lift matches to the top while keeping this order within each partition.
+    list = sortChrono(list);
 
     // Search filter — additive on top of the active filter
     const q = searchTerm.trim().toLowerCase();

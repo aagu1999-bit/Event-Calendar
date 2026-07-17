@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { FlyerPreview } from "./FlyerPreview.jsx";
+import { sortChrono } from "./parseEvents";
 
 // Clean Sweep — one-clean-event-at-a-time keep/cut triage.
 //
@@ -86,7 +87,8 @@ export function CleanSweepModal({ open, events, onClose, onApply, onEdit }) {
   // re-validation elsewhere don't reshuffle the deck mid-sweep.
   useEffect(() => {
     if (open) {
-      setQueue(Array.isArray(events) ? events.slice() : []);
+      // Deck runs earliest → latest (day, then time) so the sweep is trackable.
+      setQueue(Array.isArray(events) ? sortChrono(events) : []);
       setIdx(0);
       setDecisions({});
       setHistory([]);

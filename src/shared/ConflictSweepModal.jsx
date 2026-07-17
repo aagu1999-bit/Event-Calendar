@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
+import { chronoCompare } from "./parseEvents";
 
 // Condensed, highly legible display face for the event name — scoped to the
 // Sweep only (not tool-wide) so the title is easy to read at a glance while
@@ -124,11 +125,27 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
         }
       });
     });
+    // Earliest event per group so we can order the groups chronologically —
+    // the sweep then flows earliest → latest like the rest of Review.
+    const byId = new Map((events || []).map(e => [String(e.id), e]));
+    const earliest = (g) => {
+      let best = null;
+      g.ids.forEach(id => {
+        const ev = byId.get(String(id));
+        if (ev && (best == null || chronoCompare(ev, best) < 0)) best = ev;
+      });
+      return best;
+    };
     const ORDER = { DUPE: 0, MULTI: 1, VENUE: 2 };
     return Object.values(groupMap)
       .filter(g => g.ids.length >= 2)
-      .sort((a, b) => (ORDER[a.type] ?? 9) - (ORDER[b.type] ?? 9));
-  }, [warnings, open]);
+      .map(g => ({ ...g, _first: earliest(g) }))
+      .sort((a, b) => {
+        const c = chronoCompare(a._first, b._first);
+        if (c !== 0) return c;
+        return (ORDER[a.type] ?? 9) - (ORDER[b.type] ?? 9);
+      });
+  }, [warnings, open, events]);
 
   const [currentIdx, setCurrentIdx] = useState(0);
   const [decisions, setDecisions] = useState({}); // eventId → "keep" | "delete"

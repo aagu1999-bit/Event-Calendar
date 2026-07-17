@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { FlyerPreview } from "./FlyerPreview.jsx";
+import { chronoCompare } from "./parseEvents";
 
 // Fix Flags — single-event triage for warnings that AREN'T partner
 // conflicts (those go through ConflictSweepModal / Sweep).
@@ -161,10 +162,15 @@ export function FixFlagsModal({ open, events, warnings, onEdit, onApply, onClose
       if (!ev) return;
       const relevant = (ws || []).filter(w => !isPartnerConflict(w.msg));
       if (relevant.length === 0) return;
-      rows.push({ id: String(eventId), hasRequired: ws.some(w => FIELD_FOR_FLAG[w.msg]) });
+      rows.push({ id: String(eventId), ev, hasRequired: ws.some(w => FIELD_FOR_FLAG[w.msg]) });
     });
-    // Sort once: required-field flags first (most blocking)
-    rows.sort((a, b) => (a.hasRequired ? 0 : 1) - (b.hasRequired ? 0 : 1));
+    // Sort once: earliest → latest (day, then time) so the sweep is trackable;
+    // events sharing a slot break the tie with required-field flags first.
+    rows.sort((a, b) => {
+      const c = chronoCompare(a.ev, b.ev);
+      if (c !== 0) return c;
+      return (a.hasRequired ? 0 : 1) - (b.hasRequired ? 0 : 1);
+    });
     setQueueIds(rows.map(r => r.id));
     // We intentionally don't depend on events/warnings — the queue is a
     // snapshot of the flagged set at open-time. Live data (current event
