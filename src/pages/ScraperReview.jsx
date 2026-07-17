@@ -21,6 +21,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useScraperIntakeStore } from "../store";
+import { getEmoji, formatTime, parseRegion } from "../shared/parseEvents";
 
 // Inline fetch wrapper that surfaces server errors as a thrown string.
 async function api(path, opts) {
@@ -139,16 +140,22 @@ function rowToEvent(row) {
   // M/D for the new `date` column on events. Without this, scraper-
   // imported events would show blank in the date column on export.
   const dateMD = date ? `${date.getMonth() + 1}/${date.getDate()}` : "";
+  const type = row["EVENT TYPE"] || "";
   return {
     id: `scraper_${postId || Math.random().toString(36).slice(2)}`,
     name: row["EVENT NAME"] || "",
     day: dayOfWeek(date),
     date: dateMD,
-    time: row["START TIME"] || "",
+    // Normalize like the CSV path: "9:00 PM" → "9 PM", keep ":30" only when
+    // the event actually specifies minutes.
+    time: formatTime(row["START TIME"] || ""),
     venue: row["VENUE NAME"] || "",
     area: row["CITY"] || "",
-    region: row["SECTION OF NJ"] || "",
-    type: row["EVENT TYPE"] || "",
+    region: parseRegion(row["SECTION OF NJ"]) || row["SECTION OF NJ"] || "",
+    type,
+    // Derive the slide emoji from the type so approved events carry one into
+    // the calendar / CSV export instead of landing as "— none —".
+    emoji: getEmoji(type),
     link: row["INSTAGRAM POST URL"] || row["POST URL"] || "",
     igHandle: row["INSTAGRAM HANDLE"] ? `@${String(row["INSTAGRAM HANDLE"]).replace(/^@/, "")}` : "",
     // Optional metadata fields some reviewers reference. Empty strings

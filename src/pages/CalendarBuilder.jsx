@@ -10,12 +10,12 @@ import { ExportLibraryModal } from "../shared/ExportLibraryModal.jsx";
 
 // ==================== COLOR SYSTEM ====================
 const COLORS = {
-  purple: { name: "Purple", hex: "#7C3AED", light: false, accent: "#C084FC", rowBg: "rgba(0,0,0,0.25)", textMain: "#FFFFFF", textSub: "rgba(255,255,255,0.75)", timeFill: "#FFFFFF", spotR: 255, spotG: 255, spotB: 255, spotA: 0.50 },
-  gold:   { name: "Gold",   hex: "#D4943A", light: true,  accent: "#D4943A", rowBg: "rgba(0,0,0,0.75)", textMain: "#FFFFFF", textSub: "rgba(255,255,255,0.75)", timeFill: "#D4943A", spotR: 255, spotG: 255, spotB: 255, spotA: 0.55 },
-  wine:   { name: "Wine",   hex: "#BE3A34", light: false, accent: "#FB7185", rowBg: "rgba(0,0,0,0.30)", textMain: "#FFFFFF", textSub: "rgba(255,255,255,0.75)", timeFill: "#FFFFFF", spotR: 255, spotG: 255, spotB: 255, spotA: 0.50 },
-  emerald:{ name: "Emerald",hex: "#059669", light: false, accent: "#34D399", rowBg: "rgba(0,0,0,0.30)", textMain: "#FFFFFF", textSub: "rgba(255,255,255,0.75)", timeFill: "#FFFFFF", spotR: 255, spotG: 255, spotB: 255, spotA: 0.50 },
-  yellow: { name: "Yellow", hex: "#EAB308", light: true,  accent: "#EAB308", rowBg: "rgba(0,0,0,0.80)", textMain: "#FFFFFF", textSub: "rgba(255,255,255,0.75)", timeFill: "#EAB308", spotR: 255, spotG: 255, spotB: 255, spotA: 0.55 },
-  black:  { name: "Black",  hex: "#000000", light: false, accent: "#E5BC4F", rowBg: "rgba(229,188,79,0.12)", textMain: "#FFFFFF", textSub: "rgba(255,255,255,0.75)", timeFill: "#E5BC4F", spotR: 229, spotG: 188, spotB: 79, spotA: 0.45 },
+  purple: { name: "Purple", hex: "#7C3AED", light: false, accent: "#C084FC", rowBg: "rgba(0,0,0,0.42)", textMain: "#FFFFFF", textSub: "rgba(255,255,255,0.75)", timeFill: "#FFFFFF", spotR: 255, spotG: 255, spotB: 255, spotA: 0.50 },
+  gold:   { name: "Gold",   hex: "#D4943A", light: true,  accent: "#D4943A", rowBg: "rgba(0,0,0,0.86)", textMain: "#FFFFFF", textSub: "rgba(255,255,255,0.75)", timeFill: "#D4943A", spotR: 255, spotG: 255, spotB: 255, spotA: 0.55 },
+  wine:   { name: "Wine",   hex: "#BE3A34", light: false, accent: "#FB7185", rowBg: "rgba(0,0,0,0.47)", textMain: "#FFFFFF", textSub: "rgba(255,255,255,0.75)", timeFill: "#FFFFFF", spotR: 255, spotG: 255, spotB: 255, spotA: 0.50 },
+  emerald:{ name: "Emerald",hex: "#059669", light: false, accent: "#34D399", rowBg: "rgba(0,0,0,0.47)", textMain: "#FFFFFF", textSub: "rgba(255,255,255,0.75)", timeFill: "#FFFFFF", spotR: 255, spotG: 255, spotB: 255, spotA: 0.50 },
+  yellow: { name: "Yellow", hex: "#EAB308", light: true,  accent: "#EAB308", rowBg: "rgba(0,0,0,0.88)", textMain: "#FFFFFF", textSub: "rgba(255,255,255,0.75)", timeFill: "#EAB308", spotR: 255, spotG: 255, spotB: 255, spotA: 0.55 },
+  black:  { name: "Black",  hex: "#000000", light: false, accent: "#E5BC4F", rowBg: "rgba(0,0,0,0.45)", textMain: "#FFFFFF", textSub: "rgba(255,255,255,0.75)", timeFill: "#E5BC4F", spotR: 229, spotG: 188, spotB: 79, spotA: 0.45 },
 };
 
 // ==================== EMOJI MAPPING ====================
@@ -635,7 +635,9 @@ function renderCal(canvas, events, cfg) {
       ctx.font = `${38 * s}px sans-serif`;
       ctx.textBaseline = "middle";
       ctx.fillStyle = "#FFFFFF";
-      ctx.fillText(ev.emoji || "", emojiX, cY);
+      // Fall back to a type-derived emoji so scraper/CSV imports that never
+      // got one still show a glyph instead of a blank.
+      ctx.fillText(ev.emoji || getEmoji(ev.type), emojiX, cY);
       ctx.restore();
       // Store emoji hit area
       if (cfg._emojiPositions) cfg._emojiPositions.push({ id: ev.id, x: emojiX - 10*s, y: cY - 22*s, w: 55*s, h: 44*s });
@@ -664,7 +666,9 @@ function renderCal(canvas, events, cfg) {
       ctx.fillStyle = co.timeFill;
       ctx.textAlign = "right";
       const timeY = ev.featured ? cY + 12 * s : cY;
-      ctx.fillText(ev.time, W - px - 18 * s, timeY);
+      // Normalize on render: on-the-hour → "9 PM", keep ":30" only when the
+      // event actually specifies minutes. Covers raw scraper/import times.
+      ctx.fillText(formatTime(ev.time), W - px - 18 * s, timeY);
       ctx.textAlign = "left";
       ctx.textBaseline = "top";
 
@@ -950,7 +954,7 @@ function renderPreview(canvas, pageEvents, cfg) {
     ctx.font = `${emojiFontSize * s}px sans-serif`;
     ctx.textBaseline = "top";
     const emojiY = rowY + (rowH - emojiFontSize * s) / 2.5;
-    ctx.fillText(ev.emoji || "", colX, emojiY);
+    ctx.fillText(ev.emoji || getEmoji(ev.type), colX, emojiY);
     ctx.restore();
     if (cfg._emojiPositions) cfg._emojiPositions.push({ id: ev.id, x: colX - 5*s, y: emojiY - 5*s, w: emojiFontSize*s + 10*s, h: emojiFontSize*s + 10*s });
 
@@ -1975,7 +1979,7 @@ export default function CalendarBuilder() {
                 }}>
                   <input type="checkbox" checked={sel.has(ev.id)} onChange={() => { const s2 = new Set(sel); s2.has(ev.id) ? s2.delete(ev.id) : s2.add(ev.id); setSel(s2); }} style={{ accentColor: "#FACC15" }} />
                   <span style={{ fontSize: "0.5rem", color: "rgba(245,240,232,0.3)", minWidth: 22, fontWeight: 600 }}>{ev.day}</span>
-                  <select value={ev.emoji || ""} onChange={e => { 
+                  <select value={ev.emoji || getEmoji(ev.type)} onChange={e => {
                     if (e.target.value === "__custom__") { 
                       const c = prompt("Paste any emoji:"); 
                       if (c) setEvents(p => p.map(x => x.id === ev.id ? { ...x, emoji: c.trim().slice(0,2) } : x)); 
@@ -1986,7 +1990,7 @@ export default function CalendarBuilder() {
                     {ALL_EMOJIS.map((em, ei) => <option key={ei} value={em}>{em || "— none —"}</option>)}
                     <option value="__custom__">✏️ Pick...</option>
                   </select>
-                  <span style={{ color: co.accent, fontWeight: 600, minWidth: 38 }}>{ev.time || "—"}</span>
+                  <span style={{ color: co.accent, fontWeight: 600, minWidth: 38 }}>{ev.time ? formatTime(ev.time) : "—"}</span>
                   <div
                     onClick={() => {
                       const pi = allPages.findIndex(p => (p.events || []).some(e => e.id === ev.id));
@@ -2065,7 +2069,7 @@ export default function CalendarBuilder() {
               <canvas ref={canvasRef} onClick={handleCanvasClick} style={{ width: pw, height: ph, borderRadius: "4px", display: "block", cursor: "pointer" }} />
               {emojiPickId !== null && (
                 <div style={{ position: "absolute", top: emojiPickPos.y, left: emojiPickPos.x, zIndex: 50, background: "#1a1a1a", border: "1px solid rgba(250,204,21,0.20)", borderRadius: "6px", padding: "4px", boxShadow: "0 4px 20px rgba(0,0,0,0.6)" }}>
-                  <select value={events.find(e => e.id === emojiPickId)?.emoji || ""} onChange={e => { 
+                  <select value={(() => { const pe = events.find(e => e.id === emojiPickId); return pe ? (pe.emoji || getEmoji(pe.type)) : ""; })()} onChange={e => {
                     if (e.target.value === "__custom__") {
                       const c = prompt("Paste any emoji:");
                       if (c) setEvents(p => p.map(x => x.id === emojiPickId ? { ...x, emoji: c.trim().slice(0,2) } : x));
