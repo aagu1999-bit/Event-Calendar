@@ -359,6 +359,13 @@ export function parseRows(rows, defaultRegionOrOpts = "North", maybeOpts) {
   const hasDateCol = "date" in fm;
   const hasDayCol = "day" in fm;
 
+  // Flyer / DISPLAY URL column — a direct image link the review sweeps show as
+  // a preview. Detected by header name (the mapper doesn't expose it as a
+  // target field). Only used when the sheet has such a column.
+  const flyerColIdx = headerRow
+    ? headerRow.findIndex(h => /display\s*url|flyer|image\s*url|\bimage\b|thumbnail/i.test(String(h || "")))
+    : -1;
+
   return dataRows
     .filter(r => r && r.some(c => c != null && String(c).trim() !== ""))
     .map(r => {
@@ -409,6 +416,11 @@ export function parseRows(rows, defaultRegionOrOpts = "North", maybeOpts) {
         igHandle: normalizeHandle(get("igHandle")),
         featured: false,
       };
+      // Flyer image URL (DISPLAY URL column) for the review-sweep preview.
+      if (flyerColIdx >= 0 && flyerColIdx < r.length) {
+        const fu = String(r[flyerColIdx] ?? "").replace(/^["']+|["']+$/g, "").trim();
+        if (fu) evObj.flyerUrl = fu;
+      }
       // Keep the verbatim original row so a Calendar CSV export can round-trip
       // the exact imported schema. base = the parsed values, so the exporter
       // only overrides cells the user later edited (rest stay verbatim).

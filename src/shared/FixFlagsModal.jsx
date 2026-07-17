@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
+import { FlyerPreview } from "./FlyerPreview.jsx";
 
 // Fix Flags — single-event triage for warnings that AREN'T partner
 // conflicts (those go through ConflictSweepModal / Sweep).
@@ -572,6 +573,9 @@ export function FixFlagsModal({ open, events, warnings, onEdit, onApply, onClose
                   border: "1.5px solid " + (dec === "delete" ? "rgba(251,113,133,0.4)" : dec === "approve" ? "rgba(52,211,153,0.5)" : "rgba(245,240,232,0.08)"),
                   opacity: dec === "delete" ? 0.62 : 1,
                 }}>
+                  <div style={{ display: "flex", gap: 11, alignItems: "flex-start" }}>
+                  <FlyerPreview flyerUrl={ev.flyerUrl} postUrl={src} size="thumb" />
+                  <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: "0.48rem", color: "rgba(245,240,232,0.4)", letterSpacing: 1, textTransform: "uppercase", fontWeight: 700, marginBottom: 4 }}>
                     #{i + 1}
                     {dec === "approve" && <span style={{ color: "#34D399" }}> · ✓ approving</span>}
@@ -625,6 +629,8 @@ export function FixFlagsModal({ open, events, warnings, onEdit, onApply, onClose
                       {info.approveEnabled ? "✓ Approve" : `${info.required.size} left`}
                     </button>
                     {src && <a href={src} target="_blank" rel="noopener noreferrer" title="Open source / IG" style={{ padding: "0 12px", display: "inline-flex", alignItems: "center", justifyContent: "center", background: "transparent", color: "#63B3ED", border: "1.5px solid rgba(99,179,237,0.4)", borderRadius: 6, fontSize: "0.75rem", fontWeight: 800, textDecoration: "none", fontFamily: "'Syne',sans-serif" }}>↗</a>}
+                  </div>
+                  </div>
                   </div>
                 </div>
               );
@@ -702,6 +708,17 @@ export function FixFlagsModal({ open, events, warnings, onEdit, onApply, onClose
               >↗ Source</a>
             );
           })()}
+
+          {/* Flyer preview — read the actual poster to confirm the details. */}
+          {currentEvent.flyerUrl && (
+            <div style={{ marginBottom: 14 }}>
+              <FlyerPreview
+                flyerUrl={currentEvent.flyerUrl}
+                postUrl={(currentEvent.link && currentEvent.link.trim()) || (currentEvent.igHandle && `https://instagram.com/${String(currentEvent.igHandle).replace(/^@+/, "").trim()}`) || ""}
+                size="hero"
+              />
+            </div>
+          )}
 
           {/* Field stack — flagged fields first (highlighted), then
               context fields below */}
