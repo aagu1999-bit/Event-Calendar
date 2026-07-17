@@ -162,6 +162,15 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
   const MAX_CARDS_INITIAL = 10;
   const [showAllCards, setShowAllCards] = useState(false);
 
+  // View mode: "compare" = a dense table showing EVERY event in the group at
+  // once (scan differences side by side, pick the one to keep); "cards" = the
+  // original one-big-card-per-event swipe stack. Compare is the default because
+  // it's what makes "see all at once + keep any one" fast. Remembered locally.
+  const [viewMode, setViewMode] = useState(() => {
+    try { return localStorage.getItem("cge-sweep-view") === "cards" ? "cards" : "compare"; } catch { return "compare"; }
+  });
+  const changeView = (m) => { setViewMode(m); try { localStorage.setItem("cge-sweep-view", m); } catch {} };
+
   // === Performance refs ===
   // Throttle touchmove via requestAnimationFrame — touchmove can fire
   // 100+ times/sec on some devices, each setSwipeX triggered a whole
@@ -368,6 +377,11 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
   };
   const keepAll = () => groupEvents.forEach(ev => setDecisionWithHistory(ev.id, "keep"));
   const deleteAll = () => groupEvents.forEach(ev => setDecisionWithHistory(ev.id, "delete"));
+  // Keep ONE specific event and delete the rest — the generalized "keep first,
+  // delete rest" that works on whichever event the user picks (2nd, 4th, …).
+  const keepOnly = (keepId) => {
+    groupEvents.forEach(ev => setDecisionWithHistory(ev.id, ev.id === keepId ? "keep" : "delete"));
+  };
 
   const handleNext = () => {
     if (!allDecided) return;
@@ -471,6 +485,22 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
           <div style={{ width: `${((currentIdx + (allDecided ? 1 : 0)) / groups.length) * 100}%`, height: "100%", background: "#34D399", transition: "width 0.2s" }} />
         </div>
 
+        {/* View toggle — Compare (all events in a dense table) vs Cards (one
+            big swipe card at a time). */}
+        <div style={{ padding: "10px 16px 0", display: "flex", gap: 8, alignItems: "center" }}>
+          <span style={{ fontSize: "0.5rem", color: "rgba(245,240,232,0.4)", letterSpacing: 1, textTransform: "uppercase", fontWeight: 700, fontFamily: "'Syne',sans-serif" }}>View</span>
+          <div style={{ display: "flex", border: "1px solid rgba(245,240,232,0.12)", borderRadius: 5, overflow: "hidden" }}>
+            {[["compare", "▦ Compare"], ["cards", "▢ Cards"]].map(([k, lbl]) => (
+              <button key={k} onClick={() => changeView(k)} style={{
+                padding: "5px 12px", border: "none", cursor: "pointer",
+                fontSize: "0.55rem", fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", fontFamily: "'Syne',sans-serif",
+                background: viewMode === k ? "rgba(229,188,79,0.2)" : "transparent",
+                color: viewMode === k ? "#E5BC4F" : "rgba(245,240,232,0.4)",
+              }}>{lbl}</button>
+            ))}
+          </div>
+        </div>
+
         {/* Group shortcuts */}
         <div style={{ padding: "12px 16px", display: "flex", gap: 6, flexWrap: "wrap", borderBottom: "1px solid rgba(245,240,232,0.05)" }}>
           <button onClick={keepFirstOnly} style={shortcutBtnStyle("#34D399")}>↑ Keep first · ✗ rest</button>
@@ -478,8 +508,8 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
           <button onClick={deleteAll} style={shortcutBtnStyle("#FB7185")}>✗ Delete all</button>
         </div>
 
-        {/* Swipe hint — only shown on first group of the session */}
-        {currentIdx === 0 && (
+        {/* Swipe hint — only shown on first group of the session, cards view */}
+        {currentIdx === 0 && viewMode === "cards" && (
           <div style={{ padding: "8px 16px", fontSize: "0.6rem", color: "rgba(245,240,232,0.5)", textAlign: "center", borderBottom: "1px solid rgba(245,240,232,0.05)", letterSpacing: 0.5 }}>
             💡 Tap ✓/✗ <strong style={{ color: "rgba(245,240,232,0.75)" }}>or swipe</strong> — right keeps · left deletes
           </div>
@@ -489,7 +519,99 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
             (a venue-collision group could have 30+ events; rendering all
             at once was crashing mobile Safari). User can expand. */}
         <div style={{ flex: 1, overflowY: "auto", padding: "12px 16px" }}>
-          {(showAllCards ? groupEvents : groupEvents.slice(0, MAX_CARDS_INITIAL)).map((ev, i) => {
+          {/* === COMPARE VIEW — every event in the group as a compact row so
+              you can scan all differences at once and keep whichever one you
+              want (not just the first). === */}
+          {viewMode === "compare" && (
+            <div style={{ fontSize: "0.62rem", color: "rgba(245,240,232,0.55)", marginBottom: 10, lineHeight: 1.5 }}>
+              Comparing <strong style={{ color: "#E5BC4F" }}>{groupEvents.length}</strong> events — <span style={{ color: "#FB923C", fontWeight: 700 }}>orange</span> marks a field that differs. Tap <strong style={{ color: "#E5BC4F" }}>★ Keep only this</strong> on the one to keep.
+            </div>
+          )}
+          {viewMode === "compare" && (showAllCards ? groupEvents : groupEvents.slice(0, MAX_CARDS_INITIAL)).map((ev, i) => {
+            const decision = decisions[ev.id];
+            const isEditing = editingId === ev.id;
+            const fieldColor = (field) => {
+              const myVal = normField(ev[field]);
+              if (!myVal) return "rgba(245,240,232,0.30)";
+              return fieldConflict[field] ? "#FB923C" : "#34D399";
+            };
+            const sep = <span style={{ color: "rgba(245,240,232,0.25)" }}> · </span>;
+            return (
+              <div key={ev.id} style={{
+                display: "flex", gap: 10, alignItems: "flex-start",
+                padding: "10px 12px", marginBottom: 8, borderRadius: 8,
+                background: decision === "delete" ? "rgba(251,113,133,0.06)" : decision === "keep" ? "rgba(52,211,153,0.09)" : "rgba(245,240,232,0.03)",
+                border: "1.5px solid " + (decision === "delete" ? "rgba(251,113,133,0.4)" : decision === "keep" ? "rgba(52,211,153,0.5)" : "rgba(245,240,232,0.08)"),
+                opacity: decision === "delete" ? 0.6 : 1,
+                transition: "all 0.15s",
+              }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: "0.5rem", color: "rgba(245,240,232,0.4)", letterSpacing: 1, textTransform: "uppercase", marginBottom: 4, fontWeight: 600 }}>
+                    Event {i + 1}{i === 0 ? " · first" : ""}
+                    {decision === "keep" && <span style={{ color: "#34D399" }}> · ✓ keeping</span>}
+                    {decision === "delete" && <span style={{ color: "#FB7185" }}> · ✗ deleting</span>}
+                  </div>
+                  {isEditing ? (
+                    <div style={{ display: "grid", gridTemplateColumns: "56px 1fr", gap: "6px 8px", alignItems: "center" }}>
+                      {EDIT_FIELDS.map(([key, label]) => (
+                        <div key={key} style={{ display: "contents" }}>
+                          <label style={{ color: "rgba(245,240,232,0.5)", fontSize: "0.55rem", letterSpacing: "0.5px", textTransform: "uppercase" }}>{label}</label>
+                          {key === "day" ? (
+                            <select value={editDraft.day || ""} onChange={e => setEditDraft(d => ({ ...d, day: e.target.value }))} style={{ ...EDIT_INPUT_STYLE, fontSize: "0.72rem", padding: "4px 6px" }}>
+                              <option value="">—</option>
+                              {EDIT_DAY_OPTS.map(o => <option key={o} value={o}>{o}</option>)}
+                            </select>
+                          ) : key === "region" ? (
+                            <select value={editDraft.region || ""} onChange={e => setEditDraft(d => ({ ...d, region: e.target.value }))} style={{ ...EDIT_INPUT_STYLE, fontSize: "0.72rem", padding: "4px 6px" }}>
+                              <option value="">—</option>
+                              {EDIT_REGION_OPTS.map(o => <option key={o} value={o}>{o}</option>)}
+                            </select>
+                          ) : (
+                            <input value={editDraft[key] || ""} onChange={e => setEditDraft(d => ({ ...d, [key]: e.target.value }))} style={{ ...EDIT_INPUT_STYLE, fontSize: "0.72rem", padding: "4px 6px" }} />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <>
+                      <div style={{ fontFamily: SWEEP_TITLE_FONT, fontSize: "1.05rem", fontWeight: 600, letterSpacing: "0.3px", lineHeight: 1.1, color: fieldColor("name"), marginBottom: 4 }}>
+                        {ev.name || "(no name)"}
+                      </div>
+                      <div style={{ fontSize: "0.72rem", lineHeight: 1.55 }}>
+                        <span style={{ color: fieldColor("day") }}>{ev.day || "—"}</span>{sep}
+                        <span style={{ color: fieldColor("time") }}>{ev.time || "—"}</span>{sep}
+                        <span style={{ color: fieldColor("venue") }}>{ev.venue || "—"}</span>{sep}
+                        <span style={{ color: fieldColor("area") }}>{ev.area || "—"}</span>{sep}
+                        <span style={{ color: fieldColor("region") }}>{ev.region || "—"}</span>
+                        {ev.type && <>{sep}<span style={{ color: fieldColor("type") }}>{ev.type}</span></>}
+                      </div>
+                    </>
+                  )}
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 5, flex: "0 0 auto", width: 116 }}>
+                  {isEditing ? (
+                    <>
+                      <button onClick={saveEditCard} style={miniActionBtn("#63B3ED", true)}>Save ✓</button>
+                      <button onClick={cancelEditCard} style={miniActionBtn("#9CA3AF", false)}>Cancel</button>
+                    </>
+                  ) : (
+                    <>
+                      <button onClick={() => keepOnly(ev.id)} title="Keep THIS event and delete the others in this group" style={keepOnlyBtnStyle}>★ Keep only this</button>
+                      <div style={{ display: "flex", gap: 4 }}>
+                        <button onClick={() => setDecisionWithHistory(ev.id, "keep")} title="Keep" style={miniIconBtn(decision === "keep", "#34D399")}>✓</button>
+                        <button onClick={() => setDecisionWithHistory(ev.id, "delete")} title="Delete" style={miniIconBtn(decision === "delete", "#FB7185")}>✗</button>
+                        <button onClick={() => startEditCard(ev)} title="Edit" style={miniIconBtn(false, "#A78BFA")}>✎</button>
+                        {linkForEvent(ev) && (
+                          <a href={linkForEvent(ev)} target="_blank" rel="noopener noreferrer" title="Open source / IG" style={{ ...miniIconBtn(false, "#63B3ED"), display: "inline-flex", alignItems: "center", justifyContent: "center", textDecoration: "none" }}>↗</a>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+          {viewMode === "cards" && (showAllCards ? groupEvents : groupEvents.slice(0, MAX_CARDS_INITIAL)).map((ev, i) => {
             const decision = decisions[ev.id];
             const isSwiping = swipingId === ev.id;
             const isEditing = editingId === ev.id;
@@ -616,6 +738,14 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
                       <button onClick={saveEditCard} style={bottomActionBtnStyle(true, "#63B3ED")} title="Save changes">Save ✓</button>
                     </div>
                   ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {/* Keep ONLY this event — works on any card, not just the
+                        first (generalizes the "Keep first · rest" shortcut). */}
+                    <button
+                      onClick={() => keepOnly(ev.id)}
+                      title="Keep THIS event and delete the others in this group"
+                      style={{ ...bottomActionBtnStyle(false, "#E5BC4F"), fontSize: "0.72rem" }}
+                    >★ Keep only this · ✗ rest</button>
                   <div style={{ display: "flex", gap: 8, alignItems: "stretch" }}>
                     <button
                       onClick={() => setDecisionWithHistory(ev.id, "delete")}
@@ -660,6 +790,7 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
                         }}
                       >↗</a>
                     )}
+                  </div>
                   </div>
                   )}
                 </div>
@@ -866,6 +997,50 @@ const shortcutBtnStyle = (color) => ({
 // of each event card). Big tap targets for thumb-driven mobile use.
 // Active state fills the button so the user's last decision is obvious
 // at a glance even before swipe ends.
+// Compare-view row buttons. keepOnlyBtnStyle is the prominent "keep this one"
+// action; miniIconBtn are the small ✓/✗/✎/↗ toggles; miniActionBtn is the
+// Save/Cancel pair shown while editing a row inline.
+const keepOnlyBtnStyle = {
+  padding: "7px 6px",
+  borderRadius: 6,
+  border: "1.5px solid #E5BC4F",
+  background: "rgba(229,188,79,0.16)",
+  color: "#E5BC4F",
+  fontSize: "0.6rem",
+  fontWeight: 800,
+  letterSpacing: 0.4,
+  textTransform: "uppercase",
+  cursor: "pointer",
+  fontFamily: "'Syne',sans-serif",
+  lineHeight: 1.15,
+};
+const miniIconBtn = (active, color) => ({
+  flex: 1,
+  minWidth: 0,
+  padding: "6px 0",
+  borderRadius: 5,
+  border: "1.5px solid " + (active ? color : `${color}55`),
+  background: active ? `${color}22` : "transparent",
+  color: active ? color : `${color}cc`,
+  fontSize: "0.8rem",
+  fontWeight: 800,
+  cursor: "pointer",
+  fontFamily: "'Syne',sans-serif",
+  textAlign: "center",
+});
+const miniActionBtn = (color, filled) => ({
+  padding: "7px 6px",
+  borderRadius: 6,
+  border: "1.5px solid " + color,
+  background: filled ? `${color}22` : "transparent",
+  color,
+  fontSize: "0.62rem",
+  fontWeight: 800,
+  letterSpacing: 0.5,
+  textTransform: "uppercase",
+  cursor: "pointer",
+  fontFamily: "'Syne',sans-serif",
+});
 const bottomActionBtnStyle = (active, color) => ({
   flex: 1,
   padding: "12px 10px",
