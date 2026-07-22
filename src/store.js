@@ -35,6 +35,22 @@ export const useScraperIntakeStore = create((set, get) => ({
   },
 }));
 
+// Scout → Media handoff. ScoutPicks stuffs a { topic, context } seed here
+// before navigating to /media; MediaTool's mount effect calls consumeSeed()
+// (reads + clears) and opens AI Fill pre-filled, so one "Make Carousel" tap
+// turns a scouted event into a drafted carousel. One-shot, NOT persisted —
+// same semantics as the scraper intake store above.
+export const useCarouselSeedStore = create((set, get) => ({
+  seed: null,           // { topic, context } | null
+  setSeed: (seed) => set({ seed: seed || null }),
+  consumeSeed: () => {
+    const s = get().seed;
+    if (!s) return null;
+    set({ seed: null });
+    return s;
+  },
+}));
+
 const dedupeKey = (e) =>
   [
     e.day || "",

@@ -343,6 +343,131 @@ export async function scoutNews({ apiKey, area = "New Jersey", focus = "", today
   return { candidates, sources, brief };
 }
 
+// === EVENT SCOUT — find upcoming NJ events worth a carousel ===
+// Sibling of scoutNews, pointed at EVENTS instead of news. Two grounded steps:
+//   1. Discovery (gemini-2.5-flash + google_search): hunt for TIMELY, upcoming
+//      Black-culture / Black-owned NJ events across several search angles.
+//   2. Score + structure (JSON): rank each against CGE_BEAT and return a
+//      calendar-shaped candidate the Scout page can preview, add to the
+//      calendar, or hand to the carousel builder.
+// `existingNames` (lowercased event names already on the user's calendar) lets
+// the scorer mark net-new finds and reward them — the user is hunting for
+// events they don't already have. Nothing here posts or saves; it only proposes.
+export async function scoutEvents({ apiKey, area = "New Jersey", focus = "", existingNames = [], today = null } = {}) {
+  if (!apiKey) throw new Error("Missing Gemini API key");
+  const stamp = today || (() => { try { return new Date().toISOString().slice(0, 10); } catch { return null; } })();
+  const areaLine = (area || "").trim() || "New Jersey";
+  const focusLine = (focus || "").trim();
+  const known = new Set((existingNames || []).map(n => String(n || "").toLowerCase().trim()).filter(Boolean));
+
+  // --- Step 1: grounded discovery of upcoming events ---
+  const searchPrompt = [
+    "You are an events scout for a Black-culture events media page in New Jersey (Central Group Events).",
+    "Run SEVERAL distinct web searches (not just one) to find UPCOMING, real events that fit this beat:",
+    CGE_BEAT,
+    "",
+    `AREA FOCUS: ${areaLine}.`,
+    ...(focusLine ? [`EXTRA FOCUS THIS RUN: ${focusLine}.`] : []),
+    ...(stamp ? ["", `TODAY: ${stamp}. Only surface events happening from today through the next ~5 weeks. Skip anything already past.`] : []),
+    "",
+    "SEARCH THESE ANGLES (adapt the wording; run each as its own search):",
+    "- \"Black events New Jersey this weekend / this month\" + Eventbrite / Instagram",
+    "- \"<NJ city> day party OR brunch OR rooftop OR festival\" upcoming",
+    "- \"Juneteenth OR Caribbean OR Afrobeats OR HBCU OR soca event New Jersey\"",
+    "- \"new Black-owned restaurant OR lounge OR venue opening New Jersey\"",
+    "- \"things to do Newark / Jersey City / Montclair / East Orange / Trenton this week\"",
+    "",
+    "Return 8-14 plain-text bullets, each a DISTINCT upcoming event. For each bullet give:",
+    "the EVENT NAME, WHAT it is (party / brunch / festival / opening / comedy / etc.), the VENUE + TOWN,",
+    "the DATE in [brackets] e.g. [Jun 19] and a start time if known, a one-line WHY IT'S EXCITING,",
+    "and the SOURCE URL if available.",
+    "",
+    "RULES:",
+    "- Every bullet must trace to a REAL search result. Never invent a name/date/venue — if unconfirmed, say so.",
+    "- Prefer NJ and the named area. Merge duplicates. Plain-text bullets only — no preamble, no markdown headers.",
+  ].join("\n");
+
+  const searchData = await geminiGenerate(apiKey, {
+    contents: [{ parts: [{ text: searchPrompt }] }],
+    tools: [{ google_search: {} }],
+    generationConfig: { temperature: 0.35 },
+  }, { model: "gemini-2.5-flash" });
+  const brief = (extractResponseText(searchData) || "").trim();
+  const sources = extractGroundingSources(searchData);
+  if (!brief) return { candidates: [], sources, brief: "" };
+
+  // --- Step 2: score + structure against the beat rubric ---
+  const rubricPrompt = [
+    "Below is a research brief of UPCOMING New Jersey events. Turn it into a RANKED shortlist of",
+    "carousel candidates for a Black events/culture Instagram page (Central Group Events).",
+    "",
+    "THE BEAT: " + CGE_BEAT,
+    "",
+    "Score each event 0-100 for how much it deserves a CGE carousel, weighing roughly:",
+    "- Brand fit (×40): Black culture / community / Black-owned relevance, in New Jersey (most important)",
+    "- Excitement (×25): event type, venue, headliners — would people stop scrolling and tag a friend?",
+    "- Freshness & timing (×20): happening soon / just announced, not stale",
+    "- Newness (×15): reward events that feel fresh and discover-worthy",
+    "DROP anything that clearly isn't a fit (not NJ, not event/culture, generic).",
+    "",
+    "For each surviving event return an object with:",
+    "- name: the event name, Title Case, no ending period",
+    "- type: a short event type (Day Party, Brunch, Festival, Venue Opening, Comedy, Concert, Market, etc.)",
+    "- venue: venue name or \"\"",
+    "- city: NJ town or \"\"",
+    "- region: one of \"North\" / \"Central\" / \"South\" (NJ) — best guess from the town, or \"\"",
+    "- date: \"M/D\" if known (e.g. \"6/19\"), else \"\"",
+    "- time: start time like \"3 PM\" if known, else \"\"",
+    "- kicker: a 1-3 word ALL-CAPS eyebrow (THIS WEEKEND, JUST ANNOUNCED, NEW OPENING, BUZZING)",
+    "- why: one tight sentence — why it's a CGE post, ready to show the user",
+    "- chips: array of 2-4 short beat-match tags (e.g. [\"Juneteenth\",\"Black-owned\",\"Day party\"])",
+    "- buzz: true only if the brief suggests real hype/demand (headliners, selling out), else false",
+    "- sourceUrl: the source link if present in the brief, else \"\"",
+    "- score: the 0-100 number",
+    "Rank best-first. Return 5-10 events.",
+    "",
+    "BRIEF:",
+    brief,
+    "",
+    'Return ONLY JSON in this exact shape: {"events":[{"name":"...","type":"...","venue":"...","city":"...","region":"...","date":"...","time":"...","kicker":"...","why":"...","chips":["..."],"buzz":false,"sourceUrl":"...","score":88}]}',
+  ].join("\n");
+
+  let events = [];
+  try {
+    const data = await geminiGenerate(apiKey, {
+      contents: [{ parts: [{ text: rubricPrompt }] }],
+      generationConfig: { responseMimeType: "application/json", temperature: 0.4 },
+    });
+    const parsed = extractJson(extractResponseText(data));
+    events = Array.isArray(parsed?.events) ? parsed.events : [];
+  } catch { events = []; }
+
+  const candidates = events
+    .filter(e => e && e.name)
+    .map(e => {
+      const name = String(e.name || "").trim();
+      const isNew = !known.has(name.toLowerCase());
+      return {
+        name,
+        type: String(e.type || "").trim(),
+        venue: String(e.venue || "").trim(),
+        city: String(e.city || "").trim(),
+        region: String(e.region || "").trim(),
+        date: String(e.date || "").trim(),
+        time: String(e.time || "").trim(),
+        kicker: String(e.kicker || "").trim(),
+        why: String(e.why || "").trim(),
+        chips: Array.isArray(e.chips) ? e.chips.map(c => String(c || "").trim()).filter(Boolean).slice(0, 4) : [],
+        buzz: !!e.buzz,
+        sourceUrl: String(e.sourceUrl || "").trim(),
+        score: typeof e.score === "number" ? e.score : Number(e.score) || 0,
+        isNew,
+      };
+    })
+    .sort((a, b) => b.score - a.score);
+  return { candidates, sources, brief };
+}
+
 // === CONNECT THE DOTS — thesis + evidence carousel ===
 // The njdotcom "Is the Trump sports curse real? Here's the evidence" pattern:
 // ONE claim/pattern, welded together from several SEPARATE real, dated news
