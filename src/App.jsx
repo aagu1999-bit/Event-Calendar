@@ -7,6 +7,7 @@ import NewsletterBuilder from "./pages/NewsletterBuilder.jsx";
 import ReelTool from "./pages/ReelTool.jsx";
 import FlyerBuilder from "./pages/FlyerBuilder.jsx";
 import MediaTool from "./pages/MediaTool.jsx";
+import ScoutPicks from "./pages/ScoutPicks.jsx";
 import RecapPicker from "./pages/RecapPicker.jsx";
 import ReviewQueue from "./pages/ReviewQueue.jsx";
 import ReviewBeta from "./pages/ReviewBeta.jsx";
@@ -138,6 +139,7 @@ const TOOLS = [
   { path: "/reel",        label: "Reel" },
   { path: "/flyer",       label: "Flyer" },
   { path: "/media",       label: "Media" },
+  { path: "/scout",       label: "🛰 Scout" },
   { path: "/recap",       label: "Recap" },
   { path: "/review",      label: "Review" },
   { path: "/review-beta", label: "Review β" },
@@ -610,6 +612,7 @@ function Nav() {
         <NavLink to="/reel"        {...navLinkCommon}>Reel</NavLink>
         <NavLink to="/flyer"       {...navLinkCommon}>Flyer</NavLink>
         <NavLink to="/media"       {...navLinkCommon}>Media</NavLink>
+        <NavLink to="/scout"       {...navLinkCommon}>🛰 Scout</NavLink>
         <NavLink to="/recap"       {...navLinkCommon}>Recap</NavLink>
         <NavLink to="/review"      {...navLinkCommon}>Review</NavLink>
         <NavLink to="/review-beta" {...navLinkCommon}>Review β</NavLink>
@@ -687,6 +690,7 @@ export default function App() {
         <Route path="/reel" element={<ReelTool />} />
         <Route path="/flyer" element={<FlyerBuilder />} />
         <Route path="/media" element={<MediaTool />} />
+        <Route path="/scout" element={<ScoutPicks />} />
         <Route path="/recap" element={<RecapPicker />} />
         <Route path="/review" element={<ReviewQueue />} />
         <Route path="/review-beta" element={<ReviewBeta />} />

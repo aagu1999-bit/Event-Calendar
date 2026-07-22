@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
 import JSZip from "jszip";
-import { useEventsStore, useRestoreStore, useBrandStore, useCarouselTemplatesStore, BUILTIN_CAROUSEL_TEMPLATES } from "../store";
+import { useEventsStore, useRestoreStore, useBrandStore, useCarouselTemplatesStore, useCarouselSeedStore, BUILTIN_CAROUSEL_TEMPLATES } from "../store";
 import { generateCaptions } from "../shared/gemini";
 import { savePhotoAndNotify, saveExport } from "../shared/photoLibrary.js";
 import { tagPngWithCgeExport } from "../shared/pngMetadata.js";
@@ -3445,6 +3445,18 @@ export default function MediaTool() {
   // modal opens pre-filled with a story (and AI-arrange on); the plain ✨ AI
   // Fill button clears it so it opens blank.
   const [aiFillSeed, setAiFillSeed] = useState({ topic: "", context: "", arrange: false });
+  // Scout → Media handoff: if the Event Scout stashed a "Make Carousel" seed
+  // before navigating here, open AI Fill pre-filled with that event (arrange
+  // on) once on mount. consumeSeed() clears it so a refresh won't re-open it.
+  const consumeCarouselSeed = useCarouselSeedStore((s) => s.consumeSeed);
+  useEffect(() => {
+    const seed = consumeCarouselSeed();
+    if (seed && seed.topic) {
+      setAiFillSeed({ topic: seed.topic, context: seed.context || "", arrange: true });
+      setAiFillOpen(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // Unread count from the server scout inbox → badge on the News Scout button.
   // Refetches when the scout modal closes (opening it marks everything read).
   const [scoutUnread, setScoutUnread] = useState(0);
