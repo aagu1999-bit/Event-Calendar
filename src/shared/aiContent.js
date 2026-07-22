@@ -370,20 +370,26 @@ export async function scoutEvents({ apiKey, area = "New Jersey", focus = "", exi
     ...(focusLine ? [`EXTRA FOCUS THIS RUN: ${focusLine}.`] : []),
     ...(stamp ? ["", `TODAY: ${stamp}. Only surface events happening from today through the next ~5 weeks. Skip anything already past.`] : []),
     "",
-    "SEARCH THESE ANGLES (adapt the wording; run each as its own search):",
-    "- \"Black events New Jersey this weekend / this month\" + Eventbrite / Instagram",
-    "- \"<NJ city> day party OR brunch OR rooftop OR festival\" upcoming",
-    "- \"Juneteenth OR Caribbean OR Afrobeats OR HBCU OR soca event New Jersey\"",
-    "- \"new Black-owned restaurant OR lounge OR venue opening New Jersey\"",
-    "- \"things to do Newark / Jersey City / Montclair / East Orange / Trenton this week\"",
+    "RUN AT LEAST 8-10 DISTINCT SEARCHES (more is better) so you surface a DEEP list — aim to",
+    "gather AT LEAST 25 candidate events before trimming. Cover these angles and vary the city each time:",
+    "- \"Black events New Jersey this weekend / this month\" + Eventbrite / Instagram / Fever / Dice",
+    "- \"<NJ city> day party OR brunch OR rooftop OR festival OR mixer\" upcoming (repeat per city below)",
+    "- \"Juneteenth OR Caribbean OR Afrobeats OR Amapiano OR HBCU OR soca OR reggae event New Jersey\"",
+    "- \"new Black-owned restaurant OR lounge OR bar OR venue opening New Jersey\"",
+    "- \"<NJ city> comedy show OR concert OR live music OR open mic OR poetry Black\"",
+    "- \"<NJ city> paint and sip OR market OR pop-up OR skate night OR game night\"",
+    "- \"things to do <NJ city> this week / this weekend\"",
+    "CITIES TO ROTATE THROUGH: Newark, Jersey City, East Orange, Irvington, Montclair, Elizabeth,",
+    "Paterson, New Brunswick, Trenton, Plainfield, Orange, Hillside, Union, Atlantic City.",
     "",
-    "Return 8-14 plain-text bullets, each a DISTINCT upcoming event. For each bullet give:",
+    "Return AT LEAST 20 plain-text bullets (aim for 25-30), each a DISTINCT upcoming event. For each give:",
     "the EVENT NAME, WHAT it is (party / brunch / festival / opening / comedy / etc.), the VENUE + TOWN,",
     "the DATE in [brackets] e.g. [Jun 19] and a start time if known, a one-line WHY IT'S EXCITING,",
     "and the SOURCE URL if available.",
     "",
     "RULES:",
-    "- Every bullet must trace to a REAL search result. Never invent a name/date/venue — if unconfirmed, say so.",
+    "- Every bullet must trace to a REAL search result. Never invent a name/date/venue to pad the list —",
+    "  if you genuinely can't find 20 real ones, return every real one you found (quantity never justifies fabrication).",
     "- Prefer NJ and the named area. Merge duplicates. Plain-text bullets only — no preamble, no markdown headers.",
   ].join("\n");
 
@@ -424,7 +430,9 @@ export async function scoutEvents({ apiKey, area = "New Jersey", focus = "", exi
     "- buzz: true only if the brief suggests real hype/demand (headliners, selling out), else false",
     "- sourceUrl: the source link if present in the brief, else \"\"",
     "- score: the 0-100 number",
-    "Rank best-first. Return 5-10 events.",
+    "Rank best-first. Return AT LEAST 20 events (include every real one from the brief that fits — keep the",
+    "lower-scoring ones too; the UI hides sub-70 picks behind a show-more, so more coverage is better). Only",
+    "return fewer than 20 if the brief genuinely doesn't contain that many distinct real events.",
     "",
     "BRIEF:",
     brief,
@@ -466,6 +474,76 @@ export async function scoutEvents({ apiKey, area = "New Jersey", focus = "", exi
     })
     .sort((a, b) => b.score - a.score);
   return { candidates, sources, brief };
+}
+
+// === EVENT BREAKDOWN — deep per-event research for the carousel context ===
+// Called when the user hits "Make Carousel" on a scout pick. Runs a grounded
+// web search on that ONE event and returns a structured breakdown (THE TWIST /
+// WHAT HAPPENS / PROOF / WHY NOW / WHO IT'S FOR) — the raw material the AI Fill
+// carousel builder turns into slides. Returns plain text ready to drop into the
+// Context field. Falls back to a thin summary if research fails or is thin.
+export async function researchEventBreakdown({ apiKey, event, today = null } = {}) {
+  if (!apiKey) throw new Error("Missing Gemini API key");
+  const ev = event || {};
+  const stamp = today || (() => { try { return new Date().toISOString().slice(0, 10); } catch { return null; } })();
+  const idLine = [
+    ev.name && `Event: ${ev.name}`,
+    ev.type && `Type: ${ev.type}`,
+    ev.venue && `Venue: ${ev.venue}`,
+    ev.city && `City: ${ev.city}`,
+    [ev.date, ev.time].filter(Boolean).join(" "),
+    ev.sourceUrl && `Source: ${ev.sourceUrl}`,
+  ].filter(Boolean).join("\n");
+
+  const prompt = [
+    "You are researching ONE upcoming New Jersey event for Central Group Events (a Black-culture events",
+    "media page) so they can build an Instagram carousel about it. Run SEVERAL web searches on THIS event",
+    "(search the event name, the venue, the host/DJ handles, the flyer text) and pull the real details.",
+    "",
+    "THE EVENT:",
+    idLine,
+    ...(stamp ? ["", `TODAY: ${stamp}.`] : []),
+    "",
+    "Return a breakdown in EXACTLY this plain-text shape (keep the labels, fill each in):",
+    "",
+    `Event Breakdown: ${ev.name || "(event)"}`,
+    "",
+    "* THE TWIST: the single most distinctive hook — what makes this event different from a generic night (a live drummer, a rare headliner, a first-of-its-kind theme, a cause).",
+    "* WHAT HAPPENS: what actually goes down — the vibe, the activities, the sets/performances, the crowd.",
+    "* PROOF:",
+    "   * Venue/Location: venue name + full address if findable.",
+    "   * Date: day + date (+ start time if known).",
+    "   * Lineup: the DJs / hosts / performers with their @handles if findable.",
+    "   * Incentive/Pricing: free-before-X, RSVP, ticket price, giveaways — whatever applies.",
+    "* WHY NOW: the timeliness / the organizers' pitch — why people should care right now (quote the flyer or caption angle if there is one).",
+    "* WHO IT'S FOR: the specific audience this speaks to.",
+    "",
+    "RULES:",
+    "- Use ONLY real details you can confirm from search. If a PROOF field is unknown, write \"not listed\" — never invent a lineup, address, or price.",
+    "- Keep @handles exactly as written. Plain text only, no markdown headers, no preamble — start at \"Event Breakdown:\".",
+  ].join("\n");
+
+  try {
+    const data = await geminiGenerate(apiKey, {
+      contents: [{ parts: [{ text: prompt }] }],
+      tools: [{ google_search: {} }],
+      generationConfig: { temperature: 0.35 },
+    }, { model: "gemini-2.5-flash" });
+    const text = (extractResponseText(data) || "").trim();
+    if (text) return { breakdown: text, sources: extractGroundingSources(data) };
+  } catch { /* fall through to thin summary */ }
+
+  // Fallback: a thin but usable context built from what the scout already knows.
+  const thin = [
+    `Event Breakdown: ${ev.name || "(event)"}`,
+    "",
+    `* WHAT HAPPENS: ${ev.type || "Event"}${ev.why ? ` — ${ev.why}` : ""}.`,
+    "* PROOF:",
+    `   * Venue/Location: ${ev.venue || "not listed"}${ev.city ? `, ${ev.city}` : ""}.`,
+    `   * Date: ${[ev.date, ev.time].filter(Boolean).join(" · ") || "not listed"}.`,
+    ev.sourceUrl ? `   * Source: ${ev.sourceUrl}` : null,
+  ].filter(Boolean).join("\n");
+  return { breakdown: thin, sources: [] };
 }
 
 // === CONNECT THE DOTS — thesis + evidence carousel ===

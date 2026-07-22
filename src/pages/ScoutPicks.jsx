@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { scoutEvents } from "../shared/aiContent.js";
+import { scoutEvents, researchEventBreakdown } from "../shared/aiContent.js";
 import { useEventsStore, useCarouselSeedStore } from "../store";
 import { getEmoji, parseDateToDay } from "../shared/parseEvents";
 
@@ -32,6 +32,7 @@ export default function ScoutPicks() {
   const [added, setAdded] = useState(() => new Set());
   const [showBelow, setShowBelow] = useState(false);
   const [ranAt, setRanAt] = useState(null);
+  const [buildingId, setBuildingId] = useState(null); // event name whose breakdown is being researched
 
   const existingNames = useMemo(() => events.map((e) => e.name), [events]);
 
@@ -77,15 +78,23 @@ export default function ScoutPicks() {
     setAdded((s) => new Set(s).add(c.name));
   };
 
-  const makeCarousel = (c) => {
-    const context = [
-      c.type,
-      c.venue && `at ${c.venue}`,
-      c.city,
-      c.date && `on ${c.date}`,
-      c.time,
-      c.why,
-    ].filter(Boolean).join(" · ");
+  // Make Carousel: deep-research THIS event into a structured breakdown
+  // (THE TWIST / WHAT HAPPENS / PROOF / WHY NOW / WHO IT'S FOR), then seed the
+  // Media builder's Topic + Context and navigate. The breakdown call web-
+  // searches the event, so it takes a few seconds — the button shows a busy
+  // state. If it fails, researchEventBreakdown returns a thin fallback so the
+  // handoff still works.
+  const makeCarousel = async (c) => {
+    if (buildingId) return;
+    setBuildingId(c.name);
+    let context;
+    try {
+      const { breakdown } = await researchEventBreakdown({ apiKey, event: c });
+      context = breakdown;
+    } catch {
+      context = [c.type, c.venue && `at ${c.venue}`, c.city, c.date && `on ${c.date}`, c.time, c.why]
+        .filter(Boolean).join(" · ");
+    }
     setSeed({ topic: c.name, context });
     navigate("/media");
   };
@@ -146,7 +155,7 @@ export default function ScoutPicks() {
           <div className="seclabel"><span className="t">Top picks — ranked by CGE fit</span><span className="rule" /></div>
           {top.map((c, i) => (
             <Card key={c.name + i} c={c} first={i === 0} flyerClass={flyerFor(c)}
-              added={added.has(c.name)}
+              added={added.has(c.name)} building={buildingId === c.name} anyBuilding={!!buildingId}
               onCarousel={() => makeCarousel(c)}
               onAdd={() => addToCalendar(c)}
               onSkip={() => setDismissed((s) => new Set(s).add(c.name))} />
@@ -165,7 +174,7 @@ export default function ScoutPicks() {
           ) : (
             below.map((c, i) => (
               <Card key={c.name + i} c={c} flyerClass={flyerFor(c)}
-                added={added.has(c.name)}
+                added={added.has(c.name)} building={buildingId === c.name} anyBuilding={!!buildingId}
                 onCarousel={() => makeCarousel(c)}
                 onAdd={() => addToCalendar(c)}
                 onSkip={() => setDismissed((s) => new Set(s).add(c.name))} />
@@ -189,7 +198,7 @@ export default function ScoutPicks() {
   );
 }
 
-function Card({ c, first, flyerClass, added, onCarousel, onAdd, onSkip }) {
+function Card({ c, first, flyerClass, added, building, anyBuilding, onCarousel, onAdd, onSkip }) {
   const words = (c.name || "").toUpperCase().split(/\s+/);
   const line1 = words.slice(0, Math.ceil(words.length / 2)).join(" ");
   const line2 = words.slice(Math.ceil(words.length / 2)).join(" ");
@@ -220,7 +229,10 @@ function Card({ c, first, flyerClass, added, onCarousel, onAdd, onSkip }) {
           <div className="chips">{c.chips.map((ch, i) => <span key={i} className="chip match">{ch}</span>)}</div>
         )}
         <div className="actions">
-          <button className="btn primary" onClick={onCarousel}>★ Make Carousel</button>
+          <button className="btn primary" onClick={onCarousel} disabled={anyBuilding}
+            style={anyBuilding && !building ? { opacity: 0.5, cursor: "not-allowed" } : building ? { cursor: "wait" } : undefined}>
+            {building ? "✨ Researching…" : "★ Make Carousel"}
+          </button>
           {added ? (
             <button className="btn done" disabled>✓ Added</button>
           ) : (
