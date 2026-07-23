@@ -246,9 +246,11 @@ const CGE_BEAT = [
   "Black-owned / Black-led happenings across New Jersey — festivals, day",
   "parties, brunches, cookouts, concerts, comedy, markets, art, cultural",
   "celebrations (Juneteenth, Caribbean/African diaspora, HBCU), new Black-owned",
-  "venue/restaurant openings, and community milestones. The vibe is exciting,",
-  "social, celebratory and share-worthy — the kind of thing you stop scrolling",
-  "for and tag a friend in.",
+  "venue/restaurant openings, and community milestones. The tone is that of a",
+  "street-level local critic—no-nonsense, authentic, and anti-hype. Ground the",
+  "writing in specific neighborhoods and real community impact, rejecting generic",
+  "foodie/influencer fluff ('hidden gem', 'must-visit', 'good vibes') in favor of",
+  "sensory, opinionated, direct observations.",
 ].join(" ");
 
 export async function scoutNews({ apiKey, area = "New Jersey", focus = "", today = null } = {}) {
@@ -259,7 +261,7 @@ export async function scoutNews({ apiKey, area = "New Jersey", focus = "", today
 
   // --- Step 1: grounded discovery across the beat ---
   const searchPrompt = [
-    "You are a local-culture news scout for a Black events media page in New Jersey.",
+    "You are a local-culture news scout for a Black events media page in New Jersey. Your voice is a street-level local insider—opinionated, direct, and anti-hype.",
     "Run SEVERAL distinct web searches (not just one) to find TIMELY, EVENT-BASED happenings that fit this beat:",
     CGE_BEAT,
     "",
@@ -304,7 +306,7 @@ export async function scoutNews({ apiKey, area = "New Jersey", focus = "", today
     "- Black culture / community / Black-owned relevance (most important)",
     "- Event-based AND in New Jersey",
     "- Timeliness (happening soon / just announced)",
-    "- Excitement / share-worthiness (would people stop scrolling and tag a friend?)",
+    "- Authentic, street-level relevance over commercialized hype (avoid generic PR copy, reward real neighborhood resonance)",
     "DROP anything that clearly isn't a fit (generic national news, non-NJ, not event/culture).",
     "",
     "For each surviving candidate return:",
@@ -1476,6 +1478,9 @@ function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, tem
     "You are generating an ENTIRE editorial Instagram carousel for CGE. The slides will be exported in order — write them as ONE coherent story, not isolated cards.",
     "",
     "QUALITY BAR — applies to EVERY slide, not just the cover:",
+    "- Write in the register of street-level neighborhood critique (anti-hype, no-nonsense local insider).",
+    "- BANNED CLICHÉS: Never use 'hidden gem', 'must-visit', 'good vibes', 'scenic view', 'great music', 'experience like no other', 'unforgettable', or 'something for everyone'. If you write these, the editor will reject it.",
+    "- Be extremely specific about location: name the neighborhood (e.g., Ironbound, Heights, Downtown) or specific cross-streets/landmarks rather than just a generic town name.",
     "- Concrete over generic. Name the real thing — a number, a place, a moment.",
     "  BAN vague filler: 'educate, inspire, and uplift', 'for all', 'something for",
     "  everyone', 'fun for the whole family', 'come out and enjoy'.",

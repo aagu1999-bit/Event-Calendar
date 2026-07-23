@@ -142,8 +142,12 @@ export const useBrandStore = create(
 
       // Voice fingerprint — Phase 2 (textareas exist but no Gemini wiring yet)
       voice: {
-        description: "",          // e.g. "Editorial, NJ-first, news-headline framing"
-        exemplars: [],            // array of past captions for Gemini priming
+        description: "Street-level local critic. No-nonsense anti-hype. Grounded in specific NJ neighborhoods, cross-streets, and community impact. Rejects generic fluff ('hidden gem', 'must-visit', 'good vibes', 'something for everyone') in favor of sensory, opinionated, direct observations. Speaks to hungry, smart local residents.",
+        exemplars: [
+          "Newark's Ironbound doesn't need another generic franchise. This family-owned bakery on Ferry St has been pulling perfect espresso and warm pasteis de nata since 1994. No aesthetics, just local regulars who know exactly when the morning batch drops.",
+          "Jersey City is full of places designed for Instagram. This basement kitchen in the Heights is the exact opposite. Four tables, a handwritten chalkboard menu, and the best jerk chicken you'll eat north of Trenton. Get the plantains, skip the wait, bring cash.",
+          "Not every weekend guide needs to highlight a $150 prix fixe. The real heartbeat of Montclair this Saturday is the community market on Bloomfield Ave. Local vendors, real conversations, and the kind of energy you can't curate for social media."
+        ],
       },
 
       // Slide Content Rules — per-slot prompts the AI Slide Generator uses
@@ -154,29 +158,32 @@ export const useBrandStore = create(
         cover: `Generate SCROLL-STOPPING editorial cover headlines for a CGE social carousel Cover slide. The reader sees this for ~1.5 seconds — the headline earns the swipe or it doesn't.
 
 Use a strong HOOK ARCHETYPE — pick whichever fits the story best:
-- OPEN LOOP — a setup, then a withheld payoff that forces the swipe. ("This Jersey mall was left for dead. Saturday, it wakes up.")
-- THEN / NOW — before → after transformation. ("Dark since 2016. Packed again this weekend.")
+- OPEN LOOP — a setup, then a withheld payoff that forces the swipe. ("This Newark bakery has had a line since 7 AM. Here is why.")
+- THEN / NOW — before → after transformation. ("A dark corner of Paterson. Back in business this weekend.")
 - INTRIGUE — imply something surprising happened without spelling it out. ("The strip mall everyone wrote off just booked its biggest day in a decade.")
-- CONTRARIAN / QUESTION — flip the expectation, or open with a real question. ("Why is half the county driving to a mall nobody's shopped at in years?")
+- CONTRARIAN / QUESTION — flip the expectation, or open with a real question. ("Why is half the county driving to a storefront nobody shopped at in years?")
 - NUMBER-ANCHORED — lead with one concrete, specific number. ("40 empty storefronts. One weekend to fill them.")
 - SCENE-HISTORY / ANNIVERSARY — "Five years since...", "On this weekend in 2019...".
 
 Rules:
+- Write in a street-level local critic voice—no-nonsense, authentic, anti-hype. Speak directly to NJ locals who know the rhythm of the city.
+- BANNED CLICHÉS: Never use 'hidden gem', 'must-visit', 'good vibes', 'scenic view', 'great music', 'experience like no other', 'unforgettable', or 'something for everyone'. If you write these, the editor will reject it.
 - HOOK-TAIL encouraged: a headline can be a setup clause + a withheld-payoff clause across ~2 lines (up to ~16 words) when the archetype needs the room — the open loop IS the point. A tight 4-8 word line is also great when short hits harder. Match length to the archetype, don't pad.
 - Editorial/news register, NOT event-flyer language. Never a bland label like "First Annual X" — lead with the hook. Garden State / NJ named or implied up front when relevant.
 - The curiosity gap MUST be honest — the carousel pays it off. Tease the reader, never mislead them.
 - Don't open with the venue name; open with the hook. Venue lands in the subtitle.
-- Subtitle: 1 short line (8-15 words) that grounds the headline and begins to deliver on the hook. Concrete specifics, never generic filler ("educate, inspire, uplift", "for all").
+- Subtitle: 1 short line (8-15 words) that grounds the headline and begins to deliver on the hook. Use concrete neighborhood specifics, never generic filler.
 - Pick ONE accentWord — the most charged word in the headline; it renders in the brand accent color.`,
 
         text: `Generate a TEXT-slide manifesto paragraph for a CGE editorial carousel.
 
 Requirements:
 - 2-4 short paragraphs, NOT one long block.
-- Editorial register — like a news column lede, NOT an event flyer.
-- Three-beat sentences are a signature ("Dates, times, venues." / "Pickleball. Bachata. Speed dating.").
-- X/Y contrast structure welcome ("Knowing about an event and feeling an event are two different things.").
-- Garden State / NJ named or implied up front when relevant.
+- Street-level editorial critic register — like a local column lede, NOT an event flyer or marketing pitch. Skeptical but deeply caring about the community.
+- BANNED CLICHÉS: Banish 'hidden gem', 'must-visit', 'good vibes', 'unforgettable', or 'something for everyone'. Focus on raw, lived experience.
+- Three-beat sentences are a signature ("Dates, times, venues." / "Bloomfield Ave. Sunday morning. Warm pastries.").
+- X/Y contrast structure welcome ("Knowing about a neighborhood and feeling a neighborhood are two different things.").
+- Garden State / NJ named or implied up front. Mention neighborhood specifics or local landmarks (e.g. 'Ferry St', 'the Heights').
 - Match the brand voice precisely.
 - The textTitle is a short kicker (3-7 words) that names what the paragraph is about; can echo the Cover.
 
@@ -185,15 +192,16 @@ Return JSON ONLY in this exact shape:
 
         spotlight: `Generate ONE Spotlight-slide card for a CGE carousel.
 
-The Spotlight is a single venue, idea, or selling-point. In a Feature Drop carousel (listicle), N Spotlights stack as numbered ideas (Music, Dance, Game, Prizes...). In an Editorial Roundup, Spotlights are scene-report style venue listings.
+The Spotlight is a single venue, idea, or selling-point. In a Feature Drop carousel (listicle), N Spotlights stack as numbered ideas (Music, Dance, Game, Prizes...). In an Editorial Roundup or Local Guide, Spotlights are scene-report style venue/place listings.
 
 Requirements:
-- spotName: 2-5 word headline naming this idea/venue (e.g. "Epic Music", "Game On", "Rooftop Night at the Standard").
-- spotMeta: 1 short line of detail (address, by-line, or one-sentence explanation). 8-15 words max.
+- spotName: 2-5 word headline naming this idea/venue (e.g. "Revolution Coffee", "The Ironbound Spot", "Rooftop at the Standard").
+- spotMeta: 1 short line of detail. Ground it with street-level specificity—neighborhood, cross-streets, or who hangs out there (e.g., 'Collingswood · Haddon Ave', 'Newark Heights · where the old guard meets the new regulars'). 8-15 words max.
 - spotTime: day + time line (or season). Optional — leave blank if not applicable.
 - spotPrice: price or empty.
-- spotCta: short call ("tix in bio", "free", "RSVP") or empty.
-- Match the brand voice — editorial framing, NOT promo hype.
+- spotCta: short call ("tix in bio", "free", "get the espresso") or empty.
+- Match the brand voice — authentic local critic framing, NOT promo hype. Highlight the ONE thing that makes the place survive or worth the trip.
+- BANNED CLICHÉS: Never use 'hidden gem', 'must-visit', 'good vibes', or 'something for everyone'.
 
 Return JSON ONLY in this exact shape:
 {"spotName":"...","spotMeta":"...","spotTime":"...","spotPrice":"...","spotCta":"..."}`,
