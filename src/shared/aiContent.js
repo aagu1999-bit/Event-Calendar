@@ -546,6 +546,50 @@ export async function researchEventBreakdown({ apiKey, event, today = null } = {
   return { breakdown: thin, sources: [] };
 }
 
+// === READ A FLYER — turn an uploaded poster into a carousel brief ===
+// Gemini Vision reads an event flyer/poster image and extracts the same
+// structured breakdown the scout produces (name + THE TWIST / WHAT HAPPENS /
+// PROOF / WHY NOW / WHO IT'S FOR), so the AI Fill builder can make a post out
+// of a flyer the user already has — no scrape or web lookup needed. `image` is
+// a data URL or bare base64. Returns { name, breakdown }.
+export async function readFlyer({ apiKey, image, mimeType = "image/png" } = {}) {
+  if (!apiKey) throw new Error("Missing Gemini API key");
+  if (!image) throw new Error("No flyer image provided");
+  const b64 = String(image).startsWith("data:") ? String(image).split(",")[1] : String(image);
+  const mt = String(image).startsWith("data:")
+    ? (String(image).slice(5).split(";")[0] || mimeType)
+    : mimeType;
+
+  const prompt = [
+    "You are reading an event FLYER / poster for Central Group Events (a Black-culture events media",
+    "page in New Jersey) so they can build an Instagram carousel about it. Read EVERYTHING on the",
+    "flyer — the event name, date, time, venue, address, the DJ/host/performer names and @handles,",
+    "pricing / RSVP / free-before, and any tagline or hook.",
+    "",
+    "Return ONLY JSON in this exact shape:",
+    '{"name":"<the event name, Title Case>","breakdown":"<the breakdown text>"}',
+    "",
+    "The breakdown string must be plain text in EXACTLY this shape (keep the labels, fill each in from the flyer):",
+    "Event Breakdown: <name>\\n\\n* THE TWIST: <the single most distinctive hook>\\n* WHAT HAPPENS: <what goes down — vibe, sets, activities>\\n* PROOF:\\n   * Venue/Location: <venue + address>\\n   * Date: <day + date + start time>\\n   * Lineup: <DJs/hosts/performers with @handles>\\n   * Incentive/Pricing: <free-before / RSVP / ticket price / giveaways>\\n* WHY NOW: <the timeliness / the flyer's pitch or tagline>\\n* WHO IT'S FOR: <the specific audience>",
+    "",
+    "RULES:",
+    "- Use ONLY what's actually on the flyer. If a field isn't shown, write \"not listed\" — never invent a lineup, address, or price.",
+    "- Keep @handles exactly as written on the flyer.",
+  ].join("\n");
+
+  const data = await geminiGenerate(apiKey, {
+    contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mt, data: b64 } }] }],
+    generationConfig: { responseMimeType: "application/json", temperature: 0.3 },
+  }, { model: "gemini-2.5-flash" });
+
+  const parsed = extractJson(extractResponseText(data)) || {};
+  const name = String(parsed.name || "").trim();
+  let breakdown = String(parsed.breakdown || "").trim();
+  if (!breakdown && !name) throw new Error("Couldn't read that flyer — try a clearer image.");
+  if (!breakdown) breakdown = `Event Breakdown: ${name}`;
+  return { name, breakdown };
+}
+
 // === CONNECT THE DOTS — thesis + evidence carousel ===
 // The njdotcom "Is the Trump sports curse real? Here's the evidence" pattern:
 // ONE claim/pattern, welded together from several SEPARATE real, dated news

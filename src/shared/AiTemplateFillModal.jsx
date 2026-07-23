@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useBrandStore, useCarouselTemplatesStore, BUILTIN_CAROUSEL_TEMPLATES } from "../store";
-import { generateTemplateFill, pickTemplate, generateArrangedCarousel, researchEvent, researchNews, connectDots, dotsPlanToSlides } from "./aiContent.js";
+import { generateTemplateFill, pickTemplate, generateArrangedCarousel, researchEvent, researchNews, connectDots, dotsPlanToSlides, readFlyer } from "./aiContent.js";
 
 // Scaffold that primes the Context box with the ingredients a strong hook
 // (esp. an open loop) needs: the TWIST is the curiosity gap, PROOF + WHAT
@@ -86,6 +86,31 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
   // knows to leave the user's keep/skip choices alone (only a fresh full
   // generation should reset everything to kept).
   const singleRegenRef = useRef(false);
+  // Flyer upload → Gemini Vision reads the poster and fills Topic + Context.
+  const flyerInputRef = useRef(null);
+  const onFlyerPick = async (e) => {
+    const file = e.target.files?.[0];
+    if (e.target) e.target.value = ""; // allow re-picking the same file
+    if (!file) return;
+    if (!apiKey) { setError("Add your Gemini API key first."); return; }
+    setError("");
+    setBusy(true); setBusyLabel("Reading flyer…");
+    try {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(r.result);
+        r.onerror = () => reject(new Error("Couldn't read that file"));
+        r.readAsDataURL(file);
+      });
+      const { name, breakdown } = await readFlyer({ apiKey, image: dataUrl });
+      if (name) setTopic(name);
+      if (breakdown) setContext(breakdown);
+    } catch (err) {
+      setError(err?.message || "Couldn't read that flyer — try a clearer image.");
+    } finally {
+      setBusy(false); setBusyLabel("");
+    }
+  };
 
   useEffect(() => {
     if (open) {
@@ -955,6 +980,26 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
               : "Context — the raw material for the hook (the twist, the proof, why now)"}
           </label>
           <div style={{ flex: 1 }} />
+          <input
+            ref={flyerInputRef}
+            type="file"
+            accept="image/*"
+            onChange={onFlyerPick}
+            style={{ display: "none" }}
+          />
+          <button
+            type="button"
+            onClick={() => flyerInputRef.current?.click()}
+            disabled={busy}
+            title="Upload an event flyer/poster — Gemini reads it and fills the Topic + Context for you"
+            style={{
+              padding: "3px 9px", borderRadius: 4, cursor: busy ? "wait" : "pointer",
+              background: "rgba(52,211,153,0.12)", color: "#34D399",
+              border: "1px solid rgba(52,211,153,0.4)",
+              fontSize: "0.55rem", fontWeight: 700, letterSpacing: "1px",
+              textTransform: "uppercase", fontFamily: "inherit",
+            }}
+          >{busyLabel === "Reading flyer…" ? "📸 Reading…" : "📸 Read a flyer"}</button>
           <button
             type="button"
             onClick={() => {
