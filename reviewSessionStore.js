@@ -258,6 +258,19 @@ export function createSessionStore(fsDir) {
             data JSONB NOT NULL,
             saved_at BIGINT NOT NULL DEFAULT 0
           )`);
+          // Backup history: automatic snapshots of session state over time,
+          // so a bad save/sync mishap can be recovered ("what did the
+          // session look like at 6:45?"). Snapshots are throttled (one per
+          // SNAPSHOT_MIN_GAP_MS max) and pruned to the newest
+          // SNAPSHOT_KEEP per session.
+          await pool.query(`CREATE TABLE IF NOT EXISTS review_session_history (
+            id BIGSERIAL PRIMARY KEY,
+            name TEXT NOT NULL,
+            data JSONB NOT NULL,
+            snapped_at BIGINT NOT NULL
+          )`);
+          await pool.query(`CREATE INDEX IF NOT EXISTS review_session_history_name_idx
+            ON review_session_history (name, snapped_at DESC)`);
           // One-time, best-effort migration of any legacy sessions (old
           // filesystem files and/or Replit DB keys) into Postgres, without
           // clobbering rows that already exist there.
@@ -296,8 +309,80 @@ export function createSessionStore(fsDir) {
           }
     };
 
+    // Snapshot the OLD copy of a session into history before it gets
+    // replaced, at most once per SNAPSHOT_MIN_GAP_MS (merges arrive every
+    // ~1.2s while someone sweeps — snapshotting each one would bloat the
+    // table with near-identical 400KB copies). Prune to SNAPSHOT_KEEP.
+    // Best-effort: a history failure must never block the actual save.
+    const SNAPSHOT_MIN_GAP_MS = 5 * 60 * 1000; // one snapshot per 5 minutes max
+    const SNAPSHOT_KEEP = 50;                  // per session (~2 days of active work)
+    // `inTx` = client is inside an open transaction. Postgres aborts the
+    // WHOLE transaction when any statement errors — catching the JS error
+    // isn't enough, the tx stays poisoned and the real save would then
+    // fail. A savepoint lets us roll back just the snapshot work.
+    const maybeSnapshot = async (client, name, oldData, inTx = false) => {
+      if (!oldData) return;
+      try {
+        if (inTx) await client.query("SAVEPOINT snap");
+        try {
+          const now = Date.now();
+          const { rows } = await client.query(
+            "SELECT MAX(snapped_at) AS latest FROM review_session_history WHERE name = $1",
+            [name],
+          );
+          const latest = Number(rows[0]?.latest) || 0;
+          if (now - latest >= SNAPSHOT_MIN_GAP_MS) {
+            await client.query(
+              "INSERT INTO review_session_history (name, data, snapped_at) VALUES ($1, $2, $3)",
+              [name, JSON.stringify(oldData), now],
+            );
+            await client.query(
+              `DELETE FROM review_session_history WHERE name = $1 AND id NOT IN (
+                 SELECT id FROM review_session_history WHERE name = $1 ORDER BY snapped_at DESC LIMIT $2
+               )`,
+              [name, SNAPSHOT_KEEP],
+            );
+          }
+          if (inTx) await client.query("RELEASE SAVEPOINT snap");
+        } catch (e) {
+          if (inTx) await client.query("ROLLBACK TO SAVEPOINT snap");
+          throw e;
+        }
+      } catch (e) {
+        console.warn("[review-sessions] snapshot skipped:", e?.message || e);
+      }
+    };
+
     return {
       backend: "postgres",
+      // List backup snapshots for a session, newest first (metadata only).
+      async history(name) {
+        await ensureReady();
+        const { rows } = await pool.query(
+          `SELECT id, snapped_at,
+                  jsonb_array_length(COALESCE(data->'pending','[]'::jsonb)) AS pending,
+                  jsonb_array_length(COALESCE(data->'vetted','[]'::jsonb)) AS vetted,
+                  jsonb_array_length(COALESCE(data->'events','[]'::jsonb)) AS events
+           FROM review_session_history WHERE name = $1 ORDER BY snapped_at DESC`,
+          [name],
+        );
+        return rows.map((r) => ({
+          id: Number(r.id),
+          snappedAt: Number(r.snapped_at),
+          pendingCount: Number(r.pending) || 0,
+          vettedCount: Number(r.vetted) || 0,
+          eventCount: Number(r.events) || 0,
+        }));
+      },
+      // Fetch one snapshot's full payload by id.
+      async historyGet(name, id) {
+        await ensureReady();
+        const { rows } = await pool.query(
+          "SELECT data FROM review_session_history WHERE name = $1 AND id = $2",
+          [name, id],
+        );
+        return rows.length ? rows[0].data : null;
+      },
       async list() {
         await ensureReady();
         const { rows } = await pool.query("SELECT name, data FROM review_sessions");
@@ -312,6 +397,10 @@ export function createSessionStore(fsDir) {
       },
       async put(name, data) {
         await ensureReady();
+        try {
+          const { rows } = await pool.query("SELECT data FROM review_sessions WHERE name = $1", [name]);
+          if (rows.length) await maybeSnapshot(pool, name, rows[0].data);
+        } catch { /* best-effort */ }
         await pool.query(
           `INSERT INTO review_sessions (name, data, saved_at) VALUES ($1, $2, $3)
            ON CONFLICT (name) DO UPDATE SET data = EXCLUDED.data, saved_at = EXCLUDED.saved_at`,
@@ -339,6 +428,7 @@ export function createSessionStore(fsDir) {
             [name],
           );
           const current = rows.length ? rows[0].data : null;
+          await maybeSnapshot(client, name, current, true);
           const next = fn(current);
           await client.query(
             `INSERT INTO review_sessions (name, data, saved_at) VALUES ($1, $2, $3)

@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { createPortal } from "react-dom";
-import { listSessions, loadSession, saveSession, deleteSession, sessionBackend } from "./reviewSessions.js";
+import { listSessions, loadSession, saveSession, deleteSession, sessionBackend, listSessionBackups, restoreSessionBackup } from "./reviewSessions.js";
 
 // Download an object as a pretty-printed JSON file. Pure client-side — no
 // backend involved, so this works even when the app is served statically
@@ -51,6 +51,47 @@ export function ReviewSessionsModal({
   // "filesystem" (this instance's disk only), or null (server unreachable).
   const [backend, setBackend] = useState(undefined);
   const fileInputRef = useRef(null);
+  // Backups expander: which session's snapshot list is open, and its rows.
+  const [backupsFor, setBackupsFor] = useState(null);   // session name | null
+  const [backups, setBackups] = useState([]);           // snapshots, newest first
+  const [backupsLoading, setBackupsLoading] = useState(false);
+
+  const toggleBackups = async (name, e) => {
+    e.stopPropagation();
+    if (backupsFor === name) { setBackupsFor(null); setBackups([]); return; }
+    setBackupsFor(name);
+    setBackups([]);
+    setBackupsLoading(true);
+    try {
+      setBackups(await listSessionBackups(name));
+    } catch (err) {
+      alert("Couldn't load backups: " + (err.message || err));
+      setBackupsFor(null);
+    } finally {
+      setBackupsLoading(false);
+    }
+  };
+
+  const onRestoreBackup = async (name, snap, e) => {
+    e.stopPropagation();
+    if (busy) return;
+    const when = new Date(snap.snappedAt).toLocaleString([], { month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" });
+    if (!confirm(
+      `Restore "${name}" to its backup from ${when}?\n\n` +
+      `That copy has ${snap.pendingCount} in the triage queue and ${snap.vettedCount} vetted.\n\n` +
+      `Don't worry — the current state gets backed up first, so you can undo this by restoring a newer backup.`
+    )) return;
+    setBusy(true);
+    try {
+      const restored = await restoreSessionBackup(name, snap.id);
+      onLoad(restored, name);
+      onClose();
+    } catch (err) {
+      alert("Restore failed: " + (err.message || err));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   // Export the current review state to a downloadable .json file. Unlike the
   // server-backed "Save" (which writes to one Repl's disk and only syncs to
@@ -326,8 +367,8 @@ export function ReviewSessionsModal({
             </div>
           )}
           {items.map(s => (
+            <div key={s.name}>
             <div
-              key={s.name}
               onClick={() => onPickLoad(s.name)}
               title={`${s.name} · ${s.eventCount} events total · ${s.vettedCount || 0} vetted · ${s.approvalCount} selected${s.pendingCount ? ` · ${s.pendingCount} in triage` : ""}`}
               style={{
@@ -374,6 +415,69 @@ export function ReviewSessionsModal({
                   letterSpacing: "1px", textTransform: "uppercase", fontWeight: 700,
                 }}
               >Delete</button>
+              <button
+                onClick={(e) => toggleBackups(s.name, e)}
+                title="Automatic backups — restore this session to how it looked earlier"
+                disabled={busy}
+                style={{
+                  padding: "5px 10px",
+                  background: backupsFor === s.name ? "rgba(229,188,79,0.18)" : "rgba(229,188,79,0.08)",
+                  color: "#E5BC4F",
+                  border: "1px solid rgba(229,188,79,0.35)",
+                  borderRadius: "4px", fontSize: "0.55rem",
+                  cursor: busy ? "wait" : "pointer", fontFamily: "inherit",
+                  letterSpacing: "1px", textTransform: "uppercase", fontWeight: 700,
+                }}
+              >🕒 Backups</button>
+            </div>
+            {backupsFor === s.name && (
+              <div style={{
+                margin: "0 0 10px 14px",
+                padding: "10px 12px",
+                background: "rgba(229,188,79,0.04)",
+                border: "1px solid rgba(229,188,79,0.18)",
+                borderRadius: "5px",
+              }}>
+                <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.5)", letterSpacing: "1px", textTransform: "uppercase", marginBottom: 8 }}>
+                  Automatic backups — newest first. Restoring makes a backup of the current state first, so you can always undo.
+                </div>
+                {backupsLoading && (
+                  <div style={{ fontSize: "0.65rem", color: "rgba(245,240,232,0.5)" }}>Loading backups…</div>
+                )}
+                {!backupsLoading && backups.length === 0 && (
+                  <div style={{ fontSize: "0.65rem", color: "rgba(245,240,232,0.5)" }}>
+                    No backups yet — snapshots are taken automatically as the session changes (about one every 5 minutes of activity).
+                  </div>
+                )}
+                {!backupsLoading && backups.map(b => (
+                  <div key={b.id} style={{
+                    display: "flex", alignItems: "center", gap: 10,
+                    padding: "7px 4px",
+                    borderTop: "1px solid rgba(245,240,232,0.05)",
+                    fontSize: "0.65rem",
+                  }}>
+                    <div style={{ flex: 1 }}>
+                      <strong>{new Date(b.snappedAt).toLocaleString([], { month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" })}</strong>
+                      <span style={{ color: "rgba(245,240,232,0.55)", marginLeft: 8 }}>
+                        {b.pendingCount} in triage · {b.vettedCount} ✓ vetted{b.eventCount ? ` · ${b.eventCount} events` : ""}
+                      </span>
+                    </div>
+                    <button
+                      onClick={(e) => onRestoreBackup(s.name, b, e)}
+                      disabled={busy}
+                      style={{
+                        padding: "4px 10px",
+                        background: "rgba(52,211,153,0.1)", color: "#34D399",
+                        border: "1px solid rgba(52,211,153,0.35)",
+                        borderRadius: "4px", fontSize: "0.55rem",
+                        cursor: busy ? "wait" : "pointer", fontFamily: "inherit",
+                        letterSpacing: "1px", textTransform: "uppercase", fontWeight: 700,
+                      }}
+                    >Restore</button>
+                  </div>
+                ))}
+              </div>
+            )}
             </div>
           ))}
         </div>

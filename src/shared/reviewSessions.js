@@ -83,6 +83,21 @@ export async function mergeSession(name, ops) {
   return j.session;
 }
 
+// Backup snapshots — the server automatically keeps timestamped copies of
+// each session (one per ~5 min of activity, newest 50). These power the
+// "Backups" list in the Sessions modal so lost work can be recovered.
+export async function listSessionBackups(name) {
+  const res = await api(`/${encodeURIComponent(safeName(name))}/history`);
+  const j = await res.json();
+  return j.snapshots || [];
+}
+
+export async function restoreSessionBackup(name, snapshotId) {
+  const res = await api(`/${encodeURIComponent(safeName(name))}/restore/${snapshotId}`, { method: "POST" });
+  const j = await res.json();
+  return j.session;
+}
+
 export async function deleteSession(name) {
   await api(`/${encodeURIComponent(safeName(name))}`, { method: "DELETE" });
 }

@@ -549,6 +549,43 @@ app.post("/api/review-sessions/:name/merge", express.json({ limit: "10mb" }), as
   }
 });
 
+// Backup history — list automatic snapshots of a session (newest first).
+// Only available on the Postgres backend; others return an empty list.
+app.get("/api/review-sessions/:name/history", async (req, res) => {
+  const name = safeSessionName(req.params.name);
+  if (!name) return res.status(400).json({ error: "Invalid name" });
+  try {
+    const items = sessionStore.history ? await sessionStore.history(name) : [];
+    res.json({ ok: true, snapshots: items });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Restore a session from one of its backup snapshots. The CURRENT state is
+// snapshotted first (via the normal update path), so a restore is itself
+// undoable. Version bumps so every synced device picks up the change.
+app.post("/api/review-sessions/:name/restore/:snapshotId", async (req, res) => {
+  const name = safeSessionName(req.params.name);
+  if (!name) return res.status(400).json({ error: "Invalid name" });
+  if (!sessionStore.historyGet) return res.status(400).json({ error: "Backups not supported on this storage backend" });
+  try {
+    const snap = await sessionStore.historyGet(name, Number(req.params.snapshotId));
+    if (!snap) return res.status(404).json({ error: "Snapshot not found" });
+    const restored = await sessionStore.update(name, (old) => ({
+      ...snap,
+      savedAt: Date.now(),
+      version: (Number(old?.version) || 0) + 1,
+    }));
+    console.log(
+      `[sessions] RESTORE "${name}" from snapshot ${req.params.snapshotId} → pending:${(restored.pending || []).length} vetted:${(restored.vetted || []).length}`
+    );
+    res.json({ ok: true, session: restored });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Presence: which devices are actively working in a session right now.
 // In-memory only (single server instance) — a device "checks in" with its
 // id every few seconds while it has the session open; anything not heard

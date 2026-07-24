@@ -335,14 +335,32 @@ export default function ReviewQueue({ betaMode = false } = {}) {
       const removedByPartner = (prevBase.payload.pending || [])
         .map((e) => String(e.id))
         .filter((id) => !serverIds.has(id));
-      if (removedByPartner.length > 0) {
+      // …and rows the partner ADDED (or a backup restore re-added). A row
+      // that's new on the server, absent locally, absent from our previous
+      // server copy AND absent from our in-flight snapshot can't be
+      // something this device deleted — append it, otherwise the next diff
+      // would emit it as removePending and undo the partner's addition.
+      const prevBaseIds = new Set((prevBase.payload.pending || []).map((e) => String(e.id)));
+      const snapIds = new Set(((snapAtFlush?.pending) || []).map((e) => String(e.id)));
+      const localIds = new Set((cur.pending || []).map((e) => String(e.id)));
+      const addedByPartner = (serverData.pending || []).filter((e) => {
+        const id = String(e.id);
+        return !localIds.has(id) && !prevBaseIds.has(id) && !snapIds.has(id);
+      });
+      if (removedByPartner.length > 0 || addedByPartner.length > 0) {
         const gone = new Set(removedByPartner);
-        setPending((p) => p.filter((e) => !gone.has(String(e.id))));
-        setApprovals((a) => {
-          const next = { ...a };
-          removedByPartner.forEach((id) => { delete next[id]; });
-          return next;
+        setPending((p) => {
+          const have = new Set((p || []).map((e) => String(e.id)));
+          const fresh = addedByPartner.filter((e) => !have.has(String(e.id)));
+          return [...(p || []).filter((e) => !gone.has(String(e.id))), ...fresh];
         });
+        if (removedByPartner.length > 0) {
+          setApprovals((a) => {
+            const next = { ...a };
+            removedByPartner.forEach((id) => { delete next[id]; });
+            return next;
+          });
+        }
       }
     }
   };
