@@ -81,6 +81,7 @@ export function CleanSweepModal({ open, events, onClose, onApply, onEdit }) {
   const [drag, setDrag] = useState(0);             // live swipe offset (px)
   const [editing, setEditing] = useState(false);   // is the current card in edit mode
   const [draft, setDraft] = useState({});          // in-progress field edits
+  const [closeConfirm, setCloseConfirm] = useState(false); // "apply partial decisions?" prompt
   const dragRef = useRef({ active: false, startX: 0 });
 
   // Snapshot the clean events when the modal opens so live deletions /
@@ -95,6 +96,7 @@ export function CleanSweepModal({ open, events, onClose, onApply, onEdit }) {
       setDrag(0);
       setEditing(false);
       setDraft({});
+      setCloseConfirm(false);
     }
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -166,6 +168,18 @@ export function CleanSweepModal({ open, events, onClose, onApply, onEdit }) {
     onClose();
   };
 
+  // Closing mid-sweep no longer throws away work. If the user has made
+  // decisions but hasn't finished the deck, ask whether to APPLY the partial
+  // decisions (cut 20 of 153 → 133 remain; undecided stay pending, so
+  // reopening resumes with just the not-yet-seen ones) or DISCARD them.
+  const decidedCount = Object.keys(decisions).length;
+  const requestClose = () => {
+    // Confirm whenever there are unapplied decisions — mid-sweep OR on the
+    // done screen — so closing never silently throws work away.
+    if (decidedCount > 0) setCloseConfirm(true);
+    else onClose();
+  };
+
   // --- Swipe (pointer) ---
   const onDown = (e) => { dragRef.current = { active: true, startX: e.clientX ?? 0 }; };
   const onMove = (e) => { if (dragRef.current.active) setDrag((e.clientX ?? 0) - dragRef.current.startX); };
@@ -194,7 +208,7 @@ export function CleanSweepModal({ open, events, onClose, onApply, onEdit }) {
 
   return createPortal(
     <div
-      onClick={onClose}
+      onClick={requestClose}
       style={{
         position: "fixed", inset: 0, zIndex: 9999,
         background: "rgba(0,0,0,0.82)",
@@ -224,7 +238,7 @@ export function CleanSweepModal({ open, events, onClose, onApply, onEdit }) {
           </div>
           <div style={{ flex: 1 }} />
           <button
-            onClick={onClose}
+            onClick={requestClose}
             style={{
               padding: "4px 10px", borderRadius: 4,
               background: "rgba(245,240,232,0.04)", color: "#F5F0E8",
@@ -236,6 +250,30 @@ export function CleanSweepModal({ open, events, onClose, onApply, onEdit }) {
 
         {/* Body */}
         <div style={{ flex: 1, overflowY: "auto", padding: "18px", display: "flex", flexDirection: "column", gap: 14 }}>
+          {/* Close-with-partial-decisions confirm — never silently discard,
+              never silently delete. */}
+          {closeConfirm && (
+            <div style={{
+              padding: "14px 16px", borderRadius: 8,
+              background: "rgba(139,92,246,0.08)", border: "1.5px solid rgba(139,92,246,0.5)",
+            }}>
+              <div style={{ fontSize: "0.8rem", fontWeight: 700, marginBottom: 4, fontFamily: "'Syne',sans-serif" }}>
+                Apply the {decidedCount} decision{decidedCount === 1 ? "" : "s"} you made?
+              </div>
+              <div style={{ fontSize: "0.68rem", color: "rgba(245,240,232,0.6)", marginBottom: 12, lineHeight: 1.5 }}>
+                <span style={{ color: "#34D399", fontWeight: 700 }}>{keptSoFar} kept</span>
+                {" · "}
+                <span style={{ color: "#FB7185", fontWeight: 700 }}>{cutSoFar} cut</span>
+                {" — "}the {total - decidedCount} you haven't decided stay pending, so you can pick up where you left off.
+              </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {btn(`Apply & close`, "#8B5CF6", apply, { flex: 1 })}
+                {btn("Discard & close", "#FB7185", onClose, { flex: 1 })}
+                {btn("Keep sweeping", "#9CA3AF", () => setCloseConfirm(false), { flex: 1 })}
+              </div>
+            </div>
+          )}
+
           {total === 0 && (
             <div style={{ padding: "3rem 1rem", textAlign: "center", color: "rgba(245,240,232,0.4)", fontSize: "0.8rem", lineHeight: 1.6 }}>
               No clean events to sweep.<br />
@@ -355,6 +393,7 @@ export function CleanSweepModal({ open, events, onClose, onApply, onEdit }) {
                     {btn("↩ Undo", "#63B3ED", undo, { opacity: history.length ? 1 : 0.4, cursor: history.length ? "pointer" : "not-allowed" })}
                     {btn("Keep rest", "#34D399", () => decideRest("keep"))}
                     {btn("Cut rest", "#FB7185", () => decideRest("cut"))}
+                    {decidedCount > 0 && btn(`Save & close (${decidedCount})`, "#8B5CF6", apply)}
                   </div>
 
                   <div style={{ textAlign: "center", fontSize: "0.55rem", color: "rgba(245,240,232,0.35)", letterSpacing: "1px", textTransform: "uppercase" }}>

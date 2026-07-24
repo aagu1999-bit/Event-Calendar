@@ -163,6 +163,10 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
   const [swipingId, setSwipingId] = useState(null);
   const [swipeX, setSwipeX] = useState(0);
   const swipeStartRef = useRef({});
+  // After a real swipe gesture the browser still fires a click on the same
+  // card — suppress that one click so a swipe never ALSO toggles the tap
+  // decision.
+  const suppressClickRef = useRef(false);
 
   // === Auto-advance state ===
   // Tracks previous (idx, allDecided) so we only auto-advance on the
@@ -426,6 +430,9 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
   const SWIPE_THRESHOLD = 80; // px — commit a decision past this delta
   const onTouchStart = (id) => (e) => {
     if (e.touches?.[0]) {
+      // Reset any stale suppression from a previous gesture whose synthetic
+      // click never arrived — otherwise the NEXT legitimate tap gets eaten.
+      suppressClickRef.current = false;
       swipeStartRef.current[id] = e.touches[0].clientX;
       setSwipingId(id);
       setSwipeX(0);
@@ -456,8 +463,17 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
     }
     if (swipeX > SWIPE_THRESHOLD) setDecisionWithHistory(id, "keep");
     else if (swipeX < -SWIPE_THRESHOLD) setDecisionWithHistory(id, "delete");
+    if (Math.abs(swipeX) > 10) suppressClickRef.current = true;
     setSwipingId(null);
     setSwipeX(0);
+  };
+
+  // Tap-to-decide: tapping a card (or a compare-view column header) toggles
+  // keep ↔ delete — first tap keeps, next tap deletes, and so on. Buttons
+  // inside stopPropagation so they still do their own thing.
+  const tapToggle = (id) => {
+    if (suppressClickRef.current) { suppressClickRef.current = false; return; }
+    setDecisionWithHistory(id, decisions[id] === "keep" ? "delete" : "keep");
   };
 
   return createPortal(
@@ -528,7 +544,7 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
         {/* Swipe hint — only shown on first group of the session, cards view */}
         {currentIdx === 0 && viewMode === "cards" && (
           <div style={{ padding: "8px 16px", fontSize: "0.6rem", color: "rgba(245,240,232,0.5)", textAlign: "center", borderBottom: "1px solid rgba(245,240,232,0.05)", letterSpacing: 0.5 }}>
-            💡 Tap ✓/✗ <strong style={{ color: "rgba(245,240,232,0.75)" }}>or swipe</strong> — right keeps · left deletes
+            💡 <strong style={{ color: "rgba(245,240,232,0.75)" }}>Tap a card</strong> to keep · tap again to delete · <strong style={{ color: "rgba(245,240,232,0.75)" }}>or swipe</strong> right/left
           </div>
         )}
 
@@ -562,19 +578,23 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
               return isOutlier(f, ev) ? "#FB923C" : "rgba(245,240,232,0.85)"; // outlier orange, majority neutral
             };
             const ROWS = [["day", "Day"], ["time", "Time"], ["venue", "Venue"], ["area", "City"], ["region", "Region"], ["type", "Type"]];
-            const COL_W = 150, LABEL_W = 60, LABEL_BG = "#141414";
+            // Small groups (2-3 events) stretch to fill the full modal width
+            // instead of leaving dead space on a phone; bigger groups keep a
+            // fixed column width and scroll sideways.
+            const FILL = cols.length <= 3;
+            const COL_W = 150, LABEL_W = FILL ? 52 : 60, LABEL_BG = "#141414";
             const headTint = (d) => d === "delete" ? "rgba(251,113,133,0.10)" : d === "keep" ? "rgba(52,211,153,0.12)" : "rgba(245,240,232,0.03)";
             const cellTint = (d) => d === "delete" ? "rgba(251,113,133,0.04)" : d === "keep" ? "rgba(52,211,153,0.05)" : "transparent";
             return (
               <>
                 <div style={{ fontSize: "0.62rem", color: "rgba(245,240,232,0.55)", marginBottom: 10, lineHeight: 1.5 }}>
-                  Comparing <strong style={{ color: "#E5BC4F" }}>{cols.length}</strong> events — each column is one event, fields go down. <span style={{ color: "#FB923C", fontWeight: 700 }}>Orange</span> = the value that differs.{cols.length > 2 && <span style={{ opacity: 0.7 }}> Scroll sideways to see them all →</span>}
+                  Comparing <strong style={{ color: "#E5BC4F" }}>{cols.length}</strong> events — each column is one event, fields go down. <span style={{ color: "#FB923C", fontWeight: 700 }}>Orange</span> = the value that differs. Tap an event's column header to keep it — tap again to delete.{cols.length > 3 && <span style={{ opacity: 0.7 }}> Scroll sideways to see them all →</span>}
                 </div>
                 <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch", paddingBottom: 4 }}>
-                  <table style={{ borderCollapse: "separate", borderSpacing: 0, tableLayout: "fixed" }}>
+                  <table style={{ borderCollapse: "separate", borderSpacing: 0, tableLayout: "fixed", width: FILL ? "100%" : undefined }}>
                     <colgroup>
                       <col style={{ width: LABEL_W }} />
-                      {cols.map(ev => <col key={ev.id} style={{ width: COL_W }} />)}
+                      {cols.map(ev => <col key={ev.id} style={FILL ? undefined : { width: COL_W }} />)}
                     </colgroup>
                     <thead>
                       <tr>
@@ -583,7 +603,7 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
                           const decision = decisions[ev.id];
                           const isEditing = editingId === ev.id;
                           return (
-                            <th key={ev.id} style={{ verticalAlign: "top", textAlign: "left", padding: "8px 8px 10px", background: headTint(decision), borderBottom: "1.5px solid rgba(245,240,232,0.12)", borderLeft: "1px solid rgba(245,240,232,0.06)" }}>
+                            <th key={ev.id} onClick={isEditing ? undefined : () => tapToggle(ev.id)} style={{ verticalAlign: "top", textAlign: "left", padding: "8px 8px 10px", background: headTint(decision), borderBottom: "1.5px solid rgba(245,240,232,0.12)", borderLeft: "1px solid rgba(245,240,232,0.06)", cursor: isEditing ? "default" : "pointer" }}>
                               <div style={{ fontSize: "0.48rem", color: "rgba(245,240,232,0.4)", letterSpacing: 1, textTransform: "uppercase", fontWeight: 700, marginBottom: 3 }}>
                                 Event {i + 1}{i === 0 ? " · first" : ""}
                                 {decision === "keep" && <span style={{ color: "#34D399" }}> ✓</span>}
@@ -598,18 +618,18 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
                               )}
                               {isEditing ? (
                                 <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                                  <button onClick={saveEditCard} style={miniActionBtn("#63B3ED", true)}>Save ✓</button>
-                                  <button onClick={cancelEditCard} style={miniActionBtn("#9CA3AF", false)}>Cancel</button>
+                                  <button onClick={(e) => { e.stopPropagation(); saveEditCard(); }} style={miniActionBtn("#63B3ED", true)}>Save ✓</button>
+                                  <button onClick={(e) => { e.stopPropagation(); cancelEditCard(); }} style={miniActionBtn("#9CA3AF", false)}>Cancel</button>
                                 </div>
                               ) : (
                                 <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                                  <button onClick={() => keepOnly(ev.id)} title="Keep THIS event and delete the others in this group" style={keepOnlyBtnStyle}>★ Keep only</button>
+                                  <button onClick={(e) => { e.stopPropagation(); keepOnly(ev.id); }} title="Keep THIS event and delete the others in this group" style={keepOnlyBtnStyle}>★ Keep only</button>
                                   <div style={{ display: "flex", gap: 4 }}>
-                                    <button onClick={() => setDecisionWithHistory(ev.id, "keep")} title="Keep" style={miniIconBtn(decision === "keep", "#34D399")}>✓</button>
-                                    <button onClick={() => setDecisionWithHistory(ev.id, "delete")} title="Delete" style={miniIconBtn(decision === "delete", "#FB7185")}>✗</button>
-                                    <button onClick={() => startEditCard(ev)} title="Edit" style={miniIconBtn(false, "#A78BFA")}>✎</button>
+                                    <button onClick={(e) => { e.stopPropagation(); setDecisionWithHistory(ev.id, "keep"); }} title="Keep" style={miniIconBtn(decision === "keep", "#34D399")}>✓</button>
+                                    <button onClick={(e) => { e.stopPropagation(); setDecisionWithHistory(ev.id, "delete"); }} title="Delete" style={miniIconBtn(decision === "delete", "#FB7185")}>✗</button>
+                                    <button onClick={(e) => { e.stopPropagation(); startEditCard(ev); }} title="Edit" style={miniIconBtn(false, "#A78BFA")}>✎</button>
                                     {linkForEvent(ev) && (
-                                      <a href={linkForEvent(ev)} target="_blank" rel="noopener noreferrer" title="Open source / IG" style={{ ...miniIconBtn(false, "#63B3ED"), display: "inline-flex", alignItems: "center", justifyContent: "center", textDecoration: "none" }}>↗</a>
+                                      <a href={linkForEvent(ev)} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} title="Open source / IG" style={{ ...miniIconBtn(false, "#63B3ED"), display: "inline-flex", alignItems: "center", justifyContent: "center", textDecoration: "none" }}>↗</a>
                                     )}
                                   </div>
                                 </div>
@@ -693,7 +713,9 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
                   onTouchMove={isEditing ? undefined : onTouchMove(ev.id)}
                   onTouchEnd={isEditing ? undefined : onTouchEnd(ev.id)}
                   onTouchCancel={isEditing ? undefined : onTouchEnd(ev.id)}
+                  onClick={isEditing ? undefined : () => tapToggle(ev.id)}
                   style={{
+                    cursor: isEditing ? "default" : "pointer",
                     padding: 18,
                     background: swipeBgColor
                               ?? (decision === "delete" ? "rgba(251,113,133,0.06)"
@@ -776,31 +798,31 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
                       Save / Cancel. */}
                   {isEditing ? (
                     <div style={{ display: "flex", gap: 8, alignItems: "stretch" }}>
-                      <button onClick={cancelEditCard} style={bottomActionBtnStyle(false, "#9CA3AF")} title="Discard changes">Cancel</button>
-                      <button onClick={saveEditCard} style={bottomActionBtnStyle(true, "#63B3ED")} title="Save changes">Save ✓</button>
+                      <button onClick={(e) => { e.stopPropagation(); cancelEditCard(); }} style={bottomActionBtnStyle(false, "#9CA3AF")} title="Discard changes">Cancel</button>
+                      <button onClick={(e) => { e.stopPropagation(); saveEditCard(); }} style={bottomActionBtnStyle(true, "#63B3ED")} title="Save changes">Save ✓</button>
                     </div>
                   ) : (
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     {/* Keep ONLY this event — works on any card, not just the
                         first (generalizes the "Keep first · rest" shortcut). */}
                     <button
-                      onClick={() => keepOnly(ev.id)}
+                      onClick={(e) => { e.stopPropagation(); keepOnly(ev.id); }}
                       title="Keep THIS event and delete the others in this group"
                       style={{ ...bottomActionBtnStyle(false, "#E5BC4F"), fontSize: "0.72rem" }}
                     >★ Keep only this · ✗ rest</button>
                   <div style={{ display: "flex", gap: 8, alignItems: "stretch" }}>
                     <button
-                      onClick={() => setDecisionWithHistory(ev.id, "delete")}
+                      onClick={(e) => { e.stopPropagation(); setDecisionWithHistory(ev.id, "delete"); }}
                       style={bottomActionBtnStyle(decision === "delete", "#FB7185")}
                       title="Delete this event"
                     >✗ Delete</button>
                     <button
-                      onClick={() => setDecisionWithHistory(ev.id, "keep")}
+                      onClick={(e) => { e.stopPropagation(); setDecisionWithHistory(ev.id, "keep"); }}
                       style={bottomActionBtnStyle(decision === "keep", "#34D399")}
                       title="Keep this event"
                     >✓ Keep</button>
                     <button
-                      onClick={() => startEditCard(ev)}
+                      onClick={(e) => { e.stopPropagation(); startEditCard(ev); }}
                       style={{ ...bottomActionBtnStyle(false, "#A78BFA"), flex: "0 0 auto", padding: "0 14px" }}
                       title="Edit this event"
                     >✎ Edit</button>
