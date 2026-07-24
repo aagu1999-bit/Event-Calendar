@@ -6,7 +6,14 @@ event list — paste or upload once on any tool, render on all three.
 
 ## Architecture
 
-- **Frontend**: React 18 + Vite (pure client-side, no backend)
+- **Frontend**: React 18 + Vite
+- **Backend**: Express (`server.js`) — review sessions stored in PostgreSQL
+  (`review_sessions` table, survives republishing). Sessions support
+  collaborative editing: `POST /api/review-sessions/:name/merge` applies
+  granular per-row ops atomically (advisory lock per session name), so two
+  devices can work in the same session. Client-side, the Review tab syncs
+  diffs every ~1s and polls for partner changes every 8s. Calendar-event
+  additions sync both ways; event edits/deletions stay local by design.
 - **Routing**: react-router-dom (`/calendar`, `/newsletter`, `/reel`)
 - **Shared state**: Zustand store with localStorage persistence
   (events survive refreshes/crashes)

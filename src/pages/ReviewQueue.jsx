@@ -13,7 +13,7 @@ import { ConflictSweepModal } from "../shared/ConflictSweepModal.jsx";
 import { CleanSweepModal } from "../shared/CleanSweepModal.jsx";
 import { FixFlagsModal } from "../shared/FixFlagsModal.jsx";
 import { saveExport } from "../shared/photoLibrary.js";
-import { rememberLastSession, getLastSession, forgetLastSession, loadSession, saveSession } from "../shared/reviewSessions.js";
+import { rememberLastSession, getLastSession, forgetLastSession, loadSession, mergeSession } from "../shared/reviewSessions.js";
 
 // Flag glossary — shown in the collapsible cheat sheet. Order matters
 // (most-severe first); descriptions are 1-line so the grid stays tight.
@@ -147,7 +147,6 @@ export default function ReviewQueue({ betaMode = false } = {}) {
   const [websiteOpen, setWebsiteOpen] = useState(false);
   const [lastSessionName, setLastSessionName] = useState(() => getLastSession());
   const [autoSaveStatus, setAutoSaveStatus] = useState("idle"); // "idle" | "saving" | "saved" | "error"
-  const loadedPayloadRef = useRef(null);
 
   // Vetted & approvals state (needed by auto-save effect)
   const vettedArr = useEventsStore(s => s.vetted);
@@ -178,17 +177,6 @@ export default function ReviewQueue({ betaMode = false } = {}) {
 
   const setEvents = useEventsStore(s => s.setEvents);
 
-  const serializeSession = (p) => {
-    return JSON.stringify({
-      events: p?.events || [],
-      approvals: p?.approvals || {},
-      vetted: p?.vetted || [],
-      pending: p?.pending || [],
-      filter: p?.filter || "",
-      sortByTag: p?.sortByTag || null,
-    });
-  };
-
   const getSessionPayload = () => ({
     events,
     approvals,
@@ -197,6 +185,114 @@ export default function ReviewQueue({ betaMode = false } = {}) {
     filter,
     sortByTag,
   });
+
+  // ---- Collaborative sync -------------------------------------------------
+  // Two people can work in the SAME session on separate devices. Instead of
+  // overwriting the whole session (last-write-wins), each device sends only
+  // WHAT IT CHANGED as granular ops; the server merges them atomically. A
+  // light poll pulls the partner's changes back in.
+  //
+  // Calendar events have special rules: additions sync both ways (so a
+  // partner's "add to calendar" shows up), but deletions never propagate —
+  // that keeps "Clear All" on one device from nuking the partner's calendar
+  // and keeps auto-load from resurrecting a cleared calendar.
+
+  const evKey = (e) =>
+    e && e.id != null ? String(e.id) : JSON.stringify([e?.name || "", e?.date || "", e?.venue || ""]);
+  // Serialize just the queue state (pending + vetted + approvals) — the part
+  // that merges cleanly. Used for "is this device dirty vs. server?" checks.
+  const pvaSerialize = (p) => JSON.stringify({
+    approvals: p?.approvals || {},
+    vetted: p?.vetted || [],
+    pending: p?.pending || [],
+  });
+
+  // syncBase = our last known copy of the SERVER state:
+  // { payload:{approvals,vetted,pending}, pvaStr, eventsMap:Map, version }
+  const syncBaseRef = useRef(null);
+  const flightRef = useRef(false);       // a merge request is in the air
+  const [syncTick, setSyncTick] = useState(0); // re-arms the sync effect after a flight
+  // Live snapshot of the synced state, readable inside async callbacks.
+  const stateRef = useRef(null);
+  stateRef.current = { events, approvals, vetted: vettedArr, pending };
+
+  const makeBase = (payload) => ({
+    payload: {
+      approvals: payload?.approvals || {},
+      vetted: payload?.vetted || [],
+      pending: payload?.pending || [],
+    },
+    pvaStr: pvaSerialize(payload),
+    eventsMap: new Map((Array.isArray(payload?.events) ? payload.events : []).map((e) => [evKey(e), e])),
+    version: Number(payload?.version) || 0,
+  });
+
+  // Diff this device's state against the last known server copy → ops.
+  const diffOps = (base, curr) => {
+    const ops = {};
+    const bp = new Map((base.payload.pending || []).map((e) => [String(e.id), e]));
+    const cp = new Map((curr.pending || []).filter((e) => e && e.id != null).map((e) => [String(e.id), e]));
+    const upsertPending = [];
+    for (const [id, row] of cp) {
+      const old = bp.get(id);
+      if (!old || JSON.stringify(old) !== JSON.stringify(row)) upsertPending.push(row);
+    }
+    const removePending = [...bp.keys()].filter((id) => !cp.has(id));
+    if (upsertPending.length) ops.upsertPending = upsertPending;
+    if (removePending.length) ops.removePending = removePending;
+
+    const bv = new Set(base.payload.vetted || []);
+    const cv = new Set(curr.vetted || []);
+    const addVetted = [...cv].filter((x) => !bv.has(x));
+    const removeVetted = [...bv].filter((x) => !cv.has(x));
+    if (addVetted.length) ops.addVetted = addVetted;
+    if (removeVetted.length) ops.removeVetted = removeVetted;
+
+    const ba = base.payload.approvals || {};
+    const ca = curr.approvals || {};
+    const setApprovalsOp = {};
+    for (const k of Object.keys(ca)) if (ba[k] !== ca[k]) setApprovalsOp[k] = ca[k];
+    for (const k of Object.keys(ba)) if (!(k in ca)) setApprovalsOp[k] = null;
+    if (Object.keys(setApprovalsOp).length) ops.setApprovals = setApprovalsOp;
+
+    // Events: ADDITIONS only. Edits and removals of calendar events never
+    // sync — sending edits while reconcile only applies additions would put
+    // the two devices in a stale-overwrite loop, so neither propagates.
+    const upsertEvents = [];
+    for (const ev of curr.events || []) {
+      if (!base.eventsMap.has(evKey(ev))) upsertEvents.push(ev);
+    }
+    if (upsertEvents.length) ops.upsertEvents = upsertEvents;
+
+    return Object.keys(ops).length ? ops : null;
+  };
+
+  // Fold a fresh server copy into local state. `snapAtFlush` is what local
+  // state looked like when the request left — if it changed since, we keep
+  // the local queue (the next sync pass will merge it) and only take safe
+  // event additions.
+  const reconcileFromServer = (serverData, prevBase, snapAtFlush) => {
+    const newBase = makeBase(serverData);
+    syncBaseRef.current = newBase;
+
+    // Calendar: append events that are NEW on the server since our last
+    // known copy and not already here. (Events we deleted locally were in
+    // prevBase, so they don't come back.)
+    const cur = stateRef.current;
+    const localKeys = new Set((cur.events || []).map(evKey));
+    const additions = (serverData.events || []).filter(
+      (e) => !prevBase.eventsMap.has(evKey(e)) && !localKeys.has(evKey(e)),
+    );
+    if (additions.length) setEvents([...(cur.events || []), ...additions]);
+
+    // Queue: adopt the merged copy only if this device hasn't typed anything
+    // new while the request was in flight.
+    if (pvaSerialize(cur) === pvaSerialize(snapAtFlush)) {
+      setPending(Array.isArray(serverData.pending) ? serverData.pending : []);
+      setVettedArr(Array.isArray(serverData.vetted) ? serverData.vetted : []);
+      setApprovals(serverData.approvals && typeof serverData.approvals === "object" ? serverData.approvals : {});
+    }
+  };
 
   const applyLoadedSession = (payload, name, isAutoLoad = false) => {
     // Auto-load NEVER touches the calendar. It only restores the review
@@ -214,15 +310,9 @@ export default function ReviewQueue({ betaMode = false } = {}) {
       );
     }
 
-    const payloadToCache = { ...payload };
-    if (!shouldLoadEvents) {
-      // If we are skipping loading events, serialize the current events in cache
-      // so the next auto-save preserves our current calendar instead of the payload's calendar.
-      payloadToCache.events = events;
-    }
-
-    // Cache the serialized payload FIRST before updating state to prevent triggering auto-save
-    loadedPayloadRef.current = serializeSession(payloadToCache);
+    // The base always mirrors the SERVER copy (including its events), so
+    // diffs against it are correct regardless of what we load locally.
+    syncBaseRef.current = makeBase(payload);
 
     if (shouldLoadEvents && Array.isArray(payload?.events)) setEvents(payload.events);
     if (payload?.approvals && typeof payload.approvals === "object") setApprovals(payload.approvals);
@@ -231,21 +321,21 @@ export default function ReviewQueue({ betaMode = false } = {}) {
     // flagged/clean/conflicting rows. Older sessions have no `pending` key —
     // leave the current queue untouched rather than blanking it.
     if (Array.isArray(payload?.pending)) setPending(payload.pending);
-    if (typeof payload?.filter === "string") setFilter(payload.filter);
+    if (typeof payload?.filter === "string" && payload.filter) setFilter(payload.filter);
     if (typeof payload?.sortByTag === "string" || payload?.sortByTag === null) setSortByTag(payload?.sortByTag || null);
-    
+
     rememberLastSession(name);
     setLastSessionName(name);
     setAutoSaveStatus("idle");
   };
 
-  // Auto-load the most-recently-used session on mount (once). Skipped if
-  // local already has events (user came back to an in-progress workspace)
-  // or no session is remembered.
+  // Auto-load the most-recently-used session on mount (once). Always runs
+  // when a session is remembered — it establishes the sync base so this
+  // device can merge into the shared session. (Auto-load still never
+  // touches the calendar.)
   useEffect(() => {
     const name = getLastSession();
     if (!name) return;
-    if ((events?.length || 0) > 0) return; // user has working state — don't clobber
     (async () => {
       try {
         const payload = await loadSession(name);
@@ -261,36 +351,63 @@ export default function ReviewQueue({ betaMode = false } = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Debounced auto-save effect
+  // Debounced merge-sync: whenever local state drifts from the server base,
+  // send just the diff as ops.
   useEffect(() => {
     if (!lastSessionName) {
       setAutoSaveStatus("idle");
       return;
     }
-    const currentPayload = getSessionPayload();
-    const payloadStr = serializeSession(currentPayload);
-
-    // If it's the same as what we loaded or last saved, do nothing
-    if (payloadStr === loadedPayloadRef.current) {
-      return;
-    }
+    const base = syncBaseRef.current;
+    if (!base) return; // waiting for auto-load to establish the base
+    const ops = diffOps(base, stateRef.current);
+    if (!ops) return;
 
     setAutoSaveStatus("saving");
-
     const timer = setTimeout(async () => {
+      if (flightRef.current) return; // flight in progress — syncTick re-arms us
+      const baseNow = syncBaseRef.current;
+      if (!baseNow) return;
+      const snap = stateRef.current;
+      const opsNow = diffOps(baseNow, snap);
+      if (!opsNow) { setAutoSaveStatus("saved"); return; }
+      flightRef.current = true;
       try {
-        await saveSession(lastSessionName, currentPayload);
-        loadedPayloadRef.current = payloadStr;
+        const merged = await mergeSession(lastSessionName, opsNow);
+        reconcileFromServer(merged, baseNow, snap);
         setAutoSaveStatus("saved");
       } catch (err) {
-        console.error("Auto-save failed:", err);
+        console.error("Session sync failed:", err);
         setAutoSaveStatus("error");
+      } finally {
+        flightRef.current = false;
+        setSyncTick((t) => t + 1); // re-run this effect to flush anything queued meanwhile
       }
-    }, 1500); // 1.5s debounce
+    }, 1200);
 
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [events, approvals, vettedArr, pending, filter, sortByTag, lastSessionName]);
+  }, [events, approvals, vettedArr, pending, lastSessionName, syncTick]);
+
+  // Poll for the partner's changes every 8s (only while the tab is visible
+  // and this device is idle — a dirty device gets the merged copy back from
+  // its own flush instead).
+  useEffect(() => {
+    if (!lastSessionName) return;
+    const id = setInterval(async () => {
+      if (document.hidden || flightRef.current) return;
+      const base = syncBaseRef.current;
+      if (!base) return;
+      if (pvaSerialize(stateRef.current) !== base.pvaStr) return; // local changes pending — flush handles it
+      try {
+        const data = await loadSession(lastSessionName);
+        if ((Number(data?.version) || 0) === base.version) return;
+        reconcileFromServer(data, base, stateRef.current);
+      } catch { /* transient network blip — next tick retries */ }
+    }, 8000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastSessionName]);
 
   // The working review list (Seeded from localStorage on mount, written back when it changes, moved to top).
 
@@ -2043,17 +2160,28 @@ export default function ReviewQueue({ betaMode = false } = {}) {
         onClose={() => setSessionsOpen(false)}
         onLoad={applyLoadedSession}
         getCurrent={getSessionPayload}
-        onSaveSuccess={(name) => {
+        onSaveSuccess={async (name) => {
+          // Clear the base FIRST (synchronously) so the sync effect can't
+          // fire against the previous session's base while we re-fetch.
+          syncBaseRef.current = null;
           rememberLastSession(name);
           setLastSessionName(name);
-          loadedPayloadRef.current = serializeSession(getSessionPayload());
+          // A manual save overwrote the server copy with this device's full
+          // state — re-fetch it so the sync base (incl. version) matches.
+          try {
+            const payload = await loadSession(name);
+            syncBaseRef.current = makeBase(payload);
+            setSyncTick((t) => t + 1); // re-arm sync now that the base exists
+          } catch {
+            syncBaseRef.current = null; // sync effect waits until base exists
+          }
           setAutoSaveStatus("idle");
         }}
         onDeleteSuccess={(name) => {
           if (lastSessionName === name) {
             forgetLastSession();
             setLastSessionName(null);
-            loadedPayloadRef.current = null;
+            syncBaseRef.current = null;
             setAutoSaveStatus("idle");
           }
         }}

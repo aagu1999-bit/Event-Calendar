@@ -68,6 +68,21 @@ export async function saveSession(name, payload) {
   return res.json();
 }
 
+// Collaborative merge: send only the granular changes this device made
+// (ops = { upsertPending, removePending, addVetted, removeVetted,
+// setApprovals, upsertEvents, removeEvents }). The server folds them into
+// the shared session atomically and returns the merged copy, so two devices
+// can safely work in the SAME session at once.
+export async function mergeSession(name, ops) {
+  const res = await api(`/${encodeURIComponent(safeName(name))}/merge`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ops }),
+  });
+  const j = await res.json();
+  return j.session;
+}
+
 export async function deleteSession(name) {
   await api(`/${encodeURIComponent(safeName(name))}`, { method: "DELETE" });
 }

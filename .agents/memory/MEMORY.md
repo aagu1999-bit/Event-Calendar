@@ -1,1 +1,2 @@
 - [Deploy disk wipes sessions](deploy-disk-ephemeral.md) — the GCE deployment's local disk is reset on every publish; never store user data on it, use Postgres (DATABASE_URL exists in dev and prod).
+- [Collab session sync](collab-session-sync.md) — review sessions merge via per-row ops with advisory locks; calendar events sync additions only, never edits/deletions.

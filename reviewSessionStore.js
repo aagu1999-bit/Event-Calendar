@@ -93,6 +93,81 @@ export function normalizeSession(body) {
   };
 }
 
+// ---- Collaborative merge -------------------------------------------------
+// Applies a batch of granular ops from one device onto the current server
+// copy of a session. This is what lets two phones work in the SAME session:
+// each device sends only what IT changed (rows edited/removed, ids vetted,
+// events added), and the server folds those into the shared copy instead of
+// overwriting the whole thing.
+const eventKey = (e) =>
+  e && e.id != null ? String(e.id) : JSON.stringify([e?.name || "", e?.date || "", e?.venue || ""]);
+
+export function applySessionOps(existing, ops) {
+  const base = existing || {
+    events: [], approvals: {}, vetted: [], pending: [], filter: "", sortByTag: null,
+  };
+  const o = ops || {};
+
+  // Pending rows: upsert by id (edits replace the row, new rows append in
+  // order), removals delete by id.
+  let pending = Array.isArray(base.pending) ? [...base.pending] : [];
+  if (Array.isArray(o.upsertPending) && o.upsertPending.length) {
+    const idx = new Map(pending.map((e, i) => [String(e.id), i]));
+    for (const row of o.upsertPending) {
+      if (!row || row.id == null) continue;
+      const i = idx.get(String(row.id));
+      if (i != null) pending[i] = row;
+      else { idx.set(String(row.id), pending.length); pending.push(row); }
+    }
+  }
+  if (Array.isArray(o.removePending) && o.removePending.length) {
+    const gone = new Set(o.removePending.map(String));
+    pending = pending.filter((e) => !gone.has(String(e.id)));
+  }
+
+  // Vetted: set semantics.
+  const vetted = new Set(Array.isArray(base.vetted) ? base.vetted : []);
+  if (Array.isArray(o.addVetted)) for (const id of o.addVetted) vetted.add(id);
+  if (Array.isArray(o.removeVetted)) for (const id of o.removeVetted) vetted.delete(id);
+
+  // Approvals: per-key assignment; null/undefined deletes the key.
+  const approvals = { ...(base.approvals || {}) };
+  if (o.setApprovals && typeof o.setApprovals === "object") {
+    for (const [k, v] of Object.entries(o.setApprovals)) {
+      if (v == null) delete approvals[k];
+      else approvals[k] = v;
+    }
+  }
+
+  // Calendar events: upsert/remove by id (or name|date|venue when id-less).
+  let events = Array.isArray(base.events) ? [...base.events] : [];
+  if (Array.isArray(o.upsertEvents) && o.upsertEvents.length) {
+    const idx = new Map(events.map((e, i) => [eventKey(e), i]));
+    for (const ev of o.upsertEvents) {
+      if (!ev) continue;
+      const k = eventKey(ev);
+      const i = idx.get(k);
+      if (i != null) events[i] = ev;
+      else { idx.set(k, events.length); events.push(ev); }
+    }
+  }
+  if (Array.isArray(o.removeEvents) && o.removeEvents.length) {
+    const gone = new Set(o.removeEvents.map(String));
+    events = events.filter((e) => !gone.has(eventKey(e)));
+  }
+
+  return {
+    events,
+    approvals,
+    vetted: Array.from(vetted),
+    pending,
+    filter: typeof o.filter === "string" ? o.filter : (base.filter || ""),
+    sortByTag: o.sortByTag !== undefined ? o.sortByTag : (base.sortByTag ?? null),
+    version: (Number(base.version) || 0) + 1,
+    savedAt: Date.now(),
+  };
+}
+
 // ---- Store factory -------------------------------------------------------
 // Returns { backend, list, get, put, del } where backend is
 // "replit-db" | "filesystem". `fsDir` is the on-disk fallback directory and
@@ -145,6 +220,13 @@ export function createSessionStore(fsDir) {
         if (e.code === "ENOENT") return false;
         throw e;
       }
+    },
+    // Read-modify-write (no real locking on this backend — dev fallback only).
+    async update(name, fn) {
+      const current = await this.get(name);
+      const next = fn(current);
+      await this.put(name, next);
+      return next;
     },
   };
 
@@ -241,6 +323,37 @@ export function createSessionStore(fsDir) {
         const res = await pool.query("DELETE FROM review_sessions WHERE name = $1", [name]);
         return res.rowCount > 0;
       },
+      // Atomic read-modify-write under a row lock, so two phones merging into
+      // the same session at once can't clobber each other's changes.
+      async update(name, fn) {
+        await ensureReady();
+        const client = await pool.connect();
+        try {
+          await client.query("BEGIN");
+          // Advisory lock on the session NAME — unlike FOR UPDATE, this also
+          // serializes two devices creating the same session at once (when
+          // there's no row to lock yet).
+          await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 42))", [name]);
+          const { rows } = await client.query(
+            "SELECT data FROM review_sessions WHERE name = $1 FOR UPDATE",
+            [name],
+          );
+          const current = rows.length ? rows[0].data : null;
+          const next = fn(current);
+          await client.query(
+            `INSERT INTO review_sessions (name, data, saved_at) VALUES ($1, $2, $3)
+             ON CONFLICT (name) DO UPDATE SET data = EXCLUDED.data, saved_at = EXCLUDED.saved_at`,
+            [name, JSON.stringify(next), next?.savedAt || Date.now()],
+          );
+          await client.query("COMMIT");
+          return next;
+        } catch (e) {
+          try { await client.query("ROLLBACK"); } catch { /* already dead */ }
+          throw e;
+        } finally {
+          client.release();
+        }
+      },
     };
   }
 
@@ -274,6 +387,13 @@ export function createSessionStore(fsDir) {
     },
     async del(name) {
       return await dbDelete(dbUrl, KEY_PREFIX + name);
+    },
+    // Read-modify-write (no real locking on this backend).
+    async update(name, fn) {
+      const current = await this.get(name);
+      const next = fn(current);
+      await this.put(name, next);
+      return next;
     },
   };
 

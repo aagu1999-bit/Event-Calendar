@@ -18,7 +18,7 @@ import fs from "fs/promises";
 import { existsSync } from "fs";
 import { fileURLToPath } from "url";
 import { runScout, storyKey, focusForDay } from "./scoutServer.js";
-import { createSessionStore, normalizeSession } from "./reviewSessionStore.js";
+import { createSessionStore, normalizeSession, applySessionOps } from "./reviewSessionStore.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || "5000", 10);
@@ -500,9 +500,28 @@ app.put("/api/review-sessions/:name", express.json({ limit: "10mb" }), async (re
   const name = safeSessionName(req.params.name);
   if (!name) return res.status(400).json({ error: "Invalid name" });
   try {
-    const data = normalizeSession(req.body);
-    await sessionStore.put(name, data);
-    res.json({ ok: true, savedAt: data.savedAt, backend: sessionStore.backend });
+    // Full overwrite (manual "Save" from the Sessions modal). Bump the
+    // version counter so devices polling for changes pick it up.
+    const data = await sessionStore.update(name, (old) => ({
+      ...normalizeSession(req.body),
+      version: (Number(old?.version) || 0) + 1,
+    }));
+    res.json({ ok: true, savedAt: data.savedAt, version: data.version, backend: sessionStore.backend });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Collaborative merge: a device sends only WHAT IT CHANGED (rows edited or
+// removed, ids vetted, events added…) and the server folds those ops into
+// the shared session atomically. This is what makes "two phones in one
+// session" safe — neither device ever overwrites the other's work.
+app.post("/api/review-sessions/:name/merge", express.json({ limit: "10mb" }), async (req, res) => {
+  const name = safeSessionName(req.params.name);
+  if (!name) return res.status(400).json({ error: "Invalid name" });
+  try {
+    const merged = await sessionStore.update(name, (old) => applySessionOps(old, req.body?.ops));
+    res.json({ ok: true, session: merged, backend: sessionStore.backend });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
