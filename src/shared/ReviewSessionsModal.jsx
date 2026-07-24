@@ -218,7 +218,7 @@ export function ReviewSessionsModal({
             {mode === "save" ? "Save the current events + approvals as a named snapshot" : "Click a session to load · save the current state as a new snapshot"}
           </div>
           {backend !== undefined && (() => {
-            const cloud = backend === "replit-db";
+            const cloud = backend === "postgres" || backend === "replit-db";
             const offline = backend === null;
             const c = cloud ? "#34D399" : offline ? "rgba(245,240,232,0.4)" : "#FBBF24";
             const label = cloud
@@ -227,10 +227,10 @@ export function ReviewSessionsModal({
                 ? "⚠️ Sessions server offline"
                 : "⚠️ Local only — won't cross devices";
             const tip = cloud
-              ? "Sessions are stored in Replit DB — they sync across every device and browser that opens this app, and survive redeploys."
+              ? "Sessions are stored in the shared database — they sync across every device and browser that opens this app, survive republishing, and support two people working in the same session at once."
               : offline
                 ? "The session server isn't reachable. Use Import/Export File to move sessions by hand until it's back."
-                : "Sessions are on THIS instance's local disk only. They won't reliably appear on another device or after a redeploy. To fix: run on a Reserved VM with Replit DB (REPLIT_DB_URL) set. Meanwhile use Export/Import File to hand sessions off.";
+                : "Sessions are on THIS instance's local disk only. They won't reliably appear on another device or after a redeploy. Meanwhile use Export/Import File to hand sessions off.";
             return (
               <div
                 title={tip}

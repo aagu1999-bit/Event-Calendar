@@ -87,6 +87,31 @@ export async function deleteSession(name) {
   await api(`/${encodeURIComponent(safeName(name))}`, { method: "DELETE" });
 }
 
+// Presence: check in as an active device on a session and learn how many
+// other devices are currently working in it. Each browser gets a stable
+// random device id kept in localStorage.
+const LS_DEVICE_KEY = "cge-review-device-id";
+export function getDeviceId() {
+  try {
+    let id = localStorage.getItem(LS_DEVICE_KEY);
+    if (!id) {
+      id = `dev-${Math.random().toString(36).slice(2, 10)}-${Date.now().toString(36)}`;
+      localStorage.setItem(LS_DEVICE_KEY, id);
+    }
+    return id;
+  } catch {
+    return "dev-anon";
+  }
+}
+
+export async function pingPresence(name) {
+  const res = await api(
+    `/${encodeURIComponent(safeName(name))}/presence?device=${encodeURIComponent(getDeviceId())}`
+  );
+  const j = await res.json();
+  return j.activeDevices || 0;
+}
+
 // Remember the last loaded session so the next boot can re-load it
 // automatically. localStorage key kept namespaced so it doesn't collide
 // with anything else.

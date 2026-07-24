@@ -527,6 +527,24 @@ app.post("/api/review-sessions/:name/merge", express.json({ limit: "10mb" }), as
   }
 });
 
+// Presence: which devices are actively working in a session right now.
+// In-memory only (single server instance) — a device "checks in" with its
+// id every few seconds while it has the session open; anything not heard
+// from in 30s is considered gone. Powers the "👥 2 devices" indicator.
+const sessionPresence = new Map(); // name -> Map(deviceId -> lastSeenMs)
+app.get("/api/review-sessions/:name/presence", (req, res) => {
+  const name = safeSessionName(req.params.name);
+  if (!name) return res.status(400).json({ error: "Invalid name" });
+  const device = String(req.query.device || "").slice(0, 64);
+  const now = Date.now();
+  let devices = sessionPresence.get(name);
+  if (!devices) { devices = new Map(); sessionPresence.set(name, devices); }
+  if (device) devices.set(device, now);
+  for (const [id, seen] of devices) if (now - seen > 30000) devices.delete(id);
+  if (!devices.size) sessionPresence.delete(name);
+  res.json({ ok: true, activeDevices: devices.size });
+});
+
 app.delete("/api/review-sessions/:name", async (req, res) => {
   const name = safeSessionName(req.params.name);
   if (!name) return res.status(400).json({ error: "Invalid name" });

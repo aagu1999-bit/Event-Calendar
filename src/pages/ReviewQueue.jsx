@@ -13,7 +13,7 @@ import { ConflictSweepModal } from "../shared/ConflictSweepModal.jsx";
 import { CleanSweepModal } from "../shared/CleanSweepModal.jsx";
 import { FixFlagsModal } from "../shared/FixFlagsModal.jsx";
 import { saveExport } from "../shared/photoLibrary.js";
-import { rememberLastSession, getLastSession, forgetLastSession, loadSession, mergeSession } from "../shared/reviewSessions.js";
+import { rememberLastSession, getLastSession, forgetLastSession, loadSession, mergeSession, pingPresence } from "../shared/reviewSessions.js";
 
 // Flag glossary — shown in the collapsible cheat sheet. Order matters
 // (most-severe first); descriptions are 1-line so the grid stays tight.
@@ -147,6 +147,31 @@ export default function ReviewQueue({ betaMode = false } = {}) {
   const [websiteOpen, setWebsiteOpen] = useState(false);
   const [lastSessionName, setLastSessionName] = useState(() => getLastSession());
   const [autoSaveStatus, setAutoSaveStatus] = useState("idle"); // "idle" | "saving" | "saved" | "error"
+  // How many devices are actively working in the current session (incl.
+  // this one). Powers the "👥 2 devices" live-collab pill.
+  const [activeDevices, setActiveDevices] = useState(0);
+
+  // Presence heartbeat: while a session is active and this tab is visible,
+  // check in every 10s so both devices see each other within ~10-20s.
+  useEffect(() => {
+    if (!lastSessionName) { setActiveDevices(0); return; }
+    let stopped = false;
+    const ping = async () => {
+      if (document.visibilityState !== "visible") return;
+      try {
+        const n = await pingPresence(lastSessionName);
+        if (!stopped) setActiveDevices(n);
+      } catch { /* server offline — leave the count as-is */ }
+    };
+    ping();
+    const iv = setInterval(ping, 10000);
+    document.addEventListener("visibilitychange", ping);
+    return () => {
+      stopped = true;
+      clearInterval(iv);
+      document.removeEventListener("visibilitychange", ping);
+    };
+  }, [lastSessionName]);
 
   // Vetted & approvals state (needed by auto-save effect)
   const vettedArr = useEventsStore(s => s.vetted);
@@ -1356,6 +1381,39 @@ export default function ReviewQueue({ betaMode = false } = {}) {
               {autoSaveStatus === "saved" && "Saved"}
               {autoSaveStatus === "error" && "Save Failed"}
               {autoSaveStatus === "idle" && "Saved"}
+            </span>
+          )}
+
+          {/* Live-collab indicator: shows when 2+ devices are working in
+              this session right now (partner on their phone, etc.). */}
+          {lastSessionName && activeDevices > 1 && (
+            <span
+              title={`${activeDevices} devices are working in "${lastSessionName}" right now. Changes sync between them automatically.`}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                fontSize: "0.6rem",
+                fontWeight: 800,
+                letterSpacing: "1px",
+                textTransform: "uppercase",
+                padding: "5px 10px",
+                borderRadius: "999px",
+                background: "rgba(52,211,153,0.12)",
+                border: "1px solid rgba(52,211,153,0.45)",
+                color: "#34D399",
+                whiteSpace: "nowrap",
+                cursor: "help",
+              }}
+            >
+              <span
+                style={{
+                  width: "6px", height: "6px", borderRadius: "50%",
+                  background: "#34D399", display: "inline-block",
+                  animation: "cge-pulse 1.6s infinite ease-in-out",
+                }}
+              />
+              👥 {activeDevices} devices live
             </span>
           )}
           {/* Send the reviewed/curated events store to the CGE website repo
