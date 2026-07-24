@@ -199,7 +199,12 @@ export default function ReviewQueue({ betaMode = false } = {}) {
   });
 
   const applyLoadedSession = (payload, name, isAutoLoad = false) => {
-    let shouldLoadEvents = true;
+    // Auto-load NEVER touches the calendar. It only restores the review
+    // queue (pending + approvals + vetted). Silently repopulating the
+    // calendar made "Clear All" look broken — everything came back on the
+    // next visit to /review. Calendar restore only happens on a MANUAL
+    // session load, where the user gets the confirm prompt below.
+    let shouldLoadEvents = !isAutoLoad;
     if (!isAutoLoad && Array.isArray(payload?.events) && payload.events.length > 0) {
       shouldLoadEvents = window.confirm(
         `This session was saved with ${payload.events.length} calendar event(s).\n\n` +
