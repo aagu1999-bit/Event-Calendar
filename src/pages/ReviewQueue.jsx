@@ -149,6 +149,33 @@ export default function ReviewQueue({ betaMode = false } = {}) {
   const [autoSaveStatus, setAutoSaveStatus] = useState("idle"); // "idle" | "saving" | "saved" | "error"
   const loadedPayloadRef = useRef(null);
 
+  // Vetted & approvals state (needed by auto-save effect)
+  const vettedArr = useEventsStore(s => s.vetted);
+  const setVettedArr = useEventsStore(s => s.setVetted);
+  const approvedSet = useMemo(() => new Set(vettedArr || []), [vettedArr]);
+  const setApprovedSet = (updaterOrSet) => {
+    const current = new Set(vettedArr || []);
+    const next = typeof updaterOrSet === "function" ? updaterOrSet(current) : updaterOrSet;
+    setVettedArr(Array.from(next || []));
+  };
+
+  // Pending queue state (needed by auto-save effect)
+  const REVIEW_PENDING_KEY = "cge_review_pending";
+  const [pending, setPending] = useState(() => {
+    try {
+      const raw = localStorage.getItem(REVIEW_PENDING_KEY);
+      const arr = raw ? JSON.parse(raw) : [];
+      return Array.isArray(arr) ? arr : [];
+    } catch { return []; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(REVIEW_PENDING_KEY, JSON.stringify(pending)); } catch {}
+  }, [pending]);
+
+  // Filter and sort states (needed by auto-save effect)
+  const [filter, setFilter] = useState("all"); // all | clean | flagged | unapproved | approved
+  const [sortByTag, setSortByTag] = useState(null); // tag name to float to top (separate from filter)
+
   const setEvents = useEventsStore(s => s.setEvents);
 
   const serializeSession = (p) => {
@@ -260,22 +287,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [events, approvals, vettedArr, pending, filter, sortByTag, lastSessionName]);
 
-  // The working review list. Persisted to localStorage so switching tabs
-  // (which unmounts this page) — or reloading — doesn't wipe in-progress
-  // curation (deletions, edits, sweeps). approvals/vetted already live in
-  // the store for the same reason; pending was the one piece still dying on
-  // nav. Seeded from localStorage on mount; written back whenever it changes.
-  const REVIEW_PENDING_KEY = "cge_review_pending";
-  const [pending, setPending] = useState(() => {
-    try {
-      const raw = localStorage.getItem(REVIEW_PENDING_KEY);
-      const arr = raw ? JSON.parse(raw) : [];
-      return Array.isArray(arr) ? arr : [];
-    } catch { return []; }
-  });
-  useEffect(() => {
-    try { localStorage.setItem(REVIEW_PENDING_KEY, JSON.stringify(pending)); } catch {}
-  }, [pending]);
+  // The working review list (Seeded from localStorage on mount, written back when it changes, moved to top).
 
   // Scraper-intake handoff. ScraperReview stashes a batch of events into
   // useScraperIntakeStore then navigates here. Consume once on mount —
@@ -304,21 +316,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
   const [mapperOpen, setMapperOpen] = useState(false);
   const [importRows, setImportRows] = useState(null);
   const [importFileName, setImportFileName] = useState("");
-  // Approval is a separate stamp from selection: marking a row "approved"
-  // says it has been vetted, distinct from "selected for an action".
-  // Backed by the store now (was useState) so it survives nav AND gets
-  // captured in Review Sessions. Component code still consumes a Set
-  // (existing .has() + function-updater callsites) — we shim Set ↔ Array
-  // around the store's array-backed `vetted` field.
-  const vettedArr = useEventsStore(s => s.vetted);
-  const setVettedArr = useEventsStore(s => s.setVetted);
-  const approvedSet = useMemo(() => new Set(vettedArr || []), [vettedArr]);
-  const setApprovedSet = (updaterOrSet) => {
-    const current = new Set(vettedArr || []);
-    const next = typeof updaterOrSet === "function" ? updaterOrSet(current) : updaterOrSet;
-    setVettedArr(Array.from(next || []));
-  };
-  const [filter, setFilter] = useState("all"); // all | clean | flagged | unapproved | approved
+  // Approval and vetting states (moved to top).
   // Mobile-only Sweep Mode — focused one-conflict-group-at-a-time
   // triage. Button surfaces under .cge-mobile-only CSS so desktop users
   // keep the existing flag-pill workflow.
@@ -338,7 +336,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
   const ROW_RENDER_CAP = 100;
   const [showAllRows, setShowAllRows] = useState(false);
   useEffect(() => { setShowAllRows(false); }, [pending.length]);
-  const [sortByTag, setSortByTag] = useState(null); // tag name to float to top (separate from filter)
+  // sortByTag state (moved to top).
   // Highlighted group captures the event IDs at click time so the sort/highlight
   // survives re-validation (group numbers renumber when events are deleted).
   // Shape: { prefix: "VENUE", label: "VENUE #31", ids: Set<id> } or null.
