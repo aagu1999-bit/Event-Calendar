@@ -13,7 +13,7 @@ import { ConflictSweepModal } from "../shared/ConflictSweepModal.jsx";
 import { CleanSweepModal } from "../shared/CleanSweepModal.jsx";
 import { FixFlagsModal } from "../shared/FixFlagsModal.jsx";
 import { saveExport } from "../shared/photoLibrary.js";
-import { rememberLastSession, getLastSession, forgetLastSession, loadSession, mergeSession, pingPresence } from "../shared/reviewSessions.js";
+import { rememberLastSession, getLastSession, forgetLastSession, loadSession, mergeSession, pingPresence, rememberServerPendingIds, getServerPendingIds } from "../shared/reviewSessions.js";
 
 // Flag glossary — shown in the collapsible cheat sheet. Order matters
 // (most-severe first); descriptions are 1-line so the grid stays tight.
@@ -299,6 +299,14 @@ export default function ReviewQueue({ betaMode = false } = {}) {
   const reconcileFromServer = (serverData, prevBase, snapAtFlush) => {
     const newBase = makeBase(serverData);
     syncBaseRef.current = newBase;
+    // Persist the server's pending ids so a later reload can tell "partner
+    // deleted this row" apart from "this device added this row" (tombstones).
+    if (lastSessionName) {
+      rememberServerPendingIds(
+        lastSessionName,
+        (newBase.payload.pending || []).map((e) => String(e.id)),
+      );
+    }
 
     // Calendar: append events that are NEW on the server since our last
     // known copy and not already here. (Events we deleted locally were in
@@ -316,6 +324,26 @@ export default function ReviewQueue({ betaMode = false } = {}) {
       setPending(Array.isArray(serverData.pending) ? serverData.pending : []);
       setVettedArr(Array.isArray(serverData.vetted) ? serverData.vetted : []);
       setApprovals(serverData.approvals && typeof serverData.approvals === "object" ? serverData.approvals : {});
+    } else {
+      // This device kept typing while the request was in flight, so we keep
+      // the local queue — BUT we still apply the PARTNER'S DELETIONS. Rows
+      // that were in our last server copy and are now gone from the server
+      // were deleted by the partner; leaving them in the local list would
+      // re-upsert them on the next diff and silently undo the partner's
+      // sweep. Deletion wins over a concurrent local edit by design.
+      const serverIds = new Set((serverData.pending || []).map((e) => String(e.id)));
+      const removedByPartner = (prevBase.payload.pending || [])
+        .map((e) => String(e.id))
+        .filter((id) => !serverIds.has(id));
+      if (removedByPartner.length > 0) {
+        const gone = new Set(removedByPartner);
+        setPending((p) => p.filter((e) => !gone.has(String(e.id))));
+        setApprovals((a) => {
+          const next = { ...a };
+          removedByPartner.forEach((id) => { delete next[id]; });
+          return next;
+        });
+      }
     }
   };
 
@@ -338,6 +366,13 @@ export default function ReviewQueue({ betaMode = false } = {}) {
     // The base always mirrors the SERVER copy (including its events), so
     // diffs against it are correct regardless of what we load locally.
     syncBaseRef.current = makeBase(payload);
+    // BEFORE overwriting the remembered server ids, grab the previous set —
+    // the auto-load merge below needs it to spot partner deletions.
+    const prevServerIds = getServerPendingIds(name);
+    rememberServerPendingIds(
+      name,
+      (Array.isArray(payload?.pending) ? payload.pending : []).map((e) => String(e.id)),
+    );
 
     if (shouldLoadEvents && Array.isArray(payload?.events)) setEvents(payload.events);
     if (payload?.approvals && typeof payload.approvals === "object") setApprovals(payload.approvals);
@@ -356,7 +391,19 @@ export default function ReviewQueue({ betaMode = false } = {}) {
       if (isAutoLoad) {
         setPending((prev) => {
           const seen = new Set(payload.pending.map((e) => String(e.id)));
-          const localOnly = (prev || []).filter((e) => !seen.has(String(e.id)));
+          // Keep only rows that are genuinely NEW on this device (e.g. a
+          // scraper batch staged before this auto-load resolved). A row
+          // missing from the server that WAS in our last-known server copy
+          // means the partner deleted it — dropping it here is what keeps
+          // his sweep from being silently undone. If we have no remembered
+          // server copy (first load on this device), fall back to keeping
+          // local rows, matching the old behavior.
+          const localOnly = (prev || []).filter((e) => {
+            const id = String(e.id);
+            if (seen.has(id)) return false;
+            if (prevServerIds && prevServerIds.has(id)) return false; // partner deleted it
+            return true;
+          });
           return [...payload.pending, ...localOnly];
         });
       } else {

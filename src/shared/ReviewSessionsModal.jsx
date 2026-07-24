@@ -143,7 +143,18 @@ export function ReviewSessionsModal({
       name = name.trim();
       if (!name) return;
     } else {
-      if (!confirm(`Overwrite "${overwriteName}" with the current state?`)) return;
+      // Full-save REPLACES the whole session with this device's copy —
+      // including any changes a partner made that this device hasn't seen
+      // yet. When two people share a session, the ongoing auto-sync already
+      // saves work continuously, so a manual overwrite is rarely needed and
+      // can silently undo the partner's deletions. Make that risk explicit.
+      if (!confirm(
+        `Overwrite "${overwriteName}" with THIS device's copy?\n\n` +
+        `⚠️ If someone else is working in this session, their recent changes ` +
+        `(including deletions) will be REPLACED by what this device has right now.\n\n` +
+        `If you're both working in the same session, you usually don't need this — ` +
+        `changes auto-save and sync on their own.`
+      )) return;
     }
     setBusy(true);
     try {

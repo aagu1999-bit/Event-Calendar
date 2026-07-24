@@ -112,6 +112,31 @@ export async function pingPresence(name) {
   return j.activeDevices || 0;
 }
 
+// Tombstone support for the diff sync: remember the set of pending-row ids
+// this device last saw ON THE SERVER, per session. Without this, a row the
+// PARTNER deleted is indistinguishable from a row this device added locally
+// — and the auto-load merge would "helpfully" keep it and push it back up,
+// resurrecting the partner's deletions. With the remembered base: a local
+// row missing from the server that WAS in our last server copy = partner
+// deleted it → drop it; a row we never saw on the server = genuinely new
+// local work → keep it.
+const LS_BASE_IDS_KEY = "cge-review-base-ids";
+export function rememberServerPendingIds(name, ids) {
+  try {
+    localStorage.setItem(`${LS_BASE_IDS_KEY}:${safeName(name)}`, JSON.stringify(ids));
+  } catch {}
+}
+export function getServerPendingIds(name) {
+  try {
+    const raw = localStorage.getItem(`${LS_BASE_IDS_KEY}:${safeName(name)}`);
+    if (!raw) return null;
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? new Set(arr.map(String)) : null;
+  } catch {
+    return null;
+  }
+}
+
 // Remember the last loaded session so the next boot can re-load it
 // automatically. localStorage key kept namespaced so it doesn't collide
 // with anything else.
