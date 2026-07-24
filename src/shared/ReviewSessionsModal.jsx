@@ -41,6 +41,8 @@ export function ReviewSessionsModal({
   onLoad,
   getCurrent,
   mode = "load",
+  onSaveSuccess,
+  onDeleteSuccess,
 }) {
   const [items, setItems] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -148,6 +150,7 @@ export function ReviewSessionsModal({
       const cur = getCurrent();
       await saveSession(name, cur);
       await reload();
+      if (onSaveSuccess) onSaveSuccess(name);
       alert(
         `Saved "${name}":\n` +
         `· ${cur.events?.length || 0} events total (including untouched, flagged, and worked-on)\n` +
@@ -170,6 +173,7 @@ export function ReviewSessionsModal({
     try {
       await deleteSession(name);
       await reload();
+      if (onDeleteSuccess) onDeleteSuccess(name);
     } catch (e) {
       alert("Delete failed: " + (e.message || e));
     } finally {

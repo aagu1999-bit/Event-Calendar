@@ -13,7 +13,7 @@ import { ConflictSweepModal } from "../shared/ConflictSweepModal.jsx";
 import { CleanSweepModal } from "../shared/CleanSweepModal.jsx";
 import { FixFlagsModal } from "../shared/FixFlagsModal.jsx";
 import { saveExport } from "../shared/photoLibrary.js";
-import { rememberLastSession, getLastSession, forgetLastSession, loadSession } from "../shared/reviewSessions.js";
+import { rememberLastSession, getLastSession, forgetLastSession, loadSession, saveSession } from "../shared/reviewSessions.js";
 
 // Flag glossary — shown in the collapsible cheat sheet. Order matters
 // (most-severe first); descriptions are 1-line so the grid stays tight.
@@ -146,8 +146,49 @@ export default function ReviewQueue({ betaMode = false } = {}) {
   const [sessionsOpen, setSessionsOpen] = useState(false);
   const [websiteOpen, setWebsiteOpen] = useState(false);
   const [lastSessionName, setLastSessionName] = useState(() => getLastSession());
+  const [autoSaveStatus, setAutoSaveStatus] = useState("idle"); // "idle" | "saving" | "saved" | "error"
+  const loadedPayloadRef = useRef(null);
 
   const setEvents = useEventsStore(s => s.setEvents);
+
+  const serializeSession = (p) => {
+    return JSON.stringify({
+      events: p?.events || [],
+      approvals: p?.approvals || {},
+      vetted: p?.vetted || [],
+      pending: p?.pending || [],
+      filter: p?.filter || "",
+      sortByTag: p?.sortByTag || null,
+    });
+  };
+
+  const getSessionPayload = () => ({
+    events,
+    approvals,
+    vetted: vettedArr,
+    pending,
+    filter,
+    sortByTag,
+  });
+
+  const applyLoadedSession = (payload, name) => {
+    // Cache the serialized payload FIRST before updating state to prevent triggering auto-save
+    loadedPayloadRef.current = serializeSession(payload);
+
+    if (Array.isArray(payload?.events)) setEvents(payload.events);
+    if (payload?.approvals && typeof payload.approvals === "object") setApprovals(payload.approvals);
+    if (Array.isArray(payload?.vetted)) setVettedArr(payload.vetted);
+    // Restore the triage queue so a mid-sweep session resumes with the same
+    // flagged/clean/conflicting rows. Older sessions have no `pending` key —
+    // leave the current queue untouched rather than blanking it.
+    if (Array.isArray(payload?.pending)) setPending(payload.pending);
+    if (typeof payload?.filter === "string") setFilter(payload.filter);
+    if (typeof payload?.sortByTag === "string" || payload?.sortByTag === null) setSortByTag(payload?.sortByTag || null);
+    
+    rememberLastSession(name);
+    setLastSessionName(name);
+    setAutoSaveStatus("idle");
+  };
 
   // Auto-load the most-recently-used session on mount (once). Skipped if
   // local already has events (user came back to an in-progress workspace)
@@ -159,11 +200,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
     (async () => {
       try {
         const payload = await loadSession(name);
-        if (Array.isArray(payload?.events)) setEvents(payload.events);
-        if (payload?.approvals && typeof payload.approvals === "object") setApprovals(payload.approvals);
-        if (Array.isArray(payload?.vetted)) setVettedArr(payload.vetted);
-        if (Array.isArray(payload?.pending)) setPending(payload.pending);
-        setLastSessionName(name);
+        applyLoadedSession(payload, name);
       } catch (err) {
         // Session was deleted or Repl offline — clear the pointer so we
         // don't keep trying to load a ghost.
@@ -175,40 +212,36 @@ export default function ReviewQueue({ betaMode = false } = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Build the payload Review Sessions snapshots — captures the full
-  // working state so loading a session puts you back exactly where you
-  // were: every event (worked-on OR not), the ✓ vetted markers, the
-  // selection checkboxes, the filter + sort, AND the `pending` triage list.
-  // `pending` is the crux for resuming a sweep: flagged / clean / conflicting
-  // are all derived from computeWarnings(pending), so once the pending list is
-  // restored those statuses recompute identically — no need to persist the
-  // flags themselves. Before, pending lived only in localStorage, so a session
-  // saved mid-sweep lost the whole triage queue when reopened on another device.
-  const getSessionPayload = () => ({
-    events,
-    approvals,
-    vetted: vettedArr,
-    pending,
-    filter,
-    sortByTag,
-  });
+  // Debounced auto-save effect
+  useEffect(() => {
+    if (!lastSessionName) {
+      setAutoSaveStatus("idle");
+      return;
+    }
+    const currentPayload = getSessionPayload();
+    const payloadStr = serializeSession(currentPayload);
 
-  // Apply a loaded session: replace store events + approvals + vetted,
-  // remember the session name so the header pill updates and the next
-  // boot can auto-load it.
-  const applyLoadedSession = (payload, name) => {
-    if (Array.isArray(payload?.events)) setEvents(payload.events);
-    if (payload?.approvals && typeof payload.approvals === "object") setApprovals(payload.approvals);
-    if (Array.isArray(payload?.vetted)) setVettedArr(payload.vetted);
-    // Restore the triage queue so a mid-sweep session resumes with the same
-    // flagged/clean/conflicting rows. Older sessions have no `pending` key —
-    // leave the current queue untouched rather than blanking it.
-    if (Array.isArray(payload?.pending)) setPending(payload.pending);
-    if (typeof payload?.filter === "string") setFilter(payload.filter);
-    if (typeof payload?.sortByTag === "string" || payload?.sortByTag === null) setSortByTag(payload?.sortByTag || null);
-    rememberLastSession(name);
-    setLastSessionName(name);
-  };
+    // If it's the same as what we loaded or last saved, do nothing
+    if (payloadStr === loadedPayloadRef.current) {
+      return;
+    }
+
+    setAutoSaveStatus("saving");
+
+    const timer = setTimeout(async () => {
+      try {
+        await saveSession(lastSessionName, currentPayload);
+        loadedPayloadRef.current = payloadStr;
+        setAutoSaveStatus("saved");
+      } catch (err) {
+        console.error("Auto-save failed:", err);
+        setAutoSaveStatus("error");
+      }
+    }, 1500); // 1.5s debounce
+
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [events, approvals, vettedArr, pending, filter, sortByTag, lastSessionName]);
 
   // The working review list. Persisted to localStorage so switching tabs
   // (which unmounts this page) — or reloading — doesn't wipe in-progress
@@ -833,6 +866,13 @@ export default function ReviewQueue({ betaMode = false } = {}) {
 
   return (
     <div style={{ minHeight: "calc(100vh - 60px)", background: "#080808", color: "#F5F0E8", fontFamily: "'DM Sans', sans-serif" }}>
+      <style>{`
+        @keyframes cge-pulse {
+          0% { transform: scale(0.85); opacity: 0.5; }
+          50% { transform: scale(1.15); opacity: 1; }
+          100% { transform: scale(0.85); opacity: 0.5; }
+        }
+      `}</style>
       <div style={{ maxWidth: 1400, margin: "0 auto", padding: "1.5rem" }}>
         {/* Scraper-intake banner — surfaces when ScraperReview pushed a
             batch of events into pending via the navigation handoff. One-shot
@@ -1015,6 +1055,42 @@ export default function ReviewQueue({ betaMode = false } = {}) {
               whiteSpace: "nowrap",
             }}
           >📁 {lastSessionName ? `Session: ${lastSessionName.length > 14 ? lastSessionName.slice(0, 14) + "…" : lastSessionName}` : "Sessions"}</button>
+
+          {lastSessionName && (
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                fontSize: "0.6rem",
+                fontWeight: 700,
+                letterSpacing: "1px",
+                textTransform: "uppercase",
+                padding: "5px 10px",
+                borderRadius: "5px",
+                background: "rgba(52,211,153,0.03)",
+                border: "1px solid rgba(52,211,153,0.12)",
+                color: autoSaveStatus === "saving" ? "#F59E0B" : autoSaveStatus === "saved" ? "#34D399" : autoSaveStatus === "error" ? "#EF4444" : "#A3A3A3",
+                transition: "all 0.3s ease",
+                whiteSpace: "nowrap",
+              }}
+            >
+              <span
+                style={{
+                  width: "6px",
+                  height: "6px",
+                  borderRadius: "50%",
+                  background: autoSaveStatus === "saving" ? "#F59E0B" : autoSaveStatus === "saved" ? "#34D399" : autoSaveStatus === "error" ? "#EF4444" : "#A3A3A3",
+                  display: "inline-block",
+                  animation: autoSaveStatus === "saving" ? "cge-pulse 1.2s infinite ease-in-out" : "none",
+                }}
+              />
+              {autoSaveStatus === "saving" && "Saving..."}
+              {autoSaveStatus === "saved" && "Saved"}
+              {autoSaveStatus === "error" && "Save Failed"}
+              {autoSaveStatus === "idle" && "Saved"}
+            </span>
+          )}
           {/* Send the reviewed/curated events store to the CGE website repo
               as a single events.json commit. */}
           <button
@@ -1826,6 +1902,20 @@ export default function ReviewQueue({ betaMode = false } = {}) {
         onClose={() => setSessionsOpen(false)}
         onLoad={applyLoadedSession}
         getCurrent={getSessionPayload}
+        onSaveSuccess={(name) => {
+          rememberLastSession(name);
+          setLastSessionName(name);
+          loadedPayloadRef.current = serializeSession(getSessionPayload());
+          setAutoSaveStatus("idle");
+        }}
+        onDeleteSuccess={(name) => {
+          if (lastSessionName === name) {
+            forgetLastSession();
+            setLastSessionName(null);
+            loadedPayloadRef.current = null;
+            setAutoSaveStatus("idle");
+          }
+        }}
       />
       <WebsitePublishModal
         open={websiteOpen}
