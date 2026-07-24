@@ -534,13 +534,6 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
           </div>
         </div>
 
-        {/* Group shortcuts */}
-        <div style={{ padding: "12px 16px", display: "flex", gap: 6, flexWrap: "wrap", borderBottom: "1px solid rgba(245,240,232,0.05)" }}>
-          <button onClick={keepFirstOnly} style={shortcutBtnStyle("#34D399")}>↑ Keep first · ✗ rest</button>
-          <button onClick={keepAll} style={shortcutBtnStyle("#63B3ED")}>✓ Keep all</button>
-          <button onClick={deleteAll} style={shortcutBtnStyle("#FB7185")}>✗ Delete all</button>
-        </div>
-
         {/* Swipe hint — only shown on first group of the session, cards view */}
         {currentIdx === 0 && viewMode === "cards" && (
           <div style={{ padding: "8px 16px", fontSize: "0.6rem", color: "rgba(245,240,232,0.5)", textAlign: "center", borderBottom: "1px solid rgba(245,240,232,0.05)", letterSpacing: 0.5 }}>
@@ -886,6 +879,14 @@ export function ConflictSweepModal({ open, events, warnings, onClose, onApplyDel
               Show {groupEvents.length - MAX_CARDS_INITIAL} more events in this group
             </button>
           )}
+        </div>
+
+        {/* Group shortcuts — pinned above the footer so they sit in thumb
+            reach at the bottom instead of the top. */}
+        <div style={{ padding: "10px 16px", display: "flex", gap: 6, flexWrap: "wrap", borderTop: "1px solid rgba(245,240,232,0.08)" }}>
+          <button onClick={keepFirstOnly} style={shortcutBtnStyle("#34D399")}>↑ Keep first · ✗ rest</button>
+          <button onClick={keepAll} style={shortcutBtnStyle("#63B3ED")}>✓ Keep all</button>
+          <button onClick={deleteAll} style={shortcutBtnStyle("#FB7185")}>✗ Delete all</button>
         </div>
 
         {/* Footer — back / undo / next */}
