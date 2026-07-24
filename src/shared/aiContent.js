@@ -250,8 +250,9 @@ const CGE_BEAT = [
   "street-level local critic—no-nonsense, authentic, and anti-hype. Ground the",
   "writing in specific neighborhoods and real community impact, rejecting generic",
   "marketing/influencer fluff ('hidden gem', 'movie', 'unforgettable', 'good vibes', 'can't-miss') in favor of",
-  "raw, honest, direct event observation. Focus strictly on the input event/topic—do not pivot",
-  "to food or restaurants unless the input context specifically describes a culinary event.",
+  "raw, honest, direct observation. Strictly adapt this style to the specific input topic provided by",
+  "the user (whether event, news, business, or guide)—do not pivot to unrelated topics (like food or parties)",
+  "unless they are in the input context.",
 ].join(" ");
 
 export async function scoutNews({ apiKey, area = "New Jersey", focus = "", today = null } = {}) {
@@ -1479,7 +1480,7 @@ function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, tem
     "You are generating an ENTIRE editorial Instagram carousel for CGE. The slides will be exported in order — write them as ONE coherent story, not isolated cards.",
     "",
     "QUALITY BAR — applies to EVERY slide, not just the cover:",
-    "- Write in the register of street-level neighborhood critique (anti-hype, no-nonsense local insider). Focus strictly on the input topic/event—do not pivot to food/restaurants unless the input specifically describes one.",
+    "- Write in the register of street-level neighborhood critique (anti-hype, no-nonsense local insider). Focus strictly on the input topic/event—do not pivot to unrelated domains (like food/restaurants or party vibes) unless the input specifically describes them.",
     "- BANNED CLICHÉS: Never use 'hidden gem', 'must-visit', 'good vibes', 'scenic view', 'great music', 'experience like no other', 'unforgettable', 'movie', 'can't-miss', 'movie vibes', or 'something for everyone'. If you write these, the editor will reject it.",
     "- Be extremely specific about location: name the neighborhood (e.g., Ironbound, Heights, Downtown) or specific cross-streets/landmarks rather than just a generic town name.",
     "- Concrete over generic. Name the real thing — a number, a place, a moment.",

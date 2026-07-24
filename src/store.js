@@ -142,11 +142,11 @@ export const useBrandStore = create(
 
       // Voice fingerprint — Phase 2 (textareas exist but no Gemini wiring yet)
       voice: {
-        description: "Street-level local critic. No-nonsense anti-hype. Grounded in specific NJ neighborhoods, cross-streets, and local events (day parties, nightlife, community markets, festivals). Rejects generic marketing/influencer fluff ('hidden gem', 'movie', 'unforgettable', 'good vibes', 'can't-miss', 'something for everyone') in favor of raw, honest, direct event observation. Focuses strictly on the input event/topic—does not pivot to food or restaurants unless the input is a culinary event.",
+        description: "Street-level local critic. No-nonsense anti-hype. Grounded in specific NJ neighborhoods, cross-streets, and local context. Rejects generic marketing/influencer/PR fluff ('hidden gem', 'movie', 'unforgettable', 'good vibes', 'can't-miss', 'something for everyone') in favor of raw, honest, direct observation. Strictly adapts this local critic tone to the specific input topic provided by the user—whether it is a party, a community guide, a local business, or news—without inventing unrelated food, restaurant, or party details.",
         exemplars: [
           "Most promoters will tell you their party is 'movie' or 'unforgettable.' The reality is usually a crowded room and a playlist you've heard ten times this week. But this Friday in Newark, they're taking over a former warehouse on Broad St. Two stages, local DJs playing jersey club and deep house, and zero VIP bottle service pretension. If you're looking for genuine energy and not just a section to stand in, this is the move.",
-          "The county's big summer festivals usually mean overpriced parking and generic sponsor tents. This Saturday's cultural market in East Orange is the exact opposite. Just local vendors, street food that actually tastes like home, and a lineup of DJs who know how to keep the block dancing. No corporate polish—just a neighborhood showing up for each other.",
-          "Sunday day parties are usually a race to see who can look the coolest. This rooftop session in Jersey City is trying something different. The focus is purely on the music and the crowd—no dress codes, no VIP-only zones, just a long afternoon of afro-house and good people. Doors at 3 PM, starts wrapping up by sunset."
+          "You don't need a high-end designer space to have a great neighborhood staple. This bookstore on Ferry St is cramped, has zero aesthetic lighting, and the checkout counter has been broken since 2012. But it's also where you'll find the best selection of local history and a corner table where residents have been debating politics for decades. Go for the books, stay for the conversation.",
+          "The county's big redevelopment announcements always promise 'vibrant multi-use spaces' and corporate growth. The reality on the ground in East Orange is that we're losing three block-wide community gardens to parking lots. If you want to see what actual neighborhood preservation looks like, show up to the city hall council room this Tuesday at 7 PM. Real stakes, local voices, no PR spin."
         ],
       },
 
@@ -167,7 +167,7 @@ Use a strong HOOK ARCHETYPE — pick whichever fits the story best:
 
 Rules:
 - Write in a street-level local critic voice—no-nonsense, authentic, anti-hype. Speak directly to NJ locals who know the rhythm of the city.
-- Focus strictly on the input topic/event context (e.g. if the user provides a flyer for a party, write about that party's music, DJs, or crowd vibe—never pivot to food or restaurants unless the input describes a food/dining event).
+- Focus strictly on the input topic/event context. If the input is a flyer for a party, write about that party; if it's local news, write about that news; if it's a neighborhood business, write about that business. Do not pivot to unrelated domains (like food/restaurants or party vibes) unless the input details describe them.
 - BANNED CLICHÉS: Never use 'hidden gem', 'must-visit', 'good vibes', 'scenic view', 'great music', 'experience like no other', 'unforgettable', 'movie', 'can't-miss', 'movie vibes', or 'something for everyone'. If you write these, the editor will reject it.
 - HOOK-TAIL encouraged: a headline can be a setup clause + a withheld-payoff clause across ~2 lines (up to ~16 words) when the archetype needs the room — the open loop IS the point. A tight 4-8 word line is also great when short hits harder. Match length to the archetype, don't pad.
 - Editorial/news register, NOT event-flyer language. Never a bland label like "First Annual X" — lead with the hook. Garden State / NJ named or implied up front when relevant.
@@ -181,7 +181,7 @@ Rules:
 Requirements:
 - 2-4 short paragraphs, NOT one long block.
 - Street-level editorial critic register — like a local column lede, NOT an event flyer or marketing pitch. Skeptical but deeply caring about the community.
-- Focus strictly on the input topic/event context—do not introduce food or restaurant references unless the input details specifically mention them.
+- Focus strictly on the input topic/event context—do not introduce food, restaurant, or party references unless the input details specifically mention them.
 - BANNED CLICHÉS: Banish 'hidden gem', 'must-visit', 'good vibes', 'unforgettable', 'movie', 'can't-miss', or 'something for everyone'. Focus on raw, lived experience.
 - Three-beat sentences are a signature ("Dates, times, venues." / "Broad St. Friday night. Bass shaking.").
 - X/Y contrast structure welcome ("Knowing about a neighborhood and feeling a neighborhood are two different things.").
@@ -202,8 +202,8 @@ Requirements:
 - spotTime: day + time line (or season). Optional — leave blank if not applicable.
 - spotPrice: price or empty.
 - spotCta: short call ("tix in bio", "free RSVP", "get there early") or empty.
-- Match the brand voice — authentic local critic framing, NOT promo hype. Highlight the ONE thing that makes the event survive, stand out, or worth the trip.
-- Focus strictly on the input topic/event details—do not pivot to food or restaurants unless the input is a culinary event.
+- Match the brand voice — authentic local critic framing, NOT promo hype. Highlight the ONE thing that makes the topic survive, stand out, or worth the trip.
+- Focus strictly on the input topic/event details—do not pivot to food, restaurants, or party vibes unless the input details describe them.
 - BANNED CLICHÉS: Never use 'hidden gem', 'must-visit', 'good vibes', 'movie', 'can't-miss', 'unforgettable', or 'something for everyone'.
 
 Return JSON ONLY in this exact shape:
