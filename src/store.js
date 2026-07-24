@@ -142,11 +142,11 @@ export const useBrandStore = create(
 
       // Voice fingerprint — Phase 2 (textareas exist but no Gemini wiring yet)
       voice: {
-        description: "Street-level local critic. No-nonsense anti-hype. Grounded in specific NJ neighborhoods, cross-streets, and community impact. Rejects generic fluff ('hidden gem', 'must-visit', 'good vibes', 'something for everyone') in favor of sensory, opinionated, direct observations. Speaks to hungry, smart local residents.",
+        description: "Street-level local critic. No-nonsense anti-hype. Grounded in specific NJ neighborhoods, cross-streets, and local events (day parties, nightlife, community markets, festivals). Rejects generic marketing/influencer fluff ('hidden gem', 'movie', 'unforgettable', 'good vibes', 'can't-miss', 'something for everyone') in favor of raw, honest, direct event observation. Focuses strictly on the input event/topic—does not pivot to food or restaurants unless the input is a culinary event.",
         exemplars: [
-          "Newark's Ironbound doesn't need another generic franchise. This family-owned bakery on Ferry St has been pulling perfect espresso and warm pasteis de nata since 1994. No aesthetics, just local regulars who know exactly when the morning batch drops.",
-          "Jersey City is full of places designed for Instagram. This basement kitchen in the Heights is the exact opposite. Four tables, a handwritten chalkboard menu, and the best jerk chicken you'll eat north of Trenton. Get the plantains, skip the wait, bring cash.",
-          "Not every weekend guide needs to highlight a $150 prix fixe. The real heartbeat of Montclair this Saturday is the community market on Bloomfield Ave. Local vendors, real conversations, and the kind of energy you can't curate for social media."
+          "Most promoters will tell you their party is 'movie' or 'unforgettable.' The reality is usually a crowded room and a playlist you've heard ten times this week. But this Friday in Newark, they're taking over a former warehouse on Broad St. Two stages, local DJs playing jersey club and deep house, and zero VIP bottle service pretension. If you're looking for genuine energy and not just a section to stand in, this is the move.",
+          "The county's big summer festivals usually mean overpriced parking and generic sponsor tents. This Saturday's cultural market in East Orange is the exact opposite. Just local vendors, street food that actually tastes like home, and a lineup of DJs who know how to keep the block dancing. No corporate polish—just a neighborhood showing up for each other.",
+          "Sunday day parties are usually a race to see who can look the coolest. This rooftop session in Jersey City is trying something different. The focus is purely on the music and the crowd—no dress codes, no VIP-only zones, just a long afternoon of afro-house and good people. Doors at 3 PM, starts wrapping up by sunset."
         ],
       },
 
@@ -158,7 +158,7 @@ export const useBrandStore = create(
         cover: `Generate SCROLL-STOPPING editorial cover headlines for a CGE social carousel Cover slide. The reader sees this for ~1.5 seconds — the headline earns the swipe or it doesn't.
 
 Use a strong HOOK ARCHETYPE — pick whichever fits the story best:
-- OPEN LOOP — a setup, then a withheld payoff that forces the swipe. ("This Newark bakery has had a line since 7 AM. Here is why.")
+- OPEN LOOP — a setup, then a withheld payoff that forces the swipe. ("This Newark Broad St warehouse was left for dead. Friday, it wakes up.")
 - THEN / NOW — before → after transformation. ("A dark corner of Paterson. Back in business this weekend.")
 - INTRIGUE — imply something surprising happened without spelling it out. ("The strip mall everyone wrote off just booked its biggest day in a decade.")
 - CONTRARIAN / QUESTION — flip the expectation, or open with a real question. ("Why is half the county driving to a storefront nobody shopped at in years?")
@@ -167,7 +167,8 @@ Use a strong HOOK ARCHETYPE — pick whichever fits the story best:
 
 Rules:
 - Write in a street-level local critic voice—no-nonsense, authentic, anti-hype. Speak directly to NJ locals who know the rhythm of the city.
-- BANNED CLICHÉS: Never use 'hidden gem', 'must-visit', 'good vibes', 'scenic view', 'great music', 'experience like no other', 'unforgettable', or 'something for everyone'. If you write these, the editor will reject it.
+- Focus strictly on the input topic/event context (e.g. if the user provides a flyer for a party, write about that party's music, DJs, or crowd vibe—never pivot to food or restaurants unless the input describes a food/dining event).
+- BANNED CLICHÉS: Never use 'hidden gem', 'must-visit', 'good vibes', 'scenic view', 'great music', 'experience like no other', 'unforgettable', 'movie', 'can't-miss', 'movie vibes', or 'something for everyone'. If you write these, the editor will reject it.
 - HOOK-TAIL encouraged: a headline can be a setup clause + a withheld-payoff clause across ~2 lines (up to ~16 words) when the archetype needs the room — the open loop IS the point. A tight 4-8 word line is also great when short hits harder. Match length to the archetype, don't pad.
 - Editorial/news register, NOT event-flyer language. Never a bland label like "First Annual X" — lead with the hook. Garden State / NJ named or implied up front when relevant.
 - The curiosity gap MUST be honest — the carousel pays it off. Tease the reader, never mislead them.
@@ -180,10 +181,11 @@ Rules:
 Requirements:
 - 2-4 short paragraphs, NOT one long block.
 - Street-level editorial critic register — like a local column lede, NOT an event flyer or marketing pitch. Skeptical but deeply caring about the community.
-- BANNED CLICHÉS: Banish 'hidden gem', 'must-visit', 'good vibes', 'unforgettable', or 'something for everyone'. Focus on raw, lived experience.
-- Three-beat sentences are a signature ("Dates, times, venues." / "Bloomfield Ave. Sunday morning. Warm pastries.").
+- Focus strictly on the input topic/event context—do not introduce food or restaurant references unless the input details specifically mention them.
+- BANNED CLICHÉS: Banish 'hidden gem', 'must-visit', 'good vibes', 'unforgettable', 'movie', 'can't-miss', or 'something for everyone'. Focus on raw, lived experience.
+- Three-beat sentences are a signature ("Dates, times, venues." / "Broad St. Friday night. Bass shaking.").
 - X/Y contrast structure welcome ("Knowing about a neighborhood and feeling a neighborhood are two different things.").
-- Garden State / NJ named or implied up front. Mention neighborhood specifics or local landmarks (e.g. 'Ferry St', 'the Heights').
+- Garden State / NJ named or implied up front. Mention neighborhood specifics or local landmarks (e.g. 'Broad St', 'the Heights', 'McCarter Hwy').
 - Match the brand voice precisely.
 - The textTitle is a short kicker (3-7 words) that names what the paragraph is about; can echo the Cover.
 
@@ -192,16 +194,17 @@ Return JSON ONLY in this exact shape:
 
         spotlight: `Generate ONE Spotlight-slide card for a CGE carousel.
 
-The Spotlight is a single venue, idea, or selling-point. In a Feature Drop carousel (listicle), N Spotlights stack as numbered ideas (Music, Dance, Game, Prizes...). In an Editorial Roundup or Local Guide, Spotlights are scene-report style venue/place listings.
+The Spotlight is a single venue, idea, or selling-point. In a Feature Drop carousel (listicle), N Spotlights stack as numbered ideas (Music, Dance, Game, Prizes...). In an Editorial Roundup or Local Guide, Spotlights are scene-report style venue/place/event listings.
 
 Requirements:
-- spotName: 2-5 word headline naming this idea/venue (e.g. "Revolution Coffee", "The Ironbound Spot", "Rooftop at the Standard").
-- spotMeta: 1 short line of detail. Ground it with street-level specificity—neighborhood, cross-streets, or who hangs out there (e.g., 'Collingswood · Haddon Ave', 'Newark Heights · where the old guard meets the new regulars'). 8-15 words max.
+- spotName: 2-5 word headline naming this idea/event aspect (e.g. "Warehouse Party", "The Garden Block Market", "Acoustic Night").
+- spotMeta: 1 short line of detail. Ground it with street-level specificity—neighborhood, cross-streets, or who hangs out there (e.g., 'Newark · Broad St', 'Jersey City · where local DJs spin deep house'). 8-15 words max.
 - spotTime: day + time line (or season). Optional — leave blank if not applicable.
 - spotPrice: price or empty.
-- spotCta: short call ("tix in bio", "free", "get the espresso") or empty.
-- Match the brand voice — authentic local critic framing, NOT promo hype. Highlight the ONE thing that makes the place survive or worth the trip.
-- BANNED CLICHÉS: Never use 'hidden gem', 'must-visit', 'good vibes', or 'something for everyone'.
+- spotCta: short call ("tix in bio", "free RSVP", "get there early") or empty.
+- Match the brand voice — authentic local critic framing, NOT promo hype. Highlight the ONE thing that makes the event survive, stand out, or worth the trip.
+- Focus strictly on the input topic/event details—do not pivot to food or restaurants unless the input is a culinary event.
+- BANNED CLICHÉS: Never use 'hidden gem', 'must-visit', 'good vibes', 'movie', 'can't-miss', 'unforgettable', or 'something for everyone'.
 
 Return JSON ONLY in this exact shape:
 {"spotName":"...","spotMeta":"...","spotTime":"...","spotPrice":"...","spotCta":"..."}`,
