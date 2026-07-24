@@ -727,6 +727,49 @@ async function openWeekendReviewSheet() {
   return sheet;
 }
 
+// Load ONLY the columns the write paths actually need instead of the whole
+// grid. `sheet.loadCells()` with no range pulls every cell (1,400+ rows ×
+// every column) in one giant response — that payload is what caused
+// "network error: POST …:getByDataFilter" failures on the deployed site.
+// Loading the header row + a handful of named columns is ~10x smaller.
+// Returns the header→column-index map. Retries transient network errors.
+// Retry transient network failures against the Sheets API (up to 3 tries,
+// backing off). Used for both reads (loadCells) and the final write
+// (saveUpdatedCells) — either can hit a one-off network blip in production.
+async function retrySheetsCall(fn) {
+  let lastErr;
+  for (let i = 0; i < 3; i++) {
+    try { return await fn(); } catch (e) {
+      lastErr = e;
+      const msg = String(e?.message || e).toLowerCase();
+      const transient = msg.includes("network") || msg.includes("timeout") ||
+        msg.includes("econnreset") || msg.includes("socket") || msg.includes("fetch failed");
+      if (!transient) throw e;
+      await new Promise((r) => setTimeout(r, 800 * (i + 1)));
+    }
+  }
+  throw lastErr;
+}
+
+async function loadSheetColumns(sheet, neededHeaders) {
+  const attempt = retrySheetsCall;
+  // 1. Header row only
+  await attempt(() => sheet.loadCells({ startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: sheet.columnCount }));
+  const headerToCol = {};
+  for (let c = 0; c < sheet.columnCount; c++) {
+    const v = sheet.getCell(0, c).value;
+    if (v == null || String(v).trim() === "") break;
+    headerToCol[String(v)] = c;
+  }
+  // 2. Just the needed columns, full height
+  for (const h of neededHeaders) {
+    const c = headerToCol[h];
+    if (c == null) continue; // caller gracefully skips missing headers
+    await attempt(() => sheet.loadCells({ startRowIndex: 0, endRowIndex: sheet.rowCount, startColumnIndex: c, endColumnIndex: c + 1 }));
+  }
+  return headerToCol;
+}
+
 // GET /api/weekend-review
 // Returns { events: [ { _row, _all_fields, APPROVED, ... } ] }
 // _row is the 1-indexed sheet row (header is row 1, first data is row 2).
@@ -905,15 +948,9 @@ app.post("/api/weekend-review/update", express.json({ limit: "1mb" }), async (re
       return res.status(400).json({ error: "fields object required in body" });
     }
     const sheet = await openWeekendReviewSheet();
-    await sheet.loadCells();
-
-    // Build header→column-index map from row 0.
-    const headerToCol = {};
-    for (let c = 0; c < sheet.columnCount; c++) {
-      const v = sheet.getCell(0, c).value;
-      if (v == null || String(v).trim() === "") break;
-      headerToCol[String(v)] = c;
-    }
+    // Load only POST ID + the columns being written (plus auto-stamps).
+    const neededHeaders = new Set(["POST ID", "REVIEWED_AT", ...Object.keys(fields)]);
+    const headerToCol = await loadSheetColumns(sheet, neededHeaders);
     const postIdCol = headerToCol["POST ID"];
     if (postIdCol == null) {
       return res.status(500).json({ error: "Weekend_Review has no 'POST ID' header column" });
@@ -957,7 +994,7 @@ app.post("/api/weekend-review/update", express.json({ limit: "1mb" }), async (re
       cell.value = v == null ? "" : String(v);
       written[k] = String(v == null ? "" : v);
     }
-    await sheet.saveUpdatedCells();
+    await retrySheetsCall(() => sheet.saveUpdatedCells());
     res.json({ ok: true, post_id: target, row: targetRow + 1, written, skipped });
   } catch (e) {
     res.status(500).json({ error: String(e?.message || e) });
@@ -977,15 +1014,11 @@ app.post("/api/weekend-review/bulk-update", express.json({ limit: "10mb" }), asy
       return res.status(400).json({ error: "updates array required in body" });
     }
     const sheet = await openWeekendReviewSheet();
-    await sheet.loadCells();
-
-    // Build header→col map once
-    const headerToCol = {};
-    for (let c = 0; c < sheet.columnCount; c++) {
-      const v = sheet.getCell(0, c).value;
-      if (v == null || String(v).trim() === "") break;
-      headerToCol[String(v)] = c;
-    }
+    // Load only POST ID + the union of columns being written (plus
+    // auto-stamps) — never the whole grid.
+    const neededHeaders = new Set(["POST ID", "REVIEWED_AT", "PUSHED_AT"]);
+    for (const u of updates) for (const k of Object.keys(u?.fields || {})) neededHeaders.add(k);
+    const headerToCol = await loadSheetColumns(sheet, neededHeaders);
     const postIdCol = headerToCol["POST ID"];
     if (postIdCol == null) {
       return res.status(500).json({ error: "Weekend_Review has no 'POST ID' header column" });
@@ -1032,7 +1065,7 @@ app.post("/api/weekend-review/bulk-update", express.json({ limit: "10mb" }), asy
       results.push({ post_id: target, ok: true, row: r + 1, written, skipped });
     }
     // ONE Sheets API call for all edits
-    await sheet.saveUpdatedCells();
+    await retrySheetsCall(() => sheet.saveUpdatedCells());
     res.json({
       ok: true,
       total: updates.length,
