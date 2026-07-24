@@ -17,6 +17,7 @@
 
 import fs from "fs/promises";
 import path from "path";
+import pg from "pg";
 
 const KEY_PREFIX = "rsession:";
 
@@ -97,6 +98,7 @@ export function normalizeSession(body) {
 // "replit-db" | "filesystem". `fsDir` is the on-disk fallback directory and
 // also the source for the one-time migration into the DB.
 export function createSessionStore(fsDir) {
+  const pgUrl = process.env.DATABASE_URL;
   const dbUrl = process.env.REPLIT_DB_URL;
   const useDb = !!dbUrl;
 
@@ -145,6 +147,102 @@ export function createSessionStore(fsDir) {
       }
     },
   };
+
+  // ---- PostgreSQL backend (preferred) ----
+  // DATABASE_URL is present in BOTH the dev workspace and deployments, and the
+  // data survives republishes — unlike the deployment's local disk, which is
+  // reset on every publish (that wipe is exactly the bug this fixes).
+  if (pgUrl) {
+    const pool = new pg.Pool({ connectionString: pgUrl, max: 3 });
+    let ready = null;
+    const ensureReady = () => {
+      if (!ready) {
+        ready = (async () => {
+          try {
+            await initOnce();
+          } catch (e) {
+            // Don't let a transient DB hiccup permanently poison the store —
+            // clear the memo so the next request retries initialization.
+            ready = null;
+            throw e;
+          }
+        })();
+      }
+      return ready;
+    };
+    const initOnce = async () => {
+          await pool.query(`CREATE TABLE IF NOT EXISTS review_sessions (
+            name TEXT PRIMARY KEY,
+            data JSONB NOT NULL,
+            saved_at BIGINT NOT NULL DEFAULT 0
+          )`);
+          // One-time, best-effort migration of any legacy sessions (old
+          // filesystem files and/or Replit DB keys) into Postgres, without
+          // clobbering rows that already exist there.
+          try {
+            const { rows } = await pool.query("SELECT name FROM review_sessions");
+            const existing = new Set(rows.map((r) => r.name));
+            const migrate = async (name, data) => {
+              if (!name || existing.has(name) || !data) return;
+              await pool.query(
+                "INSERT INTO review_sessions (name, data, saved_at) VALUES ($1, $2, $3) ON CONFLICT (name) DO NOTHING",
+                [name, JSON.stringify(data), data.savedAt || 0],
+              );
+              existing.add(name);
+            };
+            try {
+              const files = await fs.readdir(fsDir);
+              for (const f of files) {
+                if (!f.endsWith(".json")) continue;
+                try {
+                  await migrate(f.replace(/\.json$/, ""), JSON.parse(await fs.readFile(path.join(fsDir, f), "utf8")));
+                } catch { /* skip corrupt file */ }
+              }
+            } catch { /* no legacy dir */ }
+            if (dbUrl) {
+              try {
+                for (const key of await dbList(dbUrl, KEY_PREFIX)) {
+                  try {
+                    const raw = await dbGet(dbUrl, key);
+                    if (raw != null) await migrate(key.slice(KEY_PREFIX.length), JSON.parse(raw));
+                  } catch { /* skip corrupt value */ }
+                }
+              } catch { /* Replit DB unreachable */ }
+            }
+          } catch (e) {
+            console.warn("[review-sessions] legacy→Postgres migration skipped:", e?.message || e);
+          }
+    };
+
+    return {
+      backend: "postgres",
+      async list() {
+        await ensureReady();
+        const { rows } = await pool.query("SELECT name, data FROM review_sessions");
+        const out = rows.map((r) => summarize(r.name, r.data));
+        out.sort((a, b) => b.savedAt - a.savedAt);
+        return out;
+      },
+      async get(name) {
+        await ensureReady();
+        const { rows } = await pool.query("SELECT data FROM review_sessions WHERE name = $1", [name]);
+        return rows.length ? rows[0].data : null;
+      },
+      async put(name, data) {
+        await ensureReady();
+        await pool.query(
+          `INSERT INTO review_sessions (name, data, saved_at) VALUES ($1, $2, $3)
+           ON CONFLICT (name) DO UPDATE SET data = EXCLUDED.data, saved_at = EXCLUDED.saved_at`,
+          [name, JSON.stringify(data), data?.savedAt || Date.now()],
+        );
+      },
+      async del(name) {
+        await ensureReady();
+        const res = await pool.query("DELETE FROM review_sessions WHERE name = $1", [name]);
+        return res.rowCount > 0;
+      },
+    };
+  }
 
   if (!useDb) return fsBackend;
 
