@@ -645,8 +645,9 @@ export default function ReviewQueue({ betaMode = false } = {}) {
   };
 
   // Bulk-add: push every currently-selected event to the store at once.
+  // We only add events that are both selected (checked) AND approved/vetted!
   const addSelectedToCalendar = () => {
-    const sel = pending.filter(e => approvals[e.id]);
+    const sel = pending.filter(e => approvals[e.id] && approvedSet.has(e.id));
     if (sel.length === 0) return;
     const fresh = sel.map(e => ({
       ...e,
@@ -753,6 +754,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
   }, [pending, warnings, approvals, approvedSet, filter, searchTerm, sortByTag, highlightedGroup]);
 
   const approvedCount = pending.filter(e => approvals[e.id]).length;
+  const selectedApprovedCount = pending.filter(e => approvals[e.id] && approvedSet.has(e.id)).length;
   const flaggedCount = pending.filter(e => (warnings[e.id] || []).length > 0).length;
 
   // Filter-aware select-all toggle for the visible subset
@@ -1452,12 +1454,20 @@ export default function ReviewQueue({ betaMode = false } = {}) {
                   >
                     Un-approve
                   </button>
-                  <button
+                   <button
                     onClick={addSelectedToCalendar}
-                    style={{ ...B, background: "rgba(52,211,153,0.18)", borderColor: "rgba(52,211,153,0.5)", color: "#34D399", fontWeight: 700 }}
-                    title="Add every selected row to the calendar / store"
+                    disabled={selectedApprovedCount === 0}
+                    style={{
+                      ...B,
+                      background: selectedApprovedCount === 0 ? "rgba(52,211,153,0.04)" : "rgba(52,211,153,0.18)",
+                      borderColor: selectedApprovedCount === 0 ? "rgba(52,211,153,0.15)" : "rgba(52,211,153,0.5)",
+                      color: selectedApprovedCount === 0 ? "rgba(52,211,153,0.4)" : "#34D399",
+                      fontWeight: 700,
+                      cursor: selectedApprovedCount === 0 ? "not-allowed" : "pointer"
+                    }}
+                    title={selectedApprovedCount === 0 ? "No selected events are approved yet. Approve them first!" : "Add every selected approved row to the calendar / store"}
                   >
-                    + Add {approvedCount} to calendar
+                    + Add {selectedApprovedCount} to calendar
                   </button>
                   <button
                     onClick={deleteSelected}

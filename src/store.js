@@ -741,7 +741,7 @@ export const useEventsStore = create(
         if (toAdd.length) set({ events: [...existing, ...toAdd] });
         return { added: toAdd.length, skipped };
       },
-      clearEvents: () => set({ events: [], approvals: {}, vetted: [] }),
+      clearEvents: () => set({ events: [] }),
       // Vetted actions — array-backed for serialization. Accept either
       // a new array or an updater function for parity with React's
       // setState pattern.
