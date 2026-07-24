@@ -171,11 +171,28 @@ export default function ReviewQueue({ betaMode = false } = {}) {
     sortByTag,
   });
 
-  const applyLoadedSession = (payload, name) => {
-    // Cache the serialized payload FIRST before updating state to prevent triggering auto-save
-    loadedPayloadRef.current = serializeSession(payload);
+  const applyLoadedSession = (payload, name, isAutoLoad = false) => {
+    let shouldLoadEvents = true;
+    if (!isAutoLoad && Array.isArray(payload?.events) && payload.events.length > 0) {
+      shouldLoadEvents = window.confirm(
+        `This session was saved with ${payload.events.length} calendar event(s).\n\n` +
+        `Do you want to restore these events to the calendar?\n` +
+        `• Click OK to restore them (overwrites your current calendar).\n` +
+        `• Click Cancel to keep your current calendar (only restores the review queue).`
+      );
+    }
 
-    if (Array.isArray(payload?.events)) setEvents(payload.events);
+    const payloadToCache = { ...payload };
+    if (!shouldLoadEvents) {
+      // If we are skipping loading events, serialize the current events in cache
+      // so the next auto-save preserves our current calendar instead of the payload's calendar.
+      payloadToCache.events = events;
+    }
+
+    // Cache the serialized payload FIRST before updating state to prevent triggering auto-save
+    loadedPayloadRef.current = serializeSession(payloadToCache);
+
+    if (shouldLoadEvents && Array.isArray(payload?.events)) setEvents(payload.events);
     if (payload?.approvals && typeof payload.approvals === "object") setApprovals(payload.approvals);
     if (Array.isArray(payload?.vetted)) setVettedArr(payload.vetted);
     // Restore the triage queue so a mid-sweep session resumes with the same
@@ -200,7 +217,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
     (async () => {
       try {
         const payload = await loadSession(name);
-        applyLoadedSession(payload, name);
+        applyLoadedSession(payload, name, true);
       } catch (err) {
         // Session was deleted or Repl offline — clear the pointer so we
         // don't keep trying to load a ghost.
