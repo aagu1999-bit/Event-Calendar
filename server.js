@@ -506,6 +506,12 @@ app.put("/api/review-sessions/:name", express.json({ limit: "10mb" }), async (re
       ...normalizeSession(req.body),
       version: (Number(old?.version) || 0) + 1,
     }));
+    // Audit trail — full-overwrite saves are the riskiest write (they can
+    // clobber a partner's work), so always leave a timestamped trace in the
+    // deployment logs with before/after counts.
+    console.log(
+      `[sessions] FULL SAVE "${name}" v${data.version} — pending:${(data.pending || []).length} vetted:${(data.vetted || []).length} events:${(data.events || []).length}`
+    );
     res.json({ ok: true, savedAt: data.savedAt, version: data.version, backend: sessionStore.backend });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -520,9 +526,25 @@ app.post("/api/review-sessions/:name/merge", express.json({ limit: "10mb" }), as
   const name = safeSessionName(req.params.name);
   if (!name) return res.status(400).json({ error: "Invalid name" });
   try {
-    const merged = await sessionStore.update(name, (old) => applySessionOps(old, req.body?.ops));
+    const ops = req.body?.ops || {};
+    const merged = await sessionStore.update(name, (old) => applySessionOps(old, ops));
+    // Audit trail — one line per merge with what changed, so a "whose work
+    // went where and when" timeline can be reconstructed from the
+    // deployment logs after any sync mishap.
+    const opSummary = [
+      ops.upsertPending?.length ? `+${ops.upsertPending.length} rows` : "",
+      ops.removePending?.length ? `-${ops.removePending.length} rows` : "",
+      ops.addVetted?.length ? `+${ops.addVetted.length} vetted` : "",
+      ops.removeVetted?.length ? `-${ops.removeVetted.length} vetted` : "",
+      ops.setApprovals ? `${Object.keys(ops.setApprovals).length} approvals` : "",
+      ops.upsertEvents?.length ? `+${ops.upsertEvents.length} events` : "",
+    ].filter(Boolean).join(", ");
+    console.log(
+      `[sessions] MERGE "${name}" v${merged.version} — ${opSummary || "no-op"} → pending:${(merged.pending || []).length} vetted:${(merged.vetted || []).length}`
+    );
     res.json({ ok: true, session: merged, backend: sessionStore.backend });
   } catch (err) {
+    console.error(`[sessions] MERGE FAILED "${name}": ${err.message}`);
     res.status(500).json({ error: err.message });
   }
 });

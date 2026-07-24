@@ -1431,6 +1431,30 @@ export default function ReviewQueue({ betaMode = false } = {}) {
             </span>
           )}
 
+          {/* No-session warning chip — the silent-loss trap: without a
+              session attached, sweeps/edits live ONLY on this phone and
+              nothing ever syncs. Make that state impossible to miss. */}
+          {!lastSessionName && (
+            <span
+              title="Your work is only saved on this phone. Open Sessions and load (or save) a session so it syncs to the cloud and your partner."
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                fontSize: "0.6rem",
+                fontWeight: 800,
+                letterSpacing: "1px",
+                textTransform: "uppercase",
+                padding: "5px 10px",
+                borderRadius: "5px",
+                background: "rgba(239,68,68,0.12)",
+                border: "1px solid rgba(239,68,68,0.5)",
+                color: "#F87171",
+                whiteSpace: "nowrap",
+              }}
+            >⚠️ This phone only — not synced</span>
+          )}
+
           {/* Live-collab indicator: shows when 2+ devices are working in
               this session right now (partner on their phone, etc.). */}
           {lastSessionName && activeDevices > 1 && (
@@ -1484,6 +1508,28 @@ export default function ReviewQueue({ betaMode = false } = {}) {
             }}
           >🌐 Send to Website ({events.length})</button>
         </div>
+
+        {/* Sync-failure banner — when merges keep failing, the little
+            "Save Failed" chip is far too easy to miss on a phone. This
+            banner makes it unmistakable that work is stranded locally. */}
+        {lastSessionName && autoSaveStatus === "error" && (
+          <div style={{
+            marginBottom: "1rem",
+            padding: "12px 14px",
+            background: "rgba(239,68,68,0.14)",
+            border: "2px solid #EF4444",
+            borderRadius: "8px",
+            color: "#FCA5A5",
+            fontSize: "0.8rem",
+            lineHeight: 1.5,
+          }}>
+            <strong style={{ color: "#F87171" }}>⚠️ Your changes are NOT reaching the cloud.</strong>{" "}
+            They're safe on this phone, but your partner can't see them and they could be
+            lost if this page is cleared. Check your internet connection — the app retries
+            automatically. If this stays red for more than a minute, screenshot your work
+            before closing the tab.
+          </div>
+        )}
 
         {/* Weekly Regulars — master-sheet importer (step 1: no browse UI yet). */}
         <div style={{
