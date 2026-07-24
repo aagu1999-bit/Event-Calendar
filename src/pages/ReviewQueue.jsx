@@ -320,7 +320,24 @@ export default function ReviewQueue({ betaMode = false } = {}) {
     // Restore the triage queue so a mid-sweep session resumes with the same
     // flagged/clean/conflicting rows. Older sessions have no `pending` key —
     // leave the current queue untouched rather than blanking it.
-    if (Array.isArray(payload?.pending)) setPending(payload.pending);
+    //
+    // AUTO-load MERGES with what's already in the queue instead of replacing
+    // it. Reason: "send to Review" from the Scraper lands rows in the queue,
+    // then this auto-load resolves a moment later — a plain replace was
+    // silently wiping the freshly staged batch. Local-only rows survive and
+    // then sync UP to the shared session via the diff sync. A MANUAL load
+    // still replaces (the user explicitly asked for that session's state).
+    if (Array.isArray(payload?.pending)) {
+      if (isAutoLoad) {
+        setPending((prev) => {
+          const seen = new Set(payload.pending.map((e) => String(e.id)));
+          const localOnly = (prev || []).filter((e) => !seen.has(String(e.id)));
+          return [...payload.pending, ...localOnly];
+        });
+      } else {
+        setPending(payload.pending);
+      }
+    }
     if (typeof payload?.filter === "string" && payload.filter) setFilter(payload.filter);
     if (typeof payload?.sortByTag === "string" || payload?.sortByTag === null) setSortByTag(payload?.sortByTag || null);
 
