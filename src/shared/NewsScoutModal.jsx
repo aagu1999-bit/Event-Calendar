@@ -144,7 +144,15 @@ export function NewsScoutModal({ open, apiKey, onClose, onUse, onBuildCarousel }
         {c.kicker && <span style={{ fontSize: "0.55rem", letterSpacing: 1.2, textTransform: "uppercase", fontWeight: 800, color: "#E5BC4F" }}>{c.kicker}</span>}
         <span style={{ marginLeft: "auto", fontSize: "0.6rem", fontWeight: 800, color: scoreColor(c.score), fontFamily: "'Syne',sans-serif" }}>{c.score}<span style={{ color: "rgba(245,240,232,0.3)", fontWeight: 400 }}> fit</span></span>
       </div>
-      <div style={{ fontSize: "0.92rem", fontFamily: "'Syne',sans-serif", fontWeight: 700, lineHeight: 1.2, marginBottom: 5 }}>{c.headline}</div>
+      <div style={{ fontSize: "0.92rem", fontFamily: "'Syne',sans-serif", fontWeight: 700, lineHeight: 1.2, marginBottom: 5 }}>
+        {c.sourceUrl ? (
+          <a href={c.sourceUrl} target="_blank" rel="noopener noreferrer" style={{ color: "inherit", textDecoration: "underline", textDecorationColor: "rgba(229,188,79,0.5)" }}>
+            {c.headline} 🔗
+          </a>
+        ) : (
+          c.headline
+        )}
+      </div>
       {c.body && <div style={{ fontSize: "0.72rem", color: "rgba(245,240,232,0.75)", lineHeight: 1.5, marginBottom: 6 }}>{c.body}</div>}
       {c.whenWhere && <div style={{ fontSize: "0.62rem", color: "rgba(245,240,232,0.45)", marginBottom: 8 }}>📍 {c.whenWhere}</div>}
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>

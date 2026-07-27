@@ -1063,7 +1063,9 @@ async function sendDigest(items, to) {
   const rows = items.map((i) => `
     <tr><td style="padding:14px 0;border-bottom:1px solid #eee;">
       <div style="font-size:11px;letter-spacing:1px;color:#9a6a13;text-transform:uppercase;font-weight:700;">${esc(i.kicker)}${i.kicker ? " · " : ""}fit ${esc(i.score)}</div>
-      <div style="font-size:18px;font-weight:700;margin:4px 0;color:#141414;">${esc(i.headline)}</div>
+      <div style="font-size:18px;font-weight:700;margin:4px 0;">
+        ${i.sourceUrl ? `<a href="${i.sourceUrl}" target="_blank" style="color:#9a6a13;text-decoration:underline;">${esc(i.headline)}</a>` : `<span style="color:#141414;">${esc(i.headline)}</span>`}
+      </div>
       <div style="font-size:14px;color:#444;line-height:1.5;">${esc(i.body)}</div>
       ${i.whenWhere ? `<div style="font-size:12px;color:#888;margin-top:5px;">📍 ${esc(i.whenWhere)}</div>` : ""}
     </td></tr>`).join("");

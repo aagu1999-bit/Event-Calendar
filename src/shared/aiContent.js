@@ -280,7 +280,7 @@ export async function scoutNews({ apiKey, area = "New Jersey", focus = "", today
     "",
     "Return 8-14 plain-text bullets, each a DISTINCT happening. For each bullet give:",
     "WHAT is happening, WHERE (venue + town), WHEN in [brackets] e.g. [Jul 12], a one-line WHY IT",
-    "MATTERS, and the SOURCE (site/publication name).",
+    "MATTERS, the SOURCE (site/publication name), and the SOURCE URL if available.",
     "",
     "RULES:",
     "- Every bullet must trace to a REAL search result. Never invent a date/venue/price — if unconfirmed, say so.",
@@ -316,13 +316,14 @@ export async function scoutNews({ apiKey, area = "New Jersey", focus = "", today
     "- kicker: a 1-3 word ALL-CAPS eyebrow (e.g. THIS WEEKEND, JUST OPENED, BREAKING)",
     "- body: 1-2 tight sentences — what it is + why it matters, ready to drop into a slide",
     "- whenWhere: a short 'venue · town · [date]' line, or \"\" if unknown",
+    "- sourceUrl: the source URL link if present in the brief, else \"\"",
     "- score: the 0-100 number",
     "Rank best-first. Return 5-10 candidates.",
     "",
     "BRIEF:",
     brief,
     "",
-    'Return ONLY JSON in this exact shape: {"candidates":[{"headline":"...","kicker":"...","body":"...","whenWhere":"...","score":88}]}',
+    'Return ONLY JSON in this exact shape: {"candidates":[{"headline":"...","kicker":"...","body":"...","whenWhere":"...","sourceUrl":"...","score":88}]}',
   ].join("\n");
 
   let candidates = [];
@@ -341,6 +342,7 @@ export async function scoutNews({ apiKey, area = "New Jersey", focus = "", today
       kicker: String(c.kicker || "").trim(),
       body: String(c.body || "").trim(),
       whenWhere: String(c.whenWhere || "").trim(),
+      sourceUrl: String(c.sourceUrl || "").trim(),
       score: typeof c.score === "number" ? c.score : Number(c.score) || 0,
     }))
     .sort((a, b) => b.score - a.score);
