@@ -1067,20 +1067,30 @@ export default function CalendarBuilder() {
     if (!window.confirm(`Send ${payload.length} event${payload.length === 1 ? "" : "s"} to centralgroupevents.com?${skipped > 0 ? `\n\n(${skipped} without a date will be skipped.)` : ""}`)) return;
     setSendBusy(true); setSendMsg(null);
     try {
-      const r = await fetch("/api/website/events", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ events: payload }),
-      });
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok) {
-        const hint = r.status === 503 ? "Add CGE_INTEGRATION_TOKEN in this app's Replit Secrets (same value as the website)."
-          : r.status === 401 ? "Token mismatch — the website rejected it. Make sure both secrets are identical."
-          : (j.message || j.detail || `Server responded ${r.status}`);
-        throw new Error(hint);
+      // Send in small batches so a big list never trips the website's request
+      // body-size limit (Express defaults to ~100KB). 25 events ≈ 12KB/request.
+      // The upsert is idempotent per call, so batching can't create dupes.
+      const BATCH = 25;
+      let upserted = 0;
+      for (let i = 0; i < payload.length; i += BATCH) {
+        const chunk = payload.slice(i, i + BATCH);
+        const r = await fetch("/api/website/events", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ events: chunk }),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          const hint = r.status === 503 ? "Add CGE_INTEGRATION_TOKEN in this app's Replit Secrets (same value as the website)."
+            : r.status === 401 ? "Token mismatch — the website rejected it. Make sure both secrets are identical."
+            : r.status === 413 ? "The website rejected the payload as too large — its API needs a higher body limit (express.json limit)."
+            : (j.message || j.detail || `Server responded ${r.status}`);
+          throw new Error(payload.length > BATCH ? `Sent ${upserted} so far, then failed — ${hint}` : hint);
+        }
+        upserted += (typeof j.upserted === "number") ? j.upserted : chunk.length;
+        if (payload.length > BATCH) setSendMsg({ ok: true, text: `Sending… ${Math.min(i + BATCH, payload.length)}/${payload.length}` });
       }
-      const n = (typeof j.upserted === "number") ? j.upserted : payload.length;
-      setSendMsg({ ok: true, text: `Sent ${n} event${n === 1 ? "" : "s"} to your website calendar.${skipped > 0 ? ` (${skipped} undated skipped.)` : ""}` });
+      setSendMsg({ ok: true, text: `Sent ${upserted} event${upserted === 1 ? "" : "s"} to your website calendar.${skipped > 0 ? ` (${skipped} undated skipped.)` : ""}` });
     } catch (e) {
       setSendMsg({ ok: false, text: String(e?.message || e) });
     } finally {
