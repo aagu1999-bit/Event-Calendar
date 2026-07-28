@@ -1183,6 +1183,61 @@ function initScoutCron() {
   console.log(`[scout] cron armed — daily after ${scoutHour()}:00 (server time), area="${scoutArea()}", email→${scoutEmailTo()}${emailConfigured() ? "" : " (email OFF — set GMAIL_USER + GMAIL_APP_PASSWORD)"}${scoutKey() ? "" : " (NO GEMINI KEY — set GEMINI_API_KEY)"}`);
 }
 
+// === WEBSITE INTEGRATION (centralgroupevents.com) ===
+// Server-to-server bridge to the events website so the shared token never
+// reaches the browser (booking rows carry PII — email / phone). The token must
+// match CGE_INTEGRATION_TOKEN in the website's Replit Secrets; CGE_WEBSITE_URL
+// overrides the default production host. Pipe 1: pull promoter bookings so they
+// land in the Review queue instead of being retyped.
+const WEBSITE_BASE = (process.env.CGE_WEBSITE_URL || "https://centralgroupevents.com").replace(/\/+$/, "");
+const INTEGRATION_TOKEN = (process.env.CGE_INTEGRATION_TOKEN || "").trim();
+
+app.get("/api/website/bookings", async (req, res) => {
+  if (!INTEGRATION_TOKEN) {
+    return res.status(503).json({ error: "not_configured", message: "Set CGE_INTEGRATION_TOKEN in this app's Replit Secrets (same value as the website)." });
+  }
+  try {
+    const since = String(req.query.since || "").trim();
+    const url = new URL(`${WEBSITE_BASE}/api/integrations/bookings`);
+    if (since) url.searchParams.set("since", since);
+    const r = await fetch(url.href, {
+      headers: { Authorization: `Bearer ${INTEGRATION_TOKEN}`, Accept: "application/json" },
+    });
+    const text = await r.text();
+    if (!r.ok) {
+      return res.status(r.status === 401 ? 401 : 502).json({ error: "website_error", status: r.status, detail: text.slice(0, 300) });
+    }
+    let data; try { data = JSON.parse(text); } catch { data = {}; }
+    const bookings = Array.isArray(data) ? data : (Array.isArray(data.bookings) ? data.bookings : []);
+    res.json({ bookings });
+  } catch (e) {
+    res.status(502).json({ error: "fetch_failed", message: String(e?.message || e) });
+  }
+});
+
+// Pipe 2: push the refined event list to the website's calendar (upsert).
+app.post("/api/website/events", express.json({ limit: "4mb" }), async (req, res) => {
+  if (!INTEGRATION_TOKEN) {
+    return res.status(503).json({ error: "not_configured", message: "Set CGE_INTEGRATION_TOKEN in this app's Replit Secrets (same value as the website)." });
+  }
+  try {
+    const events = Array.isArray(req.body?.events) ? req.body.events : [];
+    const r = await fetch(`${WEBSITE_BASE}/api/integrations/events/upsert`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${INTEGRATION_TOKEN}`, "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ events }),
+    });
+    const text = await r.text();
+    if (!r.ok) {
+      return res.status(r.status === 401 ? 401 : 502).json({ error: "website_error", status: r.status, detail: text.slice(0, 300) });
+    }
+    let data; try { data = JSON.parse(text); } catch { data = {}; }
+    res.json(data);
+  } catch (e) {
+    res.status(502).json({ error: "fetch_failed", message: String(e?.message || e) });
+  }
+});
+
 // === VITE MIDDLEWARE / STATIC ===
 
 if (NODE_ENV === "production") {
