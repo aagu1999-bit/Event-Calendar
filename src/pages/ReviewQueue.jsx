@@ -1,7 +1,7 @@
 import { useState, useRef, useMemo, useEffect, Fragment } from "react";
 import * as XLSX from "xlsx";
 import { useEventsStore, useRegularsStore, useScraperIntakeStore } from "../store";
-import { parseRows, DAYFUL, getEmoji, sortChrono } from "../shared/parseEvents";
+import { parseRows, DAYFUL, getEmoji, sortChrono, parseRegion, parseDateToDay } from "../shared/parseEvents";
 import { computeWarnings, findFlagPartners } from "../shared/validateEvents";
 import { detectRegulars } from "../shared/regulars";
 import { normalizeHandle } from "../shared/parseEvents";
@@ -309,6 +309,91 @@ export default function ReviewQueue({ betaMode = false } = {}) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // === Website booking intake (Pipe 1) ===
+  // Pull promoter bookings from centralgroupevents.com (via the server proxy so
+  // the token + PII stay server-side) and drop new ones into the review queue.
+  // reference_id is the stable dedup key: already-imported ids are remembered in
+  // localStorage so bookings you delete here don't march back in on the next pull.
+  const IMPORTED_BOOKINGS_KEY = "cge_imported_bookings";
+  const [importBusy, setImportBusy] = useState(false);
+  const [importMsg, setImportMsg] = useState(null); // { ok, text } | null
+
+  const mapBooking = (b) => {
+    const ref = String(b.reference_id || b.id || "");
+    const di = b.event_date ? parseDateToDay(b.event_date) : null;
+    const type = (b.event_type === "Other" && b.event_type_other) ? b.event_type_other : (b.event_type || "");
+    return {
+      id: "booking_" + ref,
+      name: b.event_name || "(untitled booking)",
+      day: di?.day || "Fri",
+      date: di?.date || b.event_date || "",
+      time: b.event_time || "",
+      venue: b.venue_name || "",
+      area: b.city || "",
+      region: parseRegion(b.region) || "North",
+      type,
+      emoji: getEmoji(type),
+      igHandle: normalizeHandle(b.instagram_handle || ""),
+      link: "",
+      featured: false,
+      // Provenance + who to follow up with — kept so a booking is actionable,
+      // not just an event row.
+      _source: "website-booking",
+      _booking: {
+        reference_id: ref,
+        contact_name: b.contact_name || "",
+        email: b.email || "",
+        phone: b.phone || "",
+        budget_range: b.budget_range || "",
+        ready: b.ready_to_move_forward || "",
+        status: b.status || "",
+        created_at: b.created_at || "",
+      },
+    };
+  };
+
+  const importFromWebsite = async () => {
+    if (importBusy) return;
+    setImportBusy(true); setImportMsg(null);
+    try {
+      const r = await fetch("/api/website/bookings");
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        const hint = r.status === 503 ? "Add CGE_INTEGRATION_TOKEN in this app's Replit Secrets (same value as the website)."
+          : r.status === 401 ? "Token mismatch — the website rejected it. Make sure both secrets are identical."
+          : (j.message || j.detail || `Server responded ${r.status}`);
+        throw new Error(hint);
+      }
+      const bookings = Array.isArray(j.bookings) ? j.bookings : [];
+      let seen;
+      try { seen = new Set(JSON.parse(localStorage.getItem(IMPORTED_BOOKINGS_KEY) || "[]")); } catch { seen = new Set(); }
+      const fresh = [];
+      for (const b of bookings) {
+        const ref = String(b.reference_id || b.id || "");
+        if (!ref || seen.has(ref)) continue;
+        seen.add(ref);
+        fresh.push(mapBooking(b));
+      }
+      if (fresh.length) {
+        setPending((prev) => {
+          const existing = new Set(prev.map((e) => String(e.id)));
+          return [...prev, ...fresh.filter((e) => !existing.has(String(e.id)))];
+        });
+      }
+      try { localStorage.setItem(IMPORTED_BOOKINGS_KEY, JSON.stringify([...seen])); } catch {}
+      setImportMsg({
+        ok: true,
+        text: fresh.length
+          ? `Imported ${fresh.length} new booking${fresh.length === 1 ? "" : "s"} from your website.`
+          : "No new bookings — you're all caught up.",
+      });
+    } catch (e) {
+      setImportMsg({ ok: false, text: String(e?.message || e) });
+    } finally {
+      setImportBusy(false);
+    }
+  };
 
   // Column-mapper state. After file upload, raw rows + filename are
   // stashed here while the user picks how columns map to event fields.
@@ -929,6 +1014,22 @@ export default function ReviewQueue({ betaMode = false } = {}) {
             </button>
           </div>
         )}
+        {importMsg && (
+          <div style={{
+            padding: "10px 14px", marginBottom: "1rem",
+            background: importMsg.ok ? "rgba(99,179,237,0.1)" : "rgba(251,113,133,0.1)",
+            border: `1px solid ${importMsg.ok ? "rgba(99,179,237,0.4)" : "rgba(251,113,133,0.4)"}`,
+            borderLeft: `4px solid ${importMsg.ok ? "#63B3ED" : "#FB7185"}`,
+            borderRadius: 4, fontSize: "0.85rem", color: importMsg.ok ? "#63B3ED" : "#FB7185",
+            display: "flex", alignItems: "center", gap: 12,
+          }}>
+            <span style={{ flex: 1 }}>{importMsg.ok ? "✓ " : "⚠ "}{importMsg.text}</span>
+            <button onClick={() => setImportMsg(null)} style={{
+              background: "transparent", border: `1px solid ${importMsg.ok ? "rgba(99,179,237,0.4)" : "rgba(251,113,133,0.4)"}`,
+              color: importMsg.ok ? "#63B3ED" : "#FB7185", borderRadius: 3, padding: "2px 8px", fontSize: "0.75rem", cursor: "pointer",
+            }}>×</button>
+          </div>
+        )}
         <div style={{ display: "flex", alignItems: "baseline", gap: "1rem", marginBottom: "1rem", flexWrap: "wrap" }}>
           <h1 style={{ fontFamily: "'Syne', sans-serif", fontSize: "1.2rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: "2px" }}>
             Review Queue {betaMode && <span style={{ color: "#E5BC4F", letterSpacing: "1px" }}>Beta</span>}
@@ -984,6 +1085,16 @@ export default function ReviewQueue({ betaMode = false } = {}) {
           <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" onChange={handleFile} style={{ display: "none" }} />
           <button onClick={() => fileRef.current?.click()} style={Bgold}>
             {pending.length === 0 ? "Upload sheet" : "+ Add sheet"}
+          </button>
+          {/* Pipe 1 — pull promoter bookings from centralgroupevents.com into
+              the queue so they don't have to be retyped. */}
+          <button
+            onClick={importFromWebsite}
+            disabled={importBusy}
+            title="Pull new promoter bookings submitted on centralgroupevents.com into this review queue"
+            style={{ ...B, background: "rgba(99,179,237,0.12)", color: "#63B3ED", border: "1px solid rgba(99,179,237,0.4)", cursor: importBusy ? "wait" : "pointer" }}
+          >
+            {importBusy ? "⬇ Importing…" : "⬇ Import bookings from website"}
           </button>
           {/* Weekend Friday-date anchor — fills the date column on
               export AND stamps event.date when committing to the store
