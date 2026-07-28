@@ -1005,11 +1005,88 @@ function renderPreview(canvas, pageEvents, cfg) {
   ctx.textBaseline = "top";
 }
 
+// Turn a CGE "M/D" (or already-ISO) date into "YYYY-MM-DD" for the website
+// calendar, which stores full dates. CGE drops the year, so assume the nearest
+// upcoming occurrence: if the M/D landed more than ~2 months ago, roll to next
+// year. Passes an already-ISO date straight through.
+function toISODate(d) {
+  const raw = String(d || "").trim();
+  const iso = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (iso) return `${iso[1]}-${String(+iso[2]).padStart(2, "0")}-${String(+iso[3]).padStart(2, "0")}`;
+  const md = raw.match(/(\d{1,2})\D+(\d{1,2})/);
+  if (!md) return "";
+  const mm = +md[1], dd = +md[2];
+  const now = new Date();
+  let yr = now.getFullYear();
+  const cand = new Date(yr, mm - 1, dd);
+  if (cand.getTime() < now.getTime() - 60 * 86400000) yr += 1;
+  return `${yr}-${String(mm).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
+}
+
+// Map a CGE event to the website's `events` table shape. source_id lets the
+// website upsert (update-or-insert) without duplicating on re-send.
+function cgeEventToWebsite(ev) {
+  const region = ev.region ? `${ev.region} NJ`.replace(/ NJ NJ$/, " NJ") : "North NJ";
+  return {
+    source_id: "cge_" + ev.id,
+    title: ev.name || "Untitled event",
+    description: ev.description || [ev.type, ev.venue && `at ${ev.venue}`, ev.area].filter(Boolean).join(" · ") || "See flyer for details.",
+    date: toISODate(ev.date),
+    event_time: ev.time || "",
+    region,
+    city: ev.area || "",
+    venue: ev.venue || "",
+    image_url: ev.flyerUrl || "",
+    ticket_link: ev.link || "",
+    genre: ev.type || "",
+    instagram_handle: ev.igHandle || "",
+    is_featured: !!ev.featured,
+  };
+}
+
 // ==================== APP ====================
 export default function CalendarBuilder() {
   const events = useEventsStore(s => s.events);
   const setEvents = useEventsStore(s => s.updateEvents);
   const addEvents = useEventsStore(s => s.addEvents);
+
+  // === Send refined list to the website calendar (Pipe 2) ===
+  // Push the current events to centralgroupevents.com via the server proxy
+  // (token stays server-side). The website upserts by source_id, so re-sending
+  // updates rows instead of duplicating them.
+  const [sendBusy, setSendBusy] = useState(false);
+  const [sendMsg, setSendMsg] = useState(null); // { ok, text } | null
+  const sendToWebsite = async () => {
+    if (sendBusy) return;
+    const payload = events.map(cgeEventToWebsite).filter(e => e.title && e.date);
+    const skipped = events.length - payload.length;
+    if (payload.length === 0) {
+      setSendMsg({ ok: false, text: "No dated events to send — give each event a date first." });
+      return;
+    }
+    if (!window.confirm(`Send ${payload.length} event${payload.length === 1 ? "" : "s"} to centralgroupevents.com?${skipped > 0 ? `\n\n(${skipped} without a date will be skipped.)` : ""}`)) return;
+    setSendBusy(true); setSendMsg(null);
+    try {
+      const r = await fetch("/api/website/events", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ events: payload }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        const hint = r.status === 503 ? "Add CGE_INTEGRATION_TOKEN in this app's Replit Secrets (same value as the website)."
+          : r.status === 401 ? "Token mismatch — the website rejected it. Make sure both secrets are identical."
+          : (j.message || j.detail || `Server responded ${r.status}`);
+        throw new Error(hint);
+      }
+      const n = (typeof j.upserted === "number") ? j.upserted : payload.length;
+      setSendMsg({ ok: true, text: `Sent ${n} event${n === 1 ? "" : "s"} to your website calendar.${skipped > 0 ? ` (${skipped} undated skipped.)` : ""}` });
+    } catch (e) {
+      setSendMsg({ ok: false, text: String(e?.message || e) });
+    } finally {
+      setSendBusy(false);
+    }
+  };
   const [dayColors, setDayColors] = useState({ Fri: "yellow", Sat: "emerald", Sun: "gold" });
   // Default to the current week's Friday based on the user's system clock.
   // Excel imports with a real Date column override this in applyMapping().
@@ -1821,10 +1898,33 @@ export default function CalendarBuilder() {
                 <button onClick={() => setShowEd(!showEd)} style={B}>Bulk Editor</button>
                 <button onClick={() => fileRef.current?.click()} style={B}>Upload File</button>
                 <button onClick={() => setExportLibOpen(true)} title="Browse saved Calendar exports and reopen one to edit" style={{ ...B, background: "rgba(192,132,252,0.12)", color: "#C084FC" }}>📚 Open saved</button>
+                {events.length > 0 && (
+                  <button onClick={sendToWebsite} disabled={sendBusy}
+                    title="Push this refined event list to your centralgroupevents.com calendar"
+                    style={{ ...B, background: "rgba(52,211,153,0.12)", color: "#34D399", border: "1px solid rgba(52,211,153,0.4)", cursor: sendBusy ? "wait" : "pointer" }}>
+                    {sendBusy ? "⬆ Sending…" : "⬆ Send to website"}
+                  </button>
+                )}
                 <input ref={fileRef} type="file" accept=".csv,.tsv,.txt,.xlsx,.xls" onChange={handleFile} style={{ display: "none" }} />
                 <button onClick={() => { setEditId(null); setNev({ day: "Fri", time: "", name: "", venue: "", area: "", region: "North", type: "", igHandle: "", featured: false }); setShowAdd(!showAdd); }} style={{ ...B, background: "rgba(250,204,21,0.15)", color: "#FACC15" }}>+ Add</button>
               </div>
             </div>
+
+            {sendMsg && (
+              <div style={{
+                padding: "8px 12px", marginBottom: "0.4rem", borderRadius: 5, fontSize: "0.72rem",
+                display: "flex", alignItems: "center", gap: 10,
+                background: sendMsg.ok ? "rgba(52,211,153,0.1)" : "rgba(251,113,133,0.1)",
+                border: `1px solid ${sendMsg.ok ? "rgba(52,211,153,0.4)" : "rgba(251,113,133,0.4)"}`,
+                color: sendMsg.ok ? "#34D399" : "#FB7185",
+              }}>
+                <span style={{ flex: 1 }}>{sendMsg.ok ? "✓ " : "⚠ "}{sendMsg.text}</span>
+                <button onClick={() => setSendMsg(null)} style={{
+                  background: "transparent", border: `1px solid ${sendMsg.ok ? "rgba(52,211,153,0.4)" : "rgba(251,113,133,0.4)"}`,
+                  color: sendMsg.ok ? "#34D399" : "#FB7185", borderRadius: 3, padding: "1px 7px", fontSize: "0.7rem", cursor: "pointer",
+                }}>×</button>
+              </div>
+            )}
 
             {/* Column mapping */}
             {showMapping && colHeaders.length > 0 && (

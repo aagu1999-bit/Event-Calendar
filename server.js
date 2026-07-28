@@ -1215,6 +1215,29 @@ app.get("/api/website/bookings", async (req, res) => {
   }
 });
 
+// Pipe 2: push the refined event list to the website's calendar (upsert).
+app.post("/api/website/events", express.json({ limit: "4mb" }), async (req, res) => {
+  if (!INTEGRATION_TOKEN) {
+    return res.status(503).json({ error: "not_configured", message: "Set CGE_INTEGRATION_TOKEN in this app's Replit Secrets (same value as the website)." });
+  }
+  try {
+    const events = Array.isArray(req.body?.events) ? req.body.events : [];
+    const r = await fetch(`${WEBSITE_BASE}/api/integrations/events/upsert`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${INTEGRATION_TOKEN}`, "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ events }),
+    });
+    const text = await r.text();
+    if (!r.ok) {
+      return res.status(r.status === 401 ? 401 : 502).json({ error: "website_error", status: r.status, detail: text.slice(0, 300) });
+    }
+    let data; try { data = JSON.parse(text); } catch { data = {}; }
+    res.json(data);
+  } catch (e) {
+    res.status(502).json({ error: "fetch_failed", message: String(e?.message || e) });
+  }
+});
+
 // === VITE MIDDLEWARE / STATIC ===
 
 if (NODE_ENV === "production") {
