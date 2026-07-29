@@ -1238,6 +1238,29 @@ app.post("/api/website/events", express.json({ limit: "4mb" }), async (req, res)
   }
 });
 
+// Pipe (Guides): publish a whole themed guide page (title + editorial body +
+// listings) to the website in one call.
+app.post("/api/website/pages", express.json({ limit: "4mb" }), async (req, res) => {
+  if (!INTEGRATION_TOKEN) {
+    return res.status(503).json({ error: "not_configured", message: "Set CGE_INTEGRATION_TOKEN in this app's Replit Secrets (same value as the website)." });
+  }
+  try {
+    const r = await fetch(`${WEBSITE_BASE}/api/integrations/pages/upsert`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${INTEGRATION_TOKEN}`, "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(req.body || {}),
+    });
+    const text = await r.text();
+    if (!r.ok) {
+      return res.status(r.status === 401 ? 401 : 502).json({ error: "website_error", status: r.status, detail: text.slice(0, 300) });
+    }
+    let data; try { data = JSON.parse(text); } catch { data = {}; }
+    res.json(data);
+  } catch (e) {
+    res.status(502).json({ error: "fetch_failed", message: String(e?.message || e) });
+  }
+});
+
 // === VITE MIDDLEWARE / STATIC ===
 
 if (NODE_ENV === "production") {
