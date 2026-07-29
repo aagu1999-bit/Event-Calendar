@@ -44,6 +44,35 @@ function toListing(ev, weekendDates) {
   };
 }
 
+// Read an uploaded image, downscale it (max 1600px wide, JPEG q0.85) and return
+// a data URL. Downscaling keeps the hero from blowing past the payload limit —
+// the website stores whatever string lands in hero_image_url, and a data URI
+// renders as an <img src> the same as a hosted link.
+function fileToHeroDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    if (!/^image\//.test(file.type || "")) { reject(new Error("Pick an image file (JPG/PNG/WebP).")); return; }
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Couldn't read that image."));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("That file isn't a readable image."));
+      img.onload = () => {
+        const maxW = 1600;
+        const scale = Math.min(1, maxW / (img.width || maxW));
+        const w = Math.max(1, Math.round((img.width || maxW) * scale));
+        const h = Math.max(1, Math.round((img.height || maxW) * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = w; canvas.height = h;
+        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+        try { resolve(canvas.toDataURL("image/jpeg", 0.85)); }
+        catch (e) { reject(new Error("Couldn't process that image.")); }
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 const L = { fontSize: "0.6rem", color: "rgba(245,240,232,0.5)", letterSpacing: "1px", textTransform: "uppercase", fontWeight: 700, display: "block", marginBottom: 4 };
 const I = { width: "100%", padding: "8px 10px", background: "#111", border: "1px solid rgba(245,240,232,0.1)", borderRadius: 5, color: "#F5F0E8", fontFamily: "inherit", fontSize: "0.82rem", outline: "none", boxSizing: "border-box" };
 
@@ -53,11 +82,31 @@ export function PublishGuideModal({ open, apiKey, events = [], weekendDates = nu
   const [slugTouched, setSlugTouched] = useState(false);
   const [theme, setTheme] = useState("");
   const [heroUrl, setHeroUrl] = useState("");
+  const [heroDataUrl, setHeroDataUrl] = useState(""); // uploaded photo (downscaled data URL)
+  const [heroBusy, setHeroBusy] = useState(false);
   const [published, setPublished] = useState(false);
+  // Accepting submissions turns ON the event list / submission intake on the
+  // published page — a guide is meant to show its listings, so default it on.
+  const [acceptingSubmissions, setAcceptingSubmissions] = useState(true);
+  // Email gate stays on for guide pages by default (capture visitors before the
+  // list). Toggle is here in case a page should be open.
+  const [emailGate, setEmailGate] = useState(true);
   const [body, setBody] = useState("");
   const [genBusy, setGenBusy] = useState(false);
   const [pubBusy, setPubBusy] = useState(false);
   const [msg, setMsg] = useState(null); // { ok, text }
+
+  // Effective hero: an uploaded photo wins over a pasted URL.
+  const heroImage = heroDataUrl || heroUrl.trim();
+
+  const onHeroFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setHeroBusy(true); setMsg(null);
+    try { setHeroDataUrl(await fileToHeroDataUrl(file)); }
+    catch (err) { setMsg({ ok: false, text: String(err?.message || err) }); }
+    finally { setHeroBusy(false); if (e.target) e.target.value = ""; }
+  };
 
   useEffect(() => {
     if (open) { setMsg(null); }
@@ -98,8 +147,10 @@ export function PublishGuideModal({ open, apiKey, events = [], weekendDates = nu
         body: JSON.stringify({
           slug, title,
           body_content: body,
-          hero_image_url: heroUrl.trim() || undefined,
+          hero_image_url: heroImage || undefined,
           published,
+          accepting_submissions: acceptingSubmissions,
+          email_gate: emailGate,
           listings: valid,
         }),
       });
@@ -148,8 +199,20 @@ export function PublishGuideModal({ open, apiKey, events = [], weekendDates = nu
             <input value={theme} onChange={(e) => setTheme(e.target.value)} placeholder="Juneteenth" style={I} />
           </div>
           <div>
-            <label style={L}>Hero image URL <span style={{ textTransform: "none", color: "rgba(245,240,232,0.3)" }}>(optional)</span></label>
-            <input value={heroUrl} onChange={(e) => setHeroUrl(e.target.value)} placeholder="https://…" style={I} />
+            <label style={L}>Hero image <span style={{ textTransform: "none", color: "rgba(245,240,232,0.3)" }}>(optional — link or upload)</span></label>
+            <div style={{ display: "flex", gap: 6 }}>
+              <input value={heroDataUrl ? "" : heroUrl} onChange={(e) => setHeroUrl(e.target.value)} disabled={!!heroDataUrl} placeholder={heroDataUrl ? "Using uploaded photo" : "https://…"} style={{ ...I, opacity: heroDataUrl ? 0.5 : 1 }} />
+              <label title="Upload a photo" style={{ flexShrink: 0, display: "inline-flex", alignItems: "center", padding: "0 10px", background: "rgba(139,92,246,0.14)", color: "#A78BFA", border: "1px solid rgba(139,92,246,0.4)", borderRadius: 5, cursor: heroBusy ? "wait" : "pointer", fontSize: "0.7rem", fontWeight: 700 }}>
+                {heroBusy ? "…" : "📷"}
+                <input type="file" accept="image/*" onChange={onHeroFile} style={{ display: "none" }} />
+              </label>
+            </div>
+            {heroDataUrl && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
+                <img src={heroDataUrl} alt="hero preview" style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 4, border: "1px solid rgba(245,240,232,0.15)" }} />
+                <button onClick={() => setHeroDataUrl("")} style={{ background: "transparent", border: "1px solid rgba(251,113,133,0.4)", color: "#FB7185", borderRadius: 4, padding: "3px 8px", fontSize: "0.66rem", cursor: "pointer" }}>Remove photo</button>
+              </div>
+            )}
           </div>
         </div>
 
@@ -164,6 +227,16 @@ export function PublishGuideModal({ open, apiKey, events = [], weekendDates = nu
           <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={7} placeholder="Write, or hit ✨ Generate — an intro in your CGE voice grounded in NJ + Black culture. Editable before you publish." style={{ ...I, resize: "vertical", lineHeight: 1.5 }} />
         </div>
 
+        <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 10, flexWrap: "wrap" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: "0.8rem", color: "#F5F0E8", cursor: "pointer" }}>
+            <input type="checkbox" checked={acceptingSubmissions} onChange={(e) => setAcceptingSubmissions(e.target.checked)} style={{ accentColor: "#63B3ED" }} />
+            Accepting submissions <span style={{ color: "rgba(245,240,232,0.4)", fontSize: "0.72rem" }}>(turns on the event list)</span>
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: "0.8rem", color: "#F5F0E8", cursor: "pointer" }}>
+            <input type="checkbox" checked={emailGate} onChange={(e) => setEmailGate(e.target.checked)} style={{ accentColor: "#E5BC4F" }} />
+            Email gate <span style={{ color: "rgba(245,240,232,0.4)", fontSize: "0.72rem" }}>(capture email before the list)</span>
+          </label>
+        </div>
         <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 16, flexWrap: "wrap" }}>
           <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: "0.8rem", color: "#F5F0E8", cursor: "pointer" }}>
             <input type="checkbox" checked={published} onChange={(e) => setPublished(e.target.checked)} style={{ accentColor: "#34D399" }} />
