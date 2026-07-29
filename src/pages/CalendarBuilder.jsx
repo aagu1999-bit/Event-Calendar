@@ -1026,13 +1026,16 @@ function toISODate(d) {
 
 // Map a CGE event to the website's `events` table shape. source_id lets the
 // website upsert (update-or-insert) without duplicating on re-send.
-function cgeEventToWebsite(ev) {
+function cgeEventToWebsite(ev, weekendDates) {
   const region = ev.region ? `${ev.region} NJ`.replace(/ NJ NJ$/, " NJ") : "North NJ";
+  // Weekend events carry only a day (Fri/Sat/Sun); fill the real date from the
+  // weekend anchor when the event has no explicit date of its own.
+  const rawDate = String(ev.date || "").trim() || (weekendDates && weekendDates[ev.day]) || "";
   return {
     source_id: "cge_" + ev.id,
     title: ev.name || "Untitled event",
     description: ev.description || [ev.type, ev.venue && `at ${ev.venue}`, ev.area].filter(Boolean).join(" · ") || "See flyer for details.",
-    date: toISODate(ev.date),
+    date: toISODate(rawDate),
     event_time: ev.time || "",
     region,
     city: ev.area || "",
@@ -1068,7 +1071,8 @@ export default function CalendarBuilder() {
   const [sendMsg, setSendMsg] = useState(null); // { ok, text } | null
   const sendToWebsite = async () => {
     if (sendBusy) return;
-    const payload = events.map(cgeEventToWebsite).filter(e => e.title && e.date);
+    const wkDates = calcDates(friDate);
+    const payload = events.map(e => cgeEventToWebsite(e, wkDates)).filter(e => e.title && e.date);
     const skipped = events.length - payload.length;
     if (payload.length === 0) {
       setSendMsg({ ok: false, text: "No dated events to send — give each event a date first." });
@@ -2240,6 +2244,7 @@ export default function CalendarBuilder() {
         open={guideOpen}
         apiKey={guideKey}
         events={sel.size > 0 ? events.filter(e => sel.has(e.id)) : events}
+        weekendDates={dates}
         voice={brandVoice}
         onClose={() => setGuideOpen(false)}
       />

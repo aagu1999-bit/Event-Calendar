@@ -29,13 +29,16 @@ function toISO(d) {
   return `${yr}-${String(mm).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
 }
 
-function toListing(ev) {
+function toListing(ev, weekendDates) {
+  // Weekend events only carry a day (Fri/Sat/Sun) — fill the real date from the
+  // weekend anchor so they aren't dropped as "undated".
+  const rawDate = String(ev.date || "").trim() || (weekendDates && weekendDates[ev.day]) || "";
   return {
     name: ev.name || "",
     event_type: ev.type || "",
     city: ev.area || "",
     region: ev.region ? `${ev.region} NJ`.replace(/ NJ NJ$/, " NJ") : "",
-    date: toISO(ev.date),
+    date: toISO(rawDate),
     instagram_handle: ev.igHandle || "",
     learn_more_url: ev.link || "",
   };
@@ -44,7 +47,7 @@ function toListing(ev) {
 const L = { fontSize: "0.6rem", color: "rgba(245,240,232,0.5)", letterSpacing: "1px", textTransform: "uppercase", fontWeight: 700, display: "block", marginBottom: 4 };
 const I = { width: "100%", padding: "8px 10px", background: "#111", border: "1px solid rgba(245,240,232,0.1)", borderRadius: 5, color: "#F5F0E8", fontFamily: "inherit", fontSize: "0.82rem", outline: "none", boxSizing: "border-box" };
 
-export function PublishGuideModal({ open, apiKey, events = [], voice = null, onClose }) {
+export function PublishGuideModal({ open, apiKey, events = [], weekendDates = null, voice = null, onClose }) {
   const [title, setTitle] = useState("");
   const [slug, setSlug] = useState("");
   const [slugTouched, setSlugTouched] = useState(false);
@@ -63,7 +66,7 @@ export function PublishGuideModal({ open, apiKey, events = [], voice = null, onC
   // Auto-derive the slug from the title until the user edits the slug directly.
   useEffect(() => { if (!slugTouched) setSlug(slugify(title)); }, [title, slugTouched]);
 
-  const listings = useMemo(() => events.map(toListing), [events]);
+  const listings = useMemo(() => events.map(e => toListing(e, weekendDates)), [events, weekendDates]);
   const valid = listings.filter(l => l.name && l.date);
   const skipped = listings.length - valid.length;
 
