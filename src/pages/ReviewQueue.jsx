@@ -547,6 +547,13 @@ export default function ReviewQueue({ betaMode = false } = {}) {
   const IMPORTED_BOOKINGS_KEY = "cge_imported_bookings";
   const [importBusy, setImportBusy] = useState(false);
   const [importMsg, setImportMsg] = useState(null); // { ok, text } | null
+  // Weekend filter (default ON): only pull bookings whose event date lands on
+  // the reviewed Fri/Sat/Sun. Flip to import every date regardless. Persisted
+  // so the choice sticks between visits.
+  const [importAllDates, setImportAllDates] = useState(() => {
+    try { return localStorage.getItem("cge_import_all_dates") === "true"; } catch { return false; }
+  });
+  useEffect(() => { try { localStorage.setItem("cge_import_all_dates", String(importAllDates)); } catch {} }, [importAllDates]);
 
   const mapBooking = (b) => {
     const ref = String(b.reference_id || b.id || "");
@@ -595,12 +602,34 @@ export default function ReviewQueue({ betaMode = false } = {}) {
         throw new Error(hint);
       }
       const bookings = Array.isArray(j.bookings) ? j.bookings : [];
+
+      // Weekend-aware filter. Build a {month/day} set from the reviewed weekend
+      // and match each booking's event date on month/day only — so ISO
+      // (YYYY-MM-DD) vs M/D vs any timezone drift can't wrongly drop a match.
+      const mdOf = (raw) => {
+        const s = String(raw || "").trim();
+        const iso = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+        if (iso) return `${parseInt(iso[2])}/${parseInt(iso[3])}`;
+        const md = s.match(/^(\d{1,2})[/-](\d{1,2})/);
+        if (md) return `${parseInt(md[1])}/${parseInt(md[2])}`;
+        return null;
+      };
+      const wkSet = new Set([weekendDates.Fri, weekendDates.Sat, weekendDates.Sun]
+        .filter(Boolean).map((md) => mdOf(md)).filter(Boolean));
+
       let seen;
       try { seen = new Set(JSON.parse(localStorage.getItem(IMPORTED_BOOKINGS_KEY) || "[]")); } catch { seen = new Set(); }
       const fresh = [];
+      let offWeekend = 0; // new bookings hidden by the weekend filter
       for (const b of bookings) {
         const ref = String(b.reference_id || b.id || "");
         if (!ref || seen.has(ref)) continue;
+        if (!importAllDates) {
+          const md = mdOf(b.event_date);
+          // Off-weekend (and undated) bookings are skipped WITHOUT marking them
+          // seen, so toggling "All dates" later still pulls them in.
+          if (!md || !wkSet.has(md)) { offWeekend++; continue; }
+        }
         seen.add(ref);
         fresh.push(mapBooking(b));
       }
@@ -611,11 +640,14 @@ export default function ReviewQueue({ betaMode = false } = {}) {
         });
       }
       try { localStorage.setItem(IMPORTED_BOOKINGS_KEY, JSON.stringify([...seen])); } catch {}
+      const wkLabel = `${weekendDates.Fri}–${weekendDates.Sun}`;
       setImportMsg({
         ok: true,
         text: fresh.length
-          ? `Imported ${fresh.length} new booking${fresh.length === 1 ? "" : "s"} from your website.`
-          : "No new bookings — you're all caught up.",
+          ? `Imported ${fresh.length} new booking${fresh.length === 1 ? "" : "s"}${importAllDates ? "" : ` for ${wkLabel}`}.${offWeekend ? ` (${offWeekend} on other dates hidden — toggle “All dates” to include them.)` : ""}`
+          : (offWeekend
+              ? `No new bookings for ${wkLabel}. ${offWeekend} booking${offWeekend === 1 ? "" : "s"} on other dates — toggle “All dates” to see ${offWeekend === 1 ? "it" : "them"}.`
+              : "No new bookings — you're all caught up."),
       });
     } catch (e) {
       setImportMsg({ ok: false, text: String(e?.message || e) });
@@ -1325,6 +1357,17 @@ export default function ReviewQueue({ betaMode = false } = {}) {
           >
             {importBusy ? "⬇ Importing…" : "⬇ Import bookings from website"}
           </button>
+          {/* Weekend filter toggle — by default only bookings for the reviewed
+              Fri–Sun come in; flip on to pull every date. */}
+          <label
+            title={importAllDates
+              ? "Importing bookings for every date"
+              : `Only importing bookings for the reviewed weekend (${weekendDates.Fri}–${weekendDates.Sun})`}
+            style={{ display: "inline-flex", alignItems: "center", gap: "5px", fontSize: "0.62rem", letterSpacing: "0.5px", textTransform: "uppercase", color: "rgba(99,179,237,0.85)", cursor: "pointer", userSelect: "none" }}
+          >
+            <input type="checkbox" checked={importAllDates} onChange={(e) => setImportAllDates(e.target.checked)} style={{ accentColor: "#63B3ED", cursor: "pointer" }} />
+            All dates
+          </label>
           {/* Weekend Friday-date anchor — fills the date column on
               export AND stamps event.date when committing to the store
               (via + Add). Default = upcoming Friday. Sat/Sun derive

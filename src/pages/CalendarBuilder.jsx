@@ -1078,7 +1078,24 @@ export default function CalendarBuilder() {
       setSendMsg({ ok: false, text: "No dated events to send — give each event a date first." });
       return;
     }
-    if (!window.confirm(`Send ${payload.length} event${payload.length === 1 ? "" : "s"} to centralgroupevents.com?${skipped > 0 ? `\n\n(${skipped} without a date will be skipped.)` : ""}`)) return;
+
+    // --- Pre-flight summary ---------------------------------------------
+    // Before anything leaves, show exactly what's going: how many send, how
+    // many get skipped (undated), the region spread, and the featured count.
+    // Catches "why did only 1 go?" surprises before the send, not after.
+    const regionCounts = {};
+    payload.forEach((p) => { const k = p.region || "—"; regionCounts[k] = (regionCounts[k] || 0) + 1; });
+    const regionLine = Object.entries(regionCounts).sort((a, b) => b[1] - a[1]).map(([r, n]) => `  • ${r}: ${n}`).join("\n");
+    const featuredN = payload.filter((p) => p.is_featured).length;
+    const preflight =
+      `Send to centralgroupevents.com — pre-flight\n\n` +
+      `✓ ${payload.length} event${payload.length === 1 ? "" : "s"} will be sent` +
+      (skipped > 0 ? `\n✗ ${skipped} will be skipped (no date)` : ``) +
+      (featuredN > 0 ? `\n★ ${featuredN} featured` : ``) +
+      `\n\nBy region:\n${regionLine}` +
+      `\n\nThe site upserts by ID, so re-sending updates rows (no duplicates).\n\nProceed?`;
+    if (!window.confirm(preflight)) return;
+
     setSendBusy(true); setSendMsg(null);
     try {
       // Send in small batches so a big list never trips the website's request
@@ -1086,6 +1103,7 @@ export default function CalendarBuilder() {
       // The upsert is idempotent per call, so batching can't create dupes.
       const BATCH = 25;
       let upserted = 0;
+      let countReported = true; // did the site return real upsert counts?
       for (let i = 0; i < payload.length; i += BATCH) {
         const chunk = payload.slice(i, i + BATCH);
         const r = await fetch("/api/website/events", {
@@ -1101,10 +1119,25 @@ export default function CalendarBuilder() {
             : (j.message || j.detail || `Server responded ${r.status}`);
           throw new Error(payload.length > BATCH ? `Sent ${upserted} so far, then failed — ${hint}` : hint);
         }
-        upserted += (typeof j.upserted === "number") ? j.upserted : chunk.length;
+        if (typeof j.upserted === "number") upserted += j.upserted;
+        else { upserted += chunk.length; countReported = false; }
         if (payload.length > BATCH) setSendMsg({ ok: true, text: `Sending… ${Math.min(i + BATCH, payload.length)}/${payload.length}` });
       }
-      setSendMsg({ ok: true, text: `Sent ${upserted} event${upserted === 1 ? "" : "s"} to your website calendar.${skipped > 0 ? ` (${skipped} undated skipped.)` : ""}` });
+      // --- Post-send read-back check ------------------------------------
+      // Verify the website confirmed saving as many rows as we sent. When it
+      // reports fewer, surface the gap instead of a blind "success".
+      const skTail = skipped > 0 ? ` (${skipped} undated skipped.)` : "";
+      if (countReported && upserted !== payload.length) {
+        setSendMsg({
+          ok: false,
+          text: `⚠ Sent ${payload.length} but the website confirmed only ${upserted} saved — ${payload.length - upserted} may not have gone through. Re-send to retry (upsert won't duplicate).${skTail}`,
+        });
+      } else {
+        setSendMsg({
+          ok: true,
+          text: `✓ Sent ${payload.length} event${payload.length === 1 ? "" : "s"} — ${countReported ? `website confirmed all ${upserted} saved` : "delivered"}.${skTail}`,
+        });
+      }
     } catch (e) {
       setSendMsg({ ok: false, text: String(e?.message || e) });
     } finally {
