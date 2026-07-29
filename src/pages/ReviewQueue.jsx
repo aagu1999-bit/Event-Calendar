@@ -12,6 +12,7 @@ import { ColumnMapperModal } from "../shared/ColumnMapperModal.jsx";
 import { ConflictSweepModal } from "../shared/ConflictSweepModal.jsx";
 import { CleanSweepModal } from "../shared/CleanSweepModal.jsx";
 import { FixFlagsModal } from "../shared/FixFlagsModal.jsx";
+import { ScreenshotEventModal } from "../shared/ScreenshotEventModal.jsx";
 import { saveExport } from "../shared/photoLibrary.js";
 import { rememberLastSession, getLastSession, forgetLastSession, loadSession, mergeSession, pingPresence, rememberServerPendingIds, getServerPendingIds } from "../shared/reviewSessions.js";
 
@@ -662,6 +663,21 @@ export default function ReviewQueue({ betaMode = false } = {}) {
   const [mapperOpen, setMapperOpen] = useState(false);
   const [importRows, setImportRows] = useState(null);
   const [importFileName, setImportFileName] = useState("");
+  // Screenshot → Event AI intake. One-off "I saw this on my timeline" flow
+  // that fills the gap the scraper misses — a single event extracted from a
+  // poster/IG screenshot, previewed + edited, then dropped into pending. The
+  // Gemini key is the same one the Media tab saves.
+  const [screenshotOpen, setScreenshotOpen] = useState(false);
+  const screenshotKey = (() => {
+    const envKey = (import.meta.env.VITE_GEMINI_API_KEY || "").trim();
+    try { return envKey || localStorage.getItem("cge_gemini_key") || ""; } catch { return envKey; }
+  })();
+  const addScreenshotEvent = (ev) => {
+    setPending((prev) => {
+      const seen = new Set(prev.map((e) => String(e.id)));
+      return seen.has(String(ev.id)) ? prev : [...prev, ev];
+    });
+  };
   // Approval and vetting states (moved to top).
   // Mobile-only Sweep Mode — focused one-conflict-group-at-a-time
   // triage. Button surfaces under .cge-mobile-only CSS so desktop users
@@ -1346,6 +1362,15 @@ export default function ReviewQueue({ betaMode = false } = {}) {
           <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" onChange={handleFile} style={{ display: "none" }} />
           <button onClick={() => fileRef.current?.click()} style={Bgold}>
             {pending.length === 0 ? "Upload sheet" : "+ Add sheet"}
+          </button>
+          {/* Screenshot → Event: AI vision fills the gap the scraper misses.
+              One-off intake for "I just saw this on my timeline." */}
+          <button
+            onClick={() => setScreenshotOpen(true)}
+            title="Drop a flyer or IG screenshot — AI extracts the event and drops it in the queue for you to check."
+            style={{ ...B, background: "rgba(139,92,246,0.14)", color: "#A78BFA", border: "1px solid rgba(139,92,246,0.4)" }}
+          >
+            📸 Add from screenshot
           </button>
           {/* Pipe 1 — pull promoter bookings from centralgroupevents.com into
               the queue so they don't have to be retyped. */}
@@ -2508,6 +2533,14 @@ export default function ReviewQueue({ betaMode = false } = {}) {
           }
         }}
         onClose={() => setFixFlagsOpen(false)}
+      />
+
+      <ScreenshotEventModal
+        open={screenshotOpen}
+        apiKey={screenshotKey}
+        weekendDates={weekendDates}
+        onAdd={addScreenshotEvent}
+        onClose={() => setScreenshotOpen(false)}
       />
     </div>
   );

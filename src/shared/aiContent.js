@@ -596,6 +596,80 @@ export async function readFlyer({ apiKey, image, mimeType = "image/png" } = {}) 
   return { name, breakdown };
 }
 
+// === SCREENSHOT → EVENT ROW — Vision-extract a single event from a poster / IG
+// post / story so the operator can add it to the Review queue without retyping.
+// Returns { event, aiFilled } where aiFilled lists which fields the AI actually
+// populated (blank fields stay blank rather than getting hallucinated) so the
+// modal can put ✨ markers on them for preview-and-edit. Only NAME is required
+// — everything else is best-effort and falls back to empty.
+export async function screenshotToEvent({ apiKey, image, mimeType = "image/png", weekendDates = null } = {}) {
+  if (!apiKey) throw new Error("Missing Gemini API key");
+  if (!image) throw new Error("No screenshot provided");
+  const b64 = String(image).startsWith("data:") ? String(image).split(",")[1] : String(image);
+  const mt = String(image).startsWith("data:")
+    ? (String(image).slice(5).split(";")[0] || mimeType)
+    : mimeType;
+
+  const anchor = (weekendDates && (weekendDates.Fri || weekendDates.Sat || weekendDates.Sun))
+    ? `The operator is reviewing this weekend: Fri ${weekendDates.Fri || "?"}, Sat ${weekendDates.Sat || "?"}, Sun ${weekendDates.Sun || "?"} (M/D). If the image only says a day of week (e.g. "Friday") with no explicit date, that day maps to the corresponding date above.`
+    : "";
+
+  const prompt = [
+    "You are extracting event details from a screenshot (Instagram post/story, flyer, graphic) for Central Group Events — a Black-culture events media brand in New Jersey. The result drops into the operator's review queue.",
+    "",
+    "Return ONLY JSON in this exact shape (use \"\" for anything not clearly visible):",
+    '{"name":"","day":"","date":"","time":"","venue":"","area":"","region":"","type":"","igHandle":"","link":""}',
+    "",
+    "FIELDS:",
+    "- name: the EVENT name, Title Case. Not the venue, not the poster's handle.",
+    "- day: exactly \"Fri\", \"Sat\", or \"Sun\" (from the day-of-week shown). Empty if unclear.",
+    "- date: M/D only (e.g. \"7/31\"). Only if a specific date is visible.",
+    "- time: as shown (\"9 PM\", \"1-4 PM\", \"10PM-2AM\").",
+    "- venue: venue NAME (e.g. \"Cafe Bello\"). Not the city.",
+    "- area: CITY only, no state (e.g. \"Newark\", \"Elizabeth\").",
+    "- region: exactly \"North\", \"Central\", or \"South\" for the NJ region. IMPORTANT: Union County cities (Elizabeth, Union, Hillside, Clark, Linden, Rahway, Kenilworth, Roselle, Roselle Park, Cranford, Summit, Berkeley Heights, Garwood, Mountainside, New Providence, Plainfield, Scotch Plains, Springfield, Westfield) are LOCALLY North per the operator's convention — not Central. Empty if outside NJ or unclear.",
+    "- type: one of these categories if it fits (uppercase): DJ NIGHT, PARTY, DAY PARTY, BRUNCH, HAPPY HOUR, LIVE MUSIC, CONCERT, KARAOKE, COMEDY, TRIVIA, POP-UP, MARKET, YOGA, FITNESS, ART, WORKSHOP, MOVIE SCREENING, MIXER, SPEED DATING, FESTIVAL, CAR SHOW, LOUNGE, GAME NIGHT, OPEN MIC, SIP AND PAINT. Empty if none fits.",
+    "- igHandle: primary account's @handle (host/organizer/DJ). Include the @. Empty if none visible.",
+    "- link: a full event URL (tickets, RSVP) only if a clear URL is shown. Empty otherwise.",
+    "",
+    anchor,
+    "",
+    "RULES:",
+    "- Only include what's actually visible in the image. Never invent a date, venue, price, handle, or URL.",
+    "- If unsure, leave the field as \"\" — the operator will fill it in.",
+  ].filter(Boolean).join("\n");
+
+  const data = await geminiGenerate(apiKey, {
+    contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mt, data: b64 } }] }],
+    generationConfig: { responseMimeType: "application/json", temperature: 0.2 },
+  }, { model: "gemini-2.5-flash" });
+
+  const parsed = extractJson(extractResponseText(data)) || {};
+  const clean = (v) => String(v || "").trim();
+  const dayMap = { friday: "Fri", saturday: "Sat", sunday: "Sun", fri: "Fri", sat: "Sat", sun: "Sun" };
+  const day = dayMap[clean(parsed.day).toLowerCase()] || "";
+  const rawRegion = clean(parsed.region);
+  const region = /^n/i.test(rawRegion) ? "North" : /^c/i.test(rawRegion) ? "Central" : /^s/i.test(rawRegion) ? "South" : "";
+
+  const event = {
+    name: clean(parsed.name),
+    day,
+    date: clean(parsed.date),
+    time: clean(parsed.time),
+    venue: clean(parsed.venue),
+    area: clean(parsed.area),
+    region,
+    type: clean(parsed.type).toUpperCase(),
+    igHandle: clean(parsed.igHandle),
+    link: clean(parsed.link),
+  };
+
+  if (!event.name) throw new Error("Couldn't read an event from that screenshot — try a clearer image.");
+
+  const aiFilled = Object.entries(event).filter(([, v]) => v).map(([k]) => k);
+  return { event, aiFilled };
+}
+
 // === GUIDE COMMENTARY — the editorial write-up for a website guide page ===
 // Writes the 2-3 paragraph intro that sits above a guide's event listings (the
 // centralgroupevents.com "Pages" body). Voiced from the Brand Kit so it reads
