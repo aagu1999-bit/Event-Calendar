@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import * as XLSX from "xlsx";
-import { useEventsStore, useRestoreStore } from "../store";
+import { useEventsStore, useRestoreStore, useBrandStore } from "../store";
+import { PublishGuideModal } from "../shared/PublishGuideModal.jsx";
 import { EMOJI_MAP, getEmoji as getEmojiShared, parseRegion as parseRegionShared, normalizeHandle, buildSrcRow } from "../shared/parseEvents";
 import { UInput, UTextarea, todaysFridayMD } from "../shared/inputs.jsx";
 import { savePhotoAndNotify, saveExport } from "../shared/photoLibrary.js";
@@ -1050,6 +1051,15 @@ export default function CalendarBuilder() {
   const setEvents = useEventsStore(s => s.updateEvents);
   const addEvents = useEventsStore(s => s.addEvents);
 
+  // Publish-to-Guide (themed website page). Uses the Brand Kit voice for the
+  // AI write-up and the same Gemini key the Media tab saves.
+  const brandVoice = useBrandStore(s => s.voice);
+  const [guideOpen, setGuideOpen] = useState(false);
+  const guideKey = (() => {
+    const envKey = (import.meta.env.VITE_GEMINI_API_KEY || "").trim();
+    try { return envKey || localStorage.getItem("cge_gemini_key") || ""; } catch { return envKey; }
+  })();
+
   // === Send refined list to the website calendar (Pipe 2) ===
   // Push the current events to centralgroupevents.com via the server proxy
   // (token stays server-side). The website upserts by source_id, so re-sending
@@ -1915,6 +1925,13 @@ export default function CalendarBuilder() {
                     {sendBusy ? "⬆ Sending…" : "⬆ Send to website"}
                   </button>
                 )}
+                {events.length > 0 && (
+                  <button onClick={() => setGuideOpen(true)}
+                    title="Publish these events as a themed GUIDE page (with an AI write-up) on your site"
+                    style={{ ...B, background: "rgba(139,92,246,0.14)", color: "#A78BFA", border: "1px solid rgba(139,92,246,0.4)" }}>
+                    📄 Publish to guide{sel.size > 0 ? ` (${sel.size})` : ""}
+                  </button>
+                )}
                 <input ref={fileRef} type="file" accept=".csv,.tsv,.txt,.xlsx,.xls" onChange={handleFile} style={{ display: "none" }} />
                 <button onClick={() => { setEditId(null); setNev({ day: "Fri", time: "", name: "", venue: "", area: "", region: "North", type: "", igHandle: "", featured: false }); setShowAdd(!showAdd); }} style={{ ...B, background: "rgba(250,204,21,0.15)", color: "#FACC15" }}>+ Add</button>
               </div>
@@ -2218,6 +2235,13 @@ export default function CalendarBuilder() {
         sourceTool="calendar"
         title="Saved Calendars"
         hint="Click any to reopen it — events + styling restore here in this tab."
+      />
+      <PublishGuideModal
+        open={guideOpen}
+        apiKey={guideKey}
+        events={sel.size > 0 ? events.filter(e => sel.has(e.id)) : events}
+        voice={brandVoice}
+        onClose={() => setGuideOpen(false)}
       />
     </div>
   );

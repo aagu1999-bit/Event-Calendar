@@ -596,6 +596,55 @@ export async function readFlyer({ apiKey, image, mimeType = "image/png" } = {}) 
   return { name, breakdown };
 }
 
+// === GUIDE COMMENTARY — the editorial write-up for a website guide page ===
+// Writes the 2-3 paragraph intro that sits above a guide's event listings (the
+// centralgroupevents.com "Pages" body). Voiced from the Brand Kit so it reads
+// like CGE, grounded in NJ + Black culture. Returns HTML <p> paragraphs ready
+// to drop into the page's editor_content. Does NOT enumerate the events — they
+// render as cards below — it sets the scene and sends the reader into them.
+export async function generateGuideCommentary({ apiKey, title, theme = "", events = [], voice = null } = {}) {
+  if (!apiKey) throw new Error("Missing Gemini API key");
+  if (!title || !String(title).trim()) throw new Error("Give the guide a title first");
+
+  const list = (Array.isArray(events) ? events : []).slice(0, 40).map(e =>
+    `- ${e.name || "(event)"}${e.venue ? ` @ ${e.venue}` : ""}${e.area ? `, ${e.area}` : ""}${e.region ? ` (${e.region})` : ""}`
+  ).join("\n");
+  const hasVoiceDesc = voice && typeof voice.description === "string" && voice.description.trim();
+  const exemplars = Array.isArray(voice?.exemplars) ? voice.exemplars.filter(e => e && e.trim()).slice(0, 3) : [];
+
+  const prompt = [
+    "You write the editorial intro for a guide page on Central Group Events — a Black-culture events",
+    "media brand covering New Jersey. This intro sits ABOVE a list of event cards on the page.",
+    "",
+    `GUIDE TITLE: ${String(title).trim()}`,
+    ...(String(theme).trim() ? [`THEME / OCCASION: ${String(theme).trim()}`] : []),
+    ...(hasVoiceDesc ? ["", "WRITE IN THIS BRAND VOICE:", voice.description.trim()] : []),
+    ...(exemplars.length ? ["", "VOICE EXAMPLES (match this register, don't copy):", ...exemplars.map(x => `"${x}"`)] : []),
+    "",
+    "The events featured in this guide (for CONTEXT ONLY — do NOT list them out, they render as cards below):",
+    list || "(none provided)",
+    "",
+    "Write 2-3 tight paragraphs: why this moment/theme matters to the community, what the reader will",
+    "find here, and a nudge to explore the listings and claim their spot. Ground it in real NJ + Black",
+    "culture. No hype clichés ('hidden gem', 'unforgettable', 'something for everyone'). 120-220 words.",
+    "",
+    "Return ONLY HTML paragraphs — <p>…</p> — no markdown, no code fences, no <html>/<head>, no preamble.",
+  ].join("\n");
+
+  const data = await geminiGenerate(apiKey, {
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: { temperature: 0.85 },
+  }, { model: "gemini-2.5-flash" });
+  let html = (extractResponseText(data) || "").trim();
+  html = html.replace(/^```(?:html)?\s*/i, "").replace(/\s*```$/i, "").trim();
+  if (!html) throw new Error("Couldn't generate commentary — try again.");
+  // If the model returned bare text without tags, wrap paragraphs.
+  if (!/<p[\s>]/i.test(html)) {
+    html = html.split(/\n{2,}/).map(p => `<p>${p.trim()}</p>`).join("\n");
+  }
+  return html;
+}
+
 // === CONNECT THE DOTS — thesis + evidence carousel ===
 // The njdotcom "Is the Trump sports curse real? Here's the evidence" pattern:
 // ONE claim/pattern, welded together from several SEPARATE real, dated news
