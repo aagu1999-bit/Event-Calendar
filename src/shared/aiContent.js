@@ -617,8 +617,8 @@ export async function screenshotToEvent({ apiKey, image, mimeType = "image/png",
   const prompt = [
     "You are extracting event details from a screenshot (Instagram post/story, flyer, graphic) for Central Group Events — a Black-culture events media brand in New Jersey. The result drops into the operator's review queue.",
     "",
-    "Return ONLY JSON in this exact shape (use \"\" for anything not clearly visible):",
-    '{"name":"","day":"","date":"","time":"","venue":"","area":"","region":"","type":"","igHandle":"","link":""}',
+    "Return ONLY JSON in this exact shape (use \"\" for text fields not clearly visible, false for booleans):",
+    '{"name":"","day":"","date":"","time":"","venue":"","area":"","region":"","type":"","igHandle":"","link":"","recurring":false}',
     "",
     "FIELDS:",
     "- name: the EVENT name, Title Case. Not the venue, not the poster's handle.",
@@ -631,6 +631,7 @@ export async function screenshotToEvent({ apiKey, image, mimeType = "image/png",
     "- type: one of these categories if it fits (uppercase): DJ NIGHT, PARTY, DAY PARTY, BRUNCH, HAPPY HOUR, LIVE MUSIC, CONCERT, KARAOKE, COMEDY, TRIVIA, POP-UP, MARKET, YOGA, FITNESS, ART, WORKSHOP, MOVIE SCREENING, MIXER, SPEED DATING, FESTIVAL, CAR SHOW, LOUNGE, GAME NIGHT, OPEN MIC, SIP AND PAINT. Empty if none fits.",
     "- igHandle: primary account's @handle (host/organizer/DJ). Include the @. Empty if none visible.",
     "- link: a full event URL (tickets, RSVP) only if a clear URL is shown. Empty otherwise.",
+    "- recurring: TRUE if the poster indicates this event happens weekly — phrases like \"Every Friday\", \"Every Sat\", \"Sundays\", \"Weekly\", \"Each Saturday\", or a plural day-of-week (\"Fridays\") that clearly means recurring. FALSE for one-time events or when only a specific date is given.",
     "",
     anchor,
     "",
@@ -667,7 +668,10 @@ export async function screenshotToEvent({ apiKey, image, mimeType = "image/png",
   if (!event.name) throw new Error("Couldn't read an event from that screenshot — try a clearer image.");
 
   const aiFilled = Object.entries(event).filter(([, v]) => v).map(([k]) => k);
-  return { event, aiFilled };
+  // Recurring is a signal (not an event field) — the modal uses it to pre-tick
+  // "also add as weekly regular" for events like "Every Saturday Brunch".
+  const recurring = parsed.recurring === true || parsed.recurring === "true";
+  return { event, aiFilled, recurring };
 }
 
 // === GUIDE COMMENTARY — the editorial write-up for a website guide page ===
