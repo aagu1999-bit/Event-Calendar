@@ -596,13 +596,19 @@ export async function readFlyer({ apiKey, image, mimeType = "image/png" } = {}) 
   return { name, breakdown };
 }
 
-// === SCREENSHOT → EVENT ROW — Vision-extract a single event from a poster / IG
-// post / story so the operator can add it to the Review queue without retyping.
-// Returns { event, aiFilled } where aiFilled lists which fields the AI actually
-// populated (blank fields stay blank rather than getting hallucinated) so the
-// modal can put ✨ markers on them for preview-and-edit. Only NAME is required
-// — everything else is best-effort and falls back to empty.
-export async function screenshotToEvent({ apiKey, image, mimeType = "image/png", weekendDates = null } = {}) {
+// === SCREENSHOT → EVENT ROW(S) — Vision-extract one OR MORE events from a
+// poster / IG post / story so the operator can add them to the Review queue
+// without retyping. Most posters are a single event → returns [1]. Weekly
+// schedule flyers ("Mondays: Trivia · Tuesdays: Karaoke") and series posters
+// listing several dated events → returns N distinct cards. Careful NOT to
+// split single events that just happen to list multiple DJs / performers /
+// price tiers / tour locations.
+//
+// Each item in the returned array is { event, aiFilled, recurring }. aiFilled
+// lists which fields the AI populated so the modal can ✨-mark them for
+// preview-and-edit; recurring pre-ticks "also add as weekly regular". Only
+// NAME is required per event — everything else is best-effort.
+export async function screenshotToEvents({ apiKey, image, mimeType = "image/png", weekendDates = null } = {}) {
   if (!apiKey) throw new Error("Missing Gemini API key");
   if (!image) throw new Error("No screenshot provided");
   const b64 = String(image).startsWith("data:") ? String(image).split(",")[1] : String(image);
@@ -617,10 +623,26 @@ export async function screenshotToEvent({ apiKey, image, mimeType = "image/png",
   const prompt = [
     "You are extracting event details from a screenshot (Instagram post/story, flyer, graphic) for Central Group Events — a Black-culture events media brand in New Jersey. The result drops into the operator's review queue.",
     "",
-    "Return ONLY JSON in this exact shape (use \"\" for text fields not clearly visible, false for booleans):",
-    '{"name":"","day":"","date":"","time":"","venue":"","area":"","region":"","type":"","igHandle":"","link":"","recurring":false}',
+    "Return ONLY JSON in this exact shape — an `events` ARRAY:",
+    '{"events":[{"name":"","day":"","date":"","time":"","venue":"","area":"","region":"","type":"","igHandle":"","link":"","recurring":false}]}',
     "",
-    "FIELDS:",
+    "MOST posters are ONE event → the array has one object. Only split into multiple objects when the poster shows DISTINCT events (e.g. a weekly schedule listing different events on different days, or a series flyer showing several dated events).",
+    "",
+    "WHEN TO SPLIT (return multiple objects):",
+    "- Weekly-schedule flyer: \"Mondays — Trivia\", \"Tuesdays — Karaoke\", \"Wednesdays — Live Music\" → 3 events, one per weekday shown.",
+    "- Series poster listing multiple dated events with different names (e.g. \"Aug 1: Neo-Soul Sundays\", \"Aug 8: Reggae Night\") → one event per line.",
+    "- Multi-event promo card advertising two or more distinct parties on different dates or times.",
+    "",
+    "WHEN NOT TO SPLIT (return ONE object):",
+    "- One event with a lineup of multiple DJs / hosts / performers.",
+    "- One event with multiple price tiers or promo levels (\"free before 10\", \"$20 after\").",
+    "- A tour or franchise with multiple city dates on the same poster — pick the one clearly promoted, or leave as one event.",
+    "- A recurring event happening every week — that's ONE object with `recurring: true`, not 52 events.",
+    "- Multiple flyer designs showing the SAME event from different angles.",
+    "",
+    "Cap: never return more than 10 events per screenshot even if the poster shows more (calendar-view posters etc.).",
+    "",
+    "FIELDS (per event object):",
     "- name: the EVENT name, Title Case. Not the venue, not the poster's handle.",
     "- day: exactly \"Fri\", \"Sat\", or \"Sun\" (from the day-of-week shown). Empty if unclear.",
     "- date: M/D only (e.g. \"7/31\"). Only if a specific date is visible.",
@@ -631,7 +653,9 @@ export async function screenshotToEvent({ apiKey, image, mimeType = "image/png",
     "- type: one of these categories if it fits (uppercase): DJ NIGHT, PARTY, DAY PARTY, BRUNCH, HAPPY HOUR, LIVE MUSIC, CONCERT, KARAOKE, COMEDY, TRIVIA, POP-UP, MARKET, YOGA, FITNESS, ART, WORKSHOP, MOVIE SCREENING, MIXER, SPEED DATING, FESTIVAL, CAR SHOW, LOUNGE, GAME NIGHT, OPEN MIC, SIP AND PAINT. Empty if none fits.",
     "- igHandle: primary account's @handle (host/organizer/DJ). Include the @. Empty if none visible.",
     "- link: a full event URL (tickets, RSVP) only if a clear URL is shown. Empty otherwise.",
-    "- recurring: TRUE if the poster indicates this event happens weekly — phrases like \"Every Friday\", \"Every Sat\", \"Sundays\", \"Weekly\", \"Each Saturday\", or a plural day-of-week (\"Fridays\") that clearly means recurring. FALSE for one-time events or when only a specific date is given.",
+    "- recurring: TRUE if this specific event happens weekly — phrases like \"Every Friday\", \"Every Sat\", \"Sundays\", \"Weekly\", \"Each Saturday\", or a plural day-of-week (\"Fridays\") that clearly means recurring. FALSE for one-time events or when only a specific date is given. Set per-event when splitting a weekly schedule (each split event is `recurring: true`).",
+    "",
+    "SHARED FIELDS: when splitting, if the venue / city / region / IG handle is shared across the events (typical for a weekly schedule at one venue), repeat those fields on every event object.",
     "",
     anchor,
     "",
@@ -648,30 +672,40 @@ export async function screenshotToEvent({ apiKey, image, mimeType = "image/png",
   const parsed = extractJson(extractResponseText(data)) || {};
   const clean = (v) => String(v || "").trim();
   const dayMap = { friday: "Fri", saturday: "Sat", sunday: "Sun", fri: "Fri", sat: "Sat", sun: "Sun" };
-  const day = dayMap[clean(parsed.day).toLowerCase()] || "";
-  const rawRegion = clean(parsed.region);
-  const region = /^n/i.test(rawRegion) ? "North" : /^c/i.test(rawRegion) ? "Central" : /^s/i.test(rawRegion) ? "South" : "";
 
-  const event = {
-    name: clean(parsed.name),
-    day,
-    date: clean(parsed.date),
-    time: clean(parsed.time),
-    venue: clean(parsed.venue),
-    area: clean(parsed.area),
-    region,
-    type: clean(parsed.type).toUpperCase(),
-    igHandle: clean(parsed.igHandle),
-    link: clean(parsed.link),
-  };
+  // Accept either shape defensively — the AI usually returns `{events: […]}` but
+  // sometimes emits a bare single object under stress. Normalize both to an
+  // array we can iterate.
+  const rawEvents = Array.isArray(parsed.events) ? parsed.events
+    : (parsed.name || parsed.day || parsed.venue) ? [parsed]
+    : [];
 
-  if (!event.name) throw new Error("Couldn't read an event from that screenshot — try a clearer image.");
+  const results = [];
+  for (const raw of rawEvents.slice(0, 10)) {
+    if (!raw || typeof raw !== "object") continue;
+    const day = dayMap[clean(raw.day).toLowerCase()] || "";
+    const rawRegion = clean(raw.region);
+    const region = /^n/i.test(rawRegion) ? "North" : /^c/i.test(rawRegion) ? "Central" : /^s/i.test(rawRegion) ? "South" : "";
+    const event = {
+      name: clean(raw.name),
+      day,
+      date: clean(raw.date),
+      time: clean(raw.time),
+      venue: clean(raw.venue),
+      area: clean(raw.area),
+      region,
+      type: clean(raw.type).toUpperCase(),
+      igHandle: clean(raw.igHandle),
+      link: clean(raw.link),
+    };
+    if (!event.name) continue; // skip anything without a name — nothing to add
+    const aiFilled = Object.entries(event).filter(([, v]) => v).map(([k]) => k);
+    const recurring = raw.recurring === true || raw.recurring === "true";
+    results.push({ event, aiFilled, recurring });
+  }
 
-  const aiFilled = Object.entries(event).filter(([, v]) => v).map(([k]) => k);
-  // Recurring is a signal (not an event field) — the modal uses it to pre-tick
-  // "also add as weekly regular" for events like "Every Saturday Brunch".
-  const recurring = parsed.recurring === true || parsed.recurring === "true";
-  return { event, aiFilled, recurring };
+  if (results.length === 0) throw new Error("Couldn't read an event from that screenshot — try a clearer image.");
+  return results;
 }
 
 // === GUIDE COMMENTARY — the editorial write-up for a website guide page ===

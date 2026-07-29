@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { screenshotToEvent } from "./aiContent.js";
+import { screenshotToEvents } from "./aiContent.js";
 import { getEmoji, normalizeHandle } from "./parseEvents.js";
 import { useRegularsStore } from "../store.js";
 
@@ -92,8 +92,16 @@ function cardToRegular(card) {
 }
 
 export function ScreenshotEventModal({ open, apiKey, weekendDates = null, onAdd, onClose }) {
-  // Each card is one screenshot's extracted event + its editing state.
-  // { key, imgUrl, event, aiFilled:Set, recurring:bool, include:bool, alsoRegular:bool, extracting:bool, error:string|null }
+  // Each card is ONE event's editing state — a single screenshot can yield
+  // several sibling cards (weekly-schedule flyers, series posters). Cards
+  // share a `sourceKey` when they came from the same image so the UI can
+  // show "1 of 3 from this poster" and let the operator visually group them.
+  //
+  // Placeholder cards (extracting: true, event: null) are seeded per uploaded
+  // file BEFORE the AI returns; on completion the placeholder is replaced by
+  // 1-or-more real cards inheriting the same sourceKey.
+  //
+  // { key, sourceKey, imgUrl, event, aiFilled:Set, recurring:bool, include:bool, alsoRegular:bool, extracting:bool, error:string|null }
   const [cards, setCards] = useState([]);
   const [addingBusy, setAddingBusy] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -126,9 +134,10 @@ export function ScreenshotEventModal({ open, apiKey, weekendDates = null, onAdd,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  // Ingest 1-or-many files → each becomes a card in an extracting state → AI
-  // extraction fires in parallel (Gemini is fine with a handful of concurrent
-  // requests; we're not shooting off 100 at a time).
+  // Ingest 1-or-many files → each seeds a placeholder card (extracting) that
+  // gets REPLACED by 1-or-more real cards when the AI returns. Extractions
+  // fire concurrently; a schedule flyer that yields 4 events fans out to 4
+  // sibling cards sharing the same sourceKey.
   const ingestFiles = async (files) => {
     if (!apiKey) { setMsg({ ok: false, text: "Add your Gemini API key on the Media tab first." }); return; }
     setMsg(null);
@@ -136,9 +145,10 @@ export function ScreenshotEventModal({ open, apiKey, weekendDates = null, onAdd,
     for (const file of files) {
       try {
         const imgUrl = await fileToDataUrl(file);
+        const sourceKey = `src_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
         fresh.push({
-          key: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-          imgUrl,
+          key: `${sourceKey}_placeholder`,
+          sourceKey, imgUrl,
           event: null,
           aiFilled: new Set(),
           recurring: false,
@@ -153,16 +163,31 @@ export function ScreenshotEventModal({ open, apiKey, weekendDates = null, onAdd,
     }
     if (!fresh.length) return;
     setCards((prev) => [...prev, ...fresh]);
-    // Fire extractions concurrently; each result updates its own card.
-    fresh.forEach((c) => {
-      screenshotToEvent({ apiKey, image: c.imgUrl, weekendDates })
-        .then(({ event, aiFilled, recurring }) => {
-          setCards((prev) => prev.map((x) => x.key === c.key
-            ? { ...x, event, aiFilled: new Set(aiFilled), recurring, alsoRegular: recurring, extracting: false }
-            : x));
+    // Fire extractions concurrently; each result REPLACES the placeholder with
+    // one card per extracted event (usually 1, sometimes more).
+    fresh.forEach((placeholder) => {
+      screenshotToEvents({ apiKey, image: placeholder.imgUrl, weekendDates })
+        .then((results) => {
+          const newCards = results.map((r, i) => ({
+            key: `${placeholder.sourceKey}_${i}`,
+            sourceKey: placeholder.sourceKey,
+            imgUrl: placeholder.imgUrl,
+            event: r.event,
+            aiFilled: new Set(r.aiFilled),
+            recurring: r.recurring,
+            include: true,
+            alsoRegular: r.recurring, // pre-tick when AI detected recurring
+            extracting: false,
+            error: null,
+          }));
+          setCards((prev) => {
+            const idx = prev.findIndex((x) => x.key === placeholder.key);
+            if (idx === -1) return prev; // placeholder was removed while extracting
+            return [...prev.slice(0, idx), ...newCards, ...prev.slice(idx + 1)];
+          });
         })
         .catch((err) => {
-          setCards((prev) => prev.map((x) => x.key === c.key
+          setCards((prev) => prev.map((x) => x.key === placeholder.key
             ? { ...x, extracting: false, error: String(err?.message || err) }
             : x));
         });
@@ -277,17 +302,27 @@ export function ScreenshotEventModal({ open, apiKey, weekendDates = null, onAdd,
               <div style={{ flex: 1 }} />
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14, maxHeight: "50vh", overflowY: "auto", paddingRight: 4 }}>
-              {cards.map((c) => (
-                <CardRow
-                  key={c.key}
-                  card={c}
-                  weekendDates={weekendDates}
-                  onUpdateEvent={(field, value) => updateEvent(c.key, field, value)}
-                  onSetInclude={(v) => updateCard(c.key, { include: v })}
-                  onSetRegular={(v) => updateCard(c.key, { alsoRegular: v })}
-                  onRemove={() => removeCard(c.key)}
-                />
-              ))}
+              {cards.map((c) => {
+                // Sibling info: count + this card's position among cards sharing
+                // the same sourceKey. When >1 the badge shows "1 of 3 from this
+                // poster" so the operator sees which cards came together.
+                const siblings = cards.filter((x) => x.sourceKey === c.sourceKey);
+                const siblingCount = siblings.length;
+                const siblingIndex = siblings.findIndex((x) => x.key === c.key) + 1;
+                return (
+                  <CardRow
+                    key={c.key}
+                    card={c}
+                    siblingCount={siblingCount}
+                    siblingIndex={siblingIndex}
+                    weekendDates={weekendDates}
+                    onUpdateEvent={(field, value) => updateEvent(c.key, field, value)}
+                    onSetInclude={(v) => updateCard(c.key, { include: v })}
+                    onSetRegular={(v) => updateCard(c.key, { alsoRegular: v })}
+                    onRemove={() => removeCard(c.key)}
+                  />
+                );
+              })}
             </div>
 
             <button
@@ -312,8 +347,9 @@ export function ScreenshotEventModal({ open, apiKey, weekendDates = null, onAdd,
 
 // One card in the extracted list: thumb + editable fields grid + include /
 // regular toggles + remove. Compact enough that 5-8 fit on screen at once.
-function CardRow({ card, weekendDates, onUpdateEvent, onSetInclude, onSetRegular, onRemove }) {
+function CardRow({ card, siblingCount = 1, siblingIndex = 1, weekendDates, onUpdateEvent, onSetInclude, onSetRegular, onRemove }) {
   const { imgUrl, event, aiFilled, recurring, include, alsoRegular, extracting, error } = card;
+  const hasSiblings = siblingCount > 1;
   const mark = (k) => aiFilled.has(k) ? SPARK : null;
   const filledCount = event ? Object.entries(event).filter(([, v]) => v && String(v).trim()).length : 0;
   const aiCount = aiFilled.size;
@@ -346,6 +382,11 @@ function CardRow({ card, weekendDates, onUpdateEvent, onSetInclude, onSetRegular
               {recurring && (
                 <span title="AI detected recurring language (every X / Sundays / weekly)" style={{ fontSize: "0.6rem", padding: "1px 6px", borderRadius: 3, background: "rgba(229,188,79,0.15)", color: "#E5BC4F", letterSpacing: "0.5px", textTransform: "uppercase", fontWeight: 700 }}>
                   🔁 Weekly
+                </span>
+              )}
+              {hasSiblings && (
+                <span title={`This card is 1 of ${siblingCount} extracted from the same poster`} style={{ fontSize: "0.6rem", padding: "1px 6px", borderRadius: 3, background: "rgba(139,92,246,0.15)", color: "#A78BFA", letterSpacing: "0.5px", textTransform: "uppercase", fontWeight: 700 }}>
+                  {siblingIndex} of {siblingCount} from this poster
                 </span>
               )}
               <span style={{ fontSize: "0.66rem", color: "rgba(245,240,232,0.4)" }}>
