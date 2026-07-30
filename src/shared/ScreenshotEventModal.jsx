@@ -204,11 +204,33 @@ export function ScreenshotEventModal({ open, apiKey, weekendDates = null, onAdd,
     setCards((prev) => prev.map((c) => c.key === key ? { ...c, ...patch } : c));
   };
   const updateEvent = (key, field, value) => {
+    // Enforce case + format on entry so what the operator types matches what
+    // the AI-populated values look like — no mixed-case rows in the queue.
+    // Time strips ranges the operator typed too (paste "10 PM - 2 AM" → keeps
+    // "10 PM"); igHandle / link / region / day / date stay as-typed.
+    let v = value;
+    if (["name", "venue", "area", "type"].includes(field)) v = String(v || "").toUpperCase();
+    else if (field === "time") {
+      // Same shape as the AI-side safety net so both entry paths agree.
+      const s = String(v || "").trim();
+      if (s) {
+        const parts = s.split(/\s*(?:[-–—]|\bto\b)\s*/i);
+        let start = parts[0].trim();
+        if (parts.length > 1) {
+          const hasMer = /\b(am|pm|a\.m\.|p\.m\.)\b/i.test(start);
+          if (!hasMer) {
+            const t = s.slice(start.length).match(/\b(am|pm|a\.m\.|p\.m\.)\b/i);
+            if (t) start = `${start} ${t[1].toUpperCase()}`;
+          }
+          v = start;
+        }
+      }
+    }
     setCards((prev) => prev.map((c) => {
       if (c.key !== key) return c;
       // Editing a field drops its ✨ marker — operator now owns the value.
       const nextFilled = new Set(c.aiFilled); nextFilled.delete(field);
-      return { ...c, event: { ...c.event, [field]: value }, aiFilled: nextFilled };
+      return { ...c, event: { ...c.event, [field]: v }, aiFilled: nextFilled };
     }));
   };
   const removeCard = (key) => setCards((prev) => prev.filter((c) => c.key !== key));
@@ -420,7 +442,7 @@ function CardRow({ card, siblingCount = 1, siblingIndex = 1, weekendDates, onUpd
               </div>
               <div>
                 <label style={L}>Type{mark("type")}</label>
-                <input value={event.type} onChange={(e) => onUpdateEvent("type", e.target.value.toUpperCase())} placeholder="DAY PARTY" style={I} />
+                <input value={event.type} onChange={(e) => onUpdateEvent("type", e.target.value)} placeholder="DAY PARTY" style={I} />
               </div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 100px", gap: 6, marginBottom: 6 }}>

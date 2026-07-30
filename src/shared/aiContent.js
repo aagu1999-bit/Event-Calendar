@@ -643,12 +643,12 @@ export async function screenshotToEvents({ apiKey, image, mimeType = "image/png"
     "Cap: never return more than 10 events per screenshot even if the poster shows more (calendar-view posters etc.).",
     "",
     "FIELDS (per event object):",
-    "- name: the EVENT name, Title Case. Not the venue, not the poster's handle.",
+    "- name: the EVENT name in ALL CAPS (e.g. \"SUNDAY AFROBEATS BRUNCH\"). Not the venue, not the poster's handle.",
     "- day: exactly \"Fri\", \"Sat\", or \"Sun\" (from the day-of-week shown). Empty if unclear.",
     "- date: M/D only (e.g. \"7/31\"). Only if a specific date is visible.",
-    "- time: as shown (\"9 PM\", \"1-4 PM\", \"10PM-2AM\").",
-    "- venue: venue NAME (e.g. \"Cafe Bello\"). Not the city.",
-    "- area: CITY only, no state (e.g. \"Newark\", \"Elizabeth\").",
+    "- time: the START time only, formatted as \"<hour>[:<min>] AM|PM\" (e.g. \"9 PM\", \"1 PM\", \"7:30 PM\"). NEVER a range — if the poster shows \"1-4 PM\" or \"10PM-2AM\" or \"5:30 to 8 PM\", return only the START (\"1 PM\", \"10 PM\", \"5:30 PM\").",
+    "- venue: venue NAME in ALL CAPS (e.g. \"CAFE BELLO\"). Not the city.",
+    "- area: CITY only, no state, ALL CAPS (e.g. \"NEWARK\", \"ELIZABETH\").",
     "- region: exactly \"North\", \"Central\", or \"South\" for the NJ region. IMPORTANT: Union County cities (Elizabeth, Union, Hillside, Clark, Linden, Rahway, Kenilworth, Roselle, Roselle Park, Cranford, Summit, Berkeley Heights, Garwood, Mountainside, New Providence, Plainfield, Scotch Plains, Springfield, Westfield) are LOCALLY North per the operator's convention — not Central. Empty if outside NJ or unclear.",
     "- type: one of these categories if it fits (uppercase): DJ NIGHT, PARTY, DAY PARTY, BRUNCH, HAPPY HOUR, LIVE MUSIC, CONCERT, KARAOKE, COMEDY, TRIVIA, POP-UP, MARKET, YOGA, FITNESS, ART, WORKSHOP, MOVIE SCREENING, MIXER, SPEED DATING, FESTIVAL, CAR SHOW, LOUNGE, GAME NIGHT, OPEN MIC, SIP AND PAINT. Empty if none fits.",
     "- igHandle: primary account's @handle (host/organizer/DJ). Include the @. Empty if none visible.",
@@ -671,7 +671,24 @@ export async function screenshotToEvents({ apiKey, image, mimeType = "image/png"
 
   const parsed = extractJson(extractResponseText(data)) || {};
   const clean = (v) => String(v || "").trim();
+  const upper = (v) => clean(v).toUpperCase();
   const dayMap = { friday: "Fri", saturday: "Sat", sunday: "Sun", fri: "Fri", sat: "Sat", sun: "Sun" };
+  // Safety net for time: even with the prompt asking for start-only, strip any
+  // range the model slips through. "1-4 PM" → "1 PM" (borrow the meridiem from
+  // the tail if the start has none). "10PM-2AM" → "10PM". "9 PM" → "9 PM".
+  const stripToStartTime = (raw) => {
+    const s = clean(raw);
+    if (!s) return "";
+    const parts = s.split(/\s*(?:[-–—]|\bto\b)\s*/i);
+    let start = parts[0].trim();
+    if (parts.length === 1) return start;
+    const hasMeridiem = /\b(am|pm|a\.m\.|p\.m\.)\b/i.test(start);
+    if (!hasMeridiem) {
+      const tailMatch = s.slice(start.length).match(/\b(am|pm|a\.m\.|p\.m\.)\b/i);
+      if (tailMatch) start = `${start} ${tailMatch[1].toUpperCase()}`;
+    }
+    return start;
+  };
 
   // Accept either shape defensively — the AI usually returns `{events: […]}` but
   // sometimes emits a bare single object under stress. Normalize both to an
@@ -687,14 +704,14 @@ export async function screenshotToEvents({ apiKey, image, mimeType = "image/png"
     const rawRegion = clean(raw.region);
     const region = /^n/i.test(rawRegion) ? "North" : /^c/i.test(rawRegion) ? "Central" : /^s/i.test(rawRegion) ? "South" : "";
     const event = {
-      name: clean(raw.name),
+      name: upper(raw.name),
       day,
       date: clean(raw.date),
-      time: clean(raw.time),
-      venue: clean(raw.venue),
-      area: clean(raw.area),
+      time: stripToStartTime(raw.time),
+      venue: upper(raw.venue),
+      area: upper(raw.area),
       region,
-      type: clean(raw.type).toUpperCase(),
+      type: upper(raw.type),
       igHandle: clean(raw.igHandle),
       link: clean(raw.link),
     };
