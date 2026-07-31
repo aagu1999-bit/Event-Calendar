@@ -13,6 +13,7 @@ import { ConflictSweepModal } from "../shared/ConflictSweepModal.jsx";
 import { CleanSweepModal } from "../shared/CleanSweepModal.jsx";
 import { FixFlagsModal } from "../shared/FixFlagsModal.jsx";
 import { ScreenshotEventModal } from "../shared/ScreenshotEventModal.jsx";
+import { ScreenshotPoolModal } from "../shared/ScreenshotPoolModal.jsx";
 import { saveExport } from "../shared/photoLibrary.js";
 import { rememberLastSession, getLastSession, forgetLastSession, loadSession, mergeSession, pingPresence, rememberServerPendingIds, getServerPendingIds } from "../shared/reviewSessions.js";
 
@@ -678,6 +679,20 @@ export default function ReviewQueue({ betaMode = false } = {}) {
       return seen.has(String(ev.id)) ? prev : [...prev, ev];
     });
   };
+  // Screenshot pool — persistent server-side stash of screenshots the operator
+  // saved earlier in the week for a future weekend. Toolbar shows the count so
+  // there's a nudge to pull them during that weekend's review.
+  const [poolOpen, setPoolOpen] = useState(false);
+  const [poolCount, setPoolCount] = useState(0);
+  const refreshPoolCount = async () => {
+    try {
+      const r = await fetch("/api/screenshot-pool");
+      if (!r.ok) return;
+      const j = await r.json().catch(() => ({}));
+      setPoolCount(Array.isArray(j.entries) ? j.entries.length : 0);
+    } catch { /* server offline — leave count as-is */ }
+  };
+  useEffect(() => { refreshPoolCount(); }, []);
   // Approval and vetting states (moved to top).
   // Mobile-only Sweep Mode — focused one-conflict-group-at-a-time
   // triage. Button surfaces under .cge-mobile-only CSS so desktop users
@@ -1371,6 +1386,23 @@ export default function ReviewQueue({ betaMode = false } = {}) {
             style={{ ...B, background: "rgba(139,92,246,0.14)", color: "#A78BFA", border: "1px solid rgba(139,92,246,0.4)" }}
           >
             📸 Add from screenshot
+          </button>
+          {/* Screenshot POOL: persistent stash. Screenshots dropped during the
+              week are saved here; this button pulls the ones matching the
+              reviewed weekend into the queue. Same weekend-filter pattern as
+              Import bookings. */}
+          <button
+            onClick={() => setPoolOpen(true)}
+            title="Screenshots you saved for later — pull the ones for this weekend into the queue."
+            style={{
+              ...B,
+              background: poolCount > 0 ? "rgba(139,92,246,0.2)" : "rgba(139,92,246,0.08)",
+              color: "#A78BFA",
+              border: "1px solid rgba(139,92,246,0.4)",
+              fontWeight: poolCount > 0 ? 800 : 500,
+            }}
+          >
+            📥 Pool{poolCount > 0 ? ` (${poolCount})` : ""}
           </button>
           {/* Pipe 1 — pull promoter bookings from centralgroupevents.com into
               the queue so they don't have to be retyped. */}
@@ -2540,7 +2572,16 @@ export default function ReviewQueue({ betaMode = false } = {}) {
         apiKey={screenshotKey}
         weekendDates={weekendDates}
         onAdd={addScreenshotEvent}
+        onPoolAdded={(total) => setPoolCount(typeof total === "number" ? total : (n) => n + 1)}
         onClose={() => setScreenshotOpen(false)}
+      />
+
+      <ScreenshotPoolModal
+        open={poolOpen}
+        weekendDates={weekendDates}
+        onAdd={addScreenshotEvent}
+        onPoolChanged={refreshPoolCount}
+        onClose={() => setPoolOpen(false)}
       />
     </div>
   );
