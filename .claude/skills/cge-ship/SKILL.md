@@ -21,13 +21,13 @@ diverged from main.
   ```
   (Run `git status` first and stash if there are uncommitted changes.)
 
-## Pre-commit: verify the build
+## Pre-commit: verify the FRESH production build
 
-There's no test suite. `vite build` passing is the trusted signal that nothing
-obvious broke. Run it before every push:
+There's no test suite. A clean production `vite build` is the trusted signal
+that nothing obvious broke. Run it — from a clean dist — before every push:
 
 ```bash
-npx vite build 2>&1 | tail -6
+rm -rf dist && npx vite build 2>&1 | tail -6
 ```
 
 Look for `✓ built in Xs`. A chunk-size warning is normal — the app is a single
@@ -37,6 +37,41 @@ kills the ship — fix it before pushing.
 If you edited a `.jsx` file and the build errored on syntax, don't guess —
 read the file around the reported line. Half-finished edits are almost always
 the cause.
+
+**Why fresh + why prod, not dev:** the dev build is tolerant of things prod
+isn't. Two real classes of bugs that pass `vite dev` and blow up on Replit:
+
+- **Temporal dead zone (TDZ)**: using a `const`/`let` before its declaration.
+  Dev's non-minified output is forgiving; the minifier renames the local and
+  the deploy screams `Cannot access 'X' before initialization` — the page
+  renders as a black screen, no other clue. Almost always caused by pasting
+  a new block of hooks/handlers ABOVE the existing declarations they depend
+  on (e.g. reading `regulars` from the store above where the store hook is
+  called). Declare-then-use is not just style here; it's the contract prod
+  enforces.
+- **Tree-shaking of a real-but-unused-looking import**: rare, but if you
+  removed the last user of an export and forgot to re-export something the
+  new code needs, dev papers over it, prod strips it.
+
+A stale `dist/` can mask both — Vite caches aggressively. Wipe it and rebuild
+from scratch every ship. Ten seconds of build time beats a black-screen
+deploy every time.
+
+## Pre-commit: check the order of declarations you added
+
+If you added a new block of `const`/`let` inside an existing component, verify
+before pushing that everything it references is declared **above** it in the
+same scope. Especially for hooks/handlers that reach into store subscriptions
+like `useRegularsStore(s => s.regulars)` — those results are only in scope
+after their line runs, and prod's minifier will surface any violation as a
+runtime TDZ, not a build error.
+
+Quick check when in doubt:
+```bash
+grep -n "const <yourVar>\|<yourVar>\b" src/pages/<file>.jsx | head
+```
+First hit should be the declaration; every other hit should have a larger
+line number.
 
 ## Commit format
 
