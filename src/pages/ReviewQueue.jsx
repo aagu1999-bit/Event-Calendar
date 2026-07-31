@@ -680,86 +680,6 @@ export default function ReviewQueue({ betaMode = false } = {}) {
       return seen.has(String(ev.id)) ? prev : [...prev, ev];
     });
   };
-  // === Regulars auto-pull ===
-  // On mount (or when friDate changes), non-rejected weekly regulars get
-  // spawned into the pending queue with a real date for THIS weekend, deduped
-  // against anything already there. The operator never has to remember to
-  // "pull regulars" — the assumption is that approved weekly regulars are
-  // always included; anything that shouldn't be here gets deleted from the
-  // queue like any other row (one-week miss, not a permanent reject).
-  //
-  // Marker `cge_regulars_pulled_for` prevents re-pull on every mount for the
-  // same weekend. A friDate change (or the manual button) re-triggers.
-  const activeRegularsCount = (regulars || []).filter((r) => !r.rejected).length;
-  const AUTO_REGULARS_KEY = "cge_auto_regulars";
-  const [autoPullRegulars, setAutoPullRegulars] = useState(() => {
-    try { return localStorage.getItem(AUTO_REGULARS_KEY) !== "false"; } catch { return true; }
-  });
-  useEffect(() => { try { localStorage.setItem(AUTO_REGULARS_KEY, String(autoPullRegulars)); } catch {} }, [autoPullRegulars]);
-  const REGULARS_PULLED_KEY = "cge_regulars_pulled_for";
-  const [regularsPulledFor, setRegularsPulledFor] = useState(() => {
-    try { return localStorage.getItem(REGULARS_PULLED_KEY) || ""; } catch { return ""; }
-  });
-  const [regularsPullMsg, setRegularsPullMsg] = useState(null); // { ok, text }
-
-  // Normalized key for name+day dedup — same shape as augmenter's dupe check.
-  const nkey = (name, day) => `${String(name || "").toLowerCase().replace(/[^a-z0-9]/g, "")}|${day || ""}`;
-
-  // Shared pull logic — auto path (respects "already pulled for this friDate")
-  // and manual path (force=true re-pulls, useful after Clear All).
-  const pullRegularsForWeekend = (force = false) => {
-    if (!friDate) return;
-    if (!force && regularsPulledFor === friDate) return;
-    const eligible = (regulars || []).filter((r) => !r.rejected);
-    if (eligible.length === 0) {
-      setRegularsPulledFor(friDate);
-      try { localStorage.setItem(REGULARS_PULLED_KEY, friDate); } catch {}
-      return;
-    }
-    let added = 0, skipped = 0;
-    setPending((prev) => {
-      const existing = new Set((prev || []).map((e) => nkey(e.name, e.day)));
-      const fresh = [];
-      for (const r of eligible) {
-        const ev = regularToEvent(r, friDate);
-        if (!ev) continue;
-        const k = nkey(ev.name, ev.day);
-        if (existing.has(k)) { skipped++; continue; }
-        existing.add(k);
-        fresh.push({
-          ...ev,
-          id: `regular_${Date.now()}_${Math.random().toString(36).slice(2, 6)}_${r.id}`,
-          emoji: getEmoji(ev.type),
-          _source: "regular",
-          _regularId: r.id,
-        });
-        added++;
-      }
-      return fresh.length ? [...prev, ...fresh] : prev;
-    });
-    setRegularsPulledFor(friDate);
-    try { localStorage.setItem(REGULARS_PULLED_KEY, friDate); } catch {}
-    if (force) {
-      setRegularsPullMsg({
-        ok: true,
-        text: added
-          ? `Pulled ${added} regular${added === 1 ? "" : "s"} for this weekend${skipped ? ` · ${skipped} already in the queue` : ""}.`
-          : (skipped
-            ? `All ${skipped} regular${skipped === 1 ? "" : "s"} already in the queue for this weekend.`
-            : "No active regulars to pull."),
-      });
-    }
-  };
-
-  // Auto-pull on friDate change (or first load with a friDate + regulars).
-  useEffect(() => {
-    if (!autoPullRegulars) return;
-    if (!friDate) return;
-    if (regularsPulledFor === friDate) return;
-    pullRegularsForWeekend(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [friDate, autoPullRegulars, regulars.length]);
-
   // Screenshot pool — persistent server-side stash of screenshots the operator
   // saved earlier in the week for a future weekend. Toolbar shows the count so
   // there's a nudge to pull them during that weekend's review.
@@ -836,6 +756,91 @@ export default function ReviewQueue({ betaMode = false } = {}) {
   const lastRegularsImport = useRegularsStore(s => s.lastImport);
   const replaceRegulars = useRegularsStore(s => s.replaceAll);
   const [masterImporting, setMasterImporting] = useState(false);
+
+  // === Regulars auto-pull ===
+  // On mount (or when friDate changes), non-rejected weekly regulars get
+  // spawned into the pending queue with a real date for THIS weekend, deduped
+  // against anything already there. The operator never has to remember to
+  // "pull regulars" — the assumption is that approved weekly regulars are
+  // always included; anything that shouldn't be here gets deleted from the
+  // queue like any other row (one-week miss, not a permanent reject).
+  //
+  // Marker `cge_regulars_pulled_for` prevents re-pull on every mount for the
+  // same weekend. A friDate change (or the manual button) re-triggers.
+  //
+  // ORDER MATTERS: this block MUST come after `regulars` (above) and `friDate`
+  // (declared earlier). An earlier revision put it before `regulars` and it
+  // built fine in dev but crashed in prod with "Cannot access 'it' before
+  // initialization" once the minifier renamed the local. Do not move it up.
+  const activeRegularsCount = (regulars || []).filter((r) => !r.rejected).length;
+  const AUTO_REGULARS_KEY = "cge_auto_regulars";
+  const [autoPullRegulars, setAutoPullRegulars] = useState(() => {
+    try { return localStorage.getItem(AUTO_REGULARS_KEY) !== "false"; } catch { return true; }
+  });
+  useEffect(() => { try { localStorage.setItem(AUTO_REGULARS_KEY, String(autoPullRegulars)); } catch {} }, [autoPullRegulars]);
+  const REGULARS_PULLED_KEY = "cge_regulars_pulled_for";
+  const [regularsPulledFor, setRegularsPulledFor] = useState(() => {
+    try { return localStorage.getItem(REGULARS_PULLED_KEY) || ""; } catch { return ""; }
+  });
+  const [regularsPullMsg, setRegularsPullMsg] = useState(null); // { ok, text }
+
+  // Normalized key for name+day dedup — same shape as augmenter's dupe check.
+  const nkey = (name, day) => `${String(name || "").toLowerCase().replace(/[^a-z0-9]/g, "")}|${day || ""}`;
+
+  // Shared pull logic — auto path (respects "already pulled for this friDate")
+  // and manual path (force=true re-pulls, useful after Clear All).
+  const pullRegularsForWeekend = (force = false) => {
+    if (!friDate) return;
+    if (!force && regularsPulledFor === friDate) return;
+    const eligible = (regulars || []).filter((r) => !r.rejected);
+    if (eligible.length === 0) {
+      setRegularsPulledFor(friDate);
+      try { localStorage.setItem(REGULARS_PULLED_KEY, friDate); } catch {}
+      return;
+    }
+    let added = 0, skipped = 0;
+    setPending((prev) => {
+      const existing = new Set((prev || []).map((e) => nkey(e.name, e.day)));
+      const fresh = [];
+      for (const r of eligible) {
+        const ev = regularToEvent(r, friDate);
+        if (!ev) continue;
+        const k = nkey(ev.name, ev.day);
+        if (existing.has(k)) { skipped++; continue; }
+        existing.add(k);
+        fresh.push({
+          ...ev,
+          id: `regular_${Date.now()}_${Math.random().toString(36).slice(2, 6)}_${r.id}`,
+          emoji: getEmoji(ev.type),
+          _source: "regular",
+          _regularId: r.id,
+        });
+        added++;
+      }
+      return fresh.length ? [...prev, ...fresh] : prev;
+    });
+    setRegularsPulledFor(friDate);
+    try { localStorage.setItem(REGULARS_PULLED_KEY, friDate); } catch {}
+    if (force) {
+      setRegularsPullMsg({
+        ok: true,
+        text: added
+          ? `Pulled ${added} regular${added === 1 ? "" : "s"} for this weekend${skipped ? ` · ${skipped} already in the queue` : ""}.`
+          : (skipped
+            ? `All ${skipped} regular${skipped === 1 ? "" : "s"} already in the queue for this weekend.`
+            : "No active regulars to pull."),
+      });
+    }
+  };
+
+  // Auto-pull on friDate change (or first load with a friDate + regulars).
+  useEffect(() => {
+    if (!autoPullRegulars) return;
+    if (!friDate) return;
+    if (regularsPulledFor === friDate) return;
+    pullRegularsForWeekend(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [friDate, autoPullRegulars, regulars.length]);
 
   const handleMasterSheet = async (e) => {
     const file = e.target.files?.[0];
