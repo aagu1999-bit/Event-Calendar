@@ -2,6 +2,7 @@ import { useState, useRef, useMemo, useEffect, Fragment } from "react";
 import * as XLSX from "xlsx";
 import { useEventsStore, useRegularsStore, useScraperIntakeStore } from "../store";
 import { parseRows, DAYFUL, getEmoji, sortChrono, parseRegion, parseDateToDay } from "../shared/parseEvents";
+import { regularToEvent } from "../shared/regulars";
 import { computeWarnings, findFlagPartners } from "../shared/validateEvents";
 import { detectRegulars } from "../shared/regulars";
 import { normalizeHandle } from "../shared/parseEvents";
@@ -679,6 +680,86 @@ export default function ReviewQueue({ betaMode = false } = {}) {
       return seen.has(String(ev.id)) ? prev : [...prev, ev];
     });
   };
+  // === Regulars auto-pull ===
+  // On mount (or when friDate changes), non-rejected weekly regulars get
+  // spawned into the pending queue with a real date for THIS weekend, deduped
+  // against anything already there. The operator never has to remember to
+  // "pull regulars" — the assumption is that approved weekly regulars are
+  // always included; anything that shouldn't be here gets deleted from the
+  // queue like any other row (one-week miss, not a permanent reject).
+  //
+  // Marker `cge_regulars_pulled_for` prevents re-pull on every mount for the
+  // same weekend. A friDate change (or the manual button) re-triggers.
+  const activeRegularsCount = (regulars || []).filter((r) => !r.rejected).length;
+  const AUTO_REGULARS_KEY = "cge_auto_regulars";
+  const [autoPullRegulars, setAutoPullRegulars] = useState(() => {
+    try { return localStorage.getItem(AUTO_REGULARS_KEY) !== "false"; } catch { return true; }
+  });
+  useEffect(() => { try { localStorage.setItem(AUTO_REGULARS_KEY, String(autoPullRegulars)); } catch {} }, [autoPullRegulars]);
+  const REGULARS_PULLED_KEY = "cge_regulars_pulled_for";
+  const [regularsPulledFor, setRegularsPulledFor] = useState(() => {
+    try { return localStorage.getItem(REGULARS_PULLED_KEY) || ""; } catch { return ""; }
+  });
+  const [regularsPullMsg, setRegularsPullMsg] = useState(null); // { ok, text }
+
+  // Normalized key for name+day dedup — same shape as augmenter's dupe check.
+  const nkey = (name, day) => `${String(name || "").toLowerCase().replace(/[^a-z0-9]/g, "")}|${day || ""}`;
+
+  // Shared pull logic — auto path (respects "already pulled for this friDate")
+  // and manual path (force=true re-pulls, useful after Clear All).
+  const pullRegularsForWeekend = (force = false) => {
+    if (!friDate) return;
+    if (!force && regularsPulledFor === friDate) return;
+    const eligible = (regulars || []).filter((r) => !r.rejected);
+    if (eligible.length === 0) {
+      setRegularsPulledFor(friDate);
+      try { localStorage.setItem(REGULARS_PULLED_KEY, friDate); } catch {}
+      return;
+    }
+    let added = 0, skipped = 0;
+    setPending((prev) => {
+      const existing = new Set((prev || []).map((e) => nkey(e.name, e.day)));
+      const fresh = [];
+      for (const r of eligible) {
+        const ev = regularToEvent(r, friDate);
+        if (!ev) continue;
+        const k = nkey(ev.name, ev.day);
+        if (existing.has(k)) { skipped++; continue; }
+        existing.add(k);
+        fresh.push({
+          ...ev,
+          id: `regular_${Date.now()}_${Math.random().toString(36).slice(2, 6)}_${r.id}`,
+          emoji: getEmoji(ev.type),
+          _source: "regular",
+          _regularId: r.id,
+        });
+        added++;
+      }
+      return fresh.length ? [...prev, ...fresh] : prev;
+    });
+    setRegularsPulledFor(friDate);
+    try { localStorage.setItem(REGULARS_PULLED_KEY, friDate); } catch {}
+    if (force) {
+      setRegularsPullMsg({
+        ok: true,
+        text: added
+          ? `Pulled ${added} regular${added === 1 ? "" : "s"} for this weekend${skipped ? ` · ${skipped} already in the queue` : ""}.`
+          : (skipped
+            ? `All ${skipped} regular${skipped === 1 ? "" : "s"} already in the queue for this weekend.`
+            : "No active regulars to pull."),
+      });
+    }
+  };
+
+  // Auto-pull on friDate change (or first load with a friDate + regulars).
+  useEffect(() => {
+    if (!autoPullRegulars) return;
+    if (!friDate) return;
+    if (regularsPulledFor === friDate) return;
+    pullRegularsForWeekend(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [friDate, autoPullRegulars, regulars.length]);
+
   // Screenshot pool — persistent server-side stash of screenshots the operator
   // saved earlier in the week for a future weekend. Toolbar shows the count so
   // there's a nudge to pull them during that weekend's review.
@@ -1322,6 +1403,22 @@ export default function ReviewQueue({ betaMode = false } = {}) {
             }}>×</button>
           </div>
         )}
+        {regularsPullMsg && (
+          <div style={{
+            padding: "10px 14px", marginBottom: "1rem",
+            background: regularsPullMsg.ok ? "rgba(229,188,79,0.1)" : "rgba(251,113,133,0.1)",
+            border: `1px solid ${regularsPullMsg.ok ? "rgba(229,188,79,0.4)" : "rgba(251,113,133,0.4)"}`,
+            borderLeft: `4px solid ${regularsPullMsg.ok ? "#E5BC4F" : "#FB7185"}`,
+            borderRadius: 4, fontSize: "0.85rem", color: regularsPullMsg.ok ? "#E5BC4F" : "#FB7185",
+            display: "flex", alignItems: "center", gap: 12,
+          }}>
+            <span style={{ flex: 1 }}>{regularsPullMsg.ok ? "🔁 " : "⚠ "}{regularsPullMsg.text}</span>
+            <button onClick={() => setRegularsPullMsg(null)} style={{
+              background: "transparent", border: `1px solid ${regularsPullMsg.ok ? "rgba(229,188,79,0.4)" : "rgba(251,113,133,0.4)"}`,
+              color: regularsPullMsg.ok ? "#E5BC4F" : "#FB7185", borderRadius: 3, padding: "2px 8px", fontSize: "0.75rem", cursor: "pointer",
+            }}>×</button>
+          </div>
+        )}
         <div style={{ display: "flex", alignItems: "baseline", gap: "1rem", marginBottom: "1rem", flexWrap: "wrap" }}>
           <h1 style={{ fontFamily: "'Syne', sans-serif", fontSize: "1.2rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: "2px" }}>
             Review Queue {betaMode && <span style={{ color: "#E5BC4F", letterSpacing: "1px" }}>Beta</span>}
@@ -1404,6 +1501,25 @@ export default function ReviewQueue({ betaMode = false } = {}) {
           >
             📥 Pool{poolCount > 0 ? ` (${poolCount})` : ""}
           </button>
+          {/* Regulars auto-pull. Non-rejected regulars are assumed included in
+              every weekend's review. Button force-repulls (useful after Clear
+              All); Auto toggle disables the auto-add on friDate change. */}
+          <button
+            onClick={() => pullRegularsForWeekend(true)}
+            title={`Pull ${activeRegularsCount} active weekly regular${activeRegularsCount === 1 ? "" : "s"} into the queue for this weekend (dedups against what's already there).`}
+            style={{ ...B, background: "rgba(229,188,79,0.12)", color: "#E5BC4F", border: "1px solid rgba(229,188,79,0.4)" }}
+          >
+            🔁 Regulars{activeRegularsCount > 0 ? ` (${activeRegularsCount})` : ""}
+          </button>
+          <label
+            title={autoPullRegulars
+              ? "Regulars auto-pull into every weekend's review"
+              : "Auto-pull is off — click 🔁 Regulars to pull manually"}
+            style={{ display: "inline-flex", alignItems: "center", gap: "5px", fontSize: "0.62rem", letterSpacing: "0.5px", textTransform: "uppercase", color: "rgba(229,188,79,0.85)", cursor: "pointer", userSelect: "none" }}
+          >
+            <input type="checkbox" checked={autoPullRegulars} onChange={(e) => setAutoPullRegulars(e.target.checked)} style={{ accentColor: "#E5BC4F", cursor: "pointer" }} />
+            Auto
+          </label>
           {/* Pipe 1 — pull promoter bookings from centralgroupevents.com into
               the queue so they don't have to be retyped. */}
           <button
@@ -2170,6 +2286,11 @@ export default function ReviewQueue({ betaMode = false } = {}) {
                     <div className="cge-row-info">
                       <div style={{ fontSize: "0.85rem", fontWeight: 700, marginBottom: "2px" }}>
                         {getEmoji(ev.type)} {ev.name || <em style={{ color: "#FB7185" }}>(no name)</em>}
+                        {ev._source === "regular" && (
+                          <span title="Auto-pulled from your weekly regulars" style={{ marginLeft: 8, fontSize: "0.55rem", padding: "1px 6px", borderRadius: 3, background: "rgba(229,188,79,0.18)", color: "#E5BC4F", letterSpacing: "0.5px", textTransform: "uppercase", fontWeight: 700, verticalAlign: "middle" }}>
+                            🔁 Regular
+                          </span>
+                        )}
                       </div>
                       <div style={{ fontSize: "0.65rem", color: "rgba(245,240,232,0.55)" }}>
                         {[ev.venue, ev.area, ev.time].filter(Boolean).join(" · ") || <em>no details</em>}
