@@ -672,6 +672,78 @@ app.put("/api/brand-kit", express.json({ limit: "1mb" }), async (req, res) => {
   }
 });
 
+// === SCREENSHOT POOL — persistent server-side stash ===
+// The operator sees flyers on IG all week, drops each through the "📸 Add
+// from screenshot" flow, previews/edits, and instead of dropping into the
+// current queue chooses "Save to pool for later". Entries persist here and
+// come back into the queue during that event's actual weekend review via a
+// weekend-filter identical in behavior to the booking-import filter. Server-
+// side so a submission from any device is visible on every other device.
+// Kept intentionally simple (single JSON file, bulk API) — there's no
+// concurrent-editing concern like sessions have.
+const POOL_DIR = path.resolve(__dirname, "data/screenshot-pool");
+const POOL_FILE = path.join(POOL_DIR, "pool.json");
+const POOL_MAX_ITEMS = 500; // hard cap so a runaway submission spree can't blow up the file
+async function loadPool() {
+  try {
+    const j = JSON.parse(await fs.readFile(POOL_FILE, "utf8"));
+    return { entries: Array.isArray(j.entries) ? j.entries : [] };
+  } catch { return { entries: [] }; }
+}
+async function savePool(pool) {
+  await fs.mkdir(POOL_DIR, { recursive: true });
+  await fs.writeFile(POOL_FILE, JSON.stringify(pool, null, 2));
+}
+
+app.get("/api/screenshot-pool", async (_req, res) => {
+  try { res.json(await loadPool()); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Bulk-add entries. Body: { entries: [{event, thumb?, recurring, alsoRegular}, …] }
+// Server stamps id + createdAt so client doesn't have to. Cap-guarded — silently
+// drops the oldest entries when we'd exceed POOL_MAX_ITEMS.
+app.post("/api/screenshot-pool", express.json({ limit: "20mb" }), async (req, res) => {
+  try {
+    const incoming = Array.isArray(req.body?.entries) ? req.body.entries : [];
+    if (!incoming.length) return res.status(400).json({ error: "no_entries" });
+    const pool = await loadPool();
+    const added = [];
+    for (const e of incoming) {
+      if (!e || !e.event || !e.event.name) continue;
+      const entry = {
+        id: `pool_${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${added.length}`,
+        event: e.event,
+        thumb: typeof e.thumb === "string" && e.thumb.startsWith("data:image/") ? e.thumb : null,
+        recurring: !!e.recurring,
+        alsoRegular: !!e.alsoRegular,
+        createdAt: new Date().toISOString(),
+      };
+      pool.entries.push(entry);
+      added.push(entry);
+    }
+    if (pool.entries.length > POOL_MAX_ITEMS) {
+      pool.entries = pool.entries.slice(-POOL_MAX_ITEMS);
+    }
+    await savePool(pool);
+    res.json({ added: added.length, total: pool.entries.length });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Bulk delete. Body: { ids: [id, …] }. Used after successful "pull to queue"
+// so pulled entries don't reappear in the next weekly review.
+app.post("/api/screenshot-pool/delete", express.json({ limit: "1mb" }), async (req, res) => {
+  try {
+    const ids = new Set((Array.isArray(req.body?.ids) ? req.body.ids : []).map(String));
+    if (!ids.size) return res.status(400).json({ error: "no_ids" });
+    const pool = await loadPool();
+    const before = pool.entries.length;
+    pool.entries = pool.entries.filter((e) => !ids.has(String(e.id)));
+    await savePool(pool);
+    res.json({ removed: before - pool.entries.length, total: pool.entries.length });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // === WEEKEND_REVIEW — bridge to the Insta-Scraper repo ===
 // The Insta-Scraper writes a Weekend_Review tab into the user's Google
 // Sheet (Instagram_Events_Master, see the scraper UI's "Stage Review"

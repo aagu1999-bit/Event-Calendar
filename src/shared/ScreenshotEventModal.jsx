@@ -91,7 +91,29 @@ function cardToRegular(card) {
   };
 }
 
-export function ScreenshotEventModal({ open, apiKey, weekendDates = null, onAdd, onClose }) {
+// Small provenance thumb for pool entries — the AI image is 1600px / heavy;
+// the pool card only needs a scannable ~200px preview. ~15-30KB per entry.
+function dataUrlToSmallThumb(dataUrl) {
+  return new Promise((resolve) => {
+    if (!dataUrl) { resolve(null); return; }
+    const img = new Image();
+    img.onerror = () => resolve(null);
+    img.onload = () => {
+      const maxEdge = 220;
+      const scale = Math.min(1, maxEdge / Math.max(img.width || maxEdge, img.height || maxEdge));
+      const w = Math.max(1, Math.round((img.width || maxEdge) * scale));
+      const h = Math.max(1, Math.round((img.height || maxEdge) * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+      try { resolve(canvas.toDataURL("image/jpeg", 0.7)); }
+      catch { resolve(null); }
+    };
+    img.src = dataUrl;
+  });
+}
+
+export function ScreenshotEventModal({ open, apiKey, weekendDates = null, onAdd, onClose, onPoolAdded }) {
   // Each card is ONE event's editing state — a single screenshot can yield
   // several sibling cards (weekly-schedule flyers, series posters). Cards
   // share a `sourceKey` when they came from the same image so the UI can
@@ -104,6 +126,7 @@ export function ScreenshotEventModal({ open, apiKey, weekendDates = null, onAdd,
   // { key, sourceKey, imgUrl, event, aiFilled:Set, recurring:bool, include:bool, alsoRegular:bool, extracting:bool, error:string|null }
   const [cards, setCards] = useState([]);
   const [addingBusy, setAddingBusy] = useState(false);
+  const [poolBusy, setPoolBusy] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [msg, setMsg] = useState(null);
   const fileRef = useRef(null);
@@ -261,6 +284,41 @@ export function ScreenshotEventModal({ open, apiKey, weekendDates = null, onAdd,
     } finally { setAddingBusy(false); }
   };
 
+  // Save-to-pool: stash the current cards on the server for a later weekly
+  // review. Same "ready" filter as addAll — only cards with a name, extracted,
+  // and included come along. Thumbs get downscaled hard (~200px) so 100 pool
+  // entries is still trivial disk.
+  const saveToPool = async () => {
+    if (poolBusy) return;
+    const ready = cards.filter((c) => c.include && c.event && c.event.name && c.event.name.trim() && !c.extracting);
+    if (ready.length === 0) { setMsg({ ok: false, text: "No cards ready to save — extract, tick include, and give each event a name." }); return; }
+    setPoolBusy(true); setMsg(null);
+    try {
+      const entries = await Promise.all(ready.map(async (c) => ({
+        event: cardToQueueEvent(c, weekendDates),
+        thumb: await dataUrlToSmallThumb(c.imgUrl),
+        recurring: !!c.recurring,
+        alsoRegular: !!c.alsoRegular,
+      })));
+      const r = await fetch("/api/screenshot-pool", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entries }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.message || j.error || `Server responded ${r.status}`);
+      setMsg({
+        ok: true,
+        text: `Saved ${j.added || entries.length} to the pool — pull them into your queue during that event's weekend.`,
+      });
+      // Tell the parent so the toolbar pool count refreshes.
+      if (onPoolAdded) onPoolAdded(j.total);
+      setTimeout(() => { onClose(); }, 900);
+    } catch (err) {
+      setMsg({ ok: false, text: String(err?.message || err) });
+    } finally { setPoolBusy(false); }
+  };
+
   if (!open) return null;
 
   const anyExtracting = cards.some((c) => c.extracting);
@@ -347,18 +405,38 @@ export function ScreenshotEventModal({ open, apiKey, weekendDates = null, onAdd,
               })}
             </div>
 
-            <button
-              onClick={addAll}
-              disabled={addingBusy || anyExtracting || readyCount === 0}
-              style={{
-                width: "100%", padding: "12px", borderRadius: 8, border: "none",
-                cursor: (addingBusy || anyExtracting || readyCount === 0) ? "not-allowed" : "pointer",
-                background: (addingBusy || anyExtracting || readyCount === 0) ? "rgba(229,188,79,0.3)" : "#E5BC4F",
-                color: "#000", fontWeight: 800, fontSize: "0.9rem", letterSpacing: "0.3px",
-              }}
-            >
-              {addingBusy ? "Adding…" : anyExtracting ? "Waiting for extraction…" : `+ Add ${readyCount} event${readyCount === 1 ? "" : "s"} to review queue`}
-            </button>
+            {/* Two destinations, operator picks:
+                • Add to review queue = current-weekend triage (this session).
+                • Save to pool = stash for later, pull during that event's actual weekend. */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <button
+                onClick={addAll}
+                disabled={addingBusy || poolBusy || anyExtracting || readyCount === 0}
+                style={{
+                  width: "100%", padding: "12px", borderRadius: 8, border: "none",
+                  cursor: (addingBusy || poolBusy || anyExtracting || readyCount === 0) ? "not-allowed" : "pointer",
+                  background: (addingBusy || poolBusy || anyExtracting || readyCount === 0) ? "rgba(229,188,79,0.3)" : "#E5BC4F",
+                  color: "#000", fontWeight: 800, fontSize: "0.9rem", letterSpacing: "0.3px",
+                }}
+              >
+                {addingBusy ? "Adding…" : anyExtracting ? "Waiting for extraction…" : `+ Add ${readyCount} event${readyCount === 1 ? "" : "s"} to review queue`}
+              </button>
+              <button
+                onClick={saveToPool}
+                disabled={addingBusy || poolBusy || anyExtracting || readyCount === 0}
+                title="Stash these for later — they'll show up in the Review pool ready to pull during the event's actual weekend."
+                style={{
+                  width: "100%", padding: "10px", borderRadius: 8,
+                  cursor: (addingBusy || poolBusy || anyExtracting || readyCount === 0) ? "not-allowed" : "pointer",
+                  background: "transparent",
+                  color: (addingBusy || poolBusy || anyExtracting || readyCount === 0) ? "rgba(139,92,246,0.4)" : "#A78BFA",
+                  border: `1px solid ${(addingBusy || poolBusy || anyExtracting || readyCount === 0) ? "rgba(139,92,246,0.2)" : "rgba(139,92,246,0.5)"}`,
+                  fontWeight: 700, fontSize: "0.82rem", letterSpacing: "0.3px",
+                }}
+              >
+                {poolBusy ? "Saving…" : `🗓️ Save ${readyCount} to pool for later`}
+              </button>
+            </div>
           </>
         )}
       </div>
