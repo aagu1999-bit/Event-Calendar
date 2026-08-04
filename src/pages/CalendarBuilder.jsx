@@ -1249,6 +1249,36 @@ export default function CalendarBuilder() {
   const bgFileRef = useRef(null);
   const [bgImage, setBgImage] = useState(null);
   const [bgOpacity, setBgOpacity] = useState(0.90);
+  // Per-slide photo overrides — { [pageIdx: number]: HTMLImageElement }.
+  // Any slide without a per-slide entry falls back to the default `bgImage`.
+  // Memory-only (matches how bgImage works today; refreshing wipes it).
+  const [bgImageBySlide, setBgImageBySlide] = useState({});
+  // Resolves which photo a given preview slide should render: per-slide wins,
+  // otherwise the default. Used by every renderPreview callsite so the logic
+  // lives in one place.
+  const effectiveBgFor = (pi) => (bgImageBySlide[pi] || bgImage || null);
+  // Photo count for the operator-facing "5/8 slides have their own photo" tag.
+  const perSlidePhotoCount = Object.keys(bgImageBySlide).length;
+  // Set a per-slide photo from a File — loads into an HTMLImageElement, stores
+  // in the map. Undefined file removes the override for that slide.
+  const setSlidePhoto = (pi, file) => {
+    if (!file) { setBgImageBySlide(m => { const n = { ...m }; delete n[pi]; return n; }); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => setBgImageBySlide(m => ({ ...m, [pi]: img }));
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  };
+  // Prompt-picker for a per-slide photo. Creates a one-shot file input so we
+  // don't need to manage a ref per slide.
+  const pickSlidePhoto = (pi) => {
+    const input = document.createElement("input");
+    input.type = "file"; input.accept = "image/*";
+    input.onchange = (e) => { const f = e.target.files?.[0]; if (f) setSlidePhoto(pi, f); };
+    input.click();
+  };
   // Column mapping
   const [rawRows, setRawRows] = useState(null);
   const [colHeaders, setColHeaders] = useState([]);
@@ -1554,13 +1584,13 @@ export default function CalendarBuilder() {
     const positions = [];
     const rows = [];
     if (mode === "preview") {
-      renderPreview(cv, pgEvts, { colorKey: previewColor, friDate, size: SIZES[sz], dates, texture, watermark, bgImage, bgOpacity, pageDay: pgDay, isContinuation: pgIsCont, pageIdx: safePg, totalPages: pages, prevPageEndRegion: pgPrevRegion, weekendTitle, _emojiPositions: positions, _eventRows: rows });
+      renderPreview(cv, pgEvts, { colorKey: previewColor, friDate, size: SIZES[sz], dates, texture, watermark, bgImage: effectiveBgFor(safePg), bgOpacity, pageDay: pgDay, isContinuation: pgIsCont, pageIdx: safePg, totalPages: pages, prevPageEndRegion: pgPrevRegion, weekendTitle, _emojiPositions: positions, _eventRows: rows });
     } else {
       renderCal(cv, pgEvts, { colorKey: activeColor, friDate, size: SIZES[sz], pageIdx: safePg, totalPages: pages, dates, texture, watermark, isContinuation: pgIsCont, prevPageEndRegion: pgPrevRegion, _emojiPositions: positions, _eventRows: rows });
     }
     emojiPositionsRef.current = positions;
     eventRowsRef.current = rows;
-  }, [pgEvts, activeColor, previewColor, friDate, sz, safePg, pages, dates, texture, watermark, pgIsCont, mode, bgImage, bgOpacity, pgDay, pgPrevRegion, weekendTitle]);
+  }, [pgEvts, activeColor, previewColor, friDate, sz, safePg, pages, dates, texture, watermark, pgIsCont, mode, bgImage, bgImageBySlide, bgOpacity, pgDay, pgPrevRegion, weekendTitle]);
 
   // Schedule a canvas repaint 400ms after the last change. Multiple
   // keystrokes during that window collapse into ONE repaint — the preview
@@ -1764,7 +1794,7 @@ export default function CalendarBuilder() {
     const pd = allPages[pi];
     if (!pd) return;
     if (mode === "preview") {
-      renderPreview(cv, pd.events, { colorKey: previewColor, friDate, size: SIZES[sz], dates, texture, watermark, bgImage, bgOpacity, pageDay: pd.day, isContinuation: pd.isContinuation, pageIdx: pi, totalPages: pages, prevPageEndRegion: pd.prevPageEndRegion, weekendTitle });
+      renderPreview(cv, pd.events, { colorKey: previewColor, friDate, size: SIZES[sz], dates, texture, watermark, bgImage: effectiveBgFor(pi), bgOpacity, pageDay: pd.day, isContinuation: pd.isContinuation, pageIdx: pi, totalPages: pages, prevPageEndRegion: pd.prevPageEndRegion, weekendTitle });
     } else {
       const dayColor = dayColors[pd.day] || "purple";
       renderCal(cv, pd.events, { colorKey: dayColor, friDate, size: SIZES[sz], pageIdx: pi, totalPages: pages, dates, texture, watermark, isContinuation: pd.isContinuation, prevPageEndRegion: pd.prevPageEndRegion });
@@ -1814,7 +1844,7 @@ export default function CalendarBuilder() {
       const pd = allPages[i];
       if (!pd) continue;
       if (mode === "preview") {
-        renderPreview(cv, pd.events, { colorKey: previewColor, friDate, size: SIZES[sz], dates, texture, watermark, bgImage, bgOpacity, pageDay: pd.day, isContinuation: pd.isContinuation, pageIdx: i, totalPages: pages, prevPageEndRegion: pd.prevPageEndRegion, weekendTitle });
+        renderPreview(cv, pd.events, { colorKey: previewColor, friDate, size: SIZES[sz], dates, texture, watermark, bgImage: effectiveBgFor(i), bgOpacity, pageDay: pd.day, isContinuation: pd.isContinuation, pageIdx: i, totalPages: pages, prevPageEndRegion: pd.prevPageEndRegion, weekendTitle });
       } else {
         const dayColor = dayColors[pd.day] || "purple";
         renderCal(cv, pd.events, { colorKey: dayColor, friDate, size: SIZES[sz], pageIdx: i, totalPages: pages, dates, texture, watermark, isContinuation: pd.isContinuation, prevPageEndRegion: pd.prevPageEndRegion });
@@ -1961,6 +1991,52 @@ export default function CalendarBuilder() {
                     <input type="range" min="0.60" max="1.0" step="0.01" value={bgOpacity} onChange={e => setBgOpacity(parseFloat(e.target.value))} style={{ flex: 1, accentColor: "#FACC15" }} />
                     <span style={{ fontSize: "0.45rem", color: "rgba(245,240,232,0.3)" }}>100%</span>
                   </div>}
+                  {/* Per-slide photo overrides. Only shown when there are 2+
+                      slides — with a single slide, the default photo above is
+                      the whole story. Each row: slide label + thumb (or empty
+                      slot) + choose / change / clear. Rows are collapsed into
+                      a scrollable strip to stay compact when there are lots
+                      of slides. */}
+                  {pages > 1 && (
+                    <div style={{ marginTop: "8px", padding: "8px 10px", background: "rgba(245,240,232,0.03)", border: "1px solid rgba(245,240,232,0.08)", borderRadius: "5px" }}>
+                      <div style={{ display: "flex", alignItems: "baseline", gap: "6px", marginBottom: "5px" }}>
+                        <span style={{ ...L, marginBottom: 0 }}>Per-slide photos</span>
+                        <span style={{ fontSize: "0.5rem", color: "rgba(245,240,232,0.35)" }}>
+                          {perSlidePhotoCount > 0 ? `${perSlidePhotoCount}/${pages} custom · rest use default` : "Any slide without one uses the default above"}
+                        </span>
+                        {perSlidePhotoCount > 0 && (
+                          <button
+                            onClick={() => { if (window.confirm(`Clear ${perSlidePhotoCount} per-slide photo override${perSlidePhotoCount === 1 ? "" : "s"}? (The default photo stays.)`)) setBgImageBySlide({}); }}
+                            style={{ marginLeft: "auto", background: "transparent", border: "1px solid rgba(251,113,133,0.3)", color: "rgba(251,113,133,0.7)", borderRadius: "3px", padding: "1px 6px", fontSize: "0.55rem", cursor: "pointer" }}
+                          >Clear all</button>
+                        )}
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: "3px", maxHeight: "180px", overflowY: "auto" }}>
+                        {allPages.map((p, i) => {
+                          const slideImg = bgImageBySlide[i];
+                          const usingDefault = !slideImg && !!bgImage;
+                          return (
+                            <div key={i} style={{ display: "flex", alignItems: "center", gap: "6px", padding: "4px 6px", borderRadius: "3px", background: i === safePg ? "rgba(250,204,21,0.06)" : "transparent" }}>
+                              <span style={{ fontSize: "0.55rem", fontWeight: 700, color: i === safePg ? "#FACC15" : "rgba(245,240,232,0.55)", minWidth: "64px", letterSpacing: "0.5px", textTransform: "uppercase" }}>
+                                {p.day}{p.isContinuation ? "+" : ""} · P{i + 1}
+                              </span>
+                              {slideImg ? (
+                                <img src={slideImg.src} alt={`slide ${i + 1} photo`} style={{ width: 28, height: 28, objectFit: "cover", borderRadius: 3, border: "1px solid rgba(52,211,153,0.4)" }} />
+                              ) : (
+                                <span style={{ width: 28, height: 28, borderRadius: 3, background: "rgba(245,240,232,0.04)", border: `1px dashed rgba(245,240,232,${usingDefault ? 0.18 : 0.1})`, fontSize: "0.5rem", display: "flex", alignItems: "center", justifyContent: "center", color: "rgba(245,240,232,0.3)" }}>
+                                  {usingDefault ? "def" : "—"}
+                                </span>
+                              )}
+                              <button onClick={() => pickSlidePhoto(i)} style={{ ...B, fontSize: "0.5rem", padding: "3px 6px" }}>{slideImg ? "Change" : "Pick"}</button>
+                              {slideImg && (
+                                <button onClick={() => setSlidePhoto(i, undefined)} title="Remove this slide's photo (falls back to the default)" style={{ ...B, fontSize: "0.5rem", padding: "3px 6px", color: "rgba(251,113,133,0.6)", borderColor: "rgba(251,113,133,0.25)" }}>×</button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </>
               ) : (
                 <>
@@ -2308,12 +2384,19 @@ export default function CalendarBuilder() {
               {pages > 1 && <div className="cge-cal-page-tabs" style={{ display: "flex", gap: "0.2rem", flexWrap: "wrap" }}>
                 {allPages.map((p, i) => {
                   const pColor = mode === "preview" ? COLORS[previewColor] : COLORS[dayColors[p.day] || "purple"];
+                  // Small green dot on tabs with a per-slide photo override so
+                  // the operator can see which slides are customized at a glance.
+                  const hasSlidePhoto = mode === "preview" && !!bgImageBySlide[i];
                   return (
                     <button key={i} onClick={() => setPg(i)} style={{
                       padding: "2px 8px", borderRadius: "3px", border: "none", cursor: "pointer",
                       background: pg === i ? pColor.hex : "rgba(245,240,232,0.04)",
                       color: pg === i ? (pColor.light ? "#000" : "#FFF") : "rgba(245,240,232,0.2)", fontSize: "0.55rem", fontWeight: 700,
-                    }}>{p.day}{p.isContinuation ? "+" : ""}</button>
+                      display: "inline-flex", alignItems: "center", gap: "4px",
+                    }}>
+                      {p.day}{p.isContinuation ? "+" : ""}
+                      {hasSlidePhoto && <span title="This slide has its own photo" style={{ width: 5, height: 5, borderRadius: "50%", background: pg === i ? "rgba(0,0,0,0.55)" : "#34D399" }} />}
+                    </button>
                   );
                 })}
               </div>}
