@@ -734,16 +734,17 @@ export async function screenshotToEvents({ apiKey, image, mimeType = "image/png"
 // wraps that in the fixed CTA + "Where we landing, folks? ✈️" line so the
 // template pieces never drift with model variance.
 
-// The operator's approved caption examples — used as few-shot fuel. Their own
-// 3 written examples + the 5 drafts they approved on the voice check. Kept
-// close to renderPreview because that's the tool that consumes them.
+// The operator's REAL approved caption examples — used as few-shot fuel to
+// anchor register, rhythm, and casualness. Kept intentionally to the three
+// captions the operator actually wrote (from screenshots). Earlier revs
+// added 5 imitation drafts here and it back-fired: the drafts over-used
+// "the motion" and the AI started opening every caption with it. Fewer,
+// real examples > many, imitation ones — the AI generalizes better from
+// the operator's actual voice than from a synthetic pastiche.
 export const CAPTION_EXAMPLES = [
   `the rain isn't stopping the snow 🌊\n\nJersey has the motion right now & we're not slowing up anytime soon.`,
   `Dont think too hard about it gang.\nFeel a vibe? Catch a vibe. Bless up 😎`,
   `Jersey has MOTION, but don't get lost in the sauce 😉 We BEEN a vibe\n\nMake sure you support your people and find the curators that move you. The ones that bring something fresh to the table. There's no rush… it's just warming up.`,
-  `Middle of August and the motion ain't slowing up 🌊 Day parties still hitting, brunches still real, Sunday markets still worth the pull-up. Don't overthink it gang — the good spots are the same crowd all week, just different shirts. Pull up, dap somebody, catch a plate.`,
-  `Last full weekend before Labor Day and everybody's moving different 😎 DJs pulling out the ones they been holding, day parties running the block, Sunday brunches getting their last real summer plate in. This ain't the weekend to sit down. Pick your two and pull up — the motion's here.`,
-  `Three-day weekend. That's not a suggestion 😎 Wildwood spread for the shore folks, Newark rooftops staying open till the sun tells 'em, Sunday cookouts with playlists that don't quit. Labor Day is for the ones who worked all summer. Wear the white one more time. Bless up.`,
 ];
 
 // Detect a seasonal/holiday moment for the reviewed weekend so the AI can
@@ -814,13 +815,33 @@ export async function generateWeekendCaption({ apiKey, weekendDates = null, even
   const voiceExemplars = Array.isArray(voice?.exemplars) ? voice.exemplars.filter((e) => e && e.trim()).slice(0, 3) : [];
   const captionExamples = Array.isArray(examples) && examples.length ? examples : CAPTION_EXAMPLES;
 
+  // Prompt priorities (top → bottom):
+  //   1. Brand Voice from Brand Kit — the operator's REAL configured tone.
+  //   2. A few operator-written examples for rhythm/register only.
+  //   3. Explicit anti-repetition rules (openings, keywords) — earlier revs
+  //      caused every caption to start with "Jersey has motion" because the
+  //      examples over-used it.
+  //   4. Weekend context (events, day mix, region, holiday moment).
   const prompt = [
-    "You write Instagram captions for Central Group Events — a Black-culture events media brand in New Jersey. This caption goes with a downloaded weekend calendar carousel that ships now.",
+    "You write Instagram captions for Central Group Events — a Black-culture events media brand in New Jersey. This caption ships with a downloaded weekend calendar carousel.",
     "",
-    ...(hasVoiceDesc ? ["BRAND VOICE:", voice.description.trim(), ""] : []),
-    ...(voiceExemplars.length ? ["BRAND-KIT EXAMPLES OF THE VOICE:", ...voiceExemplars.map((x) => `"${x}"`), ""] : []),
-    "APPROVED CAPTION EXAMPLES (match this rhythm, casualness, keywords like 'the motion', 'a vibe', 'gang', 'we BEEN'):",
+    ...(hasVoiceDesc
+      ? ["THE OPERATOR'S BRAND VOICE (this is the primary reference — match it more than any other input below):", voice.description.trim(), ""]
+      : ["THE OPERATOR'S BRAND VOICE: (not configured — infer from the caption examples below, but keep them as ONE reference point among many possible openings, not the template).", ""]),
+    ...(voiceExemplars.length ? ["BRAND-KIT VOICE EXAMPLES:", ...voiceExemplars.map((x) => `"${x}"`), ""] : []),
+    "OPERATOR-WRITTEN CAPTION EXAMPLES (for RHYTHM and REGISTER only — do NOT copy their phrases, keywords, or opening lines):",
     ...captionExamples.map((c) => `"""${c}"""`),
+    "",
+    "RULES TO AVOID SOUNDING FORMULAIC (critical — earlier drafts failed this):",
+    "- DO NOT start the caption with 'Jersey has motion', 'the motion', 'we BEEN', or any phrase that mimics a specific example's opening. Vary your opening every time.",
+    "- DO NOT force keywords from the examples ('the motion', 'a vibe', 'gang', 'BEEN'). Use them only if they emerge naturally for THIS specific weekend's context. Most captions should NOT contain 'motion' at all.",
+    "- Vary your opening angle: a weather/season detail, a specific event vibe, the day of week, a question, an observation, a call-out to a subgroup, etc.",
+    "- Reference the actual events (a venue, day, or region) where it lands — stay concrete and warm.",
+    "- NEVER hype-clichés: 'unforgettable', 'must-visit', 'hidden gem', 'something for everyone', 'you don't want to miss', 'the vibes were unmatched'.",
+    "- Say 'Jersey' not 'NJ' in the body.",
+    "- Roughly 5 sentences (4-6 is fine). Mix short-punch and slightly longer.",
+    "- 1-3 emojis, at the end of a thought — never decorative.",
+    "- One or two ALL-CAPS words for emphasis if it FITS the moment (not required).",
     "",
     `THIS WEEKEND: Fri ${weekendDates?.Fri || "?"} · Sat ${weekendDates?.Sat || "?"} · Sun ${weekendDates?.Sun || "?"}`,
     seasonal ? `SEASONAL CONTEXT: ${seasonal.name} — reference it if it fits, don't force it.` : "",
@@ -828,11 +849,7 @@ export async function generateWeekendCaption({ apiKey, weekendDates = null, even
     daySummary ? "SAMPLE:" : "",
     daySummary,
     "",
-    "TASK:",
-    "Write a caption in the operator's voice, roughly 5 sentences (4-6 is fine). Mix short-punch and slightly longer sentences. Use one or two ALL-CAPS words for emphasis if it fits ('MOTION', 'BEEN'). Emojis land at the end of a thought — 1-3 total, never decorative. Say 'Jersey' not 'NJ' in the body.",
-    "You may reference the actual events (a venue, day, or region) but stay concrete and warm — NEVER hype-clichés ('unforgettable', 'must-visit', 'hidden gem', 'something for everyone').",
-    "",
-    "Then produce FIVE hashtags for the tail. Include the seasonal tag when relevant. Mix brand tags with weekend/vibe tags. Never generic garbage like #instagood or #followforfollow. Prefer: #NJBlackCulture, #TheMotion, #CGEWeekend, #WhereWeAt, #BlackNJ, #JerseySummer/#JerseyFall etc., plus " + (seasonal ? seasonal.tag : "a season-appropriate one") + ".",
+    "Then produce FIVE hashtags for the tail. Include the seasonal tag when relevant. Mix brand tags with weekend/vibe tags. Never generic garbage (#instagood, #followforfollow). Good candidates: #NJBlackCulture, #CGEWeekend, #WhereWeAt, #BlackNJ, #JerseySummer/#JerseyFall/#JerseyWinter, plus " + (seasonal ? seasonal.tag : "a season-appropriate tag") + ". Use #TheMotion sparingly (max once in every ~3 captions) — it's overused if it shows up every week.",
     "",
     "Return ONLY JSON in this exact shape (no markdown, no code fences, no preamble):",
     '{"body":"<the caption body — plain text, keep line breaks as \\n>","hashtags":["#tag1","#tag2","#tag3","#tag4","#tag5"]}',
