@@ -725,6 +725,143 @@ export async function screenshotToEvents({ apiKey, image, mimeType = "image/png"
   return results;
 }
 
+// === WEEKEND CAPTION — Instagram caption for a downloaded calendar post ===
+// Voiced from Brand Kit, anchored by a few-shot set of operator-approved
+// captions so the model stays in-voice. Reads the actual weekend's events for
+// concrete references (venues, days, region), detects seasonal moments (Labor
+// Day, Juneteenth, HBCU homecoming, etc.) so the tail hashtag can be
+// weekend-specific. Returns { body, hashtags }; the modal / ZIP assembly
+// wraps that in the fixed CTA + "Where we landing, folks? ✈️" line so the
+// template pieces never drift with model variance.
+
+// The operator's approved caption examples — used as few-shot fuel. Their own
+// 3 written examples + the 5 drafts they approved on the voice check. Kept
+// close to renderPreview because that's the tool that consumes them.
+export const CAPTION_EXAMPLES = [
+  `the rain isn't stopping the snow 🌊\n\nJersey has the motion right now & we're not slowing up anytime soon.`,
+  `Dont think too hard about it gang.\nFeel a vibe? Catch a vibe. Bless up 😎`,
+  `Jersey has MOTION, but don't get lost in the sauce 😉 We BEEN a vibe\n\nMake sure you support your people and find the curators that move you. The ones that bring something fresh to the table. There's no rush… it's just warming up.`,
+  `Middle of August and the motion ain't slowing up 🌊 Day parties still hitting, brunches still real, Sunday markets still worth the pull-up. Don't overthink it gang — the good spots are the same crowd all week, just different shirts. Pull up, dap somebody, catch a plate.`,
+  `Last full weekend before Labor Day and everybody's moving different 😎 DJs pulling out the ones they been holding, day parties running the block, Sunday brunches getting their last real summer plate in. This ain't the weekend to sit down. Pick your two and pull up — the motion's here.`,
+  `Three-day weekend. That's not a suggestion 😎 Wildwood spread for the shore folks, Newark rooftops staying open till the sun tells 'em, Sunday cookouts with playlists that don't quit. Labor Day is for the ones who worked all summer. Wear the white one more time. Bless up.`,
+];
+
+// Detect a seasonal/holiday moment for the reviewed weekend so the AI can
+// pick a genuinely relevant tail hashtag and (subtly) reference the moment
+// in the body. friDateStr is "M/D" (year-agnostic — the operator's convention).
+function detectSeasonalMoment(friDateStr) {
+  const m = String(friDateStr || "").match(/^(\d{1,2})\/(\d{1,2})/);
+  if (!m) return null;
+  const mo = parseInt(m[1]), d = parseInt(m[2]);
+  const fri = { mo, d };
+  const sat = { mo: d + 1 > 31 ? mo + 1 : mo, d: d + 1 > 31 ? 1 : d + 1 };
+  const sun = { mo: d + 2 > 31 ? mo + 1 : mo, d: d + 2 > 31 ? 2 : d + 2 };
+  const covers = (targetMo, targetD) =>
+    [fri, sat, sun].some((x) => x.mo === targetMo && x.d === targetD);
+  const inRange = (fromMo, fromD, toMo, toD) => {
+    const cur = mo * 100 + d;
+    const from = fromMo * 100 + fromD;
+    const to = toMo * 100 + toD;
+    return cur >= from && cur <= to;
+  };
+  // Labor Day = first Monday of September; weekend before spans late Aug or
+  // early Sept. Simple heuristic: Friday between Aug 29 and Sept 5 = Labor Day weekend.
+  if (inRange(8, 29, 9, 5)) return { name: "Labor Day weekend", tag: "#LaborDayWeekend" };
+  // Memorial Day = last Monday of May; weekend before spans late May.
+  if (inRange(5, 22, 5, 30)) return { name: "Memorial Day weekend", tag: "#MemorialDayWeekend" };
+  // Juneteenth
+  if (covers(6, 19) || inRange(6, 17, 6, 21)) return { name: "Juneteenth weekend", tag: "#Juneteenth" };
+  // 4th of July
+  if (covers(7, 4) || inRange(7, 2, 7, 6)) return { name: "4th of July weekend", tag: "#4thOfJulyWeekend" };
+  // HBCU homecoming season — mid-Sept through Oct
+  if (inRange(9, 15, 10, 31)) return { name: "HBCU homecoming season", tag: "#HBCUSeason" };
+  // Halloween
+  if (inRange(10, 24, 11, 1)) return { name: "Halloween weekend", tag: "#HalloweenWeekend" };
+  // Thanksgiving — 4th Thursday of November; approximate
+  if (inRange(11, 20, 11, 28)) return { name: "Thanksgiving weekend", tag: "#ThanksgivingWeekend" };
+  // NYE
+  if (inRange(12, 29, 12, 31) || (mo === 1 && d <= 2)) return { name: "New Year's weekend", tag: "#NewYearsWeekend" };
+  // Valentine's
+  if (inRange(2, 12, 2, 16)) return { name: "Valentine's weekend", tag: "#ValentinesWeekend" };
+  // MLK Day — 3rd Monday of Jan
+  if (inRange(1, 15, 1, 21)) return { name: "MLK Day weekend", tag: "#MLKWeekend" };
+  // Pride
+  if (mo === 6) return { name: "Pride month", tag: "#Pride" };
+  // Black History Month
+  if (mo === 2) return { name: "Black History Month", tag: "#BlackHistoryMonth" };
+  // Soft-fall — first weekend after Labor Day
+  if (inRange(9, 6, 9, 14)) return { name: "first weekend after Labor Day (soft-launch fall)", tag: "#SoftFall" };
+  return null;
+}
+
+export async function generateWeekendCaption({ apiKey, weekendDates = null, events = [], voice = null, examples = null } = {}) {
+  if (!apiKey) throw new Error("Missing Gemini API key");
+  const clean = (v) => String(v || "").trim();
+  const anchorFri = clean(weekendDates?.Fri);
+  const seasonal = detectSeasonalMoment(anchorFri);
+  const evList = (Array.isArray(events) ? events : []).slice(0, 60);
+
+  // Summarize the weekend's events for the model without dumping everything.
+  const byDay = { Fri: [], Sat: [], Sun: [] };
+  for (const e of evList) if (byDay[e.day]) byDay[e.day].push(e);
+  const daySummary = ["Fri", "Sat", "Sun"].filter((d) => byDay[d].length).map((d) => {
+    const sample = byDay[d].slice(0, 5).map((e) => `${e.name}${e.venue ? ` @ ${e.venue}` : ""}${e.area ? `, ${e.area}` : ""}`);
+    return `- ${d} (${byDay[d].length} events): ${sample.join(" · ")}${byDay[d].length > 5 ? " …" : ""}`;
+  }).join("\n");
+  const regions = [...new Set(evList.map((e) => e.region).filter(Boolean))];
+
+  const hasVoiceDesc = voice && typeof voice.description === "string" && voice.description.trim();
+  const voiceExemplars = Array.isArray(voice?.exemplars) ? voice.exemplars.filter((e) => e && e.trim()).slice(0, 3) : [];
+  const captionExamples = Array.isArray(examples) && examples.length ? examples : CAPTION_EXAMPLES;
+
+  const prompt = [
+    "You write Instagram captions for Central Group Events — a Black-culture events media brand in New Jersey. This caption goes with a downloaded weekend calendar carousel that ships now.",
+    "",
+    ...(hasVoiceDesc ? ["BRAND VOICE:", voice.description.trim(), ""] : []),
+    ...(voiceExemplars.length ? ["BRAND-KIT EXAMPLES OF THE VOICE:", ...voiceExemplars.map((x) => `"${x}"`), ""] : []),
+    "APPROVED CAPTION EXAMPLES (match this rhythm, casualness, keywords like 'the motion', 'a vibe', 'gang', 'we BEEN'):",
+    ...captionExamples.map((c) => `"""${c}"""`),
+    "",
+    `THIS WEEKEND: Fri ${weekendDates?.Fri || "?"} · Sat ${weekendDates?.Sat || "?"} · Sun ${weekendDates?.Sun || "?"}`,
+    seasonal ? `SEASONAL CONTEXT: ${seasonal.name} — reference it if it fits, don't force it.` : "",
+    `EVENT COUNT: ${evList.length}${regions.length ? ` across ${regions.join(", ")}` : ""}`,
+    daySummary ? "SAMPLE:" : "",
+    daySummary,
+    "",
+    "TASK:",
+    "Write a caption in the operator's voice, roughly 5 sentences (4-6 is fine). Mix short-punch and slightly longer sentences. Use one or two ALL-CAPS words for emphasis if it fits ('MOTION', 'BEEN'). Emojis land at the end of a thought — 1-3 total, never decorative. Say 'Jersey' not 'NJ' in the body.",
+    "You may reference the actual events (a venue, day, or region) but stay concrete and warm — NEVER hype-clichés ('unforgettable', 'must-visit', 'hidden gem', 'something for everyone').",
+    "",
+    "Then produce FIVE hashtags for the tail. Include the seasonal tag when relevant. Mix brand tags with weekend/vibe tags. Never generic garbage like #instagood or #followforfollow. Prefer: #NJBlackCulture, #TheMotion, #CGEWeekend, #WhereWeAt, #BlackNJ, #JerseySummer/#JerseyFall etc., plus " + (seasonal ? seasonal.tag : "a season-appropriate one") + ".",
+    "",
+    "Return ONLY JSON in this exact shape (no markdown, no code fences, no preamble):",
+    '{"body":"<the caption body — plain text, keep line breaks as \\n>","hashtags":["#tag1","#tag2","#tag3","#tag4","#tag5"]}',
+  ].filter(Boolean).join("\n");
+
+  const data = await geminiGenerate(apiKey, {
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: { responseMimeType: "application/json", temperature: 0.95 },
+  }, { model: "gemini-2.5-flash" });
+
+  const parsed = extractJson(extractResponseText(data)) || {};
+  const body = clean(parsed.body);
+  let hashtags = Array.isArray(parsed.hashtags) ? parsed.hashtags.map(clean).filter(Boolean) : [];
+  // Normalize hashtags: ensure leading #, strip whitespace, cap at 5.
+  hashtags = hashtags.map((h) => (h.startsWith("#") ? h : `#${h}`).replace(/\s+/g, "")).slice(0, 5);
+  if (!body) throw new Error("Caption came back empty — try Regenerate.");
+  return { body, hashtags, seasonal: seasonal?.name || null };
+}
+
+// Assembles the final caption block from the AI's {body, hashtags} + the
+// fixed CTA and "Where we landing, folks? ✈️" line. Keeps template drift out
+// of the model's job — it only writes the creative body + tags.
+export function assembleWeekendCaption({ body, hashtags }) {
+  const cta = "Link in bio for the full spread + event details 📎 centralgroupevents.com";
+  const closer = "Where we landing, folks? ✈️";
+  const tags = (Array.isArray(hashtags) ? hashtags : []).join(" ");
+  return `${(body || "").trim()}\n\n${cta}\n\n${closer}${tags ? `\n\n${tags}` : ""}`;
+}
+
 // === GUIDE COMMENTARY — the editorial write-up for a website guide page ===
 // Writes the 2-3 paragraph intro that sits above a guide's event listings (the
 // centralgroupevents.com "Pages" body). Voiced from the Brand Kit so it reads
