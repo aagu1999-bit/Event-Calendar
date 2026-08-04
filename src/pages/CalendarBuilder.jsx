@@ -715,8 +715,55 @@ function renderCal(canvas, events, cfg) {
 }
 
 // ==================== PREVIEW RENDERER ====================
+// Wrap `text` into at most `maxLines` lines that each fit in `maxW` at the
+// current canvas font. Words break at whitespace; a single word longer than
+// the line is hyphenated mid-word with a "-". If the text still doesn't fit
+// after maxLines, the last line ends with "…". The operator chose 3 lines
+// max — long names get room to breathe without silent character truncation.
+function wrapEventText(ctx, text, maxW, maxLines = 3) {
+  const words = String(text || "").split(/\s+/).filter(Boolean);
+  const lines = [];
+  let cur = "";
+  let wordIdx = 0;
+  let hyphenTail = "";
+  const fits = (s) => ctx.measureText(s).width <= maxW;
+  const tryAdd = (word) => {
+    const test = cur ? cur + " " + word : word;
+    if (fits(test)) { cur = test; return true; }
+    return false;
+  };
+  while ((wordIdx < words.length || hyphenTail) && lines.length < maxLines) {
+    const word = hyphenTail || words[wordIdx];
+    if (!hyphenTail) wordIdx++;
+    hyphenTail = "";
+    if (tryAdd(word)) continue;
+    if (cur) {
+      lines.push(cur);
+      cur = "";
+      if (lines.length >= maxLines) { hyphenTail = word; break; }
+      if (tryAdd(word)) continue;
+    }
+    // cur empty and word still overflows — hyphenate mid-word
+    let len = word.length;
+    while (len > 0 && !fits(word.slice(0, len) + "-")) len--;
+    if (len === 0) break; // pathological — nothing fits, bail
+    lines.push(word.slice(0, len) + "-");
+    hyphenTail = word.slice(len);
+  }
+  if (cur && lines.length < maxLines) lines.push(cur);
+  // Anything unrendered? Truncate the last line with "…"
+  const hasMore = !!hyphenTail || wordIdx < words.length;
+  if (hasMore && lines.length > 0) {
+    let last = lines[lines.length - 1];
+    if (last.endsWith("-")) last = last.slice(0, -1);
+    while (last.length > 0 && !fits(last + "…")) last = last.slice(0, -1);
+    lines[lines.length - 1] = last + "…";
+  }
+  return lines.length ? lines : [""];
+}
+
 function renderPreview(canvas, pageEvents, cfg) {
-  const { colorKey, friDate, size, dates, texture, bgImage, bgOpacity, pageDay, isContinuation, pageIdx, totalPages, watermark = true, prevPageEndRegion = null } = cfg;
+  const { colorKey, friDate, size, dates, texture, bgImage, bgOpacity, pageDay, isContinuation, pageIdx, totalPages, watermark = true, prevPageEndRegion = null, weekendTitle = "" } = cfg;
   // Pre-seed lastRegion so the first event of a continuation page
   // doesn't draw a duplicate divider for a region that was already
   // rendered on the previous page. Same fix as renderCal.
@@ -852,12 +899,15 @@ function renderPreview(canvas, pageEvents, cfg) {
     ctx.fillText("NJ WEEKEND EVENTS", px, 24 * s);
     ctx.letterSpacing = "0px";
 
-    // Auto-fit "THIS WEEKEND"
+    // Auto-fit the header title — operator can override "THIS WEEKEND" with a
+    // themed phrase (JUNETEENTH WEEKEND, HOMECOMING, etc.). Empty string falls
+    // back to the default so a cleared input never blanks the render.
+    const headerTitle = (String(weekendTitle || "").trim().toUpperCase()) || "THIS WEEKEND";
     let twFS = 80;
     ctx.font = `800 ${twFS * s}px 'Syne',sans-serif`;
-    while (ctx.measureText("THIS WEEKEND").width > W - px * 2 && twFS > 40) { twFS -= 2; ctx.font = `800 ${twFS * s}px 'Syne',sans-serif`; }
+    while (ctx.measureText(headerTitle).width > W - px * 2 && twFS > 40) { twFS -= 2; ctx.font = `800 ${twFS * s}px 'Syne',sans-serif`; }
     ctx.fillStyle = txtColor;
-    ctx.fillText("THIS WEEKEND", px, 55 * s);
+    ctx.fillText(headerTitle, px, 55 * s);
 
     ctx.font = `800 ${40 * s}px 'Syne',sans-serif`;
     ctx.fillText(`${dates.Fri} — ${dates.Sun}`, px, 140 * s);
@@ -879,7 +929,9 @@ function renderPreview(canvas, pageEvents, cfg) {
       ctx.textAlign = "left";
     }
 
-    // Day + region header
+    // Day + region header. Underline REMOVED — combined with the region-label
+    // divider below, an extra line here read as "line above" the region label.
+    // Region labels keep their own single line UNDER; nothing over.
     const dayHeaderY = lineY + 8 * s;
     const regs = [...new Set(pageEvents.map(e => e.region))];
     const regionLabel = regs.length === 1 ? ` — ${regs[0].toUpperCase()}` : "";
@@ -888,9 +940,6 @@ function renderPreview(canvas, pageEvents, cfg) {
     ctx.textAlign = "center";
     ctx.fillText(`${dayFull[pageDay]}${regionLabel}`, W / 2, dayHeaderY + 4 * s);
     ctx.textAlign = "left";
-
-    ctx.fillStyle = "rgba(255,255,255,0.15)";
-    ctx.fillRect(px, dayHeaderY + 38 * s, W - px * 2, 1 * s);
 
     evTop = dayHeaderY + 46 * s;
   }
@@ -945,45 +994,66 @@ function renderPreview(canvas, pageEvents, cfg) {
     const colX = isLeft ? px : (px + colW + 24 * s);
     const rowY = isLeft ? leftY : rightY;
 
-    // Skip if overlaps footer
-    if (rowY + rowH > H - footerH - 6 * s) return;
-    if (cfg._eventRows) cfg._eventRows.push({ id: ev.id, x: colX, y: rowY, w: colW, h: rowH });
+    // Text metrics — wrap name + venue up to 3 lines each. Font size stays
+    // fixed (operator's rule: no shrinking). Long words hyphenate, extreme
+    // overflow gets an ellipsis on line 3. Row height flexes to fit the
+    // actual line count instead of the old fixed rowH.
+    const maxNmW = colW - 38 * s;
+    ctx.textBaseline = "top";
 
-    // Emoji
+    ctx.font = `700 ${nameFontSize * s}px 'DM Sans',sans-serif`;
+    const nameLines = wrapEventText(ctx, (ev.name || "").toUpperCase(), maxNmW, 3);
+
+    ctx.font = `400 ${venueFontSize * s}px 'DM Sans',sans-serif`;
+    let venueStr = ev.venue || "";
+    if (ev.area) venueStr += ` · ${ev.area}`;
+    const venueLines = wrapEventText(ctx, venueStr, maxNmW, 3);
+
+    // Vertical layout — pad-top → name lines → gap → venue lines → pad-bottom
+    const PAD_TOP = 12 * s;
+    const PAD_MID = 6 * s;
+    const PAD_BOTTOM = 12 * s;
+    const nameLH = nameFontSize * s * 1.15;
+    const venueLH = venueFontSize * s * 1.20;
+    const contentH = PAD_TOP + nameLines.length * nameLH + PAD_MID + venueLines.length * venueLH + PAD_BOTTOM;
+    // Keep rowH as the minimum floor so short single-line events stay compact
+    // and the two-column grid still reads uniformly at the top of the page.
+    const actualRowH = Math.max(rowH, contentH);
+
+    // Skip if overlaps footer — use actualRowH so a big multi-line card near
+    // the bottom overflows correctly instead of getting drawn half-off.
+    if (rowY + actualRowH > H - footerH - 6 * s) return;
+    if (cfg._eventRows) cfg._eventRows.push({ id: ev.id, x: colX, y: rowY, w: colW, h: actualRowH });
+
+    // Emoji — top-anchored with the first line of the name (no more centered
+    // math that broke on variable heights).
     ctx.save();
     ctx.globalAlpha = 1.0;
     ctx.font = `${emojiFontSize * s}px sans-serif`;
     ctx.textBaseline = "top";
-    const emojiY = rowY + (rowH - emojiFontSize * s) / 2.5;
+    const emojiY = rowY + PAD_TOP;
     ctx.fillText(ev.emoji || getEmoji(ev.type), colX, emojiY);
     ctx.restore();
     if (cfg._emojiPositions) cfg._emojiPositions.push({ id: ev.id, x: colX - 5*s, y: emojiY - 5*s, w: emojiFontSize*s + 10*s, h: emojiFontSize*s + 10*s });
 
-    // Event name
+    // Name lines
     ctx.font = `700 ${nameFontSize * s}px 'DM Sans',sans-serif`;
     ctx.fillStyle = bgImage ? "#FFFFFF" : pureHead;
     ctx.textBaseline = "top";
-    let nm = ev.name.toUpperCase();
-    const maxNmW = colW - 38 * s;
-    if (ctx.measureText(nm).width > maxNmW) {
-      while (ctx.measureText(nm + "..").width > maxNmW && nm.length > 0) nm = nm.slice(0, -1);
-      nm += "..";
-    }
-    ctx.fillText(nm, colX + 34 * s, rowY + rowH * 0.12);
+    nameLines.forEach((line, i) => {
+      ctx.fillText(line, colX + 34 * s, rowY + PAD_TOP + i * nameLH);
+    });
 
-    // Venue · City
+    // Venue · City lines
     ctx.font = `400 ${venueFontSize * s}px 'DM Sans',sans-serif`;
     ctx.fillStyle = bgImage ? "rgba(255,255,255,0.60)" : (isLight ? "rgba(0,0,0,0.50)" : "rgba(255,255,255,0.55)");
-    let venueStr = ev.venue || "";
-    if (ev.area) venueStr += ` · ${ev.area}`;
-    if (ctx.measureText(venueStr).width > maxNmW) {
-      while (ctx.measureText(venueStr + "..").width > maxNmW && venueStr.length > 0) venueStr = venueStr.slice(0, -1);
-      venueStr += "..";
-    }
-    ctx.fillText(venueStr, colX + 34 * s, rowY + rowH * 0.55);
+    const venueStartY = rowY + PAD_TOP + nameLines.length * nameLH + PAD_MID;
+    venueLines.forEach((line, i) => {
+      ctx.fillText(line, colX + 34 * s, venueStartY + i * venueLH);
+    });
 
-    if (isLeft) leftY += rowH;
-    else rightY += rowH;
+    if (isLeft) leftY += actualRowH;
+    else rightY += actualRowH;
   });
 
   // === FOOTER ===
@@ -1148,6 +1218,15 @@ export default function CalendarBuilder() {
   // Default to the current week's Friday based on the user's system clock.
   // Excel imports with a real Date column override this in applyMapping().
   const [friDate, setFriDate] = useState(() => todaysFridayMD());
+  // Editable header text on the preview slide. Default "THIS WEEKEND" so nothing
+  // changes visually until the operator opts in. Persisted so a themed title
+  // ("JUNETEENTH WEEKEND") survives across sessions; cleared input falls back to
+  // the default. Uppercase-enforced on entry to match the display grammar.
+  const WEEKEND_TITLE_KEY = "cge_weekend_title";
+  const [weekendTitle, setWeekendTitle] = useState(() => {
+    try { return (localStorage.getItem(WEEKEND_TITLE_KEY) || "").toUpperCase(); } catch { return ""; }
+  });
+  useEffect(() => { try { localStorage.setItem(WEEKEND_TITLE_KEY, weekendTitle); } catch {} }, [weekendTitle]);
   const [sz, setSz] = useState("4:5");
   const [texture, setTexture] = useState("large");
   // Watermark = the tiled "CGE" letter pattern in the background. Off
@@ -1475,13 +1554,13 @@ export default function CalendarBuilder() {
     const positions = [];
     const rows = [];
     if (mode === "preview") {
-      renderPreview(cv, pgEvts, { colorKey: previewColor, friDate, size: SIZES[sz], dates, texture, watermark, bgImage, bgOpacity, pageDay: pgDay, isContinuation: pgIsCont, pageIdx: safePg, totalPages: pages, prevPageEndRegion: pgPrevRegion, _emojiPositions: positions, _eventRows: rows });
+      renderPreview(cv, pgEvts, { colorKey: previewColor, friDate, size: SIZES[sz], dates, texture, watermark, bgImage, bgOpacity, pageDay: pgDay, isContinuation: pgIsCont, pageIdx: safePg, totalPages: pages, prevPageEndRegion: pgPrevRegion, weekendTitle, _emojiPositions: positions, _eventRows: rows });
     } else {
       renderCal(cv, pgEvts, { colorKey: activeColor, friDate, size: SIZES[sz], pageIdx: safePg, totalPages: pages, dates, texture, watermark, isContinuation: pgIsCont, prevPageEndRegion: pgPrevRegion, _emojiPositions: positions, _eventRows: rows });
     }
     emojiPositionsRef.current = positions;
     eventRowsRef.current = rows;
-  }, [pgEvts, activeColor, previewColor, friDate, sz, safePg, pages, dates, texture, watermark, pgIsCont, mode, bgImage, bgOpacity, pgDay, pgPrevRegion]);
+  }, [pgEvts, activeColor, previewColor, friDate, sz, safePg, pages, dates, texture, watermark, pgIsCont, mode, bgImage, bgOpacity, pgDay, pgPrevRegion, weekendTitle]);
 
   // Schedule a canvas repaint 400ms after the last change. Multiple
   // keystrokes during that window collapse into ONE repaint — the preview
@@ -1685,7 +1764,7 @@ export default function CalendarBuilder() {
     const pd = allPages[pi];
     if (!pd) return;
     if (mode === "preview") {
-      renderPreview(cv, pd.events, { colorKey: previewColor, friDate, size: SIZES[sz], dates, texture, watermark, bgImage, bgOpacity, pageDay: pd.day, isContinuation: pd.isContinuation, pageIdx: pi, totalPages: pages, prevPageEndRegion: pd.prevPageEndRegion });
+      renderPreview(cv, pd.events, { colorKey: previewColor, friDate, size: SIZES[sz], dates, texture, watermark, bgImage, bgOpacity, pageDay: pd.day, isContinuation: pd.isContinuation, pageIdx: pi, totalPages: pages, prevPageEndRegion: pd.prevPageEndRegion, weekendTitle });
     } else {
       const dayColor = dayColors[pd.day] || "purple";
       renderCal(cv, pd.events, { colorKey: dayColor, friDate, size: SIZES[sz], pageIdx: pi, totalPages: pages, dates, texture, watermark, isContinuation: pd.isContinuation, prevPageEndRegion: pd.prevPageEndRegion });
@@ -1735,7 +1814,7 @@ export default function CalendarBuilder() {
       const pd = allPages[i];
       if (!pd) continue;
       if (mode === "preview") {
-        renderPreview(cv, pd.events, { colorKey: previewColor, friDate, size: SIZES[sz], dates, texture, watermark, bgImage, bgOpacity, pageDay: pd.day, isContinuation: pd.isContinuation, pageIdx: i, totalPages: pages, prevPageEndRegion: pd.prevPageEndRegion });
+        renderPreview(cv, pd.events, { colorKey: previewColor, friDate, size: SIZES[sz], dates, texture, watermark, bgImage, bgOpacity, pageDay: pd.day, isContinuation: pd.isContinuation, pageIdx: i, totalPages: pages, prevPageEndRegion: pd.prevPageEndRegion, weekendTitle });
       } else {
         const dayColor = dayColors[pd.day] || "purple";
         renderCal(cv, pd.events, { colorKey: dayColor, friDate, size: SIZES[sz], pageIdx: i, totalPages: pages, dates, texture, watermark, isContinuation: pd.isContinuation, prevPageEndRegion: pd.prevPageEndRegion });
@@ -1833,7 +1912,7 @@ export default function CalendarBuilder() {
               </div>
             </div>
 
-            {/* Friday date */}
+            {/* Friday date + weekend title override */}
             <div style={{ display: "grid", gridTemplateColumns: "100px 1fr", gap: "0.4rem", marginBottom: "0.5rem" }}>
               <div>
                 <label style={L}>Friday Date</label>
@@ -1845,6 +1924,16 @@ export default function CalendarBuilder() {
                   Fri {dates.Fri} → Sat {dates.Sat} → Sun {dates.Sun}
                 </div>
               </div>
+            </div>
+            <div style={{ marginBottom: "0.5rem" }}>
+              <label style={L}>Preview Header (blank = THIS WEEKEND)</label>
+              <input
+                value={weekendTitle}
+                onChange={e => setWeekendTitle(e.target.value.toUpperCase())}
+                style={I}
+                placeholder="THIS WEEKEND"
+                maxLength={40}
+              />
             </div>
 
             {/* Color selection — per-day for calendar, single for preview */}
