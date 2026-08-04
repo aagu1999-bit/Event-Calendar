@@ -1253,16 +1253,27 @@ export default function CalendarBuilder() {
   // Any slide without a per-slide entry falls back to the default `bgImage`.
   // Memory-only (matches how bgImage works today; refreshing wipes it).
   const [bgImageBySlide, setBgImageBySlide] = useState({});
+  // Per-slide overlay opacity override — { [pageIdx: number]: 0.60..1.0 }.
+  // Independent from the per-slide photo: an operator can dim the default
+  // photo on one slide without also changing the photo itself.
+  const [bgOpacityBySlide, setBgOpacityBySlide] = useState({});
   // Resolves which photo a given preview slide should render: per-slide wins,
   // otherwise the default. Used by every renderPreview callsite so the logic
   // lives in one place.
   const effectiveBgFor = (pi) => (bgImageBySlide[pi] || bgImage || null);
+  const effectiveOpacityFor = (pi) => (typeof bgOpacityBySlide[pi] === "number" ? bgOpacityBySlide[pi] : bgOpacity);
+  const setSlideOpacity = (pi, value) => setBgOpacityBySlide(m => ({ ...m, [pi]: value }));
+  const resetSlideOpacity = (pi) => setBgOpacityBySlide(m => { const n = { ...m }; delete n[pi]; return n; });
   // Photo count for the operator-facing "5/8 slides have their own photo" tag.
   const perSlidePhotoCount = Object.keys(bgImageBySlide).length;
   // Set a per-slide photo from a File — loads into an HTMLImageElement, stores
-  // in the map. Undefined file removes the override for that slide.
+  // in the map. Undefined file removes the override for that slide (and its
+  // paired opacity override, so a later Pick doesn't inherit a stale value).
   const setSlidePhoto = (pi, file) => {
-    if (!file) { setBgImageBySlide(m => { const n = { ...m }; delete n[pi]; return n; }); return; }
+    if (!file) {
+      setBgImageBySlide(m => { const n = { ...m }; delete n[pi]; return n; });
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => {
       const img = new Image();
@@ -1584,13 +1595,13 @@ export default function CalendarBuilder() {
     const positions = [];
     const rows = [];
     if (mode === "preview") {
-      renderPreview(cv, pgEvts, { colorKey: previewColor, friDate, size: SIZES[sz], dates, texture, watermark, bgImage: effectiveBgFor(safePg), bgOpacity, pageDay: pgDay, isContinuation: pgIsCont, pageIdx: safePg, totalPages: pages, prevPageEndRegion: pgPrevRegion, weekendTitle, _emojiPositions: positions, _eventRows: rows });
+      renderPreview(cv, pgEvts, { colorKey: previewColor, friDate, size: SIZES[sz], dates, texture, watermark, bgImage: effectiveBgFor(safePg), bgOpacity: effectiveOpacityFor(safePg), pageDay: pgDay, isContinuation: pgIsCont, pageIdx: safePg, totalPages: pages, prevPageEndRegion: pgPrevRegion, weekendTitle, _emojiPositions: positions, _eventRows: rows });
     } else {
       renderCal(cv, pgEvts, { colorKey: activeColor, friDate, size: SIZES[sz], pageIdx: safePg, totalPages: pages, dates, texture, watermark, isContinuation: pgIsCont, prevPageEndRegion: pgPrevRegion, _emojiPositions: positions, _eventRows: rows });
     }
     emojiPositionsRef.current = positions;
     eventRowsRef.current = rows;
-  }, [pgEvts, activeColor, previewColor, friDate, sz, safePg, pages, dates, texture, watermark, pgIsCont, mode, bgImage, bgImageBySlide, bgOpacity, pgDay, pgPrevRegion, weekendTitle]);
+  }, [pgEvts, activeColor, previewColor, friDate, sz, safePg, pages, dates, texture, watermark, pgIsCont, mode, bgImage, bgImageBySlide, bgOpacity, bgOpacityBySlide, pgDay, pgPrevRegion, weekendTitle]);
 
   // Schedule a canvas repaint 400ms after the last change. Multiple
   // keystrokes during that window collapse into ONE repaint — the preview
@@ -1794,7 +1805,7 @@ export default function CalendarBuilder() {
     const pd = allPages[pi];
     if (!pd) return;
     if (mode === "preview") {
-      renderPreview(cv, pd.events, { colorKey: previewColor, friDate, size: SIZES[sz], dates, texture, watermark, bgImage: effectiveBgFor(pi), bgOpacity, pageDay: pd.day, isContinuation: pd.isContinuation, pageIdx: pi, totalPages: pages, prevPageEndRegion: pd.prevPageEndRegion, weekendTitle });
+      renderPreview(cv, pd.events, { colorKey: previewColor, friDate, size: SIZES[sz], dates, texture, watermark, bgImage: effectiveBgFor(pi), bgOpacity: effectiveOpacityFor(pi), pageDay: pd.day, isContinuation: pd.isContinuation, pageIdx: pi, totalPages: pages, prevPageEndRegion: pd.prevPageEndRegion, weekendTitle });
     } else {
       const dayColor = dayColors[pd.day] || "purple";
       renderCal(cv, pd.events, { colorKey: dayColor, friDate, size: SIZES[sz], pageIdx: pi, totalPages: pages, dates, texture, watermark, isContinuation: pd.isContinuation, prevPageEndRegion: pd.prevPageEndRegion });
@@ -1844,7 +1855,7 @@ export default function CalendarBuilder() {
       const pd = allPages[i];
       if (!pd) continue;
       if (mode === "preview") {
-        renderPreview(cv, pd.events, { colorKey: previewColor, friDate, size: SIZES[sz], dates, texture, watermark, bgImage: effectiveBgFor(i), bgOpacity, pageDay: pd.day, isContinuation: pd.isContinuation, pageIdx: i, totalPages: pages, prevPageEndRegion: pd.prevPageEndRegion, weekendTitle });
+        renderPreview(cv, pd.events, { colorKey: previewColor, friDate, size: SIZES[sz], dates, texture, watermark, bgImage: effectiveBgFor(i), bgOpacity: effectiveOpacityFor(i), pageDay: pd.day, isContinuation: pd.isContinuation, pageIdx: i, totalPages: pages, prevPageEndRegion: pd.prevPageEndRegion, weekendTitle });
       } else {
         const dayColor = dayColors[pd.day] || "purple";
         renderCal(cv, pd.events, { colorKey: dayColor, friDate, size: SIZES[sz], pageIdx: i, totalPages: pages, dates, texture, watermark, isContinuation: pd.isContinuation, prevPageEndRegion: pd.prevPageEndRegion });
@@ -2002,11 +2013,27 @@ export default function CalendarBuilder() {
                       <div style={{ display: "flex", alignItems: "baseline", gap: "6px", marginBottom: "5px" }}>
                         <span style={{ ...L, marginBottom: 0 }}>Per-slide photos</span>
                         <span style={{ fontSize: "0.5rem", color: "rgba(245,240,232,0.35)" }}>
-                          {perSlidePhotoCount > 0 ? `${perSlidePhotoCount}/${pages} custom · rest use default` : "Any slide without one uses the default above"}
+                          {(() => {
+                            const opCount = Object.keys(bgOpacityBySlide).length;
+                            if (perSlidePhotoCount === 0 && opCount === 0) return "Any slide without one uses the default above";
+                            const parts = [];
+                            if (perSlidePhotoCount) parts.push(`${perSlidePhotoCount}/${pages} photo`);
+                            if (opCount) parts.push(`${opCount}/${pages} opacity`);
+                            return `${parts.join(" · ")} custom · rest use default`;
+                          })()}
                         </span>
-                        {perSlidePhotoCount > 0 && (
+                        {(perSlidePhotoCount > 0 || Object.keys(bgOpacityBySlide).length > 0) && (
                           <button
-                            onClick={() => { if (window.confirm(`Clear ${perSlidePhotoCount} per-slide photo override${perSlidePhotoCount === 1 ? "" : "s"}? (The default photo stays.)`)) setBgImageBySlide({}); }}
+                            onClick={() => {
+                              const pc = perSlidePhotoCount, oc = Object.keys(bgOpacityBySlide).length;
+                              const bits = [];
+                              if (pc) bits.push(`${pc} photo`);
+                              if (oc) bits.push(`${oc} opacity`);
+                              if (window.confirm(`Clear per-slide overrides (${bits.join(" + ")})? (The default photo and opacity stay.)`)) {
+                                setBgImageBySlide({});
+                                setBgOpacityBySlide({});
+                              }
+                            }}
                             style={{ marginLeft: "auto", background: "transparent", border: "1px solid rgba(251,113,133,0.3)", color: "rgba(251,113,133,0.7)", borderRadius: "3px", padding: "1px 6px", fontSize: "0.55rem", cursor: "pointer" }}
                           >Clear all</button>
                         )}
@@ -2015,21 +2042,51 @@ export default function CalendarBuilder() {
                         {allPages.map((p, i) => {
                           const slideImg = bgImageBySlide[i];
                           const usingDefault = !slideImg && !!bgImage;
+                          const willRenderPhoto = !!slideImg || usingDefault;
+                          const hasOpacityOverride = typeof bgOpacityBySlide[i] === "number";
+                          const slideOpacity = effectiveOpacityFor(i);
                           return (
-                            <div key={i} style={{ display: "flex", alignItems: "center", gap: "6px", padding: "4px 6px", borderRadius: "3px", background: i === safePg ? "rgba(250,204,21,0.06)" : "transparent" }}>
-                              <span style={{ fontSize: "0.55rem", fontWeight: 700, color: i === safePg ? "#FACC15" : "rgba(245,240,232,0.55)", minWidth: "64px", letterSpacing: "0.5px", textTransform: "uppercase" }}>
-                                {p.day}{p.isContinuation ? "+" : ""} · P{i + 1}
-                              </span>
-                              {slideImg ? (
-                                <img src={slideImg.src} alt={`slide ${i + 1} photo`} style={{ width: 28, height: 28, objectFit: "cover", borderRadius: 3, border: "1px solid rgba(52,211,153,0.4)" }} />
-                              ) : (
-                                <span style={{ width: 28, height: 28, borderRadius: 3, background: "rgba(245,240,232,0.04)", border: `1px dashed rgba(245,240,232,${usingDefault ? 0.18 : 0.1})`, fontSize: "0.5rem", display: "flex", alignItems: "center", justifyContent: "center", color: "rgba(245,240,232,0.3)" }}>
-                                  {usingDefault ? "def" : "—"}
+                            <div key={i} style={{ display: "flex", flexDirection: "column", gap: "3px", padding: "4px 6px", borderRadius: "3px", background: i === safePg ? "rgba(250,204,21,0.06)" : "transparent" }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                <span style={{ fontSize: "0.55rem", fontWeight: 700, color: i === safePg ? "#FACC15" : "rgba(245,240,232,0.55)", minWidth: "64px", letterSpacing: "0.5px", textTransform: "uppercase" }}>
+                                  {p.day}{p.isContinuation ? "+" : ""} · P{i + 1}
                                 </span>
-                              )}
-                              <button onClick={() => pickSlidePhoto(i)} style={{ ...B, fontSize: "0.5rem", padding: "3px 6px" }}>{slideImg ? "Change" : "Pick"}</button>
-                              {slideImg && (
-                                <button onClick={() => setSlidePhoto(i, undefined)} title="Remove this slide's photo (falls back to the default)" style={{ ...B, fontSize: "0.5rem", padding: "3px 6px", color: "rgba(251,113,133,0.6)", borderColor: "rgba(251,113,133,0.25)" }}>×</button>
+                                {slideImg ? (
+                                  <img src={slideImg.src} alt={`slide ${i + 1} photo`} style={{ width: 28, height: 28, objectFit: "cover", borderRadius: 3, border: "1px solid rgba(52,211,153,0.4)" }} />
+                                ) : (
+                                  <span style={{ width: 28, height: 28, borderRadius: 3, background: "rgba(245,240,232,0.04)", border: `1px dashed rgba(245,240,232,${usingDefault ? 0.18 : 0.1})`, fontSize: "0.5rem", display: "flex", alignItems: "center", justifyContent: "center", color: "rgba(245,240,232,0.3)" }}>
+                                    {usingDefault ? "def" : "—"}
+                                  </span>
+                                )}
+                                <button onClick={() => pickSlidePhoto(i)} style={{ ...B, fontSize: "0.5rem", padding: "3px 6px" }}>{slideImg ? "Change" : "Pick"}</button>
+                                {slideImg && (
+                                  <button onClick={() => setSlidePhoto(i, undefined)} title="Remove this slide's photo (falls back to the default)" style={{ ...B, fontSize: "0.5rem", padding: "3px 6px", color: "rgba(251,113,133,0.6)", borderColor: "rgba(251,113,133,0.25)" }}>×</button>
+                                )}
+                              </div>
+                              {/* Per-slide overlay darkness. Only visible when a photo will
+                                  actually render for this slide (own or default fallback) —
+                                  a slide with no photo has nothing to overlay. */}
+                              {willRenderPhoto && (
+                                <div style={{ display: "flex", alignItems: "center", gap: "6px", paddingLeft: "70px" }}>
+                                  <span style={{ fontSize: "0.5rem", color: hasOpacityOverride ? "#FACC15" : "rgba(245,240,232,0.4)", minWidth: "50px", letterSpacing: "0.5px", textTransform: "uppercase" }}>
+                                    Overlay
+                                  </span>
+                                  <input
+                                    type="range" min="0.60" max="1.0" step="0.01"
+                                    value={slideOpacity}
+                                    onChange={e => setSlideOpacity(i, parseFloat(e.target.value))}
+                                    style={{ flex: 1, accentColor: hasOpacityOverride ? "#FACC15" : "rgba(250,204,21,0.5)" }}
+                                    title={hasOpacityOverride ? `Custom for this slide: ${Math.round(slideOpacity * 100)}%` : `Using default: ${Math.round(slideOpacity * 100)}%`}
+                                  />
+                                  <span style={{ fontSize: "0.5rem", color: "rgba(245,240,232,0.4)", minWidth: "28px", textAlign: "right" }}>{Math.round(slideOpacity * 100)}%</span>
+                                  {hasOpacityOverride && (
+                                    <button
+                                      onClick={() => resetSlideOpacity(i)}
+                                      title="Use the default overlay opacity for this slide"
+                                      style={{ background: "transparent", border: "1px solid rgba(245,240,232,0.15)", color: "rgba(245,240,232,0.5)", borderRadius: "3px", padding: "1px 4px", fontSize: "0.5rem", cursor: "pointer" }}
+                                    >↺</button>
+                                  )}
+                                </div>
                               )}
                             </div>
                           );
@@ -2384,9 +2441,10 @@ export default function CalendarBuilder() {
               {pages > 1 && <div className="cge-cal-page-tabs" style={{ display: "flex", gap: "0.2rem", flexWrap: "wrap" }}>
                 {allPages.map((p, i) => {
                   const pColor = mode === "preview" ? COLORS[previewColor] : COLORS[dayColors[p.day] || "purple"];
-                  // Small green dot on tabs with a per-slide photo override so
-                  // the operator can see which slides are customized at a glance.
-                  const hasSlidePhoto = mode === "preview" && !!bgImageBySlide[i];
+                  // Small green dot on tabs with any per-slide override (photo
+                  // OR opacity) so the operator can see which slides are
+                  // customized at a glance.
+                  const hasSlidePhoto = mode === "preview" && (!!bgImageBySlide[i] || typeof bgOpacityBySlide[i] === "number");
                   return (
                     <button key={i} onClick={() => setPg(i)} style={{
                       padding: "2px 8px", borderRadius: "3px", border: "none", cursor: "pointer",
