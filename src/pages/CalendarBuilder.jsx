@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import * as XLSX from "xlsx";
 import { useEventsStore, useRestoreStore, useBrandStore } from "../store";
 import { PublishGuideModal } from "../shared/PublishGuideModal.jsx";
+import { generateWeekendCaption, assembleWeekendCaption } from "../shared/aiContent.js";
 import { EMOJI_MAP, getEmoji as getEmojiShared, parseRegion as parseRegionShared, normalizeHandle, buildSrcRow } from "../shared/parseEvents";
 import { UInput, UTextarea, todaysFridayMD } from "../shared/inputs.jsx";
 import { savePhotoAndNotify, saveExport } from "../shared/photoLibrary.js";
@@ -1133,6 +1134,62 @@ export default function CalendarBuilder() {
     try { return envKey || localStorage.getItem("cge_gemini_key") || ""; } catch { return envKey; }
   })();
 
+  // === Weekend caption generator ===
+  // The operator hits "✨ Generate Caption" near the download buttons. The
+  // AI writes a caption in Brand Voice referencing this weekend's actual
+  // events, and the ZIP download bundles it as caption.txt so the
+  // download-then-post workflow is one round-trip.
+  //
+  // captionText holds the currently-active caption (may be regenerated
+  // multiple times or hand-edited). ZIP always ships the CURRENT text.
+  // Empty → the ZIP download auto-generates once so the operator never
+  // ships a naked calendar; explicit regenerate is a button in the modal.
+  const [captionText, setCaptionText] = useState("");
+  const [captionBusy, setCaptionBusy] = useState(false);
+  const [captionModalOpen, setCaptionModalOpen] = useState(false);
+  const [captionMsg, setCaptionMsg] = useState(null); // { ok, text }
+
+  // Shared generation call. Returns the assembled caption string (body +
+  // CTA + closer + hashtags) or throws. Kept in one place so the button
+  // click and the ZIP auto-gen path share exact behavior.
+  const runCaptionGeneration = async () => {
+    if (!guideKey) throw new Error("Add your Gemini API key on the Media tab first.");
+    const { body, hashtags } = await generateWeekendCaption({
+      apiKey: guideKey,
+      weekendDates: calcDates(friDate),
+      events,
+      voice: brandVoice,
+    });
+    return assembleWeekendCaption({ body, hashtags });
+  };
+
+  const openCaptionModal = async () => {
+    setCaptionModalOpen(true);
+    setCaptionMsg(null);
+    if (captionText) return; // already have one — show it, don't regenerate on open
+    setCaptionBusy(true);
+    try { setCaptionText(await runCaptionGeneration()); }
+    catch (err) { setCaptionMsg({ ok: false, text: String(err?.message || err) }); }
+    finally { setCaptionBusy(false); }
+  };
+
+  const regenerateCaption = async () => {
+    if (captionBusy) return;
+    setCaptionBusy(true); setCaptionMsg(null);
+    try { setCaptionText(await runCaptionGeneration()); }
+    catch (err) { setCaptionMsg({ ok: false, text: String(err?.message || err) }); }
+    finally { setCaptionBusy(false); }
+  };
+
+  const copyCaptionToClipboard = async () => {
+    try {
+      await navigator.clipboard.writeText(captionText);
+      setCaptionMsg({ ok: true, text: "Copied to clipboard." });
+    } catch (err) {
+      setCaptionMsg({ ok: false, text: "Couldn't copy — select the text and copy manually." });
+    }
+  };
+
   // === Send refined list to the website calendar (Pipe 2) ===
   // Push the current events to centralgroupevents.com via the server proxy
   // (token stays server-side). The website upserts by source_id, so re-sending
@@ -1850,6 +1907,24 @@ export default function CalendarBuilder() {
       name: ".cgeexport",
       blob: new Blob([JSON.stringify({ id: zipExportId, tool: "calendar", mode: "weekend-zip" })], { type: "application/json" }),
     });
+
+    // Ship the operator's current caption alongside the slides — auto-gen
+    // one silently if none exists yet, so the ZIP is always self-contained.
+    // Only for the preview export (calendar mode doesn't have a matching
+    // "single carousel per weekend" caption workflow).
+    if (mode === "preview") {
+      let captionForZip = captionText;
+      if (!captionForZip && guideKey) {
+        try { captionForZip = await runCaptionGeneration(); setCaptionText(captionForZip); }
+        catch (err) { console.warn("Caption auto-gen for ZIP failed:", err); }
+      }
+      if (captionForZip) {
+        files.push({
+          name: "caption.txt",
+          blob: new Blob([captionForZip], { type: "text/plain;charset=utf-8" }),
+        });
+      }
+    }
     for (let i = 0; i < pages; i++) {
       const cv = document.createElement("canvas");
       const pd = allPages[i];
@@ -2482,6 +2557,26 @@ export default function CalendarBuilder() {
               <button onClick={() => dl(safePg)} style={{ flex: 1, padding: "10px", background: co.hex, color: co.light ? "#000" : "#FFF", border: "none", borderRadius: "6px", fontSize: "0.8rem", fontWeight: 700, cursor: "pointer" }}>Download {pgDay}{mode === "preview" ? " Preview" : ""}</button>
               {pages > 1 && <button onClick={dlAll} style={{ padding: "10px 14px", background: "rgba(245,240,232,0.05)", color: "rgba(245,240,232,0.45)", border: "1px solid rgba(245,240,232,0.06)", borderRadius: "6px", fontSize: "0.7rem", cursor: "pointer" }}>All (.zip)</button>}
             </div>
+            {/* Weekend caption generator — preview mode only. Opens a modal
+                with the AI-written caption (from Brand Voice + this weekend's
+                events), Regenerate + Copy + edit-in-place. The current text
+                is what ships as caption.txt in the ZIP. */}
+            {mode === "preview" && events.length > 0 && (
+              <div style={{ marginTop: "0.4rem", display: "flex", gap: "0.4rem", alignItems: "center" }}>
+                <button
+                  onClick={openCaptionModal}
+                  title="Write an IG caption for this weekend's carousel — auto-included in the .zip as caption.txt"
+                  style={{ flex: 1, padding: "8px 10px", background: captionText ? "rgba(167,139,250,0.18)" : "rgba(167,139,250,0.08)", color: "#A78BFA", border: "1px solid rgba(167,139,250,0.4)", borderRadius: "6px", fontSize: "0.72rem", fontWeight: 700, cursor: "pointer", letterSpacing: "0.3px" }}
+                >
+                  ✨ {captionText ? "Edit caption" : "Generate caption"}
+                </button>
+                {captionText && (
+                  <span title="A caption is ready — it'll ship as caption.txt in the .zip" style={{ fontSize: "0.55rem", color: "#A78BFA", padding: "3px 7px", background: "rgba(167,139,250,0.12)", border: "1px solid rgba(167,139,250,0.3)", borderRadius: "3px", letterSpacing: "0.5px", textTransform: "uppercase", fontWeight: 700 }}>
+                    ✓ ready
+                  </span>
+                )}
+              </div>
+            )}
             <p style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.18)", marginTop: "0.4rem", lineHeight: 1.5 }}>
               {mode === "preview" ? `${events.length} events · ${pages} preview slides · Two-column layout` : `PNG at ${si.w}×${si.h}px · Sorted: North→Central→South, earliest→latest`}
             </p>
@@ -2511,6 +2606,77 @@ export default function CalendarBuilder() {
         voice={brandVoice}
         onClose={() => setGuideOpen(false)}
       />
+
+      {captionModalOpen && (
+        <div
+          onClick={() => setCaptionModalOpen(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.72)", zIndex: 9000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", overflowY: "auto" }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: "100%", maxWidth: 620, background: "#141416", border: "1px solid rgba(245,240,232,0.12)", borderRadius: 14, padding: "20px 20px 22px", color: "#F5F0E8", fontFamily: "'DM Sans',sans-serif" }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+              <h2 style={{ margin: 0, fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: "1.15rem", flex: 1 }}>✨ Weekend caption</h2>
+              <button onClick={() => setCaptionModalOpen(false)} style={{ background: "transparent", border: "none", color: "rgba(245,240,232,0.5)", fontSize: "1.1rem", cursor: "pointer" }}>×</button>
+            </div>
+            <p style={{ margin: "0 0 14px", fontSize: "0.78rem", color: "rgba(245,240,232,0.55)", lineHeight: 1.5 }}>
+              Voiced from your Brand Kit + this weekend's events. Edit in place, regenerate, or copy. Whatever's here at ZIP-download time ships as <code>caption.txt</code> alongside the slides.
+            </p>
+
+            {captionMsg && (
+              <div style={{ marginBottom: 12, padding: "9px 12px", borderRadius: 8, fontSize: "0.8rem",
+                background: captionMsg.ok ? "rgba(52,211,153,0.1)" : "rgba(251,113,133,0.1)",
+                border: `1px solid ${captionMsg.ok ? "rgba(52,211,153,0.4)" : "rgba(251,113,133,0.4)"}`,
+                color: captionMsg.ok ? "#34D399" : "#FB7185" }}>
+                {captionMsg.ok ? "✓ " : "⚠ "}{captionMsg.text}
+              </div>
+            )}
+
+            <textarea
+              value={captionText}
+              onChange={(e) => { setCaptionText(e.target.value); if (captionMsg?.ok) setCaptionMsg(null); }}
+              placeholder={captionBusy ? "✨ Writing…" : "No caption yet — hit Regenerate."}
+              rows={16}
+              style={{
+                width: "100%", padding: "12px", background: "#0b0b0d",
+                border: "1px solid rgba(245,240,232,0.12)", borderRadius: 6,
+                color: "#F5F0E8", fontFamily: "'DM Sans',sans-serif", fontSize: "0.85rem",
+                lineHeight: 1.5, outline: "none", resize: "vertical", boxSizing: "border-box",
+                marginBottom: 12,
+              }}
+            />
+
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                onClick={regenerateCaption}
+                disabled={captionBusy}
+                style={{ flex: 1, padding: "10px", borderRadius: 6, border: "none",
+                  cursor: captionBusy ? "wait" : "pointer",
+                  background: captionBusy ? "rgba(167,139,250,0.3)" : "rgba(167,139,250,0.18)",
+                  color: "#A78BFA", borderColor: "rgba(167,139,250,0.4)",
+                  fontWeight: 800, fontSize: "0.82rem", letterSpacing: "0.3px" }}
+              >
+                {captionBusy ? "✨ Writing…" : "🔄 Regenerate"}
+              </button>
+              <button
+                onClick={copyCaptionToClipboard}
+                disabled={!captionText || captionBusy}
+                style={{ flex: 1, padding: "10px", borderRadius: 6, border: "none",
+                  cursor: (!captionText || captionBusy) ? "not-allowed" : "pointer",
+                  background: !captionText ? "rgba(52,211,153,0.15)" : "#34D399",
+                  color: !captionText ? "rgba(6,40,29,0.4)" : "#06281d",
+                  fontWeight: 800, fontSize: "0.82rem", letterSpacing: "0.3px" }}
+              >
+                📋 Copy
+              </button>
+            </div>
+            <p style={{ margin: "8px 0 0", fontSize: "0.65rem", color: "rgba(245,240,232,0.35)", textAlign: "center" }}>
+              Edits are kept. Regenerate replaces the whole thing.
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
