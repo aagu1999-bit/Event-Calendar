@@ -199,8 +199,26 @@ export default function ReviewQueue({ betaMode = false } = {}) {
     try { localStorage.setItem(REVIEW_PENDING_KEY, JSON.stringify(pending)); } catch {}
   }, [pending]);
 
+  // Committed queue state — snapshots of pending rows that got pushed to the
+  // calendar. Kept as a session-scoped audit trail so the operator can pull
+  // a session later and still see what they resolved (not just what's still
+  // unresolved). View-only in the queue; the actual calendar events are the
+  // source of truth — removing from this view just hides the audit row, it
+  // never touches the calendar.
+  const REVIEW_COMMITTED_KEY = "cge_review_committed";
+  const [committed, setCommitted] = useState(() => {
+    try {
+      const raw = localStorage.getItem(REVIEW_COMMITTED_KEY);
+      const arr = raw ? JSON.parse(raw) : [];
+      return Array.isArray(arr) ? arr : [];
+    } catch { return []; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(REVIEW_COMMITTED_KEY, JSON.stringify(committed)); } catch {}
+  }, [committed]);
+
   // Filter and sort states (needed by auto-save effect)
-  const [filter, setFilter] = useState("all"); // all | clean | flagged | unapproved | approved
+  const [filter, setFilter] = useState("all"); // all | clean | flagged | unapproved | approved | committed
   const [sortByTag, setSortByTag] = useState(null); // tag name to float to top (separate from filter)
 
   const setEvents = useEventsStore(s => s.setEvents);
@@ -210,6 +228,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
     approvals,
     vetted: vettedArr,
     pending,
+    committed,
     filter,
     sortByTag,
   });
@@ -431,6 +450,11 @@ export default function ReviewQueue({ betaMode = false } = {}) {
         setPending(payload.pending);
       }
     }
+    // Committed audit list. Straight replace on load — the session owns its
+    // committed history, and merging across devices would be tricky (the same
+    // event committed on both devices is only one calendar event, not two).
+    // Older sessions with no `committed` key: leave the current list alone.
+    if (Array.isArray(payload?.committed)) setCommitted(payload.committed);
     if (typeof payload?.filter === "string" && payload.filter) setFilter(payload.filter);
     if (typeof payload?.sortByTag === "string" || payload?.sortByTag === null) setSortByTag(payload?.sortByTag || null);
 
@@ -1078,13 +1102,18 @@ export default function ReviewQueue({ betaMode = false } = {}) {
   // already added to the Calendar (that has its own Clear All), and doesn't
   // forget the saved session, so a re-upload or session load can restore.
   const clearReview = () => {
-    if (pending.length === 0) return;
+    if (pending.length === 0 && committed.length === 0) return;
+    const parts = [];
+    if (pending.length) parts.push(`${pending.length} event${pending.length === 1 ? "" : "s"} in the review list`);
+    if (committed.length) parts.push(`${committed.length} committed audit ${committed.length === 1 ? "row" : "rows"}`);
     if (!window.confirm(
-      `Clear all ${pending.length} event${pending.length === 1 ? "" : "s"} from the review list?\n\n` +
-      `This empties the triage queue here. It does NOT remove events you already added to the Calendar. ` +
-      `Re-upload the sheet (or load a session) to bring them back.`
+      `Clear ${parts.join(" + ")}?\n\n` +
+      `This empties the triage queue AND the Committed (in-calendar) audit view here. ` +
+      `It does NOT remove events you already added to the Calendar — those stay live. ` +
+      `Re-upload the sheet (or load a session) to bring the queue back.`
     )) return;
     setPending([]);
+    setCommitted([]);
     setApprovals({});
     setVettedArr([]);
     setSearchQuery("");
@@ -1093,6 +1122,16 @@ export default function ReviewQueue({ betaMode = false } = {}) {
   // Direct-add: push a single event to the events store immediately, no
   // queue / no "import" step. User asked for an explicit + Add button per
   // row that bypasses the selection model.
+  // Snapshot helper — a pending row about to be committed to the calendar
+  // becomes an audit entry keeping the ORIGINAL pending id (so the operator
+  // recognizes it) plus a committedAt stamp for the sort. The calendar event
+  // gets a fresh id (below); the snapshot doesn't need it.
+  const toCommittedSnapshot = (ev) => ({
+    ...ev,
+    date: ev.date || dateForEvent(ev),
+    committedAt: Date.now(),
+  });
+
   const addRowToCalendar = (id) => {
     const ev = pending.find(e => e.id === id);
     if (!ev) return;
@@ -1101,6 +1140,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
     // would be empty for any sheet imported without a date column.
     const fresh = { ...ev, date: ev.date || dateForEvent(ev), id: Date.now() + Math.random() * 1e5 };
     updateEvents(prev => [...prev, fresh]);
+    setCommitted(c => [...c, toCommittedSnapshot(ev)]);
     setPending(p => p.filter(e => e.id !== id));
     setApprovals(a => { const next = { ...a }; delete next[id]; return next; });
     setApprovedSet(s => { const next = new Set(s); next.delete(id); return next; });
@@ -1120,11 +1160,19 @@ export default function ReviewQueue({ betaMode = false } = {}) {
       id: Date.now() + Math.random() * 1e5,
     }));
     updateEvents(prev => [...prev, ...fresh]);
+    setCommitted(c => [...c, ...sel.map(toCommittedSnapshot)]);
     const ids = new Set(sel.map(e => e.id));
     setPending(p => p.filter(e => !ids.has(e.id)));
     setApprovals(a => { const next = { ...a }; ids.forEach(id => { delete next[id]; }); return next; });
     setApprovedSet(s => { const next = new Set(s); ids.forEach(id => next.delete(id)); return next; });
     if (editingId && ids.has(editingId)) { setEditingId(null); setEditDraft({}); }
+  };
+
+  // Remove-from-view for a committed audit row. Doesn't touch the calendar —
+  // the actual event stays live on the calendar; this only clears the audit
+  // trail entry for that row.
+  const removeFromCommitted = (id) => {
+    setCommitted(c => c.filter(e => String(e.id) !== String(id)));
   };
 
   // Approval is independent of selection: a row can be selected, approved,
@@ -1159,7 +1207,8 @@ export default function ReviewQueue({ betaMode = false } = {}) {
 
   const visible = useMemo(() => {
     let list;
-    if (filter === "all") list = pending;
+    if (filter === "committed") list = committed;
+    else if (filter === "all") list = pending;
     else if (filter === "clean") list = pending.filter(e => (warnings[e.id] || []).length === 0);
     else if (filter === "flagged") list = pending.filter(e => (warnings[e.id] || []).length > 0 && !approvals[e.id]);
     else if (filter === "approved") list = pending.filter(e => approvedSet.has(e.id));
@@ -1214,7 +1263,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
       });
     }
     return list;
-  }, [pending, warnings, approvals, approvedSet, filter, searchTerm, sortByTag, highlightedGroup]);
+  }, [pending, committed, warnings, approvals, approvedSet, filter, searchTerm, sortByTag, highlightedGroup]);
 
   const approvedCount = pending.filter(e => approvals[e.id]).length;
   const selectedApprovedCount = pending.filter(e => approvals[e.id] && approvedSet.has(e.id)).length;
@@ -2040,6 +2089,19 @@ export default function ReviewQueue({ betaMode = false } = {}) {
                   style={filter === k ? { ...B, background: "rgba(229,188,79,0.2)", borderColor: "#E5BC4F", color: "#E5BC4F", fontWeight: 800 } : B}
                 >{lbl}</button>
               ))}
+              {/* Committed audit filter — shows events already pushed to the
+                  calendar this session. Green tint to distinguish from the
+                  other filters; only appears when there's something in the
+                  audit list so it doesn't visually clutter empty sessions. */}
+              {committed.length > 0 && (
+                <button
+                  onClick={() => { setFilter(f => f === "committed" ? "all" : "committed"); if (rowsRef.current) rowsRef.current.scrollIntoView({ block: "start", behavior: "smooth" }); }}
+                  title="Events you already pushed to the calendar this session. View-only — × on a row hides it from this audit view without touching the calendar."
+                  style={filter === "committed"
+                    ? { ...B, background: "rgba(52,211,153,0.22)", borderColor: "#34D399", color: "#34D399", fontWeight: 800 }
+                    : { ...B, background: "rgba(52,211,153,0.08)", borderColor: "rgba(52,211,153,0.4)", color: "#34D399" }}
+                >📅 Committed ({committed.length})</button>
+              )}
               {sortByTag && (
                 <button
                   onClick={() => setSortByTag(null)}
@@ -2219,12 +2281,13 @@ export default function ReviewQueue({ betaMode = false } = {}) {
                 </div>
               )}
               {(showAllRows ? visible : visible.slice(0, ROW_RENDER_CAP)).map(ev => {
-                const w = warnings[ev.id] || [];
-                const approved = approvals[ev.id];
-                const isApproved = approvedSet.has(ev.id);
+                const isCommitted = filter === "committed";
+                const w = isCommitted ? [] : (warnings[ev.id] || []);
+                const approved = !isCommitted && approvals[ev.id];
+                const isApproved = !isCommitted && approvedSet.has(ev.id);
                 const isFlagged = w.length > 0;
-                const inHighlightedGroup = isRowInHighlightedGroup(ev);
-                const isEditing = editingId === ev.id;
+                const inHighlightedGroup = !isCommitted && isRowInHighlightedGroup(ev);
+                const isEditing = !isCommitted && editingId === ev.id;
                 return (
                   <Fragment key={ev.id}>
                   <div
@@ -2235,15 +2298,19 @@ export default function ReviewQueue({ betaMode = false } = {}) {
                       gap: "12px",
                       alignItems: "center",
                       padding: "10px 14px",
-                      // Approved rows get a stronger green tint so the vetted
-                      // stamp is obvious at a glance (independent of selection).
-                      background: inHighlightedGroup
+                      // Committed rows get a distinct green outline so the
+                      // "already in calendar" state is unmistakable and never
+                      // confused with the normal approved/vetted green.
+                      background: isCommitted
+                        ? "rgba(52,211,153,0.06)"
+                        : inHighlightedGroup
                         ? "rgba(229,188,79,0.12)"
                         : isEditing ? "rgba(229,188,79,0.06)"
                           : isApproved ? "rgba(52,211,153,0.12)"
                           : approved ? "rgba(52,211,153,0.05)" : "rgba(245,240,232,0.06)",
-                      borderLeft: isApproved ? "3px solid #34D399" : undefined,
+                      borderLeft: isCommitted ? "3px solid #34D399" : (isApproved ? "3px solid #34D399" : undefined),
                       border: `1px solid ${
+                        isCommitted ? "rgba(52,211,153,0.5)" :
                         inHighlightedGroup ? "#E5BC4F" :
                         isEditing ? "#E5BC4F" :
                         isApproved ? "#34D399" :
@@ -2258,6 +2325,23 @@ export default function ReviewQueue({ betaMode = false } = {}) {
                       transition: "background 120ms ease, border-color 120ms ease",
                     }}
                   >
+                    {isCommitted ? (
+                      // View-only marker for committed rows — visually holds
+                      // the same slot as the checkbox so the grid columns line
+                      // up with the pending rows in the other filters.
+                      <div
+                        className="cge-row-check"
+                        title="Already added to the calendar"
+                        style={{
+                          width: 28, height: 28, borderRadius: "5px",
+                          background: "#34D399", color: "#06281d",
+                          border: "1.5px solid #34D399",
+                          fontSize: "0.95rem", fontWeight: 800,
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          padding: 0, lineHeight: 1,
+                        }}
+                      >📅</div>
+                    ) : (
                     <button
                       onClick={() => toggle(ev.id)}
                       className="cge-row-check"
@@ -2282,6 +2366,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
                     >
                       {approved ? "✓" : ""}
                     </button>
+                    )}
                     <span className="cge-row-flag" style={{ fontSize: "1rem", width: "20px", textAlign: "center", lineHeight: 1 }}>
                       {isFlagged ? "🚩" : ""}
                     </span>
@@ -2294,6 +2379,11 @@ export default function ReviewQueue({ betaMode = false } = {}) {
                         {ev._source === "regular" && (
                           <span title="Auto-pulled from your weekly regulars" style={{ marginLeft: 8, fontSize: "0.55rem", padding: "1px 6px", borderRadius: 3, background: "rgba(229,188,79,0.18)", color: "#E5BC4F", letterSpacing: "0.5px", textTransform: "uppercase", fontWeight: 700, verticalAlign: "middle" }}>
                             🔁 Regular
+                          </span>
+                        )}
+                        {isCommitted && (
+                          <span title="Already added to the calendar this session" style={{ marginLeft: 8, fontSize: "0.55rem", padding: "1px 6px", borderRadius: 3, background: "rgba(52,211,153,0.22)", color: "#34D399", letterSpacing: "0.5px", textTransform: "uppercase", fontWeight: 700, verticalAlign: "middle" }}>
+                            📅 In Calendar
                           </span>
                         )}
                       </div>
@@ -2343,6 +2433,20 @@ export default function ReviewQueue({ betaMode = false } = {}) {
                       )}
                     </div>
                     <div className="cge-row-actions" style={{ display: "flex", gap: "4px" }}>
+                      {isCommitted ? (
+                        <>
+                          {ev.link && (
+                            <a href={ev.link} target="_blank" rel="noreferrer" title={`Open source link: ${ev.link}`} onClick={(e) => e.stopPropagation()}
+                              style={{ padding: "5px 9px", background: "rgba(99,179,237,0.10)", color: "#63B3ED", border: "1px solid rgba(99,179,237,0.35)", borderRadius: "4px", fontSize: "0.7rem", cursor: "pointer", fontFamily: "inherit", textDecoration: "none", display: "inline-flex", alignItems: "center" }}
+                            >↗</a>
+                          )}
+                          <button
+                            onClick={() => removeFromCommitted(ev.id)}
+                            title="Hide from this audit view. Does NOT remove the event from the calendar — it stays live there."
+                            style={{ padding: "5px 9px", background: "rgba(245,240,232,0.04)", color: "rgba(245,240,232,0.6)", border: "1px solid rgba(245,240,232,0.15)", borderRadius: "4px", fontSize: "0.7rem", cursor: "pointer", fontFamily: "inherit" }}
+                          >× Hide</button>
+                        </>
+                      ) : (<>
                       {ev.link && (
                         <a
                           href={ev.link}
@@ -2437,6 +2541,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
                       >
                         ✕
                       </button>
+                      </>)}
                     </div>
                   </div>
 
