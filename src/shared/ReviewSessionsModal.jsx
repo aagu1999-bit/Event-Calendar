@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { createPortal } from "react-dom";
-import { listSessions, loadSession, saveSession, deleteSession, sessionBackend, listSessionBackups, restoreSessionBackup } from "./reviewSessions.js";
+import { listSessions, loadSession, saveSession, deleteSession, sessionBackend, listSessionBackups, restoreSessionBackup, renameSession } from "./reviewSessions.js";
 
 // Download an object as a pretty-printed JSON file. Pure client-side — no
 // backend involved, so this works even when the app is served statically
@@ -43,6 +43,7 @@ export function ReviewSessionsModal({
   mode = "load",
   onSaveSuccess,
   onDeleteSuccess,
+  onRenameSuccess,
 }) {
   const [items, setItems] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -233,6 +234,23 @@ export function ReviewSessionsModal({
     }
   };
 
+  const onRename = async (oldName, e) => {
+    e.stopPropagation();
+    if (busy) return;
+    const proposed = prompt(`Rename session "${oldName}" to:`, oldName);
+    if (!proposed || proposed.trim() === "" || proposed.trim() === oldName) return;
+    setBusy(true);
+    try {
+      const finalName = await renameSession(oldName, proposed);
+      await reload();
+      if (onRenameSuccess) onRenameSuccess(oldName, finalName);
+    } catch (e) {
+      alert("Rename failed: " + (e.message || e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return createPortal(
     <div
       onClick={onClose}
@@ -402,6 +420,19 @@ export function ReviewSessionsModal({
                   letterSpacing: "1px", textTransform: "uppercase", fontWeight: 700,
                 }}
               >Overwrite</button>
+              <button
+                onClick={(e) => onRename(s.name, e)}
+                title="Rename this session"
+                disabled={busy}
+                style={{
+                  padding: "5px 10px",
+                  background: "rgba(229,188,79,0.08)", color: "#E5BC4F",
+                  border: "1px solid rgba(229,188,79,0.3)",
+                  borderRadius: "4px", fontSize: "0.55rem",
+                  cursor: busy ? "wait" : "pointer", fontFamily: "inherit",
+                  letterSpacing: "1px", textTransform: "uppercase", fontWeight: 700,
+                }}
+              >Rename</button>
               <button
                 onClick={(e) => onRemove(s.name, e)}
                 title="Delete this session"

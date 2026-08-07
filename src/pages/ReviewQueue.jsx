@@ -8,6 +8,7 @@ import { detectRegulars } from "../shared/regulars";
 import { normalizeHandle } from "../shared/parseEvents";
 import { UInput, todaysFridayMD } from "../shared/inputs.jsx";
 import { ReviewSessionsModal } from "../shared/ReviewSessionsModal.jsx";
+import { ScraperIntakeChoiceModal } from "../shared/ScraperIntakeChoiceModal.jsx";
 import { WebsitePublishModal } from "../shared/WebsitePublishModal.jsx";
 import { ColumnMapperModal } from "../shared/ColumnMapperModal.jsx";
 import { ConflictSweepModal } from "../shared/ConflictSweepModal.jsx";
@@ -552,19 +553,84 @@ export default function ReviewQueue({ betaMode = false } = {}) {
   // atomically so a refresh on /review can't re-import the same batch.
   const consumeIntake = useScraperIntakeStore((s) => s.consumeIntake);
   const [intakeBanner, setIntakeBanner] = useState(null);  // { count } | null
+  // Intake choice modal state — when a scraper batch arrives AND the
+  // user is already in an active named session, we hold the batch here
+  // and open the choice modal instead of auto-appending. Lets them pick
+  // append-to-current vs start-a-new-session.
+  const [pendingIntake, setPendingIntake] = useState(null); // Event[] | null
+  const [intakeChoiceOpen, setIntakeChoiceOpen] = useState(false);
+
+  // Dedup + append helper — used both by the auto-append path (no
+  // session active) and by the "Append to current" modal choice.
+  const appendIntakeToPending = (incoming) => {
+    setPending((prev) => {
+      const seen = new Set(prev.map((e) => String(e.id)));
+      const fresh = incoming.filter((e) => !seen.has(String(e.id)));
+      return [...prev, ...fresh];
+    });
+    setIntakeBanner({ count: incoming.length });
+  };
+
   useEffect(() => {
     const incoming = consumeIntake();
-    if (incoming && incoming.length > 0) {
-      setPending((prev) => {
-        // Dedup by id so re-imports of the same row don't pile up.
-        const seen = new Set(prev.map((e) => String(e.id)));
-        const fresh = incoming.filter((e) => !seen.has(String(e.id)));
-        return [...prev, ...fresh];
-      });
-      setIntakeBanner({ count: incoming.length });
+    if (!incoming || incoming.length === 0) return;
+    // If a named session is active, defer to the user via choice modal.
+    // Otherwise auto-append (no session context to keep separate).
+    if (lastSessionName) {
+      setPendingIntake(incoming);
+      setIntakeChoiceOpen(true);
+    } else {
+      appendIntakeToPending(incoming);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Intake choice handlers. Append just runs the existing merge flow.
+  // New Session force-saves the current session, clears the review-queue
+  // state (pending/approvals/vetted) but LEAVES shared events intact
+  // (Calendar keeps its content), prompts for a new name, seeds the
+  // intake into the now-empty queue.
+  const handleIntakeAppend = () => {
+    if (pendingIntake && pendingIntake.length) appendIntakeToPending(pendingIntake);
+    setPendingIntake(null);
+    setIntakeChoiceOpen(false);
+  };
+  const handleIntakeCancel = () => {
+    setPendingIntake(null);
+    setIntakeChoiceOpen(false);
+  };
+  const handleIntakeNewSession = async () => {
+    const intake = pendingIntake || [];
+    // 1. Force-save current session so the debounced auto-save can't
+    //    lose the last few keystrokes.
+    if (lastSessionName) {
+      try {
+        await saveSession(lastSessionName, getSessionPayload());
+      } catch (err) {
+        console.warn("Force-save before new session failed (proceeding anyway):", err);
+      }
+    }
+    // 2. Prompt for the new session name.
+    const suggested = new Date().toISOString().slice(0, 10) + " review";
+    const proposed = window.prompt("Name the new session:", suggested);
+    if (!proposed || !proposed.trim()) {
+      handleIntakeCancel();
+      return;
+    }
+    // 3. Clear review-queue state (pending/approvals/vetted). Events
+    //    store stays intact so Calendar/Newsletter/Media keep content.
+    setPending([]);
+    setApprovals({});
+    setVettedArr([]);
+    // 4. Point auto-save + sync at the new name.
+    syncBaseRef.current = null;
+    rememberLastSession(proposed.trim());
+    setLastSessionName(proposed.trim());
+    // 5. Seed intake into now-empty queue.
+    if (intake.length) appendIntakeToPending(intake);
+    setPendingIntake(null);
+    setIntakeChoiceOpen(false);
+  };
 
   // === Website booking intake (Pipe 1) ===
   // Pull promoter bookings from centralgroupevents.com (via the server proxy so
@@ -2672,6 +2738,14 @@ export default function ReviewQueue({ betaMode = false } = {}) {
           </div>
         )}
       </div>
+      <ScraperIntakeChoiceModal
+        open={intakeChoiceOpen}
+        count={pendingIntake?.length || 0}
+        currentSessionName={lastSessionName || ""}
+        onAppend={handleIntakeAppend}
+        onNewSession={handleIntakeNewSession}
+        onCancel={handleIntakeCancel}
+      />
       <ReviewSessionsModal
         open={sessionsOpen}
         onClose={() => setSessionsOpen(false)}
@@ -2700,6 +2774,22 @@ export default function ReviewQueue({ betaMode = false } = {}) {
             setLastSessionName(null);
             syncBaseRef.current = null;
             setAutoSaveStatus("idle");
+          }
+        }}
+        onRenameSuccess={async (oldName, newName) => {
+          // If the active session was renamed, follow the pointer so
+          // auto-save/merge keeps writing to the right name.
+          if (lastSessionName === oldName) {
+            syncBaseRef.current = null;
+            rememberLastSession(newName);
+            setLastSessionName(newName);
+            try {
+              const payload = await loadSession(newName);
+              syncBaseRef.current = makeBase(payload);
+              setSyncTick((t) => t + 1);
+            } catch {
+              syncBaseRef.current = null;
+            }
           }
         }}
       />

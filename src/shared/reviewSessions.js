@@ -102,6 +102,36 @@ export async function deleteSession(name) {
   await api(`/${encodeURIComponent(safeName(name))}`, { method: "DELETE" });
 }
 
+// Client-side rename — server has no dedicated endpoint, so we do it in
+// three steps: load the payload, save under the new name, delete the
+// old one. Bails if the new name already exists (unless overwrite=true)
+// so the user doesn't silently clobber another session. Returns the
+// sanitized new name (both source and target run through safeName).
+export async function renameSession(oldName, newName, { overwrite = false } = {}) {
+  const from = safeName(oldName);
+  const to = safeName(newName);
+  if (!from || !to) throw new Error("Both names are required.");
+  if (from === to) return to;
+
+  if (!overwrite) {
+    const all = await listSessions();
+    if (all.some(s => s.name === to)) {
+      throw new Error(`A session named "${to}" already exists.`);
+    }
+  }
+
+  const payload = await loadSession(from);
+  await saveSession(to, payload);
+  try {
+    await deleteSession(from);
+  } catch (err) {
+    // If delete fails, the new copy still exists — surface but don't
+    // fully unwind, so the user at least has the renamed copy.
+    console.warn("Rename: copied but couldn't delete old session:", err);
+  }
+  return to;
+}
+
 // Presence: check in as an active device on a session and learn how many
 // other devices are currently working in it. Each browser gets a stable
 // random device id kept in localStorage.
