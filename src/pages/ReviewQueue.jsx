@@ -1174,8 +1174,9 @@ export default function ReviewQueue({ betaMode = false } = {}) {
     if (committed.length) parts.push(`${committed.length} committed audit ${committed.length === 1 ? "row" : "rows"}`);
     if (!window.confirm(
       `Clear ${parts.join(" + ")}?\n\n` +
-      `This empties the triage queue AND the Committed (in-calendar) audit view here. ` +
-      `It does NOT remove events you already added to the Calendar — those stay live. ` +
+      `Empties the triage queue and the session audit trail. It does NOT remove ` +
+      `events you already added to the Calendar — those stay live and will still ` +
+      `show in the Committed filter (backfilled from the calendar store). ` +
       `Re-upload the sheet (or load a session) to bring the queue back.`
     )) return;
     setPending([]);
@@ -1271,9 +1272,41 @@ export default function ReviewQueue({ betaMode = false } = {}) {
     if (editingId && ids.has(editingId)) { setEditingId(null); setEditDraft({}); }
   };
 
+  // Merged committed view — the local `committed` audit array only
+  // tracks events pushed via +Add SINCE the audit filter shipped, so
+  // historical calendar events (imported before, or pushed from other
+  // tools) don't show up. Union in the shared events store so the
+  // Committed filter reflects EVERY event currently on the calendar,
+  // not just this session's newly-added ones. Dedup by exact id first
+  // (audit snapshots kept the pending id; committed calendar events
+  // have their own id — no collision), then by name+day+venue
+  // signature so an event that lived in both places doesn't double.
+  const mergedCommitted = useMemo(() => {
+    const bySig = new Map();
+    const sig = (e) => {
+      const name = String(e.name || "").trim().toLowerCase();
+      const day = String(e.day || "").trim().toLowerCase();
+      const venue = String(e.venue || "").trim().toLowerCase();
+      const date = String(e.date || "").trim().toLowerCase();
+      return `${name}|${day || date}|${venue}`;
+    };
+    // Local audit rows first — they carry committedAt for sort stability.
+    for (const c of committed) {
+      const k = sig(c);
+      if (!bySig.has(k)) bySig.set(k, c);
+    }
+    // Shared events store — for any event not already represented,
+    // synthesize an audit row so the operator sees it in Review too.
+    for (const ev of events) {
+      const k = sig(ev);
+      if (!bySig.has(k)) bySig.set(k, { ...ev, committedAt: null });
+    }
+    return [...bySig.values()];
+  }, [committed, events]);
+
   const visible = useMemo(() => {
     let list;
-    if (filter === "committed") list = committed;
+    if (filter === "committed") list = mergedCommitted;
     else if (filter === "all") list = pending;
     else if (filter === "clean") list = pending.filter(e => (warnings[e.id] || []).length === 0);
     else if (filter === "flagged") list = pending.filter(e => (warnings[e.id] || []).length > 0 && !approvals[e.id]);
@@ -1329,7 +1362,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
       });
     }
     return list;
-  }, [pending, committed, warnings, approvals, approvedSet, filter, searchTerm, sortByTag, highlightedGroup]);
+  }, [pending, committed, mergedCommitted, warnings, approvals, approvedSet, filter, searchTerm, sortByTag, highlightedGroup]);
 
   const approvedCount = pending.filter(e => approvals[e.id]).length;
   const selectedApprovedCount = pending.filter(e => approvals[e.id] && approvedSet.has(e.id)).length;
@@ -2155,18 +2188,20 @@ export default function ReviewQueue({ betaMode = false } = {}) {
                   style={filter === k ? { ...B, background: "rgba(229,188,79,0.2)", borderColor: "#E5BC4F", color: "#E5BC4F", fontWeight: 800 } : B}
                 >{lbl}</button>
               ))}
-              {/* Committed audit filter — shows events already pushed to the
-                  calendar this session. Green tint to distinguish from the
-                  other filters; only appears when there's something in the
-                  audit list so it doesn't visually clutter empty sessions. */}
-              {committed.length > 0 && (
+              {/* Committed audit filter — shows every event currently on
+                  the calendar (this session's fresh pushes PLUS any older
+                  events already in the store). Union'd so you can conflict-
+                  check pending rows against the full calendar without
+                  leaving Review. Green tint distinguishes it from triage
+                  filters. Hides when there's nothing to show at all. */}
+              {mergedCommitted.length > 0 && (
                 <button
                   onClick={() => { setFilter(f => f === "committed" ? "all" : "committed"); if (rowsRef.current) rowsRef.current.scrollIntoView({ block: "start", behavior: "smooth" }); }}
-                  title="Events you already pushed to the calendar this session. View-only — × on a row hides it from this audit view without touching the calendar."
+                  title="All events currently on the calendar (session pushes + prior events). View-only. × on a session-pushed row hides just that audit trail entry; older events show with a null timestamp."
                   style={filter === "committed"
                     ? { ...B, background: "rgba(52,211,153,0.22)", borderColor: "#34D399", color: "#34D399", fontWeight: 800 }
                     : { ...B, background: "rgba(52,211,153,0.08)", borderColor: "rgba(52,211,153,0.4)", color: "#34D399" }}
-                >📅 Committed ({committed.length})</button>
+                >📅 Committed ({mergedCommitted.length})</button>
               )}
               {sortByTag && (
                 <button
