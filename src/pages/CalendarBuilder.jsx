@@ -1884,7 +1884,13 @@ export default function CalendarBuilder() {
       const url = URL.createObjectURL(tagged);
       const a = document.createElement("a");
       const prefix = mode === "preview" ? "CGE_Preview" : "CGE";
-      const filename = `${prefix}_${pd.day}_${friDate.replace("/", "-")}_P${pi + 1}.png`;
+      // Zero-padded order prefix so the file lands in chronological Fri→Sat→Sun
+      // position when the operator sorts by name in Finder/Explorer/Photos.
+      // Otherwise the OS alphabetizes "Fri, Sat, Sun" as F→S→S which
+      // (F)ri < (S)at < (S)un happens to work — but continuation pages
+      // (e.g. Sat P2 landing after Sun P1 alphabetically) break the pattern.
+      const orderPrefix = String(pi + 1).padStart(2, "0");
+      const filename = `${orderPrefix}_${prefix}_${pd.day}_${friDate.replace("/", "-")}_P${pi + 1}.png`;
       a.download = filename;
       a.href = url;
       document.body.appendChild(a);
@@ -1910,9 +1916,8 @@ export default function CalendarBuilder() {
 
     // Ship the operator's current caption alongside the slides — auto-gen
     // one silently if none exists yet, so the ZIP is always self-contained.
-    // Only for the preview export (calendar mode doesn't have a matching
-    // "single carousel per weekend" caption workflow).
-    if (mode === "preview") {
+    // Applies to BOTH preview and calendar mode (same weekend, same caption).
+    {
       let captionForZip = captionText;
       if (!captionForZip && guideKey) {
         try { captionForZip = await runCaptionGeneration(); setCaptionText(captionForZip); }
@@ -1942,7 +1947,10 @@ export default function CalendarBuilder() {
         blob = await tagPngWithCgeExport(blob, { id: zipExportId, tool: "calendar", mode: "weekend-zip-slide" });
       } catch { /* skip — untagged is fine */ }
       const prefix = mode === "preview" ? "CGE_Preview" : "CGE";
-      files.push({ name: `${prefix}_${pd.day}_${friDate.replace("/", "-")}_P${i + 1}.png`, blob });
+      // Zero-padded order prefix — see the single-download rationale above.
+      // Operator saves in file-name order, ends up chronological Fri→Sat→Sun.
+      const orderPrefix = String(i + 1).padStart(2, "0");
+      files.push({ name: `${orderPrefix}_${prefix}_${pd.day}_${friDate.replace("/", "-")}_P${i + 1}.png`, blob });
     }
     // Build zip
     const zipParts = []; const centralDir = []; let offset = 0;
@@ -2557,11 +2565,12 @@ export default function CalendarBuilder() {
               <button onClick={() => dl(safePg)} style={{ flex: 1, padding: "10px", background: co.hex, color: co.light ? "#000" : "#FFF", border: "none", borderRadius: "6px", fontSize: "0.8rem", fontWeight: 700, cursor: "pointer" }}>Download {pgDay}{mode === "preview" ? " Preview" : ""}</button>
               {pages > 1 && <button onClick={dlAll} style={{ padding: "10px 14px", background: "rgba(245,240,232,0.05)", color: "rgba(245,240,232,0.45)", border: "1px solid rgba(245,240,232,0.06)", borderRadius: "6px", fontSize: "0.7rem", cursor: "pointer" }}>All (.zip)</button>}
             </div>
-            {/* Weekend caption generator — preview mode only. Opens a modal
-                with the AI-written caption (from Brand Voice + this weekend's
-                events), Regenerate + Copy + edit-in-place. The current text
-                is what ships as caption.txt in the ZIP. */}
-            {mode === "preview" && events.length > 0 && (
+            {/* Weekend caption generator — available in BOTH preview and
+                calendar mode. Opens a modal with the AI-written caption
+                (from Brand Voice + this weekend's events), Regenerate + Copy
+                + edit-in-place. The current text ships as caption.txt in
+                whichever mode's ZIP the operator downloads. */}
+            {events.length > 0 && (
               <div style={{ marginTop: "0.4rem", display: "flex", gap: "0.4rem", alignItems: "center" }}>
                 <button
                   onClick={openCaptionModal}
