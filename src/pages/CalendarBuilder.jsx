@@ -1952,16 +1952,36 @@ export default function CalendarBuilder() {
       const orderPrefix = String(i + 1).padStart(2, "0");
       files.push({ name: `${orderPrefix}_${prefix}_${pd.day}_${friDate.replace("/", "-")}_P${i + 1}.png`, blob });
     }
-    // Build zip
+    // Build zip. Each file gets a staggered DOS mtime (1 minute apart)
+    // starting from now, so destinations that sort by "date modified"
+    // (macOS Finder, Windows Explorer, iOS Files, Google Drive, Dropbox)
+    // land the slides in chronological Fri→Sat→Sun order even if the
+    // operator's app ignores the numeric filename prefix.
+    //
+    // DOS format packs date/time into two 16-bit fields: date =
+    // (year-1980)<<9 | month<<5 | day; time = hour<<11 | minute<<5 |
+    // (second/2). Sub-2-second resolution isn't needed here.
+    const baseZipTime = new Date();
+    const toDosDate = (d) => (((d.getFullYear() - 1980) & 0x7F) << 9) | (((d.getMonth() + 1) & 0x0F) << 5) | (d.getDate() & 0x1F);
+    const toDosTime = (d) => ((d.getHours() & 0x1F) << 11) | ((d.getMinutes() & 0x3F) << 5) | ((Math.floor(d.getSeconds() / 2)) & 0x1F);
     const zipParts = []; const centralDir = []; let offset = 0;
-    for (const file of files) {
+    for (let fi = 0; fi < files.length; fi++) {
+      const file = files[fi];
+      // .cgeexport sidecar keeps the base time; slides + caption stagger
+      // forward from there so they land in extract order.
+      const stampAt = fi === 0 ? baseZipTime : new Date(baseZipTime.getTime() + fi * 60_000);
+      const dosD = toDosDate(stampAt);
+      const dosT = toDosTime(stampAt);
       const buf = await file.blob.arrayBuffer(); const data = new Uint8Array(buf); const nameBytes = new TextEncoder().encode(file.name);
       const lh = new Uint8Array(30 + nameBytes.length); const lv = new DataView(lh.buffer);
       lv.setUint32(0, 0x04034b50, true); lv.setUint16(4, 20, true); lv.setUint16(8, 0, true);
+      lv.setUint16(10, dosT, true); lv.setUint16(12, dosD, true);
       let crc = 0xFFFFFFFF; for (let i = 0; i < data.length; i++) { crc ^= data[i]; for (let j = 0; j < 8; j++) crc = (crc >>> 1) ^ (crc & 1 ? 0xEDB88320 : 0); } crc ^= 0xFFFFFFFF;
       lv.setUint32(14, crc, true); lv.setUint32(18, data.length, true); lv.setUint32(22, data.length, true); lv.setUint16(26, nameBytes.length, true); lh.set(nameBytes, 30);
       const cd = new Uint8Array(46 + nameBytes.length); const cv2 = new DataView(cd.buffer);
-      cv2.setUint32(0, 0x02014b50, true); cv2.setUint16(4, 20, true); cv2.setUint16(6, 20, true); cv2.setUint32(16, crc, true); cv2.setUint32(20, data.length, true); cv2.setUint32(24, data.length, true); cv2.setUint16(28, nameBytes.length, true); cv2.setUint32(42, offset, true); cd.set(nameBytes, 46);
+      cv2.setUint32(0, 0x02014b50, true); cv2.setUint16(4, 20, true); cv2.setUint16(6, 20, true);
+      cv2.setUint16(12, dosT, true); cv2.setUint16(14, dosD, true);
+      cv2.setUint32(16, crc, true); cv2.setUint32(20, data.length, true); cv2.setUint32(24, data.length, true); cv2.setUint16(28, nameBytes.length, true); cv2.setUint32(42, offset, true); cd.set(nameBytes, 46);
       centralDir.push(cd); zipParts.push(lh); zipParts.push(data); offset += lh.length + data.length;
     }
     const cdOffset = offset; let cdSize = 0; centralDir.forEach(cd => { zipParts.push(cd); cdSize += cd.length; });
