@@ -700,9 +700,11 @@ app.get("/api/screenshot-pool", async (_req, res) => {
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Bulk-add entries. Body: { entries: [{event, thumb?, recurring, alsoRegular}, …] }
+// Bulk-add entries. Body: { entries: [{event, thumb?, recurring, alsoRegular, source?}, …] }
 // Server stamps id + createdAt so client doesn't have to. Cap-guarded — silently
 // drops the oldest entries when we'd exceed POOL_MAX_ITEMS.
+// `source` was added when the pool grew to accept iOS-share drops alongside
+// screenshot-modal saves — defaults to "screenshot" for anything unspecified.
 app.post("/api/screenshot-pool", express.json({ limit: "20mb" }), async (req, res) => {
   try {
     const incoming = Array.isArray(req.body?.entries) ? req.body.entries : [];
@@ -717,6 +719,8 @@ app.post("/api/screenshot-pool", express.json({ limit: "20mb" }), async (req, re
         thumb: typeof e.thumb === "string" && e.thumb.startsWith("data:image/") ? e.thumb : null,
         recurring: !!e.recurring,
         alsoRegular: !!e.alsoRegular,
+        source: typeof e.source === "string" && e.source ? e.source : "screenshot",
+        status: "extracted", // extracted by the modal before save; ready to pull
         createdAt: new Date().toISOString(),
       };
       pool.entries.push(entry);
@@ -727,6 +731,56 @@ app.post("/api/screenshot-pool", express.json({ limit: "20mb" }), async (req, re
     }
     await savePool(pool);
     res.json({ added: added.length, total: pool.entries.length });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Raw share intake — the iOS Shortcut hits this endpoint when the operator
+// taps "CGE Intake" from their share sheet. No AI extraction yet; the item
+// lands in the pool as `status: "raw"` and gets extracted on-demand from
+// inside the Review pool modal. Accepts either an image (as data URL) or a
+// URL (post link) — an operator can share IG posts either way. Auth is
+// intentionally unenforced: the endpoint is public because the shortcut
+// can't hold a real credential securely; the cap + explicit-review flow
+// contains blast radius if it ever gets spammed.
+app.post("/api/screenshot-pool/share", express.json({ limit: "20mb" }), async (req, res) => {
+  try {
+    const { imageDataUrl, sourceUrl, caption } = req.body || {};
+    const hasImage = typeof imageDataUrl === "string" && imageDataUrl.startsWith("data:image/");
+    const hasUrl = typeof sourceUrl === "string" && /^https?:\/\//i.test(sourceUrl);
+    if (!hasImage && !hasUrl) return res.status(400).json({ error: "no_content", detail: "Send imageDataUrl OR sourceUrl" });
+    const pool = await loadPool();
+    const entry = {
+      id: `pool_${Date.now()}_${Math.random().toString(36).slice(2, 8)}_share`,
+      event: null, // will be filled when the operator extracts inside the pool modal
+      thumb: hasImage ? imageDataUrl : null,
+      sourceUrl: hasUrl ? sourceUrl : null,
+      caption: typeof caption === "string" ? caption.slice(0, 500) : null,
+      recurring: false,
+      alsoRegular: false,
+      source: "share-ios",
+      status: "raw", // needs extraction inside the pool modal
+      createdAt: new Date().toISOString(),
+    };
+    pool.entries.push(entry);
+    if (pool.entries.length > POOL_MAX_ITEMS) pool.entries = pool.entries.slice(-POOL_MAX_ITEMS);
+    await savePool(pool);
+    res.json({ ok: true, id: entry.id, total: pool.entries.length });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Update an existing pool entry — used when the operator extracts a raw
+// share, edits fields inline, or flips alsoRegular. Client sends the id
+// and the fields to overwrite (partial merge).
+app.post("/api/screenshot-pool/update", express.json({ limit: "5mb" }), async (req, res) => {
+  try {
+    const { id, patch } = req.body || {};
+    if (!id || !patch || typeof patch !== "object") return res.status(400).json({ error: "bad_body" });
+    const pool = await loadPool();
+    const idx = pool.entries.findIndex((e) => String(e.id) === String(id));
+    if (idx === -1) return res.status(404).json({ error: "not_found" });
+    pool.entries[idx] = { ...pool.entries[idx], ...patch };
+    await savePool(pool);
+    res.json({ ok: true, entry: pool.entries[idx] });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

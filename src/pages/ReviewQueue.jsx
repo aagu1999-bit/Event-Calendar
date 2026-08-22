@@ -2934,6 +2934,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
 
       <ScreenshotPoolModal
         open={poolOpen}
+        apiKey={screenshotKey}
         weekendDates={weekendDates}
         onAdd={addScreenshotEvent}
         onPoolChanged={refreshPoolCount}
