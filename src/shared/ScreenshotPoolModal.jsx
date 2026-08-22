@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { getEmoji, normalizeHandle } from "./parseEvents.js";
 import { useRegularsStore } from "../store.js";
+import { screenshotToEvents } from "./aiContent.js";
 
 // The Pool viewer — lists screenshot-intake events that were saved for later
 // (via the modal's "Save to pool" action) and lets the operator pull them
@@ -66,7 +67,7 @@ function entryToRegular(entry) {
   };
 }
 
-export function ScreenshotPoolModal({ open, weekendDates = null, onAdd, onClose, onPoolChanged }) {
+export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, onAdd, onClose, onPoolChanged }) {
   // Local editing state: pool entries fetched from the server, plus per-entry
   // overrides for include / edits / alsoRegular. Server is source of truth
   // for what exists; local state is source of truth for what to do with it.
@@ -74,6 +75,7 @@ export function ScreenshotPoolModal({ open, weekendDates = null, onAdd, onClose,
   const [drafts, setDrafts] = useState({});        // id → { event, include, alsoRegular }
   const [loading, setLoading] = useState(false);
   const [pulling, setPulling] = useState(false);
+  const [extracting, setExtracting] = useState(false); // bulk-extract raw items
   const [msg, setMsg] = useState(null);
   const [allDates, setAllDates] = useState(() => {
     try { return localStorage.getItem("cge_pool_all_dates") === "true"; } catch { return false; }
@@ -89,7 +91,9 @@ export function ScreenshotPoolModal({ open, weekendDates = null, onAdd, onClose,
       const list = Array.isArray(j.entries) ? j.entries : [];
       setEntries(list);
       // Seed drafts: fresh objects derived from the server entries so edits
-      // don't touch the "source" copy.
+      // don't touch the "source" copy. Raw entries (from iOS share intake)
+      // start with an empty event scaffold — the operator extracts them
+      // via ✨ Extract raw before pulling.
       const next = {};
       for (const e of list) {
         next[e.id] = {
@@ -113,12 +117,85 @@ export function ScreenshotPoolModal({ open, weekendDates = null, onAdd, onClose,
   );
 
   // Filter the visible list by weekend match unless "All dates" is on.
+  // Raw entries (from share-inbox with no extraction yet) don't have a
+  // date — always show them regardless of filter so the operator can
+  // extract them before deciding which weekend they belong to.
   const visible = entries.filter((e) => {
+    if (e.status === "raw") return true;
     if (allDates) return true;
     const md = mdOf(e.event?.date);
     return !!(md && wkSet.has(md));
   });
   const hiddenByFilter = entries.length - visible.length;
+  const rawEntries = entries.filter((e) => e.status === "raw");
+
+  // Extract a single raw entry via the same screenshotToEvents helper the
+  // AI-fill modal uses. On success, patches the server entry to add the
+  // extracted event and flip status → extracted. Updates the local draft
+  // so the operator can edit inline immediately.
+  const extractOneRaw = async (entry) => {
+    if (!apiKey) throw new Error("Add your Gemini API key on the Media tab first.");
+    if (!entry.thumb) throw new Error("This raw entry has no image (URL-only share). Extract by hand.");
+    const results = await screenshotToEvents({ apiKey, image: entry.thumb, weekendDates });
+    // screenshotToEvents can return multiple events per image; take the first
+    // (rare that a shared IG post is a multi-event flyer, and merging into
+    // the pool row would need us to split into multiple entries which is a
+    // bigger refactor — flag it in msg so the operator can re-share if it
+    // was actually a multi-event flyer, that path goes through the intake
+    // modal which handles multi-event correctly).
+    if (!results.length) throw new Error("AI couldn't read an event out of that image.");
+    const first = results[0];
+    const patch = {
+      event: first.event,
+      recurring: !!first.recurring,
+      alsoRegular: !!first.recurring,
+      status: "extracted",
+      // aiFilled and multi-event notes could go here later — MVP keeps it simple
+      aiFilledFields: first.aiFilled || [],
+      multiHint: results.length > 1 ? results.length : null,
+    };
+    const r = await fetch("/api/screenshot-pool/update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: entry.id, patch }),
+    });
+    if (!r.ok) throw new Error(`Server ${r.status}`);
+    return patch;
+  };
+
+  // Bulk-extract every raw entry. Runs serially (Gemini rate-friendly) and
+  // updates local state as each one completes so the operator sees progress.
+  const extractAllRaw = async () => {
+    if (extracting || rawEntries.length === 0) return;
+    setExtracting(true); setMsg(null);
+    let ok = 0, fail = 0;
+    for (const entry of rawEntries) {
+      try {
+        const patch = await extractOneRaw(entry);
+        setEntries((prev) => prev.map((e) => e.id === entry.id ? { ...e, ...patch } : e));
+        setDrafts((prev) => ({
+          ...prev,
+          [entry.id]: {
+            event: { ...(patch.event || {}) },
+            include: true,
+            recurring: !!patch.recurring,
+            alsoRegular: !!patch.alsoRegular,
+          },
+        }));
+        ok++;
+      } catch (err) {
+        fail++;
+        console.warn(`Extract failed for ${entry.id}:`, err);
+      }
+    }
+    setExtracting(false);
+    setMsg({
+      ok: fail === 0,
+      text: fail === 0
+        ? `Extracted ${ok} raw share${ok === 1 ? "" : "s"} — edit + pull below.`
+        : `Extracted ${ok} · ${fail} failed. See browser console for details.`,
+    });
+  };
 
   const updateDraftEvent = (id, field, value) => {
     let v = value;
@@ -191,7 +268,12 @@ export function ScreenshotPoolModal({ open, weekendDates = null, onAdd, onClose,
   if (!open) return null;
 
   const wkLabel = `${weekendDates?.Fri || "?"}–${weekendDates?.Sun || "?"}`;
-  const readyCount = visible.filter((e) => drafts[e.id]?.include).length;
+  // Ready to pull = extracted (not raw) AND include ticked AND has a name.
+  // Raw entries are excluded — they need extraction before they can be pulled.
+  const readyCount = visible.filter((e) => {
+    const d = drafts[e.id];
+    return e.status !== "raw" && d?.include && d?.event?.name?.trim();
+  }).length;
 
   return createPortal(
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 9000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", overflowY: "auto" }}>
@@ -203,8 +285,24 @@ export function ScreenshotPoolModal({ open, weekendDates = null, onAdd, onClose,
           <button onClick={onClose} style={{ background: "transparent", border: "none", color: "rgba(245,240,232,0.5)", fontSize: "1.1rem", cursor: "pointer" }}>×</button>
         </div>
         <p style={{ margin: "0 0 12px", fontSize: "0.78rem", color: "rgba(245,240,232,0.55)", lineHeight: 1.5 }}>
-          Screenshots you saved for later. By default only entries for the reviewed weekend ({wkLabel}) show. Toggle "All dates" to see the whole stash.
+          Everything you dropped this week — screenshots you saved from inside CGE (📸) or shared here from your phone (📱). Weekend filter shows only entries for {wkLabel}; raw shares (no date yet) always show so you can extract them.
         </p>
+
+        {rawEntries.length > 0 && (
+          <div style={{ marginBottom: 12, padding: "10px 12px", borderRadius: 8, background: "rgba(167,139,250,0.08)", border: "1px solid rgba(167,139,250,0.35)", display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ flex: 1, fontSize: "0.78rem", color: "#F5F0E8" }}>
+              <strong style={{ color: "#A78BFA" }}>{rawEntries.length} raw share{rawEntries.length === 1 ? "" : "s"}</strong> waiting for AI extraction.
+            </div>
+            <button
+              onClick={extractAllRaw}
+              disabled={extracting || !apiKey}
+              title={apiKey ? "Run AI extraction on every raw share below" : "Add your Gemini API key on the Media tab first"}
+              style={{ padding: "6px 12px", borderRadius: 5, cursor: (extracting || !apiKey) ? "not-allowed" : "pointer", background: (extracting || !apiKey) ? "rgba(167,139,250,0.3)" : "rgba(167,139,250,0.25)", color: "#A78BFA", border: "1px solid rgba(167,139,250,0.5)", fontSize: "0.7rem", fontWeight: 800, letterSpacing: "0.3px" }}
+            >
+              {extracting ? "✨ Extracting…" : `✨ Extract ${rawEntries.length} raw`}
+            </button>
+          </div>
+        )}
 
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
           <label
@@ -241,26 +339,42 @@ export function ScreenshotPoolModal({ open, weekendDates = null, onAdd, onClose,
                 const d = drafts[e.id] || { event: e.event, include: true, alsoRegular: !!e.alsoRegular, recurring: !!e.recurring };
                 const ev = d.event;
                 const stamp = e.createdAt ? new Date(e.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
+                const isRaw = e.status === "raw";
+                // Source badge — screenshot (📸) came from the AI-fill modal
+                // inside CGE; share-ios (📱) came from the iOS share sheet
+                // shortcut. Everything else is future-proofing.
+                const sourceIcon = e.source === "share-ios" ? "📱" : "📸";
+                const sourceLabel = e.source === "share-ios" ? "iOS Share" : "Screenshot";
                 return (
                   <div key={e.id} style={{
                     display: "flex", gap: 10,
                     padding: 10, borderRadius: 8,
-                    background: d.include ? "rgba(139,92,246,0.05)" : "rgba(245,240,232,0.02)",
-                    border: `1px solid ${d.include ? "rgba(139,92,246,0.3)" : "rgba(245,240,232,0.08)"}`,
-                    opacity: d.include ? 1 : 0.5,
+                    background: isRaw ? "rgba(167,139,250,0.08)" : (d.include ? "rgba(139,92,246,0.05)" : "rgba(245,240,232,0.02)"),
+                    border: `1px solid ${isRaw ? "rgba(167,139,250,0.55)" : (d.include ? "rgba(139,92,246,0.3)" : "rgba(245,240,232,0.08)")}`,
+                    opacity: (!isRaw && !d.include) ? 0.5 : 1,
                   }}>
                     {e.thumb ? (
                       <img src={e.thumb} alt="" style={{ width: 60, height: 80, objectFit: "cover", borderRadius: 5, border: "1px solid rgba(245,240,232,0.15)", background: "#000", flexShrink: 0 }} />
                     ) : (
-                      <div style={{ width: 60, height: 80, borderRadius: 5, background: "rgba(245,240,232,0.05)", border: "1px solid rgba(245,240,232,0.1)", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.4rem", opacity: 0.4 }}>📸</div>
+                      <div style={{ width: 60, height: 80, borderRadius: 5, background: "rgba(245,240,232,0.05)", border: "1px solid rgba(245,240,232,0.1)", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.4rem", opacity: 0.4 }}>{sourceIcon}</div>
                     )}
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6 }}>
-                        <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: "0.7rem", color: "rgba(245,240,232,0.7)", flexShrink: 0 }}>
-                          <input type="checkbox" checked={d.include} onChange={(ev) => updateDraft(e.id, { include: ev.target.checked })} style={{ accentColor: "#A78BFA" }} />
-                          Include
-                        </label>
-                        {d.recurring && (
+                      <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6, flexWrap: "wrap" }}>
+                        {!isRaw && (
+                          <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: "0.7rem", color: "rgba(245,240,232,0.7)", flexShrink: 0 }}>
+                            <input type="checkbox" checked={d.include} onChange={(ev) => updateDraft(e.id, { include: ev.target.checked })} style={{ accentColor: "#A78BFA" }} />
+                            Include
+                          </label>
+                        )}
+                        <span title={sourceLabel} style={{ fontSize: "0.55rem", padding: "1px 6px", borderRadius: 3, background: "rgba(245,240,232,0.06)", color: "rgba(245,240,232,0.7)", letterSpacing: "0.5px", textTransform: "uppercase", fontWeight: 700 }}>
+                          {sourceIcon} {sourceLabel}
+                        </span>
+                        {isRaw && (
+                          <span style={{ fontSize: "0.55rem", padding: "1px 6px", borderRadius: 3, background: "rgba(167,139,250,0.25)", color: "#A78BFA", letterSpacing: "0.5px", textTransform: "uppercase", fontWeight: 700 }}>
+                            ⏳ raw — extract first
+                          </span>
+                        )}
+                        {d.recurring && !isRaw && (
                           <span style={{ fontSize: "0.6rem", padding: "1px 6px", borderRadius: 3, background: "rgba(229,188,79,0.15)", color: "#E5BC4F", letterSpacing: "0.5px", textTransform: "uppercase", fontWeight: 700 }}>🔁 Weekly</span>
                         )}
                         {stamp && (
@@ -269,7 +383,15 @@ export function ScreenshotPoolModal({ open, weekendDates = null, onAdd, onClose,
                         <div style={{ flex: 1 }} />
                         <button onClick={() => removeEntry(e.id)} title="Remove from pool" style={{ background: "transparent", border: "1px solid rgba(251,113,133,0.3)", color: "#FB7185", borderRadius: 3, padding: "2px 7px", fontSize: "0.66rem", cursor: "pointer" }}>×</button>
                       </div>
+                      {isRaw && (
+                        <div style={{ padding: "10px 12px", background: "rgba(0,0,0,0.25)", borderRadius: 5, fontSize: "0.75rem", color: "rgba(245,240,232,0.7)", marginBottom: 8 }}>
+                          {e.sourceUrl && <div style={{ marginBottom: 4 }}><b style={{ color: "#63B3ED" }}>URL:</b> <a href={e.sourceUrl} target="_blank" rel="noreferrer" style={{ color: "#63B3ED", wordBreak: "break-all" }}>{e.sourceUrl}</a></div>}
+                          {e.caption && <div style={{ color: "rgba(245,240,232,0.55)", fontStyle: "italic" }}>"{e.caption}"</div>}
+                          <div style={{ marginTop: 6, fontSize: "0.7rem", color: "rgba(167,139,250,0.7)" }}>Click <b>✨ Extract raw</b> above to pull event fields from this image.</div>
+                        </div>
+                      )}
 
+                      {!isRaw && (<>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 6, marginBottom: 6 }}>
                         <div>
                           <label style={L}>Name</label>
@@ -326,6 +448,7 @@ export function ScreenshotPoolModal({ open, weekendDates = null, onAdd, onClose,
                         <input type="checkbox" checked={d.alsoRegular} onChange={(x) => updateDraft(e.id, { alsoRegular: x.target.checked })} style={{ accentColor: "#E5BC4F" }} />
                         🔁 Also save as weekly regular
                       </label>
+                      </>)}
                     </div>
                   </div>
                 );
