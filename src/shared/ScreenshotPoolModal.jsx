@@ -135,7 +135,7 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
   // so the operator can edit inline immediately.
   const extractOneRaw = async (entry) => {
     if (!apiKey) throw new Error("Add your Gemini API key on the Media tab first.");
-    if (!entry.thumb) throw new Error("This raw entry has no image (URL-only share). Extract by hand.");
+    if (!entry.thumb) throw new Error("No preview image for this URL — the site blocks preview fetching (Instagram often does). Open the URL, save the image to Photos, and re-share from there.");
     const results = await screenshotToEvents({ apiKey, image: entry.thumb, weekendDates });
     // screenshotToEvents can return multiple events per image; take the first
     // (rare that a shared IG post is a multi-event flyer, and merging into

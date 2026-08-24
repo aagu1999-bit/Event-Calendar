@@ -734,12 +734,49 @@ app.post("/api/screenshot-pool", express.json({ limit: "20mb" }), async (req, re
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Fetch a page's og:image and return it as a base64 data URL, so URL-only
+// shares (IG post link, event page, etc.) still have a thumbnail Gemini can
+// extract from. Returns null on any failure — bad URL, blocked scrape,
+// missing og:image, timeout, non-image content-type, or oversize payload —
+// and the caller falls back to a URL-only entry the operator extracts by
+// hand. Timeouts are strict (8s + 10s) so a stalled remote host can't hold
+// the shortcut response open.
+async function fetchOgImageAsDataUrl(pageUrl) {
+  const withTimeout = (ms) => { const c = new AbortController(); return { signal: c.signal, done: setTimeout(() => c.abort(), ms) }; };
+  try {
+    const t1 = withTimeout(8000);
+    const pageResp = await fetch(pageUrl, {
+      headers: { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36" },
+      redirect: "follow",
+      signal: t1.signal,
+    }).finally(() => clearTimeout(t1.done));
+    if (!pageResp.ok) return null;
+    const html = await pageResp.text();
+    const match = html.match(/<meta\s+[^>]*(?:property|name)=["']og:image["'][^>]*content=["']([^"']+)["']/i)
+      || html.match(/<meta\s+[^>]*content=["']([^"']+)["'][^>]*(?:property|name)=["']og:image["']/i);
+    if (!match) return null;
+    const imgUrl = match[1].replace(/&amp;/g, "&");
+    const t2 = withTimeout(10000);
+    const imgResp = await fetch(imgUrl, { redirect: "follow", signal: t2.signal })
+      .finally(() => clearTimeout(t2.done));
+    if (!imgResp.ok) return null;
+    const contentType = (imgResp.headers.get("content-type") || "image/jpeg").split(";")[0].trim();
+    if (!contentType.startsWith("image/")) return null;
+    const buf = Buffer.from(await imgResp.arrayBuffer());
+    if (buf.length > 15 * 1024 * 1024) return null;
+    return `data:${contentType};base64,${buf.toString("base64")}`;
+  } catch { return null; }
+}
+
 // Raw share intake — the iOS Shortcut hits this endpoint when the operator
 // taps "CGE Intake" from their share sheet. No AI extraction yet; the item
 // lands in the pool as `status: "raw"` and gets extracted on-demand from
 // inside the Review pool modal. Accepts either an image (as data URL) or a
-// URL (post link) — an operator can share IG posts either way. Auth is
-// intentionally unenforced: the endpoint is public because the shortcut
+// URL (post link) — an operator can share IG posts either way. When only a
+// URL is sent, the server tries to grab the page's og:image so the entry
+// still has a thumbnail to extract from; this turns Instagram-direct shares
+// into a one-tap operation (no manual screenshot round-trip needed). Auth
+// is intentionally unenforced: the endpoint is public because the shortcut
 // can't hold a real credential securely; the cap + explicit-review flow
 // contains blast radius if it ever gets spammed.
 app.post("/api/screenshot-pool/share", express.json({ limit: "20mb" }), async (req, res) => {
@@ -748,11 +785,12 @@ app.post("/api/screenshot-pool/share", express.json({ limit: "20mb" }), async (r
     const hasImage = typeof imageDataUrl === "string" && imageDataUrl.startsWith("data:image/");
     const hasUrl = typeof sourceUrl === "string" && /^https?:\/\//i.test(sourceUrl);
     if (!hasImage && !hasUrl) return res.status(400).json({ error: "no_content", detail: "Send imageDataUrl OR sourceUrl" });
+    const fetchedThumb = (hasUrl && !hasImage) ? await fetchOgImageAsDataUrl(sourceUrl) : null;
     const pool = await loadPool();
     const entry = {
       id: `pool_${Date.now()}_${Math.random().toString(36).slice(2, 8)}_share`,
       event: null, // will be filled when the operator extracts inside the pool modal
-      thumb: hasImage ? imageDataUrl : null,
+      thumb: hasImage ? imageDataUrl : fetchedThumb,
       sourceUrl: hasUrl ? sourceUrl : null,
       caption: typeof caption === "string" ? caption.slice(0, 500) : null,
       recurring: false,
@@ -764,7 +802,7 @@ app.post("/api/screenshot-pool/share", express.json({ limit: "20mb" }), async (r
     pool.entries.push(entry);
     if (pool.entries.length > POOL_MAX_ITEMS) pool.entries = pool.entries.slice(-POOL_MAX_ITEMS);
     await savePool(pool);
-    res.json({ ok: true, id: entry.id, total: pool.entries.length });
+    res.json({ ok: true, id: entry.id, total: pool.entries.length, thumbFetched: !!(entry.thumb) && !hasImage });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
