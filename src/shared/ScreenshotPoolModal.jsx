@@ -437,7 +437,9 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
                           <div style={{ marginTop: 6, fontSize: "0.7rem", color: "rgba(167,139,250,0.7)" }}>
                             {e.thumb
                               ? <>Click <b>✨ Extract raw</b> above to pull event fields from this image.</>
-                              : <>Click <b>✨ Extract raw</b> above — Instagram images are fetched via Apify at extract time and saved here, so the CDN link (usually ~4.5 days) can't expire on you.</>}
+                              : /instagram\.com|instagr\.am/i.test(e.sourceUrl || "")
+                                ? <>Click <b>✨ Extract raw</b> above — the Instagram image is fetched via Apify then and saved here, so their CDN link (usually ~4.5 days) can't expire on you.</>
+                                : <>Click <b>✨ Extract raw</b> above to fetch a preview and pull event fields.</>}
                           </div>
                         </div>
                       )}
