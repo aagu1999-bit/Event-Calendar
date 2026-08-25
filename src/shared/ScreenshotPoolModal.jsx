@@ -76,6 +76,8 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
   const [loading, setLoading] = useState(false);
   const [pulling, setPulling] = useState(false);
   const [extracting, setExtracting] = useState(false); // bulk-extract raw items
+  const [extractingHint, setExtractingHint] = useState("");
+  const [apifyConfigured, setApifyConfigured] = useState(null); // null = unknown
   const [msg, setMsg] = useState(null);
   const [allDates, setAllDates] = useState(() => {
     try { return localStorage.getItem("cge_pool_all_dates") === "true"; } catch { return false; }
@@ -109,7 +111,14 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
     } finally { setLoading(false); }
   };
 
-  useEffect(() => { if (open) loadPool(); }, [open]);
+  useEffect(() => {
+    if (!open) return;
+    loadPool();
+    fetch("/api/screenshot-pool/apify-status")
+      .then((r) => r.json())
+      .then((j) => setApifyConfigured(!!j.configured))
+      .catch(() => setApifyConfigured(false));
+  }, [open]);
 
   const wkSet = new Set(
     [weekendDates?.Fri, weekendDates?.Sat, weekendDates?.Sun]
@@ -135,8 +144,31 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
   // so the operator can edit inline immediately.
   const extractOneRaw = async (entry) => {
     if (!apiKey) throw new Error("Add your Gemini API key on the Media tab first.");
-    if (!entry.thumb) throw new Error("No preview image for this URL — the site blocks preview fetching (Instagram often does). Open the URL, save the image to Photos, and re-share from there.");
-    const results = await screenshotToEvents({ apiKey, image: entry.thumb, weekendDates });
+    let thumb = entry.thumb;
+    let extraCaption = entry.caption || "";
+    let ownerHandle = "";
+    if (!thumb && entry.sourceUrl) {
+      const ig = /instagram\.com|instagr\.am/i.test(entry.sourceUrl);
+      setExtractingHint(ig ? "Fetching Instagram image via Apify…" : "Fetching preview image…");
+      const r = await fetch("/api/screenshot-pool/resolve-media", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: entry.id }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        const hint = r.status === 503 ? (j.message || "Set APIFY_TOKEN in this app's Replit Secrets to fetch Instagram images on Extract.")
+          : r.status === 401 ? (j.message || "Apify rejected the token. Check APIFY_TOKEN in Replit Secrets.")
+          : (j.message || j.detail || `Server responded ${r.status}`);
+        throw new Error(hint);
+      }
+      thumb = j.thumb || null;
+      if (j.caption) extraCaption = extraCaption || j.caption;
+      if (j.ownerUsername) ownerHandle = String(j.ownerUsername).replace(/^@+/, "").trim();
+    }
+    if (!thumb) throw new Error("No preview image for this URL — Instagram blocked the preview. Set APIFY_TOKEN in Replit Secrets and retry Extract, or open the URL, save the image to Photos, and re-share from there.");
+    setExtractingHint("Reading event from image…");
+    const results = await screenshotToEvents({ apiKey, image: thumb, weekendDates, extraText: extraCaption });
     // screenshotToEvents can return multiple events per image; take the first
     // (rare that a shared IG post is a multi-event flyer, and merging into
     // the pool row would need us to split into multiple entries which is a
@@ -145,12 +177,16 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
     // modal which handles multi-event correctly).
     if (!results.length) throw new Error("AI couldn't read an event out of that image.");
     const first = results[0];
+    if (!first.event.link && entry.sourceUrl) first.event.link = entry.sourceUrl;
+    if (!first.event.igHandle && ownerHandle) first.event.igHandle = `@${ownerHandle}`;
+    // Persist event fields only — the image was already saved by resolve-media
+    // (or was already on the entry). Don't ship the data URL back through
+    // /update; that endpoint's 5mb cap would reject a full-res IG still.
     const patch = {
       event: first.event,
       recurring: !!first.recurring,
       alsoRegular: !!first.recurring,
       status: "extracted",
-      // aiFilled and multi-event notes could go here later — MVP keeps it simple
       aiFilledFields: first.aiFilled || [],
       multiHint: results.length > 1 ? results.length : null,
     };
@@ -160,15 +196,15 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
       body: JSON.stringify({ id: entry.id, patch }),
     });
     if (!r.ok) throw new Error(`Server ${r.status}`);
-    return patch;
+    return { ...patch, thumb };
   };
 
   // Bulk-extract every raw entry. Runs serially (Gemini rate-friendly) and
   // updates local state as each one completes so the operator sees progress.
   const extractAllRaw = async () => {
     if (extracting || rawEntries.length === 0) return;
-    setExtracting(true); setMsg(null);
-    let ok = 0, fail = 0;
+    setExtracting(true); setExtractingHint(""); setMsg(null);
+    let ok = 0, fail = 0, lastErr = "";
     for (const entry of rawEntries) {
       try {
         const patch = await extractOneRaw(entry);
@@ -185,15 +221,17 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
         ok++;
       } catch (err) {
         fail++;
+        lastErr = String(err?.message || err);
         console.warn(`Extract failed for ${entry.id}:`, err);
       }
     }
     setExtracting(false);
+    setExtractingHint("");
     setMsg({
       ok: fail === 0,
       text: fail === 0
         ? `Extracted ${ok} raw share${ok === 1 ? "" : "s"} — edit + pull below.`
-        : `Extracted ${ok} · ${fail} failed. See browser console for details.`,
+        : `Extracted ${ok} · ${fail} failed${lastErr ? ` — ${lastErr}` : "."}`,
     });
   };
 
@@ -288,10 +326,19 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
           Everything you dropped this week — screenshots you saved from inside CGE (📸) or shared here from your phone (📱). Weekend filter shows only entries for {wkLabel}; raw shares (no date yet) always show so you can extract them.
         </p>
 
+        {rawEntries.some((e) => !e.thumb && /instagram\.com|instagr\.am/i.test(e.sourceUrl || "")) && apifyConfigured === false && (
+          <div style={{ marginBottom: 12, padding: "9px 12px", borderRadius: 8, fontSize: "0.78rem", background: "rgba(251,113,133,0.1)", border: "1px solid rgba(251,113,133,0.4)", color: "#FB7185", lineHeight: 1.45 }}>
+            ⚠ Instagram URL shares need <code style={{ color: "#F5F0E8" }}>APIFY_TOKEN</code> in this app's Replit Secrets. Extract fetches the image then — don't paste the token in the browser.
+          </div>
+        )}
+
         {rawEntries.length > 0 && (
           <div style={{ marginBottom: 12, padding: "10px 12px", borderRadius: 8, background: "rgba(167,139,250,0.08)", border: "1px solid rgba(167,139,250,0.35)", display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ flex: 1, fontSize: "0.78rem", color: "#F5F0E8" }}>
               <strong style={{ color: "#A78BFA" }}>{rawEntries.length} raw share{rawEntries.length === 1 ? "" : "s"}</strong> waiting for AI extraction.
+              {extracting && extractingHint && (
+                <div style={{ marginTop: 4, fontSize: "0.7rem", color: "rgba(167,139,250,0.85)" }}>{extractingHint}</div>
+              )}
             </div>
             <button
               onClick={extractAllRaw}
@@ -387,7 +434,11 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
                         <div style={{ padding: "10px 12px", background: "rgba(0,0,0,0.25)", borderRadius: 5, fontSize: "0.75rem", color: "rgba(245,240,232,0.7)", marginBottom: 8 }}>
                           {e.sourceUrl && <div style={{ marginBottom: 4 }}><b style={{ color: "#63B3ED" }}>URL:</b> <a href={e.sourceUrl} target="_blank" rel="noreferrer" style={{ color: "#63B3ED", wordBreak: "break-all" }}>{e.sourceUrl}</a></div>}
                           {e.caption && <div style={{ color: "rgba(245,240,232,0.55)", fontStyle: "italic" }}>"{e.caption}"</div>}
-                          <div style={{ marginTop: 6, fontSize: "0.7rem", color: "rgba(167,139,250,0.7)" }}>Click <b>✨ Extract raw</b> above to pull event fields from this image.</div>
+                          <div style={{ marginTop: 6, fontSize: "0.7rem", color: "rgba(167,139,250,0.7)" }}>
+                            {e.thumb
+                              ? <>Click <b>✨ Extract raw</b> above to pull event fields from this image.</>
+                              : <>Click <b>✨ Extract raw</b> above — Instagram images are fetched via Apify at extract time and saved here, so the CDN link (usually ~4.5 days) can't expire on you.</>}
+                          </div>
                         </div>
                       )}
 

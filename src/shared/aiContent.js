@@ -608,7 +608,7 @@ export async function readFlyer({ apiKey, image, mimeType = "image/png" } = {}) 
 // lists which fields the AI populated so the modal can ✨-mark them for
 // preview-and-edit; recurring pre-ticks "also add as weekly regular". Only
 // NAME is required per event — everything else is best-effort.
-export async function screenshotToEvents({ apiKey, image, mimeType = "image/png", weekendDates = null } = {}) {
+export async function screenshotToEvents({ apiKey, image, mimeType = "image/png", weekendDates = null, extraText = "" } = {}) {
   if (!apiKey) throw new Error("Missing Gemini API key");
   if (!image) throw new Error("No screenshot provided");
   const b64 = String(image).startsWith("data:") ? String(image).split(",")[1] : String(image);
@@ -656,6 +656,11 @@ export async function screenshotToEvents({ apiKey, image, mimeType = "image/png"
     "- recurring: TRUE if this specific event happens weekly — phrases like \"Every Friday\", \"Every Sat\", \"Sundays\", \"Weekly\", \"Each Saturday\", or a plural day-of-week (\"Fridays\") that clearly means recurring. FALSE for one-time events or when only a specific date is given. Set per-event when splitting a weekly schedule (each split event is `recurring: true`).",
     "",
     "SHARED FIELDS: when splitting, if the venue / city / region / IG handle is shared across the events (typical for a weekly schedule at one venue), repeat those fields on every event object.",
+    "",
+    "",
+    extraText
+      ? `ADDITIONAL TEXT from the post caption / URL metadata. Use it to fill fields the image doesn't show (handle, date, venue). Prefer what's visible on the flyer when they disagree:\n${String(extraText).slice(0, 1500)}`
+      : "",
     "",
     anchor,
     "",
