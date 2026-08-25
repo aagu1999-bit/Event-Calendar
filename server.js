@@ -734,31 +734,22 @@ app.post("/api/screenshot-pool", express.json({ limit: "20mb" }), async (req, re
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Fetch a page's og:image and return it as a base64 data URL, so URL-only
-// shares (IG post link, event page, etc.) still have a thumbnail Gemini can
-// extract from. Returns null on any failure — bad URL, blocked scrape,
-// missing og:image, timeout, non-image content-type, or oversize payload —
-// and the caller falls back to a URL-only entry the operator extracts by
-// hand. Timeouts are strict (8s + 10s) so a stalled remote host can't hold
-// the shortcut response open.
-async function fetchOgImageAsDataUrl(pageUrl) {
-  const withTimeout = (ms) => { const c = new AbortController(); return { signal: c.signal, done: setTimeout(() => c.abort(), ms) }; };
+const BROWSER_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36";
+function withTimeout(ms) {
+  const c = new AbortController();
+  return { signal: c.signal, done: setTimeout(() => c.abort(), ms) };
+}
+
+// Download a remote image as a data URL. Used for og:image AND for the
+// Apify displayUrl — Instagram CDN links are signed and expire (see
+// instagramCdnExpiryIso), so we persist the bytes, never the URL.
+async function downloadImageAsDataUrl(imgUrl, { timeoutMs = 10000, referer } = {}) {
+  const t = withTimeout(timeoutMs);
   try {
-    const t1 = withTimeout(8000);
-    const pageResp = await fetch(pageUrl, {
-      headers: { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36" },
-      redirect: "follow",
-      signal: t1.signal,
-    }).finally(() => clearTimeout(t1.done));
-    if (!pageResp.ok) return null;
-    const html = await pageResp.text();
-    const match = html.match(/<meta\s+[^>]*(?:property|name)=["']og:image["'][^>]*content=["']([^"']+)["']/i)
-      || html.match(/<meta\s+[^>]*content=["']([^"']+)["'][^>]*(?:property|name)=["']og:image["']/i);
-    if (!match) return null;
-    const imgUrl = match[1].replace(/&amp;/g, "&");
-    const t2 = withTimeout(10000);
-    const imgResp = await fetch(imgUrl, { redirect: "follow", signal: t2.signal })
-      .finally(() => clearTimeout(t2.done));
+    const headers = { "User-Agent": BROWSER_UA };
+    if (referer) headers.Referer = referer;
+    const imgResp = await fetch(imgUrl, { redirect: "follow", signal: t.signal, headers })
+      .finally(() => clearTimeout(t.done));
     if (!imgResp.ok) return null;
     const contentType = (imgResp.headers.get("content-type") || "image/jpeg").split(";")[0].trim();
     if (!contentType.startsWith("image/")) return null;
@@ -768,17 +759,187 @@ async function fetchOgImageAsDataUrl(pageUrl) {
   } catch { return null; }
 }
 
+// Fetch a page's og:image and return it as a base64 data URL, so URL-only
+// shares (IG post link, event page, etc.) still have a thumbnail Gemini can
+// extract from. Returns null on any failure — bad URL, blocked scrape,
+// missing og:image, timeout, non-image content-type, or oversize payload —
+// and the caller falls back to a URL-only entry the operator extracts by
+// hand. Timeouts are strict (8s + 10s) so a stalled remote host can't hold
+// the shortcut response open. Instagram usually blocks this path; Extract
+// then calls Apify (see resolve-media below).
+async function fetchOgImageAsDataUrl(pageUrl) {
+  try {
+    const t1 = withTimeout(8000);
+    const pageResp = await fetch(pageUrl, {
+      headers: { "User-Agent": BROWSER_UA },
+      redirect: "follow",
+      signal: t1.signal,
+    }).finally(() => clearTimeout(t1.done));
+    if (!pageResp.ok) return null;
+    const html = await pageResp.text();
+    const match = html.match(/<meta\s+[^>]*(?:property|name)=["']og:image["'][^>]*content=["']([^"']+)["']/i)
+      || html.match(/<meta\s+[^>]*content=["']([^"']+)["'][^>]*(?:property|name)=["']og:image["']/i);
+    if (!match) return null;
+    const imgUrl = match[1].replace(/&amp;/g, "&");
+    return await downloadImageAsDataUrl(imgUrl, { timeoutMs: 10000 });
+  } catch { return null; }
+}
+
+// Instagram CDN URLs (scontent*.cdninstagram.com) are signed. The `oe`
+// query param is a hex Unix timestamp of expiry. Live URLs measured in
+// 2026 last ~108 hours / ~4.5 days from generation; older write-ups
+// claimed 6–12 hours. Either way the URL is gone after `oe` — HTTP 403,
+// no refresh. Parse it so we can log when the Apify URL *would* have
+// died; we never rely on it because resolve-media downloads the bytes
+// immediately into the pool entry.
+function instagramCdnExpiryIso(mediaUrl) {
+  try {
+    const oe = new URL(mediaUrl).searchParams.get("oe");
+    if (!oe) return null;
+    const sec = parseInt(oe, 16);
+    if (!Number.isFinite(sec) || sec < 1e9 || sec > 4e9) return null;
+    return new Date(sec * 1000).toISOString();
+  } catch { return null; }
+}
+
+function isInstagramUrl(raw) {
+  try {
+    const h = new URL(raw).hostname.replace(/^www\./, "").toLowerCase();
+    return h === "instagram.com" || h === "instagr.am" || h.endsWith(".instagram.com");
+  } catch { return false; }
+}
+
+// Apify token stays server-side (Replit Secret). Never sent to the
+// browser or the iOS Shortcut. APIFY_IG_ACTOR overrides the default
+// official scraper if IG changes and we need to swap actors without a
+// code push.
+const APIFY_TOKEN = (process.env.APIFY_TOKEN || process.env.APIFY_API_TOKEN || "").trim();
+const APIFY_IG_ACTOR = (process.env.APIFY_IG_ACTOR || "apify/instagram-scraper").trim();
+const APIFY_IG_MEMORY = (() => {
+  const n = parseInt(process.env.APIFY_IG_MEMORY || "4096", 10);
+  return Number.isFinite(n) && n >= 1024 ? n : 4096;
+})();
+
+function pickApifyMediaUrl(item) {
+  if (!item || typeof item !== "object") return null;
+  const fromList = [];
+  const push = (v) => {
+    if (typeof v === "string" && /^https?:\/\//i.test(v)) fromList.push(v);
+    else if (v && typeof v.url === "string" && /^https?:\/\//i.test(v.url)) fromList.push(v.url);
+  };
+  push(item.displayUrl);
+  push(item.display_url);
+  push(item.imageUrl);
+  push(item.image);
+  push(item.thumbnailUrl);
+  push(item.thumbnail_url);
+  if (Array.isArray(item.images)) item.images.forEach(push);
+  if (Array.isArray(item.displayResourceUrls)) item.displayResourceUrls.forEach(push);
+  const still = fromList.find((u) => !/\.mp4(\?|$)/i.test(u));
+  return still || fromList[0] || null;
+}
+function pickApifyCaption(item) {
+  const c = item?.caption || item?.text || "";
+  return typeof c === "string" ? c.trim() : "";
+}
+function pickApifyOwner(item) {
+  const u = item?.ownerUsername || item?.owner?.username || item?.username || item?.user?.username || "";
+  return typeof u === "string" ? u.replace(/^@+/, "").trim() : "";
+}
+
+async function fetchInstagramPostViaApify(postUrl) {
+  if (!APIFY_TOKEN) {
+    const err = new Error("Set APIFY_TOKEN in this app's Replit Secrets to fetch Instagram images on Extract.");
+    err.code = "not_configured";
+    throw err;
+  }
+  const actorId = APIFY_IG_ACTOR.replace("/", "~");
+  const apiUrl = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?timeout=90&memory=${APIFY_IG_MEMORY}`;
+  const ac = new AbortController();
+  const killer = setTimeout(() => ac.abort(), 95_000);
+  let r, text;
+  try {
+    r = await fetch(apiUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${APIFY_TOKEN}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({
+        directUrls: [postUrl],
+        resultsType: "posts",
+        resultsLimit: 1,
+        addParentData: false,
+      }),
+      signal: ac.signal,
+    });
+    text = await r.text();
+  } catch (e) {
+    const err = new Error(e?.name === "AbortError"
+      ? "Apify timed out fetching that Instagram post (90s). Retry Extract, or share the image from Photos."
+      : `Couldn't reach Apify: ${String(e?.message || e)}`);
+    err.code = "apify_error";
+    throw err;
+  } finally {
+    clearTimeout(killer);
+  }
+  if (r.status === 401 || r.status === 403) {
+    const err = new Error("Apify rejected the token. Check APIFY_TOKEN in Replit Secrets.");
+    err.code = "auth";
+    throw err;
+  }
+  if (!r.ok) {
+    const err = new Error(`Apify ${r.status}: ${text.slice(0, 240)}`);
+    err.code = "apify_error";
+    throw err;
+  }
+  let items;
+  try { items = JSON.parse(text); } catch { items = []; }
+  if (items && typeof items === "object" && !Array.isArray(items) && items.error) {
+    const err = new Error(`Apify error: ${String(items.error.message || items.error).slice(0, 240)}`);
+    err.code = "apify_error";
+    throw err;
+  }
+  const item = Array.isArray(items) ? items[0] : null;
+  if (!item) {
+    const err = new Error("Apify returned no post — it may be private, deleted, or a stories/share link the scraper can't open.");
+    err.code = "no_media";
+    throw err;
+  }
+  const mediaUrl = pickApifyMediaUrl(item);
+  if (!mediaUrl) {
+    const err = new Error("Apify returned the post but no image URL (video-only, or the actor changed shape). Share the image from Photos instead.");
+    err.code = "no_media";
+    throw err;
+  }
+  const thumb = await downloadImageAsDataUrl(mediaUrl, { timeoutMs: 15000, referer: "https://www.instagram.com/" });
+  if (!thumb) {
+    const err = new Error("Got an Instagram image URL from Apify but the CDN download failed. Retry Extract, or share the image from Photos.");
+    err.code = "cdn_download_failed";
+    throw err;
+  }
+  return {
+    thumb,
+    caption: pickApifyCaption(item).slice(0, 2000),
+    ownerUsername: pickApifyOwner(item),
+    mediaUrl,
+    mediaExpiresAt: instagramCdnExpiryIso(mediaUrl),
+    fetchedVia: "apify",
+  };
+}
+
 // Raw share intake — the iOS Shortcut hits this endpoint when the operator
 // taps "CGE Intake" from their share sheet. No AI extraction yet; the item
 // lands in the pool as `status: "raw"` and gets extracted on-demand from
 // inside the Review pool modal. Accepts either an image (as data URL) or a
 // URL (post link) — an operator can share IG posts either way. When only a
 // URL is sent, the server tries to grab the page's og:image so the entry
-// still has a thumbnail to extract from; this turns Instagram-direct shares
-// into a one-tap operation (no manual screenshot round-trip needed). Auth
-// is intentionally unenforced: the endpoint is public because the shortcut
-// can't hold a real credential securely; the cap + explicit-review flow
-// contains blast radius if it ever gets spammed.
+// still has a thumbnail to extract from. Instagram usually blocks that
+// scrape; Extract then calls Apify (resolve-media) so the Shortcut stays
+// fast. Auth is intentionally unenforced: the endpoint is public because
+// the shortcut can't hold a real credential securely; the cap +
+// explicit-review flow contains blast radius if it ever gets spammed.
 app.post("/api/screenshot-pool/share", express.json({ limit: "20mb" }), async (req, res) => {
   try {
     const { imageDataUrl, sourceUrl, caption } = req.body || {};
@@ -803,6 +964,89 @@ app.post("/api/screenshot-pool/share", express.json({ limit: "20mb" }), async (r
     if (pool.entries.length > POOL_MAX_ITEMS) pool.entries = pool.entries.slice(-POOL_MAX_ITEMS);
     await savePool(pool);
     res.json({ ok: true, id: entry.id, total: pool.entries.length, thumbFetched: !!(entry.thumb) && !hasImage });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Safe to expose — boolean only, never the token. Pool modal uses this to
+// warn before Extract if Instagram URL-shares need Apify and the secret
+// isn't set yet.
+app.get("/api/screenshot-pool/apify-status", (_req, res) => {
+  res.json({ configured: !!APIFY_TOKEN });
+});
+
+// Extract-time media fetch. The iOS Shortcut stays fast (share just stores
+// the URL); when the operator hits Extract on a URL-only raw entry we
+// resolve an actual image here. Instagram URLs go through Apify; everything
+// else retries og:image. The Apify displayUrl is a signed CDN link that
+// expires (typically ~4.5 days / ~108 hours — `oe` is a hex Unix timestamp).
+// We download the bytes immediately and store a data URL so expiry never
+// bites the pool later.
+app.post("/api/screenshot-pool/resolve-media", express.json({ limit: "1mb" }), async (req, res) => {
+  try {
+    const { id } = req.body || {};
+    if (!id) return res.status(400).json({ error: "bad_body", message: "Send the pool entry id." });
+    const pool = await loadPool();
+    const idx = pool.entries.findIndex((e) => String(e.id) === String(id));
+    if (idx === -1) return res.status(404).json({ error: "not_found", message: "That pool entry is gone — refresh and try again." });
+    const entry = pool.entries[idx];
+    if (typeof entry.thumb === "string" && entry.thumb.startsWith("data:image/")) {
+      return res.json({
+        ok: true,
+        thumb: entry.thumb,
+        caption: entry.caption || null,
+        ownerUsername: null,
+        mediaExpiresAt: entry.mediaExpiresAt || null,
+        fetchedVia: "cached",
+      });
+    }
+    const sourceUrl = typeof entry.sourceUrl === "string" ? entry.sourceUrl : "";
+    if (!/^https?:\/\//i.test(sourceUrl)) {
+      return res.status(400).json({
+        error: "no_url",
+        message: "This entry has no source URL to fetch an image from. Share the image from Photos instead.",
+      });
+    }
+
+    let result;
+    if (isInstagramUrl(sourceUrl)) {
+      try {
+        result = await fetchInstagramPostViaApify(sourceUrl);
+      } catch (e) {
+        if (e.code === "not_configured") {
+          return res.status(503).json({ error: "not_configured", message: e.message });
+        }
+        if (e.code === "auth") {
+          return res.status(401).json({ error: "apify_auth", message: e.message });
+        }
+        return res.status(502).json({ error: "apify_error", message: e.message });
+      }
+    } else {
+      const thumb = await fetchOgImageAsDataUrl(sourceUrl);
+      if (!thumb) {
+        return res.status(502).json({
+          error: "og_failed",
+          message: "Couldn't fetch a preview image from that URL. Open it, save the image, and re-share from Photos.",
+        });
+      }
+      result = { thumb, caption: "", ownerUsername: "", mediaExpiresAt: null, fetchedVia: "og" };
+    }
+
+    const patch = {
+      thumb: result.thumb,
+      fetchedVia: result.fetchedVia || "apify",
+      mediaExpiresAt: result.mediaExpiresAt || null,
+    };
+    if (result.caption && !entry.caption) patch.caption = result.caption.slice(0, 500);
+    pool.entries[idx] = { ...entry, ...patch };
+    await savePool(pool);
+    res.json({
+      ok: true,
+      thumb: result.thumb,
+      caption: pool.entries[idx].caption || null,
+      ownerUsername: result.ownerUsername || null,
+      mediaExpiresAt: result.mediaExpiresAt || null,
+      fetchedVia: patch.fetchedVia,
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1578,5 +1822,6 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`  Workspaces at ${DATA_DIR}`);
   console.log(`  Photos    at ${LIBRARY_DIRS.photos}`);
   console.log(`  Exports   at ${LIBRARY_DIRS.exports}`);
+  console.log(`  Apify     ${APIFY_TOKEN ? "configured (extract-time IG fetch)" : "OFF — set APIFY_TOKEN to fetch IG images on Extract"}`);
   initScoutCron();
 });
