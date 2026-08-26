@@ -147,9 +147,16 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
     let thumb = entry.thumb;
     let extraCaption = entry.caption || "";
     let ownerHandle = "";
-    if (!thumb && entry.sourceUrl) {
-      const ig = /instagram\.com|instagr\.am/i.test(entry.sourceUrl);
-      setExtractingHint(ig ? "Fetching Instagram image via Apify…" : "Fetching preview image…");
+    // Always run resolve-media: Instagram URL-only shares fetch via Apify;
+    // photo shares (HEIC / huge camera-roll JPEGs) get converted to a
+    // Gemini-safe JPEG. Skipping this is what made photos 400 while IG worked.
+    {
+      const ig = /instagram\.com|instagr\.am/i.test(entry.sourceUrl || "");
+      setExtractingHint(
+        !thumb && ig ? "Fetching Instagram image via Apify…"
+          : thumb ? "Preparing photo for Extract…"
+          : "Fetching preview image…"
+      );
       const r = await fetch("/api/screenshot-pool/resolve-media", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -159,10 +166,11 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
       if (!r.ok) {
         const hint = r.status === 503 ? (j.message || "Set APIFY_TOKEN in this app's Replit Secrets to fetch Instagram images on Extract.")
           : r.status === 401 ? (j.message || "Apify rejected the token. Check APIFY_TOKEN in Replit Secrets.")
+          : r.status === 422 ? (j.message || "That photo isn't a format we can read. Re-share it from Photos as an image.")
           : (j.message || j.detail || `Server responded ${r.status}`);
         throw new Error(hint);
       }
-      thumb = j.thumb || null;
+      thumb = j.thumb || thumb || null;
       if (j.caption) extraCaption = extraCaption || j.caption;
       if (j.ownerUsername) ownerHandle = String(j.ownerUsername).replace(/^@+/, "").trim();
     }
@@ -436,7 +444,7 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
                           {e.caption && <div style={{ color: "rgba(245,240,232,0.55)", fontStyle: "italic" }}>"{e.caption}"</div>}
                           <div style={{ marginTop: 6, fontSize: "0.7rem", color: "rgba(167,139,250,0.7)" }}>
                             {e.thumb
-                              ? <>Click <b>✨ Extract raw</b> above to pull event fields from this image.</>
+                              ? <>Click <b>✨ Extract raw</b> above — iPhone photos are converted to JPEG first (the broken preview is usually HEIC, which the browser can't show).</>
                               : /instagram\.com|instagr\.am/i.test(e.sourceUrl || "")
                                 ? <>Click <b>✨ Extract raw</b> above — the Instagram image is fetched via Apify then and saved here, so their CDN link (usually ~4.5 days) can't expire on you.</>
                                 : <>Click <b>✨ Extract raw</b> above to fetch a preview and pull event fields.</>}

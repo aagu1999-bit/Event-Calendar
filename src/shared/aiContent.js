@@ -611,10 +611,14 @@ export async function readFlyer({ apiKey, image, mimeType = "image/png" } = {}) 
 export async function screenshotToEvents({ apiKey, image, mimeType = "image/png", weekendDates = null, extraText = "" } = {}) {
   if (!apiKey) throw new Error("Missing Gemini API key");
   if (!image) throw new Error("No screenshot provided");
-  const b64 = String(image).startsWith("data:") ? String(image).split(",")[1] : String(image);
-  const mt = String(image).startsWith("data:")
-    ? (String(image).slice(5).split(";")[0] || mimeType)
+  const rawImg = String(image);
+  const b64 = rawImg.startsWith("data:")
+    ? rawImg.split(",").slice(1).join(",").replace(/\s/g, "")
+    : rawImg.replace(/\s/g, "");
+  let mt = rawImg.startsWith("data:")
+    ? (rawImg.slice(5).split(";")[0] || mimeType)
     : mimeType;
+  if (mt === "image/jpg") mt = "image/jpeg";
 
   const anchor = (weekendDates && (weekendDates.Fri || weekendDates.Sat || weekendDates.Sun))
     ? `The operator is reviewing this weekend: Fri ${weekendDates.Fri || "?"}, Sat ${weekendDates.Sat || "?"}, Sun ${weekendDates.Sun || "?"} (M/D). If the image only says a day of week (e.g. "Friday") with no explicit date, that day maps to the corresponding date above.`
