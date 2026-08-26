@@ -941,7 +941,41 @@ async function fetchInstagramPostViaApify(postUrl) {
 // fast. Auth is intentionally unenforced: the endpoint is public because
 // the shortcut can't hold a real credential securely; the cap +
 // explicit-review flow contains blast radius if it ever gets spammed.
+function publicOrigin(req) {
+  const proto = String(req.headers["x-forwarded-proto"] || req.protocol || "https").split(",")[0].trim() || "https";
+  const host = String(req.headers["x-forwarded-host"] || req.headers.host || "").split(",")[0].trim();
+  return host ? `${proto}://${host}` : "";
+}
+function shareCors(res) {
+  res.set("Access-Control-Allow-Origin", "*");
+  res.set("Access-Control-Allow-Headers", "Content-Type");
+  res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+}
+
+// Team intake page — same form hosted live AND as a downloadable HTML file
+// they can AirDrop / iMessage. Downloaded copy bakes this origin into the
+// POST URL so it still works when opened from Files. CORS on /share lets
+// that file call the API. Apple will not import a hand-built .shortcut
+// (unsigned), so this is the shareable artifact.
+const INTAKE_FILE = path.resolve(__dirname, "intake.html");
+async function renderIntakeHtml(origin) {
+  const html = await fs.readFile(INTAKE_FILE, "utf8");
+  return html.replaceAll("__CGE_ORIGIN__", origin || "");
+}
+app.get("/intake", async (req, res) => {
+  try { res.type("html").send(await renderIntakeHtml("")); }
+  catch (err) { res.status(500).send(String(err.message || err)); }
+});
+app.get("/cge-intake.html", async (req, res) => {
+  try {
+    res.set("Content-Disposition", 'attachment; filename="CGE-Intake.html"');
+    res.type("html").send(await renderIntakeHtml(publicOrigin(req)));
+  } catch (err) { res.status(500).send(String(err.message || err)); }
+});
+
+app.options("/api/screenshot-pool/share", (_req, res) => { shareCors(res); res.sendStatus(204); });
 app.post("/api/screenshot-pool/share", express.json({ limit: "20mb" }), async (req, res) => {
+  shareCors(res);
   try {
     const { imageDataUrl, sourceUrl, caption } = req.body || {};
     const hasImage = typeof imageDataUrl === "string" && imageDataUrl.startsWith("data:image/");
