@@ -330,9 +330,31 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
           </h2>
           <button onClick={onClose} style={{ background: "transparent", border: "none", color: "rgba(245,240,232,0.5)", fontSize: "1.1rem", cursor: "pointer" }}>×</button>
         </div>
-        <p style={{ margin: "0 0 12px", fontSize: "0.78rem", color: "rgba(245,240,232,0.55)", lineHeight: 1.5 }}>
+        <p style={{ margin: "0 0 10px", fontSize: "0.78rem", color: "rgba(245,240,232,0.55)", lineHeight: 1.5 }}>
           Everything you dropped this week — screenshots you saved from inside CGE (📸) or shared here from your phone (📱). Weekend filter shows only entries for {wkLabel}; raw shares (no date yet) always show so you can extract them.
         </p>
+        <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+          <a
+            href="/cge-intake.html"
+            download="CGE-Intake.html"
+            title="AirDrop or iMessage this file — teammates open it in Safari and send photos/links to the pool"
+            style={{ padding: "5px 10px", borderRadius: 5, background: "rgba(229,188,79,0.12)", color: "#E5BC4F", border: "1px solid rgba(229,188,79,0.4)", fontSize: "0.68rem", fontWeight: 800, letterSpacing: "0.3px", textDecoration: "none" }}
+          >
+            ⬇ CGE-Intake.html
+          </a>
+          <button
+            type="button"
+            onClick={async () => {
+              const link = `${window.location.origin}/intake`;
+              try { await navigator.clipboard.writeText(link); setMsg({ ok: true, text: "Intake link copied — text it to the team. They can also Add to Home Screen." }); }
+              catch { setMsg({ ok: true, text: link }); }
+            }}
+            title="Copy the live intake page URL"
+            style={{ padding: "5px 10px", borderRadius: 5, background: "transparent", color: "rgba(245,240,232,0.7)", border: "1px solid rgba(245,240,232,0.15)", fontSize: "0.68rem", fontWeight: 800, letterSpacing: "0.3px", cursor: "pointer" }}
+          >
+            Copy intake link
+          </button>
+        </div>
 
         {rawEntries.some((e) => !e.thumb && /instagram\.com|instagr\.am/i.test(e.sourceUrl || "")) && apifyConfigured === false && (
           <div style={{ marginBottom: 12, padding: "9px 12px", borderRadius: 8, fontSize: "0.78rem", background: "rgba(251,113,133,0.1)", border: "1px solid rgba(251,113,133,0.4)", color: "#FB7185", lineHeight: 1.45 }}>
@@ -536,7 +558,7 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
 
         {!loading && entries.length === 0 && (
           <div style={{ padding: "36px 20px", textAlign: "center", color: "rgba(245,240,232,0.4)", fontSize: "0.85rem", border: "1px dashed rgba(245,240,232,0.1)", borderRadius: 8 }}>
-            Nothing in the pool yet. Drop a screenshot in "📸 Add from screenshot" and hit <b>🗓️ Save to pool</b>.
+            Nothing in the pool yet. Drop a screenshot in "📸 Add from screenshot", or send the team <b>CGE-Intake.html</b> / the /intake link so they can share photos and IG posts into this pool.
           </div>
         )}
       </div>
