@@ -19,6 +19,7 @@ import { existsSync } from "fs";
 import { fileURLToPath } from "url";
 import { runScout, storyKey, focusForDay } from "./scoutServer.js";
 import { createSessionStore, normalizeSession, applySessionOps } from "./reviewSessionStore.js";
+import { normalizeImageDataUrl } from "./normalizeImage.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || "5000", 10);
@@ -946,12 +947,17 @@ app.post("/api/screenshot-pool/share", express.json({ limit: "20mb" }), async (r
     const hasImage = typeof imageDataUrl === "string" && imageDataUrl.startsWith("data:image/");
     const hasUrl = typeof sourceUrl === "string" && /^https?:\/\//i.test(sourceUrl);
     if (!hasImage && !hasUrl) return res.status(400).json({ error: "no_content", detail: "Send imageDataUrl OR sourceUrl" });
+    let storedThumb = hasImage ? imageDataUrl : null;
+    if (hasImage) {
+      try { storedThumb = await normalizeImageDataUrl(imageDataUrl); }
+      catch { storedThumb = imageDataUrl; } // extract-time normalize retries; don't fail the shortcut
+    }
     const fetchedThumb = (hasUrl && !hasImage) ? await fetchOgImageAsDataUrl(sourceUrl) : null;
     const pool = await loadPool();
     const entry = {
       id: `pool_${Date.now()}_${Math.random().toString(36).slice(2, 8)}_share`,
       event: null, // will be filled when the operator extracts inside the pool modal
-      thumb: hasImage ? imageDataUrl : fetchedThumb,
+      thumb: storedThumb || fetchedThumb,
       sourceUrl: hasUrl ? sourceUrl : null,
       caption: typeof caption === "string" ? caption.slice(0, 500) : null,
       recurring: false,
@@ -974,13 +980,12 @@ app.get("/api/screenshot-pool/apify-status", (_req, res) => {
   res.json({ configured: !!APIFY_TOKEN });
 });
 
-// Extract-time media fetch. The iOS Shortcut stays fast (share just stores
-// the URL); when the operator hits Extract on a URL-only raw entry we
-// resolve an actual image here. Instagram URLs go through Apify; everything
-// else retries og:image. The Apify displayUrl is a signed CDN link that
-// expires (typically ~4.5 days / ~108 hours — `oe` is a hex Unix timestamp).
-// We download the bytes immediately and store a data URL so expiry never
-// bites the pool later.
+// Prepare a Gemini-safe JPEG for Extract. Two entry points:
+//   1. URL-only shares (Instagram) — Apify / og:image, then normalize
+//   2. Photo shares (iOS camera roll) — already have a thumb, but it's often
+//      HEIC or a 12MP JPEG Gemini / the browser can't use. Convert + downscale.
+// Always rewrites the stored thumb to a JPEG data URL so the pool preview
+// stops showing a broken-image icon.
 app.post("/api/screenshot-pool/resolve-media", express.json({ limit: "1mb" }), async (req, res) => {
   try {
     const { id } = req.body || {};
@@ -989,15 +994,41 @@ app.post("/api/screenshot-pool/resolve-media", express.json({ limit: "1mb" }), a
     const idx = pool.entries.findIndex((e) => String(e.id) === String(id));
     if (idx === -1) return res.status(404).json({ error: "not_found", message: "That pool entry is gone — refresh and try again." });
     const entry = pool.entries[idx];
+
+    const saveThumb = async (thumb, extra = {}) => {
+      let safe = thumb;
+      try { safe = await normalizeImageDataUrl(thumb); }
+      catch (e) {
+        if (e.code === "bad_image") {
+          const err = new Error(e.message);
+          err.code = "bad_image";
+          throw err;
+        }
+        throw e;
+      }
+      const patch = { thumb: safe, ...extra };
+      pool.entries[idx] = { ...pool.entries[idx], ...patch };
+      await savePool(pool);
+      return safe;
+    };
+
     if (typeof entry.thumb === "string" && entry.thumb.startsWith("data:image/")) {
-      return res.json({
-        ok: true,
-        thumb: entry.thumb,
-        caption: entry.caption || null,
-        ownerUsername: null,
-        mediaExpiresAt: entry.mediaExpiresAt || null,
-        fetchedVia: "cached",
-      });
+      try {
+        const thumb = await saveThumb(entry.thumb);
+        return res.json({
+          ok: true,
+          thumb,
+          caption: entry.caption || null,
+          ownerUsername: null,
+          mediaExpiresAt: entry.mediaExpiresAt || null,
+          fetchedVia: "normalized",
+        });
+      } catch (e) {
+        if (e.code === "bad_image") {
+          return res.status(422).json({ error: "bad_image", message: e.message });
+        }
+        throw e;
+      }
     }
     const sourceUrl = typeof entry.sourceUrl === "string" ? entry.sourceUrl : "";
     if (!/^https?:\/\//i.test(sourceUrl)) {
@@ -1031,21 +1062,27 @@ app.post("/api/screenshot-pool/resolve-media", express.json({ limit: "1mb" }), a
       result = { thumb, caption: "", ownerUsername: "", mediaExpiresAt: null, fetchedVia: "og" };
     }
 
-    const patch = {
-      thumb: result.thumb,
-      fetchedVia: result.fetchedVia || "apify",
-      mediaExpiresAt: result.mediaExpiresAt || null,
-    };
-    if (result.caption && !entry.caption) patch.caption = result.caption.slice(0, 500);
-    pool.entries[idx] = { ...entry, ...patch };
-    await savePool(pool);
+    let safeThumb;
+    try {
+      const extra = {
+        fetchedVia: result.fetchedVia || "apify",
+        mediaExpiresAt: result.mediaExpiresAt || null,
+      };
+      if (result.caption && !entry.caption) extra.caption = result.caption.slice(0, 500);
+      safeThumb = await saveThumb(result.thumb, extra);
+    } catch (e) {
+      if (e.code === "bad_image") {
+        return res.status(422).json({ error: "bad_image", message: e.message });
+      }
+      throw e;
+    }
     res.json({
       ok: true,
-      thumb: result.thumb,
+      thumb: safeThumb,
       caption: pool.entries[idx].caption || null,
       ownerUsername: result.ownerUsername || null,
       mediaExpiresAt: result.mediaExpiresAt || null,
-      fetchedVia: patch.fetchedVia,
+      fetchedVia: result.fetchedVia || "apify",
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
