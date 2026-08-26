@@ -78,6 +78,8 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
   const [extracting, setExtracting] = useState(false); // bulk-extract raw items
   const [extractingHint, setExtractingHint] = useState("");
   const [apifyConfigured, setApifyConfigured] = useState(null); // null = unknown
+  const [teamShortcut, setTeamShortcut] = useState({ hasFile: false, icloudUrl: null });
+  const [icloudDraft, setIcloudDraft] = useState("");
   const [msg, setMsg] = useState(null);
   const [allDates, setAllDates] = useState(() => {
     try { return localStorage.getItem("cge_pool_all_dates") === "true"; } catch { return false; }
@@ -118,6 +120,13 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
       .then((r) => r.json())
       .then((j) => setApifyConfigured(!!j.configured))
       .catch(() => setApifyConfigured(false));
+    fetch("/api/screenshot-pool/team-shortcut")
+      .then((r) => r.json())
+      .then((j) => {
+        setTeamShortcut({ hasFile: !!j.hasFile, icloudUrl: j.icloudUrl || null });
+        setIcloudDraft(j.icloudUrl || "");
+      })
+      .catch(() => {});
   }, [open]);
 
   const wkSet = new Set(
@@ -333,26 +342,104 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
         <p style={{ margin: "0 0 10px", fontSize: "0.78rem", color: "rgba(245,240,232,0.55)", lineHeight: 1.5 }}>
           Everything you dropped this week — screenshots you saved from inside CGE (📸) or shared here from your phone (📱). Weekend filter shows only entries for {wkLabel}; raw shares (no date yet) always show so you can extract them.
         </p>
+        <div style={{ marginBottom: 12, padding: "12px", borderRadius: 8, background: "rgba(229,188,79,0.07)", border: "1px solid rgba(229,188,79,0.35)" }}>
+          <div style={{ fontSize: "0.72rem", fontWeight: 800, letterSpacing: "0.4px", textTransform: "uppercase", color: "#E5BC4F", marginBottom: 6 }}>Shortcut for the team</div>
+          <p style={{ margin: "0 0 8px", fontSize: "0.75rem", color: "rgba(245,240,232,0.65)", lineHeight: 1.45 }}>
+            Apple won't import a Shortcut we generate here — it has to be signed on an iPhone. You already have <b>CGE Intake</b>. Share that one:
+          </p>
+          <ol style={{ margin: "0 0 10px", paddingLeft: 18, fontSize: "0.75rem", color: "rgba(245,240,232,0.7)", lineHeight: 1.55 }}>
+            <li>iPhone → <b>Shortcuts</b> → open <b>CGE Intake</b></li>
+            <li>Tap the share icon → <b>Copy iCloud Link</b> (or Save to Files, then upload the .shortcut below)</li>
+          </ol>
+          <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+            <input
+              value={icloudDraft}
+              onChange={(e) => setIcloudDraft(e.target.value)}
+              placeholder="https://www.icloud.com/shortcuts/…"
+              style={{ flex: 1, padding: "7px 8px", background: "#111", border: "1px solid rgba(245,240,232,0.12)", borderRadius: 5, color: "#F5F0E8", fontFamily: "inherit", fontSize: "0.75rem" }}
+            />
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  const r = await fetch("/api/screenshot-pool/team-shortcut", {
+                    method: "POST", headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ icloudUrl: icloudDraft }),
+                  });
+                  const j = await r.json().catch(() => ({}));
+                  if (!r.ok) throw new Error(j.message || "Couldn't save that link");
+                  setTeamShortcut({ hasFile: !!j.hasFile, icloudUrl: j.icloudUrl || null });
+                  setMsg({ ok: true, text: j.icloudUrl ? "iCloud link saved. Copy the add-shortcut link below and text it to the team." : "Link cleared." });
+                } catch (e) { setMsg({ ok: false, text: String(e.message || e) }); }
+              }}
+              style={{ padding: "7px 10px", borderRadius: 5, border: "1px solid rgba(229,188,79,0.5)", background: "rgba(229,188,79,0.15)", color: "#E5BC4F", fontWeight: 800, fontSize: "0.7rem", cursor: "pointer" }}
+            >Save</button>
+          </div>
+          <label style={{ display: "inline-block", padding: "5px 10px", borderRadius: 5, background: "rgba(245,240,232,0.06)", border: "1px solid rgba(245,240,232,0.15)", fontSize: "0.68rem", fontWeight: 800, color: "rgba(245,240,232,0.75)", cursor: "pointer" }}>
+            Upload .shortcut file
+            <input type="file" accept=".shortcut,application/octet-stream" style={{ display: "none" }} onChange={async (e) => {
+              const f = e.target.files && e.target.files[0];
+              e.target.value = "";
+              if (!f) return;
+              try {
+                const b64 = await new Promise((resolve, reject) => {
+                  const r = new FileReader();
+                  r.onload = () => resolve(String(r.result).split(",")[1] || "");
+                  r.onerror = () => reject(new Error("Couldn't read that file"));
+                  r.readAsDataURL(f);
+                });
+                const r = await fetch("/api/screenshot-pool/team-shortcut", {
+                  method: "POST", headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ shortcutBase64: b64 }),
+                });
+                const j = await r.json().catch(() => ({}));
+                if (!r.ok) throw new Error(j.message || "Upload failed");
+                setTeamShortcut({ hasFile: !!j.hasFile, icloudUrl: j.icloudUrl || null });
+                setMsg({ ok: true, text: "Shortcut file hosted. Team can download /cge-intake.shortcut on their iPhone and tap Add Shortcut." });
+              } catch (err) { setMsg({ ok: false, text: String(err.message || err) }); }
+            }} />
+          </label>
+          {(teamShortcut.hasFile || teamShortcut.icloudUrl) && (
+            <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+              {teamShortcut.hasFile && (
+                <a href="/cge-intake.shortcut" download="CGE-Intake.shortcut" style={{ padding: "6px 10px", borderRadius: 5, background: "#E5BC4F", color: "#000", fontWeight: 800, fontSize: "0.7rem", textDecoration: "none" }}>
+                  ⬇ CGE-Intake.shortcut
+                </a>
+              )}
+              <button
+                type="button"
+                onClick={async () => {
+                  const link = `${window.location.origin}/shortcut`;
+                  try { await navigator.clipboard.writeText(link); setMsg({ ok: true, text: "Copied — text that to the team. They tap Add Shortcut on their iPhone." }); }
+                  catch { setMsg({ ok: true, text: link }); }
+                }}
+                style={{ padding: "6px 10px", borderRadius: 5, border: "1px solid rgba(229,188,79,0.5)", background: "transparent", color: "#E5BC4F", fontWeight: 800, fontSize: "0.7rem", cursor: "pointer" }}
+              >
+                Copy add-shortcut link
+              </button>
+            </div>
+          )}
+        </div>
         <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
           <a
             href="/cge-intake.html"
             download="CGE-Intake.html"
-            title="AirDrop or iMessage this file — teammates open it in Safari and send photos/links to the pool"
+            title="Fallback webpage if someone can't install a Shortcut"
             style={{ padding: "5px 10px", borderRadius: 5, background: "rgba(229,188,79,0.12)", color: "#E5BC4F", border: "1px solid rgba(229,188,79,0.4)", fontSize: "0.68rem", fontWeight: 800, letterSpacing: "0.3px", textDecoration: "none" }}
           >
-            ⬇ CGE-Intake.html
+            ⬇ CGE-Intake.html (webpage fallback)
           </a>
           <button
             type="button"
             onClick={async () => {
               const link = `${window.location.origin}/intake`;
-              try { await navigator.clipboard.writeText(link); setMsg({ ok: true, text: "Intake link copied — text it to the team. They can also Add to Home Screen." }); }
+              try { await navigator.clipboard.writeText(link); setMsg({ ok: true, text: "Intake webpage copied." }); }
               catch { setMsg({ ok: true, text: link }); }
             }}
             title="Copy the live intake page URL"
             style={{ padding: "5px 10px", borderRadius: 5, background: "transparent", color: "rgba(245,240,232,0.7)", border: "1px solid rgba(245,240,232,0.15)", fontSize: "0.68rem", fontWeight: 800, letterSpacing: "0.3px", cursor: "pointer" }}
           >
-            Copy intake link
+            Copy intake webpage
           </button>
         </div>
 

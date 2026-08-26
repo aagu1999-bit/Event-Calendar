@@ -973,6 +973,103 @@ app.get("/cge-intake.html", async (req, res) => {
   } catch (err) { res.status(500).send(String(err.message || err)); }
 });
 
+// Team Shortcut hosting. Apple will not import a .shortcut we generate
+// (it has to be signed inside the Shortcuts app / iCloud). The operator
+// already has a working CGE Intake — they upload that signed file (or
+// paste the iCloud share link) once. We host it so the team can download
+// https://…/cge-intake.shortcut and Add Shortcut on their iPhone.
+const TEAM_SHORTCUT_BIN = path.join(POOL_DIR, "CGE-Intake.shortcut");
+const TEAM_SHORTCUT_META = path.join(POOL_DIR, "team-shortcut.json");
+
+function parseIcloudShortcutUrl(raw) {
+  const s = String(raw || "").trim();
+  const m = s.match(/^https:\/\/(?:www\.)?icloud\.com\/shortcuts\/([a-zA-Z0-9]+)\/?$/i);
+  return m ? `https://www.icloud.com/shortcuts/${m[1]}` : null;
+}
+async function teamShortcutStatus() {
+  let icloudUrl = null;
+  try {
+    const j = JSON.parse(await fs.readFile(TEAM_SHORTCUT_META, "utf8"));
+    icloudUrl = j.icloudUrl || null;
+  } catch { /* none yet */ }
+  let hasFile = false, bytes = 0;
+  try {
+    const st = await fs.stat(TEAM_SHORTCUT_BIN);
+    hasFile = st.isFile() && st.size > 32;
+    bytes = hasFile ? st.size : 0;
+  } catch { /* none yet */ }
+  return { hasFile, bytes, icloudUrl };
+}
+async function saveTeamShortcutMeta(patch) {
+  const cur = await teamShortcutStatus();
+  const next = { icloudUrl: cur.icloudUrl, ...patch, savedAt: new Date().toISOString() };
+  await fs.mkdir(POOL_DIR, { recursive: true });
+  await fs.writeFile(TEAM_SHORTCUT_META, JSON.stringify(next, null, 2));
+  return teamShortcutStatus();
+}
+
+app.get("/api/screenshot-pool/team-shortcut", async (_req, res) => {
+  try { res.json(await teamShortcutStatus()); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.post("/api/screenshot-pool/team-shortcut", express.json({ limit: "4mb" }), async (req, res) => {
+  try {
+    const body = req.body || {};
+    if (typeof body.icloudUrl === "string") {
+      const url = body.icloudUrl.trim() === "" ? null : parseIcloudShortcutUrl(body.icloudUrl);
+      if (body.icloudUrl.trim() && !url) {
+        return res.status(400).json({ error: "bad_icloud", message: "Paste an iCloud shortcut link (icloud.com/shortcuts/…)." });
+      }
+      return res.json(await saveTeamShortcutMeta({ icloudUrl: url }));
+    }
+    if (typeof body.shortcutBase64 === "string" && body.shortcutBase64.trim()) {
+      let buf;
+      try { buf = Buffer.from(body.shortcutBase64.replace(/^data:[^,]*,/, ""), "base64"); }
+      catch { return res.status(400).json({ error: "bad_file", message: "Couldn't read that file." }); }
+      if (buf.length < 32 || buf.length > 3 * 1024 * 1024) {
+        return res.status(400).json({ error: "bad_file", message: "That doesn't look like a Shortcut file." });
+      }
+      await fs.mkdir(POOL_DIR, { recursive: true });
+      await fs.writeFile(TEAM_SHORTCUT_BIN, buf);
+      return res.json(await teamShortcutStatus());
+    }
+    return res.status(400).json({ error: "bad_body", message: "Send icloudUrl or shortcutBase64." });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get("/cge-intake.shortcut", async (req, res) => {
+  try {
+    const st = await teamShortcutStatus();
+    if (st.hasFile) {
+      res.set("Content-Type", "application/octet-stream");
+      res.set("Content-Disposition", 'attachment; filename="CGE-Intake.shortcut"');
+      return res.sendFile(TEAM_SHORTCUT_BIN);
+    }
+    if (st.icloudUrl) return res.redirect(302, st.icloudUrl);
+    res.status(404).type("html").send(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><body style="font-family:sans-serif;background:#0e0e10;color:#F5F0E8;padding:2rem"><h1>No Shortcut file yet</h1><p>The operator needs to upload CGE Intake from the Shortcuts app first (Screenshot pool → Team Shortcut).</p></body>`);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get("/shortcut", async (req, res) => {
+  try {
+    const st = await teamShortcutStatus();
+    const origin = publicOrigin(req) || "";
+    const addHref = st.hasFile ? `${origin}/cge-intake.shortcut` : (st.icloudUrl || "");
+    const ready = !!(addHref);
+    res.type("html").send(`<!doctype html>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Add CGE Intake</title>
+<body style="margin:0;min-height:100dvh;background:#0e0e10;color:#F5F0E8;font-family:-apple-system,sans-serif;padding:32px 20px">
+  <h1 style="font-size:1.5rem">Add CGE Intake</h1>
+  <p style="color:rgba(245,240,232,.6);line-height:1.45">This adds the Shortcut to your iPhone. After that, share any Instagram post or photo → <b>CGE Intake</b> and it lands in the pool.</p>
+  ${ready
+    ? `<p><a href="${addHref}" style="display:block;text-align:center;padding:16px;border-radius:12px;background:#E5BC4F;color:#000;font-weight:800;text-decoration:none">Add Shortcut</a></p>
+       <p style="font-size:.8rem;color:rgba(245,240,232,.4)">If iPhone asks, tap <b>Add Shortcut</b> / <b>Allow Untrusted Shortcut</b>.</p>`
+    : `<p style="padding:12px;border:1px solid rgba(251,113,133,.4);border-radius:8px;color:#FB7185">Not posted yet — ask whoever runs CGE Tools to share CGE Intake from the Shortcuts app (Screenshot pool → Team Shortcut).</p>`}
+</body>`);
+  } catch (err) { res.status(500).send(String(err.message || err)); }
+});
+
 app.options("/api/screenshot-pool/share", (_req, res) => { shareCors(res); res.sendStatus(204); });
 app.post("/api/screenshot-pool/share", express.json({ limit: "20mb" }), async (req, res) => {
   shareCors(res);
