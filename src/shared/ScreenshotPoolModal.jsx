@@ -147,22 +147,22 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
   const hiddenByFilter = entries.length - visible.length;
   const rawEntries = entries.filter((e) => e.status === "raw");
 
-  // Extract a single raw entry via the same screenshotToEvents helper the
-  // AI-fill modal uses. On success, patches the server entry to add the
-  // extracted event and flip status → extracted. Updates the local draft
-  // so the operator can edit inline immediately.
+  // Extract a single raw entry. Instagram carousels: resolve-media returns
+  // every slide; we send them all to Gemini and split DISTINCT events into
+  // their own pool rows (same as the in-app screenshot modal).
   const extractOneRaw = async (entry) => {
     if (!apiKey) throw new Error("Add your Gemini API key on the Media tab first.");
     let thumb = entry.thumb;
     let extraCaption = entry.caption || "";
     let ownerHandle = "";
-    // Always run resolve-media: Instagram URL-only shares fetch via Apify;
-    // photo shares (HEIC / huge camera-roll JPEGs) get converted to a
-    // Gemini-safe JPEG. Skipping this is what made photos 400 while IG worked.
+    let thumbs = [];
+    // Always run resolve-media: Instagram URL-only shares fetch via Apify
+    // (every carousel slide, not just the cover). Photo shares (HEIC /
+    // huge camera-roll JPEGs) get converted to a Gemini-safe JPEG.
     {
       const ig = /instagram\.com|instagr\.am/i.test(entry.sourceUrl || "");
       setExtractingHint(
-        !thumb && ig ? "Fetching Instagram image via Apify…"
+        ig ? "Fetching Instagram slides via Apify…"
           : thumb ? "Preparing photo for Extract…"
           : "Fetching preview image…"
       );
@@ -180,40 +180,64 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
         throw new Error(hint);
       }
       thumb = j.thumb || thumb || null;
+      thumbs = Array.isArray(j.thumbs) && j.thumbs.length
+        ? j.thumbs.filter((t) => typeof t === "string" && t.startsWith("data:image/"))
+        : (thumb ? [thumb] : []);
       if (j.caption) extraCaption = extraCaption || j.caption;
       if (j.ownerUsername) ownerHandle = String(j.ownerUsername).replace(/^@+/, "").trim();
+      if (j.slideCount) {
+        setEntries((prev) => prev.map((e) => e.id === entry.id ? { ...e, thumb: thumb || e.thumb, slideCount: j.slideCount } : e));
+      }
     }
-    if (!thumb) throw new Error("No preview image for this URL — Instagram blocked the preview. Set APIFY_TOKEN in Replit Secrets and retry Extract, or open the URL, save the image to Photos, and re-share from there.");
-    setExtractingHint("Reading event from image…");
-    const results = await screenshotToEvents({ apiKey, image: thumb, weekendDates, extraText: extraCaption });
-    // screenshotToEvents can return multiple events per image; take the first
-    // (rare that a shared IG post is a multi-event flyer, and merging into
-    // the pool row would need us to split into multiple entries which is a
-    // bigger refactor — flag it in msg so the operator can re-share if it
-    // was actually a multi-event flyer, that path goes through the intake
-    // modal which handles multi-event correctly).
+    if (!thumbs.length) throw new Error("No preview image for this URL — Instagram blocked the preview. Set APIFY_TOKEN in Replit Secrets and retry Extract, or open the URL, save the image to Photos, and re-share from there.");
+    setExtractingHint(thumbs.length > 1 ? `Reading ${thumbs.length} slides…` : "Reading event from image…");
+    const results = await screenshotToEvents({ apiKey, images: thumbs, weekendDates, extraText: extraCaption });
     if (!results.length) throw new Error("AI couldn't read an event out of that image.");
+    const decorate = (ev) => {
+      if (!ev.link && entry.sourceUrl) ev.link = entry.sourceUrl;
+      if (!ev.igHandle && ownerHandle) ev.igHandle = `@${ownerHandle}`;
+      return ev;
+    };
     const first = results[0];
-    if (!first.event.link && entry.sourceUrl) first.event.link = entry.sourceUrl;
-    if (!first.event.igHandle && ownerHandle) first.event.igHandle = `@${ownerHandle}`;
-    // Persist event fields only — the image was already saved by resolve-media
-    // (or was already on the entry). Don't ship the data URL back through
-    // /update; that endpoint's 5mb cap would reject a full-res IG still.
+    decorate(first.event);
+    const siblings = results.slice(1).map((r) => {
+      decorate(r.event);
+      return {
+        event: r.event,
+        recurring: !!r.recurring,
+        alsoRegular: !!r.recurring,
+        aiFilledFields: r.aiFilled || [],
+      };
+    });
     const patch = {
       event: first.event,
       recurring: !!first.recurring,
       alsoRegular: !!first.recurring,
       status: "extracted",
       aiFilledFields: first.aiFilled || [],
-      multiHint: results.length > 1 ? results.length : null,
+      slideCount: thumbs.length,
+      siblings,
     };
     const r = await fetch("/api/screenshot-pool/update", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: entry.id, patch }),
     });
+    const body = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(`Server ${r.status}`);
-    return { ...patch, thumb };
+    return {
+      entryPatch: {
+        event: first.event,
+        recurring: !!first.recurring,
+        alsoRegular: !!first.recurring,
+        status: "extracted",
+        aiFilledFields: first.aiFilled || [],
+        slideCount: thumbs.length,
+        thumb,
+      },
+      added: Array.isArray(body.added) ? body.added : [],
+      eventCount: results.length,
+    };
   };
 
   // Bulk-extract every raw entry. Runs serially (Gemini rate-friendly) and
@@ -221,21 +245,40 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
   const extractAllRaw = async () => {
     if (extracting || rawEntries.length === 0) return;
     setExtracting(true); setExtractingHint(""); setMsg(null);
-    let ok = 0, fail = 0, lastErr = "";
+    let ok = 0, fail = 0, events = 0, lastErr = "";
     for (const entry of rawEntries) {
       try {
-        const patch = await extractOneRaw(entry);
-        setEntries((prev) => prev.map((e) => e.id === entry.id ? { ...e, ...patch } : e));
-        setDrafts((prev) => ({
-          ...prev,
-          [entry.id]: {
-            event: { ...(patch.event || {}) },
-            include: true,
-            recurring: !!patch.recurring,
-            alsoRegular: !!patch.alsoRegular,
-          },
-        }));
+        const { entryPatch, added, eventCount } = await extractOneRaw(entry);
+        events += eventCount || 1;
+        setEntries((prev) => {
+          const next = prev.map((e) => e.id === entry.id ? { ...e, ...entryPatch } : e);
+          if (!added.length) return next;
+          const idx = next.findIndex((e) => e.id === entry.id);
+          if (idx === -1) return [...next, ...added];
+          return [...next.slice(0, idx + 1), ...added, ...next.slice(idx + 1)];
+        });
+        setDrafts((prev) => {
+          const next = {
+            ...prev,
+            [entry.id]: {
+              event: { ...(entryPatch.event || {}) },
+              include: true,
+              recurring: !!entryPatch.recurring,
+              alsoRegular: !!entryPatch.alsoRegular,
+            },
+          };
+          for (const sib of added) {
+            next[sib.id] = {
+              event: { ...(sib.event || {}) },
+              include: true,
+              recurring: !!sib.recurring,
+              alsoRegular: !!sib.alsoRegular,
+            };
+          }
+          return next;
+        });
         ok++;
+        if (onPoolChanged) onPoolChanged();
       } catch (err) {
         fail++;
         lastErr = String(err?.message || err);
@@ -244,10 +287,11 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
     }
     setExtracting(false);
     setExtractingHint("");
+    const extra = events > ok ? ` (${events} events)` : "";
     setMsg({
       ok: fail === 0,
       text: fail === 0
-        ? `Extracted ${ok} raw share${ok === 1 ? "" : "s"} — edit + pull below.`
+        ? `Extracted ${ok} raw share${ok === 1 ? "" : "s"}${extra} — edit + pull below.`
         : `Extracted ${ok} · ${fail} failed${lastErr ? ` — ${lastErr}` : "."}`,
     });
   };
@@ -538,6 +582,16 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
                             ⏳ raw — extract first
                           </span>
                         )}
+                        {e.slideCount > 1 && (
+                          <span title="Instagram carousel slides fetched for Extract" style={{ fontSize: "0.55rem", padding: "1px 6px", borderRadius: 3, background: "rgba(99,179,237,0.2)", color: "#63B3ED", letterSpacing: "0.5px", textTransform: "uppercase", fontWeight: 700 }}>
+                            {e.slideCount} slides
+                          </span>
+                        )}
+                        {e.siblingOf && (
+                          <span title="Split from the same Instagram post / flyer" style={{ fontSize: "0.55rem", padding: "1px 6px", borderRadius: 3, background: "rgba(229,188,79,0.15)", color: "#E5BC4F", letterSpacing: "0.5px", textTransform: "uppercase", fontWeight: 700 }}>
+                            same post
+                          </span>
+                        )}
                         {d.recurring && !isRaw && (
                           <span style={{ fontSize: "0.6rem", padding: "1px 6px", borderRadius: 3, background: "rgba(229,188,79,0.15)", color: "#E5BC4F", letterSpacing: "0.5px", textTransform: "uppercase", fontWeight: 700 }}>🔁 Weekly</span>
                         )}
@@ -555,7 +609,7 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
                             {e.thumb
                               ? <>Click <b>✨ Extract raw</b> above — iPhone photos are converted to JPEG first (the broken preview is usually HEIC, which the browser can't show).</>
                               : /instagram\.com|instagr\.am/i.test(e.sourceUrl || "")
-                                ? <>Click <b>✨ Extract raw</b> above — the Instagram image is fetched via Apify then and saved here, so their CDN link (usually ~4.5 days) can't expire on you.</>
+                                ? <>Click <b>✨ Extract raw</b> above — every carousel slide is fetched via Apify then saved here, so their CDN link (usually ~4.5 days) can't expire on you.</>
                                 : <>Click <b>✨ Extract raw</b> above to fetch a preview and pull event fields.</>}
                           </div>
                         </div>
