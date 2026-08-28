@@ -608,20 +608,44 @@ export async function readFlyer({ apiKey, image, mimeType = "image/png" } = {}) 
 // lists which fields the AI populated so the modal can ✨-mark them for
 // preview-and-edit; recurring pre-ticks "also add as weekly regular". Only
 // NAME is required per event — everything else is best-effort.
-export async function screenshotToEvents({ apiKey, image, mimeType = "image/png", weekendDates = null, extraText = "" } = {}) {
+export async function screenshotToEvents({ apiKey, image, images, mimeType = "image/png", weekendDates = null, extraText = "" } = {}) {
   if (!apiKey) throw new Error("Missing Gemini API key");
-  if (!image) throw new Error("No screenshot provided");
-  const rawImg = String(image);
-  const b64 = rawImg.startsWith("data:")
-    ? rawImg.split(",").slice(1).join(",").replace(/\s/g, "")
-    : rawImg.replace(/\s/g, "");
-  let mt = rawImg.startsWith("data:")
-    ? (rawImg.slice(5).split(";")[0] || mimeType)
-    : mimeType;
-  if (mt === "image/jpg") mt = "image/jpeg";
+  const rawList = [];
+  if (Array.isArray(images) && images.length) rawList.push(...images);
+  else if (image) rawList.push(image);
+  const slides = rawList.filter((x) => typeof x === "string" && String(x).trim()).slice(0, 10);
+  if (!slides.length) throw new Error("No screenshot provided");
+
+  const toPart = (rawImg) => {
+    const s = String(rawImg);
+    const b64 = s.startsWith("data:")
+      ? s.split(",").slice(1).join(",").replace(/\s/g, "")
+      : s.replace(/\s/g, "");
+    let mt = s.startsWith("data:")
+      ? (s.slice(5).split(";")[0] || mimeType)
+      : mimeType;
+    if (mt === "image/jpg") mt = "image/jpeg";
+    return { mime: mt, b64 };
+  };
+  const partsImgs = slides.map(toPart);
 
   const anchor = (weekendDates && (weekendDates.Fri || weekendDates.Sat || weekendDates.Sun))
     ? `The operator is reviewing this weekend: Fri ${weekendDates.Fri || "?"}, Sat ${weekendDates.Sat || "?"}, Sun ${weekendDates.Sun || "?"} (M/D). If the image only says a day of week (e.g. "Friday") with no explicit date, that day maps to the corresponding date above.`
+    : "";
+
+  const carouselNote = partsImgs.length > 1
+    ? [
+        `You are looking at ${partsImgs.length} images. These are slides 1–${partsImgs.length} of ONE Instagram carousel, attached in order after this prompt.`,
+        "Treat them as one post. Extract DISTINCT events across the WHOLE set — do not emit one event per slide just because there are N slides.",
+        "",
+        "CAROUSEL — WHEN TO SPLIT:",
+        "- Different slides advertise DIFFERENT events (a weekend lineup of separate parties, a venue's Fri vs Sat flyer, a promoter posting 3 unrelated nights).",
+        "",
+        "CAROUSEL — WHEN NOT TO SPLIT (return ONE object):",
+        "- Different slides of the SAME event (cover / lineup / venue photo / tickets / dress code / map).",
+        "- A recap or mood-board carousel for one night.",
+        "",
+      ].join("\n")
     : "";
 
   const prompt = [
@@ -632,6 +656,7 @@ export async function screenshotToEvents({ apiKey, image, mimeType = "image/png"
     "",
     "MOST posters are ONE event → the array has one object. Only split into multiple objects when the poster shows DISTINCT events (e.g. a weekly schedule listing different events on different days, or a series flyer showing several dated events).",
     "",
+    carouselNote,
     "WHEN TO SPLIT (return multiple objects):",
     "- Weekly-schedule flyer: \"Mondays — Trivia\", \"Tuesdays — Karaoke\", \"Wednesdays — Live Music\" → 3 events, one per weekday shown.",
     "- Series poster listing multiple dated events with different names (e.g. \"Aug 1: Neo-Soul Sundays\", \"Aug 8: Reggae Night\") → one event per line.",
@@ -669,12 +694,18 @@ export async function screenshotToEvents({ apiKey, image, mimeType = "image/png"
     anchor,
     "",
     "RULES:",
-    "- Only include what's actually visible in the image. Never invent a date, venue, price, handle, or URL.",
+    "- Only include what's actually visible in the image(s). Never invent a date, venue, price, handle, or URL.",
     "- If unsure, leave the field as \"\" — the operator will fill it in.",
   ].filter(Boolean).join("\n");
 
+  const geminiParts = [{ text: prompt }];
+  partsImgs.forEach((img, i) => {
+    if (partsImgs.length > 1) geminiParts.push({ text: `SLIDE ${i + 1} of ${partsImgs.length}:` });
+    geminiParts.push({ inline_data: { mime_type: img.mime, data: img.b64 } });
+  });
+
   const data = await geminiGenerate(apiKey, {
-    contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mt, data: b64 } }] }],
+    contents: [{ parts: geminiParts }],
     generationConfig: { responseMimeType: "application/json", temperature: 0.2 },
   }, { model: "gemini-2.5-flash" });
 
