@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { createPortal } from "react-dom";
-import { listSessions, loadSession, saveSession, deleteSession, sessionBackend, listSessionBackups, restoreSessionBackup, renameSession } from "./reviewSessions.js";
+import { listSessions, loadSession, saveSession, deleteSession, sessionBackend, listSessionBackups, restoreSessionBackup, renameSession, suggestedReviewSessionName } from "./reviewSessions.js";
 
 // Download an object as a pretty-printed JSON file. Pure client-side — no
 // backend involved, so this works even when the app is served statically
@@ -44,6 +44,8 @@ export function ReviewSessionsModal({
   onSaveSuccess,
   onDeleteSuccess,
   onRenameSuccess,
+  suggestedName = "",
+  onNewSession,
 }) {
   const [items, setItems] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -179,8 +181,8 @@ export function ReviewSessionsModal({
     if (busy) return;
     let name = overwriteName;
     if (!name) {
-      const def = `triage-${new Date().toISOString().slice(0, 10)}`;
-      name = prompt("Name this session (e.g. 'Friday triage', 'June recap'):", def);
+      const def = suggestedName || suggestedReviewSessionName();
+      name = prompt("Name this session (e.g. '8-28-26 Review' — use dashes, not slashes):", def);
       if (!name) return;
       name = name.trim();
       if (!name) return;
@@ -348,6 +350,21 @@ export function ReviewSessionsModal({
               fontFamily: "inherit",
             }}
           >⬇ Export File</button>
+          {onNewSession && (
+            <button
+              onClick={() => { onClose(); onNewSession(); }}
+              disabled={busy}
+              title="Save the current session (if named), then start an empty review list under a new name"
+              style={{
+                padding: "5px 12px", borderRadius: "4px",
+                background: "rgba(229,188,79,0.12)", color: "#E5BC4F",
+                border: "1px solid rgba(229,188,79,0.4)",
+                fontSize: "0.6rem", fontWeight: 700, letterSpacing: "1.5px",
+                textTransform: "uppercase", cursor: busy ? "wait" : "pointer",
+                fontFamily: "inherit",
+              }}
+            >+ New Session</button>
+          )}
           <button
             onClick={() => onSaveAs(null)}
             disabled={busy}

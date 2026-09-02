@@ -240,13 +240,13 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
     };
   };
 
-  // Bulk-extract every raw entry. Runs serially (Gemini rate-friendly) and
-  // updates local state as each one completes so the operator sees progress.
-  const extractAllRaw = async () => {
-    if (extracting || rawEntries.length === 0) return;
+  // Bulk-extract raw entries. Extract-all still walks every raw share;
+  // Extract-selected only walks the ticked ones (holiday / one-off picks).
+  const extractRawList = async (list) => {
+    if (extracting || !list.length) return;
     setExtracting(true); setExtractingHint(""); setMsg(null);
     let ok = 0, fail = 0, events = 0, lastErr = "";
-    for (const entry of rawEntries) {
+    for (const entry of list) {
       try {
         const { entryPatch, added, eventCount } = await extractOneRaw(entry);
         events += eventCount || 1;
@@ -293,6 +293,24 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
       text: fail === 0
         ? `Extracted ${ok} raw share${ok === 1 ? "" : "s"}${extra} — edit + pull below.`
         : `Extracted ${ok} · ${fail} failed${lastErr ? ` — ${lastErr}` : "."}`,
+    });
+  };
+  const extractAllRaw = () => extractRawList(rawEntries);
+  const selectedRaw = rawEntries.filter((e) => drafts[e.id]?.include);
+  const extractSelectedRaw = () => {
+    if (!selectedRaw.length) {
+      setMsg({ ok: false, text: "Tick Select on the raw shares you want to extract." });
+      return;
+    }
+    return extractRawList(selectedRaw);
+  };
+  const setVisibleInclude = (on) => {
+    setDrafts((prev) => {
+      const next = { ...prev };
+      for (const e of visible) {
+        next[e.id] = { ...(next[e.id] || { event: e.event || {}, alsoRegular: !!e.alsoRegular, recurring: !!e.recurring }), include: on };
+      }
+      return next;
     });
   };
 
@@ -497,18 +515,31 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
           <div style={{ marginBottom: 12, padding: "10px 12px", borderRadius: 8, background: "rgba(167,139,250,0.08)", border: "1px solid rgba(167,139,250,0.35)", display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ flex: 1, fontSize: "0.78rem", color: "#F5F0E8" }}>
               <strong style={{ color: "#A78BFA" }}>{rawEntries.length} raw share{rawEntries.length === 1 ? "" : "s"}</strong> waiting for AI extraction.
+              {selectedRaw.length > 0 && selectedRaw.length < rawEntries.length && (
+                <span style={{ color: "rgba(167,139,250,0.85)" }}> · {selectedRaw.length} selected</span>
+              )}
               {extracting && extractingHint && (
                 <div style={{ marginTop: 4, fontSize: "0.7rem", color: "rgba(167,139,250,0.85)" }}>{extractingHint}</div>
               )}
             </div>
-            <button
-              onClick={extractAllRaw}
-              disabled={extracting || !apiKey}
-              title={apiKey ? "Run AI extraction on every raw share below" : "Add your Gemini API key on the Media tab first"}
-              style={{ padding: "6px 12px", borderRadius: 5, cursor: (extracting || !apiKey) ? "not-allowed" : "pointer", background: (extracting || !apiKey) ? "rgba(167,139,250,0.3)" : "rgba(167,139,250,0.25)", color: "#A78BFA", border: "1px solid rgba(167,139,250,0.5)", fontSize: "0.7rem", fontWeight: 800, letterSpacing: "0.3px" }}
-            >
-              {extracting ? "✨ Extracting…" : `✨ Extract ${rawEntries.length} raw`}
-            </button>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              <button
+                onClick={extractSelectedRaw}
+                disabled={extracting || !apiKey || selectedRaw.length === 0}
+                title={apiKey ? "Extract only the raw shares with Select ticked" : "Add your Gemini API key on the Media tab first"}
+                style={{ padding: "6px 12px", borderRadius: 5, cursor: (extracting || !apiKey || selectedRaw.length === 0) ? "not-allowed" : "pointer", background: (extracting || !apiKey || selectedRaw.length === 0) ? "rgba(167,139,250,0.18)" : "rgba(167,139,250,0.25)", color: "#A78BFA", border: "1px solid rgba(167,139,250,0.5)", fontSize: "0.7rem", fontWeight: 800, letterSpacing: "0.3px" }}
+              >
+                {extracting ? "✨ Extracting…" : `✨ Extract selected${selectedRaw.length ? ` (${selectedRaw.length})` : ""}`}
+              </button>
+              <button
+                onClick={extractAllRaw}
+                disabled={extracting || !apiKey}
+                title={apiKey ? "Extract every raw share in the pool (ignores Select)" : "Add your Gemini API key on the Media tab first"}
+                style={{ padding: "6px 12px", borderRadius: 5, cursor: (extracting || !apiKey) ? "not-allowed" : "pointer", background: "transparent", color: "rgba(167,139,250,0.85)", border: "1px solid rgba(167,139,250,0.35)", fontSize: "0.7rem", fontWeight: 800, letterSpacing: "0.3px" }}
+              >
+                Extract all {rawEntries.length}
+              </button>
+            </div>
           </div>
         )}
 
@@ -526,6 +557,16 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
              : allDates ? `${entries.length} total in pool.`
              : `${visible.length} for this weekend${hiddenByFilter ? ` · ${hiddenByFilter} on other dates hidden` : ""}.`}
           </div>
+          {visible.length > 0 && (
+            <>
+              <button type="button" onClick={() => setVisibleInclude(true)} style={{ padding: "4px 8px", borderRadius: 5, cursor: "pointer", background: "transparent", color: "rgba(245,240,232,0.65)", border: "1px solid rgba(245,240,232,0.15)", fontSize: "0.62rem", letterSpacing: "0.4px", textTransform: "uppercase" }}>
+                Select all
+              </button>
+              <button type="button" onClick={() => setVisibleInclude(false)} style={{ padding: "4px 8px", borderRadius: 5, cursor: "pointer", background: "transparent", color: "rgba(245,240,232,0.65)", border: "1px solid rgba(245,240,232,0.15)", fontSize: "0.62rem", letterSpacing: "0.4px", textTransform: "uppercase" }}>
+                Select none
+              </button>
+            </>
+          )}
           <button onClick={loadPool} disabled={loading} style={{ padding: "4px 10px", borderRadius: 5, cursor: loading ? "wait" : "pointer", background: "transparent", color: "rgba(245,240,232,0.6)", border: "1px solid rgba(245,240,232,0.15)", fontSize: "0.66rem", letterSpacing: "0.5px", textTransform: "uppercase" }}>
             ↻ Refresh
           </button>
@@ -558,8 +599,8 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
                     display: "flex", gap: 10,
                     padding: 10, borderRadius: 8,
                     background: isRaw ? "rgba(167,139,250,0.08)" : (d.include ? "rgba(139,92,246,0.05)" : "rgba(245,240,232,0.02)"),
-                    border: `1px solid ${isRaw ? "rgba(167,139,250,0.55)" : (d.include ? "rgba(139,92,246,0.3)" : "rgba(245,240,232,0.08)")}`,
-                    opacity: (!isRaw && !d.include) ? 0.5 : 1,
+                    border: `1px solid ${isRaw ? (d.include ? "rgba(167,139,250,0.55)" : "rgba(167,139,250,0.25)") : (d.include ? "rgba(139,92,246,0.3)" : "rgba(245,240,232,0.08)")}`,
+                    opacity: !d.include ? 0.5 : 1,
                   }}>
                     {e.thumb ? (
                       <img src={e.thumb} alt="" style={{ width: 60, height: 80, objectFit: "cover", borderRadius: 5, border: "1px solid rgba(245,240,232,0.15)", background: "#000", flexShrink: 0 }} />
@@ -568,12 +609,10 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
                     )}
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6, flexWrap: "wrap" }}>
-                        {!isRaw && (
-                          <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: "0.7rem", color: "rgba(245,240,232,0.7)", flexShrink: 0 }}>
-                            <input type="checkbox" checked={d.include} onChange={(ev) => updateDraft(e.id, { include: ev.target.checked })} style={{ accentColor: "#A78BFA" }} />
-                            Include
-                          </label>
-                        )}
+                        <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: "0.7rem", color: "rgba(245,240,232,0.7)", flexShrink: 0 }}>
+                          <input type="checkbox" checked={!!d.include} onChange={(ev) => updateDraft(e.id, { include: ev.target.checked })} style={{ accentColor: "#A78BFA" }} />
+                          {isRaw ? "Select" : "Include"}
+                        </label>
                         <span title={sourceLabel} style={{ fontSize: "0.55rem", padding: "1px 6px", borderRadius: 3, background: "rgba(245,240,232,0.06)", color: "rgba(245,240,232,0.7)", letterSpacing: "0.5px", textTransform: "uppercase", fontWeight: 700 }}>
                           {sourceIcon} {sourceLabel}
                         </span>
@@ -599,6 +638,15 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
                           <span style={{ fontSize: "0.62rem", color: "rgba(245,240,232,0.4)" }}>Saved {stamp}</span>
                         )}
                         <div style={{ flex: 1 }} />
+                        {isRaw && (
+                          <button
+                            type="button"
+                            onClick={() => extractRawList([e])}
+                            disabled={extracting || !apiKey}
+                            title={apiKey ? "Extract just this share" : "Add your Gemini API key on the Media tab first"}
+                            style={{ background: "transparent", border: "1px solid rgba(167,139,250,0.45)", color: "#A78BFA", borderRadius: 3, padding: "2px 8px", fontSize: "0.66rem", fontWeight: 700, cursor: (extracting || !apiKey) ? "not-allowed" : "pointer" }}
+                          >Extract</button>
+                        )}
                         <button onClick={() => removeEntry(e.id)} title="Remove from pool" style={{ background: "transparent", border: "1px solid rgba(251,113,133,0.3)", color: "#FB7185", borderRadius: 3, padding: "2px 7px", fontSize: "0.66rem", cursor: "pointer" }}>×</button>
                       </div>
                       {isRaw && (
@@ -609,10 +657,10 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
                             {typeof e.thumb === "string" && e.thumb.startsWith("data:") && e.thumb.length < 64
                               ? <>This photo's image bytes are missing from the pool (placeholder only). Re-share it from Photos — Extract can't recover a missing picture.</>
                               : e.thumb
-                              ? <>Click <b>✨ Extract raw</b> above — iPhone photos are converted to JPEG first (the broken preview is usually HEIC, which the browser can't show).</>
+                              ? <>Tick Select, then Extract selected / Extract all — or Extract this card. iPhone photos are converted to JPEG first (the broken preview is usually HEIC, which the browser can't show).</>
                               : /instagram\.com|instagr\.am/i.test(e.sourceUrl || "")
-                                ? <>Click <b>✨ Extract raw</b> above — every carousel slide is fetched via Apify then saved here. If CDN download fails we retry through Apify's proxy.</>
-                                : <>Click <b>✨ Extract raw</b> above to fetch a preview and pull event fields.</>}
+                                ? <>Tick Select, then Extract selected / Extract all — or Extract this card. Every carousel slide is fetched via Apify. If CDN download fails we retry through Apify's proxy.</>
+                                : <>Tick Select, then Extract selected / Extract all — or Extract this card to fetch a preview and pull event fields.</>}
                           </div>
                         </div>
                       )}
