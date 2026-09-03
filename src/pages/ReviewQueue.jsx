@@ -17,7 +17,7 @@ import { FixFlagsModal } from "../shared/FixFlagsModal.jsx";
 import { ScreenshotEventModal } from "../shared/ScreenshotEventModal.jsx";
 import { ScreenshotPoolModal } from "../shared/ScreenshotPoolModal.jsx";
 import { saveExport } from "../shared/photoLibrary.js";
-import { rememberLastSession, getLastSession, forgetLastSession, loadSession, mergeSession, pingPresence, rememberServerPendingIds, getServerPendingIds } from "../shared/reviewSessions.js";
+import { rememberLastSession, getLastSession, forgetLastSession, loadSession, saveSession, mergeSession, pingPresence, rememberServerPendingIds, getServerPendingIds, suggestedReviewSessionName } from "../shared/reviewSessions.js";
 
 // Flag glossary — shown in the collapsible cheat sheet. Order matters
 // (most-severe first); descriptions are 1-line so the grid stays tight.
@@ -599,38 +599,6 @@ export default function ReviewQueue({ betaMode = false } = {}) {
     setPendingIntake(null);
     setIntakeChoiceOpen(false);
   };
-  const handleIntakeNewSession = async () => {
-    const intake = pendingIntake || [];
-    // 1. Force-save current session so the debounced auto-save can't
-    //    lose the last few keystrokes.
-    if (lastSessionName) {
-      try {
-        await saveSession(lastSessionName, getSessionPayload());
-      } catch (err) {
-        console.warn("Force-save before new session failed (proceeding anyway):", err);
-      }
-    }
-    // 2. Prompt for the new session name.
-    const suggested = new Date().toISOString().slice(0, 10) + " review";
-    const proposed = window.prompt("Name the new session:", suggested);
-    if (!proposed || !proposed.trim()) {
-      handleIntakeCancel();
-      return;
-    }
-    // 3. Clear review-queue state (pending/approvals/vetted). Events
-    //    store stays intact so Calendar/Newsletter/Media keep content.
-    setPending([]);
-    setApprovals({});
-    setVettedArr([]);
-    // 4. Point auto-save + sync at the new name.
-    syncBaseRef.current = null;
-    rememberLastSession(proposed.trim());
-    setLastSessionName(proposed.trim());
-    // 5. Seed intake into now-empty queue.
-    if (intake.length) appendIntakeToPending(intake);
-    setPendingIntake(null);
-    setIntakeChoiceOpen(false);
-  };
 
   // === Website booking intake (Pipe 1) ===
   // Pull promoter bookings from centralgroupevents.com (via the server proxy so
@@ -797,6 +765,66 @@ export default function ReviewQueue({ betaMode = false } = {}) {
   // a concrete date when they're committed to the store. Defaults to
   // the next upcoming Friday (today if today is Friday).
   const [friDate, setFriDate] = useState(() => todaysFridayMD());
+
+  // Explicit "New Session": force-save the current named session (if any),
+  // prompt with "8-28-26 Review" (dashes — slashes 404 on Replit's proxy),
+  // clear the review queue, and point auto-save at the new name. Calendar
+  // events stay. Used by the toolbar button, the Sessions modal, and the
+  // scraper-intake "new session" choice.
+  const startFreshSession = async ({ seed = [] } = {}) => {
+    if (lastSessionName) {
+      try {
+        await saveSession(lastSessionName, getSessionPayload());
+      } catch (err) {
+        console.warn("Force-save before new session failed (proceeding anyway):", err);
+      }
+    } else if (pending.length > 0 || Object.keys(approvals || {}).length > 0 || (vettedArr || []).length > 0) {
+      if (!window.confirm("Start a new session? This review list isn't saved to a named session and will be cleared from this phone.")) {
+        return null;
+      }
+    }
+    const proposed = window.prompt("Name the new session:", suggestedReviewSessionName(friDate));
+    if (!proposed || !proposed.trim()) return null;
+    const name = proposed.trim();
+
+    setPending([]);
+    setApprovals({});
+    setVettedArr([]);
+    syncBaseRef.current = null;
+    rememberLastSession(name);
+    setLastSessionName(name);
+    try {
+      await saveSession(name, {
+        events,
+        approvals: {},
+        vetted: [],
+        pending: [],
+        committed,
+        filter,
+        sortByTag,
+      });
+      const payload = await loadSession(name);
+      syncBaseRef.current = makeBase(payload);
+      setSyncTick((t) => t + 1);
+    } catch (err) {
+      console.warn("Couldn't create the new session on the server:", err);
+    }
+    if (seed.length) appendIntakeToPending(seed);
+    setAutoSaveStatus("idle");
+    return name;
+  };
+
+  const handleIntakeNewSession = async () => {
+    const intake = pendingIntake || [];
+    const name = await startFreshSession({ seed: intake });
+    if (!name) {
+      handleIntakeCancel();
+      return;
+    }
+    setPendingIntake(null);
+    setIntakeChoiceOpen(false);
+  };
+
   // Pagination cap — rendering 200+ rich event rows up-front was the
   // most likely cause of "Aw, Snap!" tab crashes on big imports. Show
   // first N, button to load the rest. Resets whenever pending changes
@@ -1780,7 +1808,25 @@ export default function ReviewQueue({ betaMode = false } = {}) {
               fontFamily: "inherit",
               whiteSpace: "nowrap",
             }}
-          >📁 {lastSessionName ? `Session: ${lastSessionName.length > 14 ? lastSessionName.slice(0, 14) + "…" : lastSessionName}` : "Sessions"}</button>
+          >📁 {lastSessionName ? `Session: ${lastSessionName.length > 22 ? lastSessionName.slice(0, 22) + "…" : lastSessionName}` : "Sessions"}</button>
+          <button
+            onClick={() => startFreshSession()}
+            title="Save the current session (if named), then start an empty review list under a new name. Calendar events stay."
+            style={{
+              padding: "6px 12px",
+              background: "rgba(229,188,79,0.10)",
+              border: "1px solid rgba(229,188,79,0.4)",
+              borderRadius: "5px",
+              color: "#E5BC4F",
+              fontSize: "0.6rem",
+              fontWeight: 700,
+              letterSpacing: "1.5px",
+              textTransform: "uppercase",
+              cursor: "pointer",
+              fontFamily: "inherit",
+              whiteSpace: "nowrap",
+            }}
+          >+ New session</button>
 
           {lastSessionName && (
             <span
@@ -2786,6 +2832,8 @@ export default function ReviewQueue({ betaMode = false } = {}) {
         onClose={() => setSessionsOpen(false)}
         onLoad={applyLoadedSession}
         getCurrent={getSessionPayload}
+        suggestedName={suggestedReviewSessionName(friDate)}
+        onNewSession={() => startFreshSession()}
         onSaveSuccess={async (name) => {
           // Clear the base FIRST (synchronously) so the sync effect can't
           // fire against the previous session's base while we re-fetch.
