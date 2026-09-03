@@ -108,28 +108,38 @@ async function uploadRecord(kind, id, blob, thumb, meta) {
 // save or delete.
 let _photosCache = null, _photosCacheAt = 0;
 let _exportsCache = null, _exportsCacheAt = 0;
+let _photosGen = 0;
+let _exportsGen = 0;
 const CACHE_MS = 2000;
 
 async function getPhotosList() {
   const now = Date.now();
   if (_photosCache && now - _photosCacheAt < CACHE_MS) return _photosCache;
+  const gen = _photosGen;
   const res = await api("/photos");
-  _photosCache = await res.json();
-  _photosCacheAt = now;
-  return _photosCache;
+  const data = await res.json();
+  // A delete/save may have invalidated while this fetch was in flight —
+  // don't write the stale list back over the new cache.
+  if (gen !== _photosGen) return _photosCache || data;
+  _photosCache = data;
+  _photosCacheAt = Date.now();
+  return data;
 }
 
 async function getExportsList() {
   const now = Date.now();
   if (_exportsCache && now - _exportsCacheAt < CACHE_MS) return _exportsCache;
+  const gen = _exportsGen;
   const res = await api("/exports");
-  _exportsCache = await res.json();
-  _exportsCacheAt = now;
-  return _exportsCache;
+  const data = await res.json();
+  if (gen !== _exportsGen) return _exportsCache || data;
+  _exportsCache = data;
+  _exportsCacheAt = Date.now();
+  return data;
 }
 
-function invalidatePhotos() { _photosCache = null; }
-function invalidateExports() { _exportsCache = null; }
+function invalidatePhotos() { _photosCache = null; _photosCacheAt = 0; _photosGen++; }
+function invalidateExports() { _exportsCache = null; _exportsCacheAt = 0; _exportsGen++; }
 
 // === PHOTOS ===
 
@@ -500,21 +510,29 @@ function hashList(arr) {
 
 async function pollOnce() {
   try {
+    const pGen = _photosGen;
+    const eGen = _exportsGen;
     const [p, e] = await Promise.all([
       fetch(LIBRARY_API + "/photos").then(r => r.ok ? r.json() : []).catch(() => []),
       fetch(LIBRARY_API + "/exports").then(r => r.ok ? r.json() : []).catch(() => []),
     ]);
-    const ph = hashList(p);
-    const eh = hashList(e);
-    if (ph !== _photosHash) {
-      _photosHash = ph;
-      _photosCache = p; _photosCacheAt = Date.now();
-      notify();
+    // Ignore a response that raced a local save/delete — otherwise a
+    // pre-delete poll writes ghost tiles (404 thumbs) back into the grid.
+    if (pGen === _photosGen) {
+      const ph = hashList(p);
+      if (ph !== _photosHash) {
+        _photosHash = ph;
+        _photosCache = p; _photosCacheAt = Date.now();
+        notify();
+      }
     }
-    if (eh !== _exportsHash) {
-      _exportsHash = eh;
-      _exportsCache = e; _exportsCacheAt = Date.now();
-      notifyExports();
+    if (eGen === _exportsGen) {
+      const eh = hashList(e);
+      if (eh !== _exportsHash) {
+        _exportsHash = eh;
+        _exportsCache = e; _exportsCacheAt = Date.now();
+        notifyExports();
+      }
     }
   } catch { /* offline — keep last known state */ }
 }

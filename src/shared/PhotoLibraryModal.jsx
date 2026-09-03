@@ -250,9 +250,11 @@ export function PhotoLibraryModal({ open, onClose, onPick, outputAs = "image", i
     if (!ids.length || deleting) return;
     if (!confirm(`Delete ${ids.length} photo${ids.length === 1 ? "" : "s"} from the library? This can't be undone.`)) return;
     setDeleting(true);
+    const gone = new Set(ids);
+    setPhotos((prev) => prev.filter((p) => !gone.has(p.id)));
+    setSelected(new Set());
     try {
       await deletePhotosAndNotify(ids);
-      setSelected(new Set());
     } catch (err) {
       alert("Couldn't delete those photos: " + (err.message || err));
     } finally {
