@@ -33,6 +33,24 @@ function capPool(pool, maxItems) {
   return { entries };
 }
 
+function safeEntryId(raw) {
+  const id = String(raw || "").replace(/[^A-Za-z0-9_-]/g, "");
+  return id && id.length <= 120 ? id : null;
+}
+
+function mediaKey(entryId, slideIndex = 0) {
+  const id = safeEntryId(entryId);
+  if (!id) return null;
+  return slideIndex > 0 ? `media:${id}:s${slideIndex}` : `media:${id}`;
+}
+
+function blobToJpegDataUrl(blob) {
+  if (!blob) return null;
+  const buf = Buffer.isBuffer(blob) ? blob : Buffer.from(blob);
+  if (buf.length < 32) return null;
+  return `data:image/jpeg;base64,${buf.toString("base64")}`;
+}
+
 async function readJsonFile(full) {
   try {
     return JSON.parse(await fs.readFile(full, "utf8"));
@@ -94,6 +112,57 @@ export function createPoolStore(fsDir, { maxItems = 500 } = {}) {
       await fs.mkdir(fsDir, { recursive: true });
       await fs.writeFile(shortcutBin, buf);
       return this.teamShortcutStatus();
+    },
+    async saveEntryMedia(entryId, dataUrls) {
+      const id = safeEntryId(entryId);
+      if (!id) return;
+      const dir = path.join(fsDir, "media");
+      await fs.mkdir(dir, { recursive: true });
+      const list = (Array.isArray(dataUrls) ? dataUrls : []).filter((t) => typeof t === "string" && t.includes(","));
+      // Drop previous slides so a retry doesn't leave stale extras.
+      try {
+        const names = await fs.readdir(dir);
+        await Promise.all(names
+          .filter((n) => n === `${id}.jpg` || n.startsWith(`${id}-s`))
+          .map((n) => fs.unlink(path.join(dir, n)).catch(() => {})));
+      } catch { /* dir missing */ }
+      for (let i = 0; i < list.length; i++) {
+        const payload = list[i].slice(list[i].indexOf(",") + 1);
+        const buf = Buffer.from(payload.replace(/\s/g, ""), "base64");
+        if (buf.length < 32) continue;
+        const name = i === 0 ? `${id}.jpg` : `${id}-s${i}.jpg`;
+        await fs.writeFile(path.join(dir, name), buf);
+      }
+    },
+    async loadEntryMedia(entryId) {
+      const id = safeEntryId(entryId);
+      if (!id) return [];
+      const dir = path.join(fsDir, "media");
+      const out = [];
+      try {
+        const cover = await fs.readFile(path.join(dir, `${id}.jpg`));
+        const url = blobToJpegDataUrl(cover);
+        if (url) out.push(url);
+      } catch { /* none */ }
+      for (let i = 1; i < 12; i++) {
+        try {
+          const buf = await fs.readFile(path.join(dir, `${id}-s${i}.jpg`));
+          const url = blobToJpegDataUrl(buf);
+          if (url) out.push(url);
+          else break;
+        } catch { break; }
+      }
+      return out;
+    },
+    async deleteEntryMedia(ids) {
+      const dir = path.join(fsDir, "media");
+      for (const raw of ids || []) {
+        const id = safeEntryId(raw);
+        if (!id) continue;
+        for (const name of [`${id}.jpg`, ...Array.from({ length: 10 }, (_, i) => `${id}-s${i + 1}.jpg`)]) {
+          await fs.unlink(path.join(dir, name)).catch(() => {});
+        }
+      }
     },
   };
 
@@ -255,6 +324,54 @@ export function createPoolStore(fsDir, { maxItems = 500 } = {}) {
         [SHORTCUT_KEY, JSON.stringify(meta), buf, Date.now()],
       );
       return this.teamShortcutStatus();
+    },
+    async saveEntryMedia(entryId, dataUrls) {
+      await ensureReady();
+      const coverKey = mediaKey(entryId, 0);
+      if (!coverKey) return;
+      const list = (Array.isArray(dataUrls) ? dataUrls : []).filter((t) => typeof t === "string" && t.includes(","));
+      const likeExtra = `${coverKey}:s%`;
+      await pool.query(
+        "DELETE FROM screenshot_pool_files WHERE key = $1 OR key LIKE $2",
+        [coverKey, likeExtra],
+      );
+      for (let i = 0; i < list.length; i++) {
+        const payload = list[i].slice(list[i].indexOf(",") + 1);
+        const buf = Buffer.from(payload.replace(/\s/g, ""), "base64");
+        if (buf.length < 32) continue;
+        const key = mediaKey(entryId, i);
+        await pool.query(
+          `INSERT INTO screenshot_pool_files (key, meta, blob, saved_at) VALUES ($1, $2, $3, $4)
+           ON CONFLICT (key) DO UPDATE SET blob = EXCLUDED.blob, saved_at = EXCLUDED.saved_at`,
+          [key, JSON.stringify({ kind: "entry-media", slide: i }), buf, Date.now()],
+        );
+      }
+    },
+    async loadEntryMedia(entryId) {
+      await ensureReady();
+      const coverKey = mediaKey(entryId, 0);
+      if (!coverKey) return [];
+      const { rows } = await pool.query(
+        "SELECT key, blob FROM screenshot_pool_files WHERE key = $1 OR key LIKE $2",
+        [coverKey, `${coverKey}:s%`],
+      );
+      rows.sort((a, b) => {
+        if (a.key === coverKey) return -1;
+        if (b.key === coverKey) return 1;
+        return String(a.key).localeCompare(String(b.key), undefined, { numeric: true });
+      });
+      return rows.map((r) => blobToJpegDataUrl(r.blob)).filter(Boolean);
+    },
+    async deleteEntryMedia(ids) {
+      await ensureReady();
+      for (const raw of ids || []) {
+        const coverKey = mediaKey(raw, 0);
+        if (!coverKey) continue;
+        await pool.query(
+          "DELETE FROM screenshot_pool_files WHERE key = $1 OR key LIKE $2",
+          [coverKey, `${coverKey}:s%`],
+        );
+      }
     },
   };
 }

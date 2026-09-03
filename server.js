@@ -20,7 +20,7 @@ import { fileURLToPath } from "url";
 import { runScout, storyKey, focusForDay } from "./scoutServer.js";
 import { createSessionStore, normalizeSession, applySessionOps } from "./reviewSessionStore.js";
 import { createPoolStore } from "./screenshotPoolStore.js";
-import { normalizeImageDataUrl } from "./normalizeImage.js";
+import { normalizeImageDataUrl, usableImageDataUrl, toPreviewDataUrl, sniffImageKind } from "./normalizeImage.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || "5000", 10);
@@ -748,23 +748,82 @@ function withTimeout(ms) {
   return { signal: c.signal, done: setTimeout(() => c.abort(), ms) };
 }
 
+// Apify token stays server-side (Replit Secret). Never sent to the
+// browser or the iOS Shortcut. APIFY_IG_ACTOR overrides the default
+// official scraper if IG changes and we need to swap actors without a
+// code push.
+const APIFY_TOKEN = (process.env.APIFY_TOKEN || process.env.APIFY_API_TOKEN || "").trim();
+const APIFY_IG_ACTOR = (process.env.APIFY_IG_ACTOR || "apify/instagram-scraper").trim();
+const APIFY_IG_MEMORY = (() => {
+  const n = parseInt(process.env.APIFY_IG_MEMORY || "4096", 10);
+  return Number.isFinite(n) && n >= 1024 ? n : 4096;
+})();
+
+// Instagram CDN URLs from Apify are often signed to Apify's IP/ASN.
+// Fetching them from the Replit deploy IP then 403s ("CDN download failed").
+// Retry through Apify's proxy so the download comes from a matching network.
+async function fetchMaybeProxy(url, { headers, signal, useProxy } = {}) {
+  if (useProxy && APIFY_TOKEN) {
+    try {
+      const { ProxyAgent, fetch: ufetch } = await import("undici");
+      const dispatcher = new ProxyAgent(`http://auto:${encodeURIComponent(APIFY_TOKEN)}@proxy.apify.com:8000`);
+      return await ufetch(url, { redirect: "follow", headers, signal, dispatcher });
+    } catch {
+      /* fall through to a direct fetch */
+    }
+  }
+  return fetch(url, { redirect: "follow", headers, signal });
+}
+
 // Download a remote image as a data URL. Used for og:image AND for the
 // Apify displayUrl — Instagram CDN links are signed and expire (see
 // instagramCdnExpiryIso), so we persist the bytes, never the URL.
+// Trust magic bytes, not Content-Type — IG/CDN often returns octet-stream.
 async function downloadImageAsDataUrl(imgUrl, { timeoutMs = 10000, referer } = {}) {
-  const t = withTimeout(timeoutMs);
-  try {
-    const headers = { "User-Agent": BROWSER_UA };
-    if (referer) headers.Referer = referer;
-    const imgResp = await fetch(imgUrl, { redirect: "follow", signal: t.signal, headers })
-      .finally(() => clearTimeout(t.done));
-    if (!imgResp.ok) return null;
-    const contentType = (imgResp.headers.get("content-type") || "image/jpeg").split(";")[0].trim();
-    if (!contentType.startsWith("image/")) return null;
-    const buf = Buffer.from(await imgResp.arrayBuffer());
-    if (buf.length > 15 * 1024 * 1024) return null;
-    return `data:${contentType};base64,${buf.toString("base64")}`;
-  } catch { return null; }
+  const headers = {
+    "User-Agent": BROWSER_UA,
+    Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+  };
+  if (referer) headers.Referer = referer;
+  const tryOnce = async (useProxy) => {
+    const t = withTimeout(timeoutMs);
+    try {
+      const imgResp = await fetchMaybeProxy(imgUrl, { headers, signal: t.signal, useProxy })
+        .finally(() => clearTimeout(t.done));
+      if (!imgResp.ok) return null;
+      const buf = Buffer.from(await imgResp.arrayBuffer());
+      if (buf.length < 32 || buf.length > 15 * 1024 * 1024) return null;
+      const ct = (imgResp.headers.get("content-type") || "").split(";")[0].trim();
+      const kind = sniffImageKind(buf, ct);
+      if (kind === "unknown" && !ct.startsWith("image/")) return null;
+      const mime = kind === "png" ? "image/png"
+        : kind === "webp" ? "image/webp"
+        : kind === "gif" ? "image/gif"
+        : (ct.startsWith("image/") ? ct : "image/jpeg");
+      return `data:${mime};base64,${buf.toString("base64")}`;
+    } catch { return null; }
+  };
+  return (await tryOnce(false)) || (APIFY_TOKEN ? await tryOnce(true) : null);
+}
+
+function instagramShortcode(raw) {
+  const m = String(raw || "").match(/instagram\.com\/(?:p|reel|reels|tv)\/([A-Za-z0-9_-]+)/i);
+  return m ? m[1] : null;
+}
+
+// Cover-only fallback: /media/?size=l redirects to a CDN URL signed for
+// THIS server's IP, so it still works when Apify's displayUrl 403s.
+async function fetchInstagramCoverViaRedirect(postUrl) {
+  const code = instagramShortcode(postUrl);
+  if (!code) return null;
+  const paths = /\/reel/i.test(postUrl)
+    ? [`https://www.instagram.com/reel/${code}/media/?size=l`, `https://www.instagram.com/p/${code}/media/?size=l`]
+    : [`https://www.instagram.com/p/${code}/media/?size=l`];
+  for (const u of paths) {
+    const d = await downloadImageAsDataUrl(u, { timeoutMs: 15000, referer: "https://www.instagram.com/" });
+    if (d) return d;
+  }
+  return null;
 }
 
 // Fetch a page's og:image and return it as a base64 data URL, so URL-only
@@ -816,17 +875,6 @@ function isInstagramUrl(raw) {
     return h === "instagram.com" || h === "instagr.am" || h.endsWith(".instagram.com");
   } catch { return false; }
 }
-
-// Apify token stays server-side (Replit Secret). Never sent to the
-// browser or the iOS Shortcut. APIFY_IG_ACTOR overrides the default
-// official scraper if IG changes and we need to swap actors without a
-// code push.
-const APIFY_TOKEN = (process.env.APIFY_TOKEN || process.env.APIFY_API_TOKEN || "").trim();
-const APIFY_IG_ACTOR = (process.env.APIFY_IG_ACTOR || "apify/instagram-scraper").trim();
-const APIFY_IG_MEMORY = (() => {
-  const n = parseInt(process.env.APIFY_IG_MEMORY || "4096", 10);
-  return Number.isFinite(n) && n >= 1024 ? n : 4096;
-})();
 
 function pickApifyMediaUrl(item) {
   if (!item || typeof item !== "object") return null;
@@ -951,7 +999,11 @@ async function fetchInstagramPostViaApify(postUrl) {
   const downloaded = await Promise.all(
     mediaUrls.map((u) => downloadImageAsDataUrl(u, { timeoutMs: 15000, referer: "https://www.instagram.com/" })),
   );
-  const thumbs = downloaded.filter((t) => typeof t === "string" && t.startsWith("data:image/"));
+  let thumbs = downloaded.filter((t) => usableImageDataUrl(t));
+  if (!thumbs.length) {
+    const cover = await fetchInstagramCoverViaRedirect(postUrl);
+    if (cover) thumbs = [cover];
+  }
   if (!thumbs.length) {
     const err = new Error("Got Instagram image URL(s) from Apify but the CDN download failed. Retry Extract, or share the image from Photos.");
     err.code = "cdn_download_failed";
@@ -1094,16 +1146,29 @@ app.post("/api/screenshot-pool/share", express.json({ limit: "20mb" }), async (r
     const hasImage = typeof imageDataUrl === "string" && imageDataUrl.startsWith("data:image/");
     const hasUrl = typeof sourceUrl === "string" && /^https?:\/\//i.test(sourceUrl);
     if (!hasImage && !hasUrl) return res.status(400).json({ error: "no_content", detail: "Send imageDataUrl OR sourceUrl" });
-    let storedThumb = hasImage ? imageDataUrl : null;
-    if (hasImage) {
-      try { storedThumb = await normalizeImageDataUrl(imageDataUrl); }
-      catch { storedThumb = imageDataUrl; } // extract-time normalize retries; don't fail the shortcut
+    if (hasImage && !usableImageDataUrl(imageDataUrl)) {
+      return res.status(422).json({
+        error: "bad_image",
+        message: "That photo didn't include image bytes. Re-share it from Photos as an image (not a file).",
+      });
     }
+    const id = newPoolId("share");
+    let storedThumb = null;
+    const persistPhoto = async (dataUrl) => {
+      if (!usableImageDataUrl(dataUrl)) return;
+      let jpeg = dataUrl;
+      try { jpeg = await normalizeImageDataUrl(dataUrl); } catch { /* keep original bytes */ }
+      await poolStore.saveEntryMedia(id, [jpeg]);
+      try { storedThumb = await toPreviewDataUrl(jpeg); }
+      catch { storedThumb = null; }
+    };
+    if (hasImage) await persistPhoto(imageDataUrl);
     const fetchedThumb = (hasUrl && !hasImage) ? await fetchOgImageAsDataUrl(sourceUrl) : null;
+    if (!hasImage && fetchedThumb) await persistPhoto(fetchedThumb);
     const entry = {
-      id: newPoolId("share"),
+      id,
       event: null, // will be filled when the operator extracts inside the pool modal
-      thumb: storedThumb || fetchedThumb,
+      thumb: storedThumb,
       sourceUrl: hasUrl ? sourceUrl : null,
       caption: typeof caption === "string" ? caption.slice(0, 500) : null,
       recurring: false,
@@ -1140,9 +1205,9 @@ app.get("/api/screenshot-pool/apify-status", (_req, res) => {
 // thumb) must NOT skip the carousel fetch — that was the multi-slide miss.
 function storedSlideThumbs(entry) {
   if (Array.isArray(entry?.thumbs) && entry.thumbs.length) {
-    return entry.thumbs.filter((t) => typeof t === "string" && t.startsWith("data:image/"));
+    return entry.thumbs.filter((t) => usableImageDataUrl(t));
   }
-  if (typeof entry?.thumb === "string" && entry.thumb.startsWith("data:image/")) return [entry.thumb];
+  if (usableImageDataUrl(entry?.thumb)) return [entry.thumb];
   return [];
 }
 
@@ -1156,8 +1221,6 @@ app.post("/api/screenshot-pool/resolve-media", express.json({ limit: "1mb" }), a
 
     const sourceUrl = typeof existing.sourceUrl === "string" ? existing.sourceUrl : "";
     const ig = isInstagramUrl(sourceUrl);
-    const haveApifySlides = existing.fetchedVia === "apify" && storedSlideThumbs(existing).length > 0;
-
     const persistSlides = async (thumbs, extra = {}) => {
       const safe = [];
       for (const t of thumbs) {
@@ -1176,17 +1239,22 @@ app.post("/api/screenshot-pool/resolve-media", express.json({ limit: "1mb" }), a
         err.code = "bad_image";
         throw err;
       }
+      await poolStore.saveEntryMedia(id, safe);
+      let preview = null;
+      try { preview = await toPreviewDataUrl(safe[0]); } catch { preview = null; }
+      const { thumbs: _dropThumbs, ...restExtra } = extra || {};
       const patch = {
-        thumb: safe[0],
-        thumbs: safe,
+        thumb: preview,
         slideCount: safe.length,
-        ...extra,
+        hasMedia: true,
+        ...restExtra,
       };
       const updated = await poolStore.update((cur) => {
         const idx = (cur.entries || []).findIndex((e) => String(e.id) === String(id));
         if (idx === -1) return cur;
         const next = { entries: [...cur.entries] };
         next.entries[idx] = { ...next.entries[idx], ...patch };
+        delete next.entries[idx].thumbs;
         return next;
       });
       const row = (updated.entries || []).find((e) => String(e.id) === String(id));
@@ -1209,9 +1277,13 @@ app.post("/api/screenshot-pool/resolve-media", express.json({ limit: "1mb" }), a
       fetchedVia: extra.fetchedVia || existing.fetchedVia || "normalized",
     });
 
-    if (!ig && storedSlideThumbs(existing).length) {
+    const fromBlob = await poolStore.loadEntryMedia(id);
+    const fromRow = storedSlideThumbs(existing);
+    const havePhotoBytes = fromBlob.length > 0 || fromRow.length > 0;
+
+    if (!ig && havePhotoBytes) {
       try {
-        const { thumbs, entry } = await persistSlides(storedSlideThumbs(existing));
+        const { thumbs, entry } = await persistSlides(fromBlob.length ? fromBlob : fromRow);
         return jsonOk(thumbs, { caption: entry.caption, fetchedVia: "normalized" });
       } catch (e) {
         if (e.code === "bad_image") return res.status(422).json({ error: "bad_image", message: e.message });
@@ -1220,9 +1292,16 @@ app.post("/api/screenshot-pool/resolve-media", express.json({ limit: "1mb" }), a
       }
     }
 
-    if (ig && haveApifySlides) {
+    if (!ig && !havePhotoBytes) {
+      return res.status(422).json({
+        error: "missing_image",
+        message: "This photo's image bytes are gone from the pool (only a placeholder is left). Re-share it from Photos — Extract can't recover a missing picture.",
+      });
+    }
+
+    if (ig && (fromBlob.length || (existing.fetchedVia === "apify" && fromRow.length))) {
       try {
-        const { thumbs, entry } = await persistSlides(storedSlideThumbs(existing), { fetchedVia: "apify" });
+        const { thumbs, entry } = await persistSlides(fromBlob.length ? fromBlob : fromRow, { fetchedVia: "apify" });
         return jsonOk(thumbs, { caption: entry.caption, fetchedVia: "apify", mediaExpiresAt: entry.mediaExpiresAt });
       } catch (e) {
         if (e.code === "bad_image") return res.status(422).json({ error: "bad_image", message: e.message });
@@ -1363,6 +1442,9 @@ app.post("/api/screenshot-pool/delete", express.json({ limit: "1mb" }), async (r
       removed = before - entries.length;
       return { entries };
     });
+    if (removed) {
+      try { await poolStore.deleteEntryMedia([...ids]); } catch { /* orphan media is harmless */ }
+    }
     res.json({ removed, total: pool.entries.length });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1836,7 +1918,7 @@ app.post("/api/weekend-review/bulk-update", express.json({ limit: "10mb" }), asy
 // the cloud buttons. Returns version so we can tell apart old servers if
 // the API ever changes.
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, api: "workspaces+library+reviewSessions+weekendReview", version: 7, env: NODE_ENV, sessionBackend: sessionStore.backend, poolBackend: poolStore.backend });
+  res.json({ ok: true, api: "workspaces+library+reviewSessions+weekendReview", version: 8, env: NODE_ENV, sessionBackend: sessionStore.backend, poolBackend: poolStore.backend });
 });
 
 // === NEWS SCOUT (autonomous) ===

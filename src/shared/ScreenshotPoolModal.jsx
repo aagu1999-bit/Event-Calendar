@@ -606,10 +606,12 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
                           {e.sourceUrl && <div style={{ marginBottom: 4 }}><b style={{ color: "#63B3ED" }}>URL:</b> <a href={e.sourceUrl} target="_blank" rel="noreferrer" style={{ color: "#63B3ED", wordBreak: "break-all" }}>{e.sourceUrl}</a></div>}
                           {e.caption && <div style={{ color: "rgba(245,240,232,0.55)", fontStyle: "italic" }}>"{e.caption}"</div>}
                           <div style={{ marginTop: 6, fontSize: "0.7rem", color: "rgba(167,139,250,0.7)" }}>
-                            {e.thumb
+                            {typeof e.thumb === "string" && e.thumb.startsWith("data:") && e.thumb.length < 64
+                              ? <>This photo's image bytes are missing from the pool (placeholder only). Re-share it from Photos — Extract can't recover a missing picture.</>
+                              : e.thumb
                               ? <>Click <b>✨ Extract raw</b> above — iPhone photos are converted to JPEG first (the broken preview is usually HEIC, which the browser can't show).</>
                               : /instagram\.com|instagr\.am/i.test(e.sourceUrl || "")
-                                ? <>Click <b>✨ Extract raw</b> above — every carousel slide is fetched via Apify then saved here, so their CDN link (usually ~4.5 days) can't expire on you.</>
+                                ? <>Click <b>✨ Extract raw</b> above — every carousel slide is fetched via Apify then saved here. If CDN download fails we retry through Apify's proxy.</>
                                 : <>Click <b>✨ Extract raw</b> above to fetch a preview and pull event fields.</>}
                           </div>
                         </div>
