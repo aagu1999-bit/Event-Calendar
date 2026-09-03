@@ -21,6 +21,7 @@ import { runScout, storyKey, focusForDay } from "./scoutServer.js";
 import { createSessionStore, normalizeSession, applySessionOps } from "./reviewSessionStore.js";
 import { createPoolStore } from "./screenshotPoolStore.js";
 import { normalizeImageDataUrl, usableImageDataUrl, toPreviewDataUrl, sniffImageKind } from "./normalizeImage.js";
+import { classifyShare, isInstagramUrl } from "./shareIntake.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || "5000", 10);
@@ -869,12 +870,6 @@ function instagramCdnExpiryIso(mediaUrl) {
   } catch { return null; }
 }
 
-function isInstagramUrl(raw) {
-  try {
-    const h = new URL(raw).hostname.replace(/^www\./, "").toLowerCase();
-    return h === "instagram.com" || h === "instagr.am" || h.endsWith(".instagram.com");
-  } catch { return false; }
-}
 
 function pickApifyMediaUrl(item) {
   if (!item || typeof item !== "object") return null;
@@ -1026,11 +1021,10 @@ async function fetchInstagramPostViaApify(postUrl) {
 // taps "CGE Intake" from their share sheet. No AI extraction yet; the item
 // lands in the pool as `status: "raw"` and gets extracted on-demand from
 // inside the Review pool modal. Accepts either an image (as data URL) or a
-// URL (post link) — an operator can share IG posts either way. When only a
-// URL is sent, the server tries to grab the page's og:image so the entry
-// still has a thumbnail to extract from. Instagram usually blocks that
-// scrape; Extract then calls Apify (resolve-media) so the Shortcut stays
-// fast. Auth is intentionally unenforced: the endpoint is public because
+// URL (post link). Instagram share-sheet previews are NOT photos: a stub
+// or cover of slide 1 plus the post URL must stay a URL-share so Extract
+// can Apify every carousel slide. Camera-roll photos still persist bytes
+// here. Auth is intentionally unenforced: the endpoint is public because
 // the shortcut can't hold a real credential securely; the cap +
 // explicit-review flow contains blast radius if it ever gets spammed.
 function publicOrigin(req) {
@@ -1142,15 +1136,18 @@ app.options("/api/screenshot-pool/share", (_req, res) => { shareCors(res); res.s
 app.post("/api/screenshot-pool/share", express.json({ limit: "20mb" }), async (req, res) => {
   shareCors(res);
   try {
-    const { imageDataUrl, sourceUrl, caption } = req.body || {};
-    const hasImage = typeof imageDataUrl === "string" && imageDataUrl.startsWith("data:image/");
-    const hasUrl = typeof sourceUrl === "string" && /^https?:\/\//i.test(sourceUrl);
-    if (!hasImage && !hasUrl) return res.status(400).json({ error: "no_content", detail: "Send imageDataUrl OR sourceUrl" });
-    if (hasImage && !usableImageDataUrl(imageDataUrl)) {
-      return res.status(422).json({
-        error: "bad_image",
-        message: "That photo didn't include image bytes. Re-share it from Photos as an image (not a file).",
-      });
+    const share = classifyShare(req.body || {});
+    const sourceUrl = share.url;
+    const hasUrl = !!sourceUrl;
+    const hasImage = !!share.imageDataUrl;
+    if (!hasImage && !hasUrl) {
+      if (share.stubImage) {
+        return res.status(422).json({
+          error: "bad_image",
+          message: "That share didn't include image bytes or a post link. For an Instagram carousel, share the post itself (not just the photo) so Extract can read every slide. For a camera-roll shot, re-share it from Photos as an image (not a file).",
+        });
+      }
+      return res.status(400).json({ error: "no_content", detail: "Send imageDataUrl OR sourceUrl" });
     }
     const id = newPoolId("share");
     let storedThumb = null;
@@ -1162,9 +1159,20 @@ app.post("/api/screenshot-pool/share", express.json({ limit: "20mb" }), async (r
       try { storedThumb = await toPreviewDataUrl(jpeg); }
       catch { storedThumb = null; }
     };
-    if (hasImage) await persistPhoto(imageDataUrl);
-    const fetchedThumb = (hasUrl && !hasImage) ? await fetchOgImageAsDataUrl(sourceUrl) : null;
-    if (!hasImage && fetchedThumb) await persistPhoto(fetchedThumb);
+    // Instagram URL → never write the share-sheet cover into media blobs.
+    // resolve-media used to see those bytes and skip Apify (slide 1 only).
+    if (share.persistPhoto) await persistPhoto(share.imageDataUrl);
+    else if (share.instagram && share.imageDataUrl) {
+      try { storedThumb = await toPreviewDataUrl(share.imageDataUrl); }
+      catch { storedThumb = null; }
+    } else if (hasUrl && !storedThumb && !share.instagram) {
+      const fetchedThumb = await fetchOgImageAsDataUrl(sourceUrl);
+      if (fetchedThumb && usableImageDataUrl(fetchedThumb)) {
+        try { storedThumb = await toPreviewDataUrl(fetchedThumb); }
+        catch { storedThumb = null; }
+      }
+    }
+    const caption = share.caption;
     const entry = {
       id,
       event: null, // will be filled when the operator extracts inside the pool modal
@@ -1299,7 +1307,10 @@ app.post("/api/screenshot-pool/resolve-media", express.json({ limit: "1mb" }), a
       });
     }
 
-    if (ig && (fromBlob.length || (existing.fetchedVia === "apify" && fromRow.length))) {
+    // Reuse stored slides only after a real Apify run. A share-sheet
+    // cover (or og:image) sitting in media:{id} used to skip the carousel
+    // fetch and Extract would only ever see slide 1.
+    if (ig && existing.fetchedVia === "apify" && (fromBlob.length || fromRow.length)) {
       try {
         const { thumbs, entry } = await persistSlides(fromBlob.length ? fromBlob : fromRow, { fetchedVia: "apify" });
         return jsonOk(thumbs, { caption: entry.caption, fetchedVia: "apify", mediaExpiresAt: entry.mediaExpiresAt });
@@ -1918,7 +1929,7 @@ app.post("/api/weekend-review/bulk-update", express.json({ limit: "10mb" }), asy
 // the cloud buttons. Returns version so we can tell apart old servers if
 // the API ever changes.
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, api: "workspaces+library+reviewSessions+weekendReview", version: 8, env: NODE_ENV, sessionBackend: sessionStore.backend, poolBackend: poolStore.backend });
+  res.json({ ok: true, api: "workspaces+library+reviewSessions+weekendReview", version: 9, env: NODE_ENV, sessionBackend: sessionStore.backend, poolBackend: poolStore.backend });
 });
 
 // === NEWS SCOUT (autonomous) ===
