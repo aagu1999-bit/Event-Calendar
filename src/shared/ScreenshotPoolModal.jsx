@@ -27,6 +27,13 @@ function mdOf(raw) {
   return null;
 }
 
+// Link = shared URL (Instagram post, reel, webpage). Photo = camera-roll /
+// screenshot with no http(s) source. Extracted IG events keep their URL
+// so they stay in Links.
+function isLinkShare(entry) {
+  return /^https?:\/\//i.test(entry?.sourceUrl || "");
+}
+
 function entryToQueueEvent(entry, weekendDates) {
   const ev = entry.event;
   const type = (ev.type || "").toUpperCase();
@@ -78,13 +85,19 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
   const [extracting, setExtracting] = useState(false); // bulk-extract raw items
   const [extractingHint, setExtractingHint] = useState("");
   const [apifyConfigured, setApifyConfigured] = useState(null); // null = unknown
-  const [teamShortcut, setTeamShortcut] = useState({ hasFile: false, icloudUrl: null });
-  const [icloudDraft, setIcloudDraft] = useState("");
   const [msg, setMsg] = useState(null);
+  const [deleting, setDeleting] = useState(false);
   const [allDates, setAllDates] = useState(() => {
     try { return localStorage.getItem("cge_pool_all_dates") === "true"; } catch { return false; }
   });
+  const [kindFilter, setKindFilter] = useState(() => {
+    try {
+      const v = localStorage.getItem("cge_pool_kind");
+      return v === "photos" || v === "links" ? v : "all";
+    } catch { return "all"; }
+  });
   useEffect(() => { try { localStorage.setItem("cge_pool_all_dates", String(allDates)); } catch {} }, [allDates]);
+  useEffect(() => { try { localStorage.setItem("cge_pool_kind", kindFilter); } catch {} }, [kindFilter]);
   const addManualRegular = useRegularsStore((s) => s.addManual);
 
   const loadPool = async () => {
@@ -120,13 +133,6 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
       .then((r) => r.json())
       .then((j) => setApifyConfigured(!!j.configured))
       .catch(() => setApifyConfigured(false));
-    fetch("/api/screenshot-pool/team-shortcut")
-      .then((r) => r.json())
-      .then((j) => {
-        setTeamShortcut({ hasFile: !!j.hasFile, icloudUrl: j.icloudUrl || null });
-        setIcloudDraft(j.icloudUrl || "");
-      })
-      .catch(() => {});
   }, [open]);
 
   const wkSet = new Set(
@@ -139,13 +145,15 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
   // date — always show them regardless of filter so the operator can
   // extract them before deciding which weekend they belong to.
   const visible = entries.filter((e) => {
+    if (kindFilter === "links" && !isLinkShare(e)) return false;
+    if (kindFilter === "photos" && isLinkShare(e)) return false;
     if (e.status === "raw") return true;
     if (allDates) return true;
     const md = mdOf(e.event?.date);
     return !!(md && wkSet.has(md));
   });
   const hiddenByFilter = entries.length - visible.length;
-  const rawEntries = entries.filter((e) => e.status === "raw");
+  const visibleRaw = visible.filter((e) => e.status === "raw");
 
   // Extract a single raw entry. Instagram carousels: resolve-media returns
   // every slide; we send them all to Gemini and split DISTINCT events into
@@ -295,8 +303,8 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
         : `Extracted ${ok} · ${fail} failed${lastErr ? ` — ${lastErr}` : "."}`,
     });
   };
-  const extractAllRaw = () => extractRawList(rawEntries);
-  const selectedRaw = rawEntries.filter((e) => drafts[e.id]?.include);
+  const extractAllRaw = () => extractRawList(visibleRaw);
+  const selectedRaw = visibleRaw.filter((e) => drafts[e.id]?.include);
   const extractSelectedRaw = () => {
     if (!selectedRaw.length) {
       setMsg({ ok: false, text: "Tick Select on the raw shares you want to extract." });
@@ -304,6 +312,7 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
     }
     return extractRawList(selectedRaw);
   };
+  const selectedVisible = visible.filter((e) => drafts[e.id]?.include);
   const setVisibleInclude = (on) => {
     setDrafts((prev) => {
       const next = { ...prev };
@@ -324,21 +333,49 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
   };
   const updateDraft = (id, patch) => setDrafts((prev) => ({ ...prev, [id]: { ...(prev[id] || {}), ...patch } }));
 
+  const removeIds = async (ids) => {
+    const list = (ids || []).map(String).filter(Boolean);
+    if (!list.length) return;
+    const r = await fetch("/api/screenshot-pool/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: list }),
+    });
+    if (!r.ok) throw new Error(`Server ${r.status}`);
+    const gone = new Set(list);
+    setEntries((prev) => prev.filter((e) => !gone.has(String(e.id))));
+    setDrafts((prev) => {
+      const next = { ...prev };
+      list.forEach((id) => { delete next[id]; });
+      return next;
+    });
+    if (onPoolChanged) onPoolChanged();
+  };
+
   const removeEntry = async (id) => {
     if (!window.confirm("Remove from the pool?")) return;
     try {
-      const r = await fetch("/api/screenshot-pool/delete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: [id] }),
-      });
-      if (!r.ok) throw new Error(`Server ${r.status}`);
-      setEntries((prev) => prev.filter((e) => e.id !== id));
-      setDrafts((prev) => { const next = { ...prev }; delete next[id]; return next; });
-      if (onPoolChanged) onPoolChanged();
+      await removeIds([id]);
     } catch (err) {
       setMsg({ ok: false, text: String(err?.message || err) });
     }
+  };
+
+  const removeSelected = async () => {
+    if (deleting || extracting || pulling) return;
+    const ids = selectedVisible.map((e) => e.id);
+    if (!ids.length) {
+      setMsg({ ok: false, text: "Tick Select / Include on the items you want to delete." });
+      return;
+    }
+    if (!window.confirm(`Delete ${ids.length} selected item${ids.length === 1 ? "" : "s"} from the pool? This cannot be undone.`)) return;
+    setDeleting(true); setMsg(null);
+    try {
+      await removeIds(ids);
+      setMsg({ ok: true, text: `Deleted ${ids.length} from the pool.` });
+    } catch (err) {
+      setMsg({ ok: false, text: String(err?.message || err) });
+    } finally { setDeleting(false); }
   };
 
   const pullSelected = async () => {
@@ -404,118 +441,18 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
         <p style={{ margin: "0 0 10px", fontSize: "0.78rem", color: "rgba(245,240,232,0.55)", lineHeight: 1.5 }}>
           Everything you dropped this week — screenshots you saved from inside CGE (📸) or shared here from your phone (📱). Weekend filter shows only entries for {wkLabel}; raw shares (no date yet) always show so you can extract them.
         </p>
-        <div style={{ marginBottom: 12, padding: "12px", borderRadius: 8, background: "rgba(229,188,79,0.07)", border: "1px solid rgba(229,188,79,0.35)" }}>
-          <div style={{ fontSize: "0.72rem", fontWeight: 800, letterSpacing: "0.4px", textTransform: "uppercase", color: "#E5BC4F", marginBottom: 6 }}>Shortcut for the team</div>
-          <p style={{ margin: "0 0 8px", fontSize: "0.75rem", color: "rgba(245,240,232,0.65)", lineHeight: 1.45 }}>
-            Apple won't import a Shortcut we generate here — it has to be signed on an iPhone. You already have <b>CGE Intake</b>. Share that one:
-          </p>
-          <ol style={{ margin: "0 0 10px", paddingLeft: 18, fontSize: "0.75rem", color: "rgba(245,240,232,0.7)", lineHeight: 1.55 }}>
-            <li>iPhone → <b>Shortcuts</b> → open <b>CGE Intake</b></li>
-            <li>Tap the share icon → <b>Copy iCloud Link</b> (or Save to Files, then upload the .shortcut below)</li>
-          </ol>
-          <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-            <input
-              value={icloudDraft}
-              onChange={(e) => setIcloudDraft(e.target.value)}
-              placeholder="https://www.icloud.com/shortcuts/…"
-              style={{ flex: 1, padding: "7px 8px", background: "#111", border: "1px solid rgba(245,240,232,0.12)", borderRadius: 5, color: "#F5F0E8", fontFamily: "inherit", fontSize: "0.75rem" }}
-            />
-            <button
-              type="button"
-              onClick={async () => {
-                try {
-                  const r = await fetch("/api/screenshot-pool/team-shortcut", {
-                    method: "POST", headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ icloudUrl: icloudDraft }),
-                  });
-                  const j = await r.json().catch(() => ({}));
-                  if (!r.ok) throw new Error(j.message || "Couldn't save that link");
-                  setTeamShortcut({ hasFile: !!j.hasFile, icloudUrl: j.icloudUrl || null });
-                  setMsg({ ok: true, text: j.icloudUrl ? "iCloud link saved. Copy the add-shortcut link below and text it to the team." : "Link cleared." });
-                } catch (e) { setMsg({ ok: false, text: String(e.message || e) }); }
-              }}
-              style={{ padding: "7px 10px", borderRadius: 5, border: "1px solid rgba(229,188,79,0.5)", background: "rgba(229,188,79,0.15)", color: "#E5BC4F", fontWeight: 800, fontSize: "0.7rem", cursor: "pointer" }}
-            >Save</button>
-          </div>
-          <label style={{ display: "inline-block", padding: "5px 10px", borderRadius: 5, background: "rgba(245,240,232,0.06)", border: "1px solid rgba(245,240,232,0.15)", fontSize: "0.68rem", fontWeight: 800, color: "rgba(245,240,232,0.75)", cursor: "pointer" }}>
-            Upload .shortcut file
-            <input type="file" accept=".shortcut,application/octet-stream" style={{ display: "none" }} onChange={async (e) => {
-              const f = e.target.files && e.target.files[0];
-              e.target.value = "";
-              if (!f) return;
-              try {
-                const b64 = await new Promise((resolve, reject) => {
-                  const r = new FileReader();
-                  r.onload = () => resolve(String(r.result).split(",")[1] || "");
-                  r.onerror = () => reject(new Error("Couldn't read that file"));
-                  r.readAsDataURL(f);
-                });
-                const r = await fetch("/api/screenshot-pool/team-shortcut", {
-                  method: "POST", headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ shortcutBase64: b64 }),
-                });
-                const j = await r.json().catch(() => ({}));
-                if (!r.ok) throw new Error(j.message || "Upload failed");
-                setTeamShortcut({ hasFile: !!j.hasFile, icloudUrl: j.icloudUrl || null });
-                setMsg({ ok: true, text: "Shortcut file hosted. Team can download /cge-intake.shortcut on their iPhone and tap Add Shortcut." });
-              } catch (err) { setMsg({ ok: false, text: String(err.message || err) }); }
-            }} />
-          </label>
-          {(teamShortcut.hasFile || teamShortcut.icloudUrl) && (
-            <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-              {teamShortcut.hasFile && (
-                <a href="/cge-intake.shortcut" download="CGE-Intake.shortcut" style={{ padding: "6px 10px", borderRadius: 5, background: "#E5BC4F", color: "#000", fontWeight: 800, fontSize: "0.7rem", textDecoration: "none" }}>
-                  ⬇ CGE-Intake.shortcut
-                </a>
-              )}
-              <button
-                type="button"
-                onClick={async () => {
-                  const link = `${window.location.origin}/shortcut`;
-                  try { await navigator.clipboard.writeText(link); setMsg({ ok: true, text: "Copied — text that to the team. They tap Add Shortcut on their iPhone." }); }
-                  catch { setMsg({ ok: true, text: link }); }
-                }}
-                style={{ padding: "6px 10px", borderRadius: 5, border: "1px solid rgba(229,188,79,0.5)", background: "transparent", color: "#E5BC4F", fontWeight: 800, fontSize: "0.7rem", cursor: "pointer" }}
-              >
-                Copy add-shortcut link
-              </button>
-            </div>
-          )}
-        </div>
-        <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-          <a
-            href="/cge-intake.html"
-            download="CGE-Intake.html"
-            title="Fallback webpage if someone can't install a Shortcut"
-            style={{ padding: "5px 10px", borderRadius: 5, background: "rgba(229,188,79,0.12)", color: "#E5BC4F", border: "1px solid rgba(229,188,79,0.4)", fontSize: "0.68rem", fontWeight: 800, letterSpacing: "0.3px", textDecoration: "none" }}
-          >
-            ⬇ CGE-Intake.html (webpage fallback)
-          </a>
-          <button
-            type="button"
-            onClick={async () => {
-              const link = `${window.location.origin}/intake`;
-              try { await navigator.clipboard.writeText(link); setMsg({ ok: true, text: "Intake webpage copied." }); }
-              catch { setMsg({ ok: true, text: link }); }
-            }}
-            title="Copy the live intake page URL"
-            style={{ padding: "5px 10px", borderRadius: 5, background: "transparent", color: "rgba(245,240,232,0.7)", border: "1px solid rgba(245,240,232,0.15)", fontSize: "0.68rem", fontWeight: 800, letterSpacing: "0.3px", cursor: "pointer" }}
-          >
-            Copy intake webpage
-          </button>
-        </div>
 
-        {rawEntries.some((e) => !e.thumb && /instagram\.com|instagr\.am/i.test(e.sourceUrl || "")) && apifyConfigured === false && (
+        {visibleRaw.some((e) => !e.thumb && /instagram\.com|instagr\.am/i.test(e.sourceUrl || "")) && apifyConfigured === false && (
           <div style={{ marginBottom: 12, padding: "9px 12px", borderRadius: 8, fontSize: "0.78rem", background: "rgba(251,113,133,0.1)", border: "1px solid rgba(251,113,133,0.4)", color: "#FB7185", lineHeight: 1.45 }}>
             ⚠ Instagram URL shares need <code style={{ color: "#F5F0E8" }}>APIFY_TOKEN</code> in this app's Replit Secrets. Extract fetches the image then — don't paste the token in the browser.
           </div>
         )}
 
-        {rawEntries.length > 0 && (
+        {visibleRaw.length > 0 && (
           <div style={{ marginBottom: 12, padding: "10px 12px", borderRadius: 8, background: "rgba(167,139,250,0.08)", border: "1px solid rgba(167,139,250,0.35)", display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ flex: 1, fontSize: "0.78rem", color: "#F5F0E8" }}>
-              <strong style={{ color: "#A78BFA" }}>{rawEntries.length} raw share{rawEntries.length === 1 ? "" : "s"}</strong> waiting for AI extraction.
-              {selectedRaw.length > 0 && selectedRaw.length < rawEntries.length && (
+              <strong style={{ color: "#A78BFA" }}>{visibleRaw.length} raw {kindFilter === "photos" ? "photo" : kindFilter === "links" ? "link" : "share"}{visibleRaw.length === 1 ? "" : "s"}</strong> waiting for AI extraction.
+              {selectedRaw.length > 0 && selectedRaw.length < visibleRaw.length && (
                 <span style={{ color: "rgba(167,139,250,0.85)" }}> · {selectedRaw.length} selected</span>
               )}
               {extracting && extractingHint && (
@@ -534,10 +471,10 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
               <button
                 onClick={extractAllRaw}
                 disabled={extracting || !apiKey}
-                title={apiKey ? "Extract every raw share in the pool (ignores Select)" : "Add your Gemini API key on the Media tab first"}
+                title={apiKey ? "Extract every visible raw share (ignores Select)" : "Add your Gemini API key on the Media tab first"}
                 style={{ padding: "6px 12px", borderRadius: 5, cursor: (extracting || !apiKey) ? "not-allowed" : "pointer", background: "transparent", color: "rgba(167,139,250,0.85)", border: "1px solid rgba(167,139,250,0.35)", fontSize: "0.7rem", fontWeight: 800, letterSpacing: "0.3px" }}
               >
-                Extract all {rawEntries.length}
+                Extract all {visibleRaw.length}
               </button>
             </div>
           </div>
@@ -551,11 +488,32 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
             <input type="checkbox" checked={allDates} onChange={(e) => setAllDates(e.target.checked)} style={{ accentColor: allDates ? "#E5BC4F" : "#A78BFA", cursor: "pointer" }} />
             All dates
           </label>
+          <div style={{ display: "inline-flex", gap: 4, padding: 2, borderRadius: 6, background: "rgba(245,240,232,0.04)", border: "1px solid rgba(245,240,232,0.1)" }}>
+            {[
+              ["all", "All"],
+              ["photos", "Photos"],
+              ["links", "Links"],
+            ].map(([id, label]) => {
+              const on = kindFilter === id;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setKindFilter(id)}
+                  style={{
+                    padding: "4px 9px", borderRadius: 4, border: "none", cursor: "pointer",
+                    background: on ? "rgba(139,92,246,0.35)" : "transparent",
+                    color: on ? "#E9D5FF" : "rgba(245,240,232,0.6)",
+                    fontSize: "0.62rem", letterSpacing: "0.4px", textTransform: "uppercase", fontWeight: 800,
+                  }}
+                >{label}</button>
+              );
+            })}
+          </div>
           <div style={{ flex: 1, fontSize: "0.7rem", color: "rgba(245,240,232,0.55)" }}>
             {loading ? "Loading…" :
              entries.length === 0 ? "Pool is empty."
-             : allDates ? `${entries.length} total in pool.`
-             : `${visible.length} for this weekend${hiddenByFilter ? ` · ${hiddenByFilter} on other dates hidden` : ""}.`}
+             : `${visible.length} shown${hiddenByFilter ? ` · ${hiddenByFilter} hidden` : ""}.`}
           </div>
           {visible.length > 0 && (
             <>
@@ -564,6 +522,22 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
               </button>
               <button type="button" onClick={() => setVisibleInclude(false)} style={{ padding: "4px 8px", borderRadius: 5, cursor: "pointer", background: "transparent", color: "rgba(245,240,232,0.65)", border: "1px solid rgba(245,240,232,0.15)", fontSize: "0.62rem", letterSpacing: "0.4px", textTransform: "uppercase" }}>
                 Select none
+              </button>
+              <button
+                type="button"
+                onClick={removeSelected}
+                disabled={deleting || extracting || pulling || selectedVisible.length === 0}
+                title="Delete the ticked items from the pool"
+                style={{
+                  padding: "4px 8px", borderRadius: 5,
+                  cursor: (deleting || extracting || pulling || selectedVisible.length === 0) ? "not-allowed" : "pointer",
+                  background: "transparent", color: "#FB7185",
+                  border: "1px solid rgba(251,113,133,0.4)",
+                  fontSize: "0.62rem", letterSpacing: "0.4px", textTransform: "uppercase",
+                  opacity: selectedVisible.length === 0 ? 0.45 : 1,
+                }}
+              >
+                {deleting ? "Deleting…" : `Delete selected${selectedVisible.length ? ` (${selectedVisible.length})` : ""}`}
               </button>
             </>
           )}
@@ -749,7 +723,7 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
 
         {!loading && entries.length === 0 && (
           <div style={{ padding: "36px 20px", textAlign: "center", color: "rgba(245,240,232,0.4)", fontSize: "0.85rem", border: "1px dashed rgba(245,240,232,0.1)", borderRadius: 8 }}>
-            Nothing in the pool yet. Drop a screenshot in "📸 Add from screenshot", or send the team <b>CGE-Intake.html</b> / the /intake link so they can share photos and IG posts into this pool.
+            Nothing in the pool yet. Drop a screenshot in "📸 Add from screenshot", or share a photo / Instagram link from your phone with CGE Intake.
           </div>
         )}
       </div>
