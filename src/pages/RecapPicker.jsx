@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import JSZip from "jszip";
-import { listPhotos, deletePhotoAndNotify, onLibraryChange, usageBytes, loadPhotoBlob, listExports, loadExportBlob, deleteExport, onExportsChange, exportsUsageBytes, loadExportRecord, saveExport, savePhotoAndNotify } from "../shared/photoLibrary.js";
+import { listPhotos, deletePhotoAndNotify, deletePhotosAndNotify, onLibraryChange, usageBytes, loadPhotoBlob, listExports, loadExportBlob, deleteExport, onExportsChange, exportsUsageBytes, loadExportRecord, saveExport, savePhotoAndNotify } from "../shared/photoLibrary.js";
 import { useRestoreStore } from "../store";
 
 const TOOL_ROUTE = { calendar: "/calendar", media: "/media", flyer: "/flyer", reel: "/reel" };
@@ -425,6 +425,8 @@ function PhotosView({ onSwitch, onTab }) {
   const [total, setTotal] = useState(0);
   const [previewId, setPreviewId] = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null);
+  const [selected, setSelected] = useState(() => new Set());
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -460,11 +462,49 @@ function PhotosView({ onSwitch, onTab }) {
     return () => { cancelled = true; if (url) URL.revokeObjectURL(url); };
   }, [previewId]);
 
+  const toggleSelect = (id, e) => {
+    if (e) e.stopPropagation();
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const selectedVisible = photos.filter((p) => selected.has(p.id));
+
+  const setVisibleSelected = (on) => {
+    setSelected(on ? new Set(photos.map((p) => p.id)) : new Set());
+  };
+
   const remove = async (id, e) => {
     if (e) e.stopPropagation();
     if (!confirm("Delete this photo from the library?")) return;
     await deletePhotoAndNotify(id);
+    setSelected((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
     if (previewId === id) setPreviewId(null);
+  };
+
+  const removeSelected = async () => {
+    const ids = selectedVisible.map((p) => p.id);
+    if (!ids.length || deleting) return;
+    if (!confirm(`Delete ${ids.length} photo${ids.length === 1 ? "" : "s"} from the library? This can't be undone.`)) return;
+    setDeleting(true);
+    try {
+      await deletePhotosAndNotify(ids);
+      if (ids.includes(previewId)) setPreviewId(null);
+      setSelected(new Set());
+    } catch (err) {
+      alert("Couldn't delete those photos: " + (err.message || err));
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const download = async (p) => {
@@ -507,6 +547,27 @@ function PhotosView({ onSwitch, onTab }) {
             >{t.label}</button>
           ))}
           <div style={{ flex: 1 }} />
+          {photos.length > 0 && (
+            <>
+              <button type="button" onClick={() => setVisibleSelected(true)} style={B}>Select all</button>
+              <button type="button" onClick={() => setVisibleSelected(false)} style={B} disabled={selectedVisible.length === 0}>Select none</button>
+              <button
+                type="button"
+                onClick={removeSelected}
+                disabled={deleting || selectedVisible.length === 0}
+                title="Delete the ticked photos from the library"
+                style={{
+                  ...B,
+                  color: "#FB7185",
+                  borderColor: "rgba(251,113,133,0.4)",
+                  opacity: selectedVisible.length === 0 ? 0.45 : 1,
+                  cursor: (deleting || selectedVisible.length === 0) ? "not-allowed" : "pointer",
+                }}
+              >
+                {deleting ? "Deleting…" : `Delete selected${selectedVisible.length ? ` (${selectedVisible.length})` : ""}`}
+              </button>
+            </>
+          )}
           <span style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.5)", letterSpacing: "1px", textTransform: "uppercase" }}>
             {photos.length} photo{photos.length === 1 ? "" : "s"} · {formatBytes(total)} used
           </span>
@@ -524,15 +585,21 @@ function PhotosView({ onSwitch, onTab }) {
               gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))",
               gap: "10px",
             }}>
-              {photos.map(p => (
+              {photos.map(p => {
+                const isSel = selected.has(p.id);
+                return (
                 <div
                   key={p.id}
-                  onClick={() => setPreviewId(p.id)}
+                  onClick={(e) => {
+                    if (e.metaKey || e.ctrlKey) toggleSelect(p.id, e);
+                    else setPreviewId(p.id);
+                  }}
                   title={`${p.name} · ${p.width}×${p.height} · ${formatBytes(p.bytes)}`}
                   style={{
                     position: "relative",
                     background: "#000",
-                    border: `1px solid ${previewId === p.id ? "#E5BC4F" : "rgba(245,240,232,0.1)"}`,
+                    border: `1px solid ${isSel ? "#E5BC4F" : (previewId === p.id ? "#E5BC4F" : "rgba(245,240,232,0.1)")}`,
+                    boxShadow: isSel ? "inset 0 0 0 2px #E5BC4F" : "none",
                     borderRadius: "5px",
                     overflow: "hidden",
                     cursor: "pointer",
@@ -540,6 +607,25 @@ function PhotosView({ onSwitch, onTab }) {
                   }}
                 >
                   <img src={p.thumbUrl} alt={p.name} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                  <label
+                    title={isSel ? "Unselect" : "Select for bulk delete"}
+                    onClick={(e) => e.stopPropagation()}
+                    style={{
+                      position: "absolute", top: 4, left: 4,
+                      width: 24, height: 24, borderRadius: 4,
+                      background: isSel ? "#E5BC4F" : "rgba(0,0,0,0.75)",
+                      border: `1px solid ${isSel ? "#E5BC4F" : "rgba(245,240,232,0.35)"}`,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      cursor: "pointer", margin: 0,
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isSel}
+                      onChange={(e) => toggleSelect(p.id, e)}
+                      style={{ accentColor: "#E5BC4F", width: 14, height: 14, margin: 0, cursor: "pointer" }}
+                    />
+                  </label>
                   <button
                     onClick={(e) => remove(p.id, e)}
                     title="Delete from library"
@@ -564,7 +650,8 @@ function PhotosView({ onSwitch, onTab }) {
                     <span style={{ color: "rgba(245,240,232,0.5)" }}>{formatWhen(p.createdAt)}</span>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* Preview pane */}

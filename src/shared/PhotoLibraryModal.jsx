@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { listPhotos, loadPhotoBlob, loadPhotoAsImage, loadPhotoAsDataUrl, deletePhotoAndNotify, onLibraryChange, usageBytes, countLegacyLibrary, migrateLegacyToCloud, savePhotoAndNotify } from "./photoLibrary.js";
+import { listPhotos, loadPhotoBlob, loadPhotoAsImage, loadPhotoAsDataUrl, deletePhotoAndNotify, deletePhotosAndNotify, onLibraryChange, usageBytes, countLegacyLibrary, migrateLegacyToCloud, savePhotoAndNotify } from "./photoLibrary.js";
 
 const TOOLS = [
   { key: "",         label: "All" },
@@ -49,6 +49,8 @@ export function PhotoLibraryModal({ open, onClose, onPick, outputAs = "image", i
   // image saves so the user knows it landed without scrolling to find
   // the new tile.
   const [pasteToast, setPasteToast] = useState(null); // null | { msg, error }
+  const [selected, setSelected] = useState(() => new Set());
+  const [deleting, setDeleting] = useState(false);
 
   // Re-query on open, on filter change, and whenever the library changes
   // (a parallel save from another tab / a delete from the grid).
@@ -162,6 +164,13 @@ export function PhotoLibraryModal({ open, onClose, onPick, outputAs = "image", i
     };
   }, [open, filter]);
 
+  useEffect(() => {
+    if (!open) {
+      setSelected(new Set());
+      setDeleting(false);
+    }
+  }, [open]);
+
   const runMigration = async () => {
     if (migrateBusy) return;
     const total = legacy.photos + legacy.exports;
@@ -208,10 +217,47 @@ export function PhotoLibraryModal({ open, onClose, onPick, outputAs = "image", i
     }
   };
 
+  const toggleSelect = (id, e) => {
+    if (e) e.stopPropagation();
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const selectedVisible = photos.filter((p) => selected.has(p.id));
+
+  const setVisibleSelected = (on) => {
+    setSelected(on ? new Set(photos.map((p) => p.id)) : new Set());
+  };
+
   const remove = async (id, e) => {
     e.stopPropagation();
     if (!confirm("Delete this photo from the library?")) return;
     await deletePhotoAndNotify(id);
+    setSelected((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  };
+
+  const removeSelected = async () => {
+    const ids = selectedVisible.map((p) => p.id);
+    if (!ids.length || deleting) return;
+    if (!confirm(`Delete ${ids.length} photo${ids.length === 1 ? "" : "s"} from the library? This can't be undone.`)) return;
+    setDeleting(true);
+    try {
+      await deletePhotosAndNotify(ids);
+      setSelected(new Set());
+    } catch (err) {
+      alert("Couldn't delete those photos: " + (err.message || err));
+    } finally {
+      setDeleting(false);
+    }
   };
 
   // === URL IMPORT ===
@@ -374,7 +420,7 @@ export function PhotoLibraryModal({ open, onClose, onPick, outputAs = "image", i
         <div className="cge-modal-header" style={{
           padding: "14px 18px",
           borderBottom: "1px solid rgba(245,240,232,0.08)",
-          display: "flex", alignItems: "center", gap: "12px",
+          display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap",
         }}>
           <div style={{ fontSize: "0.75rem", fontWeight: 800, letterSpacing: "2px", textTransform: "uppercase", color: "#E5BC4F" }}>
             Photo Library
@@ -396,6 +442,50 @@ export function PhotoLibraryModal({ open, onClose, onPick, outputAs = "image", i
             ))}
           </div>
           <div style={{ flex: 1 }} />
+          {photos.length > 0 && (
+            <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={() => setVisibleSelected(true)}
+                style={{
+                  padding: "4px 8px", borderRadius: "4px",
+                  background: "rgba(245,240,232,0.04)", color: "rgba(245,240,232,0.7)",
+                  border: "1px solid rgba(245,240,232,0.1)",
+                  fontSize: "0.55rem", fontWeight: 700, letterSpacing: "1px",
+                  textTransform: "uppercase", cursor: "pointer", fontFamily: "inherit",
+                }}
+              >Select all</button>
+              <button
+                type="button"
+                onClick={() => setVisibleSelected(false)}
+                disabled={selectedVisible.length === 0}
+                style={{
+                  padding: "4px 8px", borderRadius: "4px",
+                  background: "rgba(245,240,232,0.04)", color: "rgba(245,240,232,0.7)",
+                  border: "1px solid rgba(245,240,232,0.1)",
+                  fontSize: "0.55rem", fontWeight: 700, letterSpacing: "1px",
+                  textTransform: "uppercase", cursor: selectedVisible.length === 0 ? "not-allowed" : "pointer", fontFamily: "inherit",
+                  opacity: selectedVisible.length === 0 ? 0.45 : 1,
+                }}
+              >Select none</button>
+              <button
+                type="button"
+                onClick={removeSelected}
+                disabled={deleting || selectedVisible.length === 0}
+                title="Delete the ticked photos from the library"
+                style={{
+                  padding: "4px 8px", borderRadius: "4px",
+                  background: "rgba(251,113,133,0.08)", color: "#FB7185",
+                  border: "1px solid rgba(251,113,133,0.4)",
+                  fontSize: "0.55rem", fontWeight: 700, letterSpacing: "1px",
+                  textTransform: "uppercase",
+                  cursor: (deleting || selectedVisible.length === 0) ? "not-allowed" : "pointer",
+                  fontFamily: "inherit",
+                  opacity: selectedVisible.length === 0 ? 0.45 : 1,
+                }}
+              >{deleting ? "Deleting…" : `Delete selected${selectedVisible.length ? ` (${selectedVisible.length})` : ""}`}</button>
+            </div>
+          )}
           <div style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.4)", letterSpacing: "1px", textTransform: "uppercase" }}>
             {photos.length} photo{photos.length === 1 ? "" : "s"} · {formatBytes(total)}
           </div>
@@ -642,15 +732,21 @@ export function PhotoLibraryModal({ open, onClose, onPick, outputAs = "image", i
               gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
               gap: "10px",
             }}>
-              {photos.map(p => (
+              {photos.map(p => {
+                const isSel = selected.has(p.id);
+                return (
                 <div
                   key={p.id}
-                  onClick={() => pick(p.id)}
+                  onClick={(e) => {
+                    if (e.metaKey || e.ctrlKey) toggleSelect(p.id, e);
+                    else pick(p.id);
+                  }}
                   title={`${p.name} · ${p.width}×${p.height} · ${formatBytes(p.bytes)}`}
                   style={{
                     position: "relative",
                     background: "#000",
-                    border: "1px solid rgba(245,240,232,0.1)",
+                    border: `1px solid ${isSel ? "#E5BC4F" : "rgba(245,240,232,0.1)"}`,
+                    boxShadow: isSel ? "inset 0 0 0 2px #E5BC4F" : "none",
                     borderRadius: "5px",
                     overflow: "hidden",
                     cursor: busy ? "wait" : "pointer",
@@ -664,6 +760,25 @@ export function PhotoLibraryModal({ open, onClose, onPick, outputAs = "image", i
                     decoding="async"
                     style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
                   />
+                  <label
+                    title={isSel ? "Unselect" : "Select for bulk delete"}
+                    onClick={(e) => e.stopPropagation()}
+                    style={{
+                      position: "absolute", top: 4, left: 4,
+                      width: 24, height: 24, borderRadius: 4,
+                      background: isSel ? "#E5BC4F" : "rgba(0,0,0,0.75)",
+                      border: `1px solid ${isSel ? "#E5BC4F" : "rgba(245,240,232,0.35)"}`,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      cursor: "pointer", margin: 0,
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isSel}
+                      onChange={(e) => toggleSelect(p.id, e)}
+                      style={{ accentColor: "#E5BC4F", width: 14, height: 14, margin: 0, cursor: "pointer" }}
+                    />
+                  </label>
                   <button
                     onClick={(e) => remove(p.id, e)}
                     title="Delete from library"
@@ -688,7 +803,8 @@ export function PhotoLibraryModal({ open, onClose, onPick, outputAs = "image", i
                     <span style={{ color: "rgba(245,240,232,0.5)" }}>{formatWhen(p.createdAt)}</span>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

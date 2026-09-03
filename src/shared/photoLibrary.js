@@ -211,6 +211,23 @@ export async function deletePhoto(id) {
   invalidatePhotos();
 }
 
+export async function deletePhotos(ids) {
+  const unique = [...new Set((ids || []).map((id) => String(id || "").trim()).filter(Boolean))];
+  if (!unique.length) return { deleted: 0, failed: 0 };
+  const res = await api("/photos/bulk-delete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids: unique }),
+  });
+  invalidatePhotos();
+  let body = {};
+  try { body = await res.json(); } catch { body = {}; }
+  return {
+    deleted: Number(body.deleted) || unique.length,
+    failed: Number(body.failed) || 0,
+  };
+}
+
 export async function usageBytes() {
   const all = await getPhotosList();
   return all.reduce((sum, r) => sum + (r.bytes || 0), 0);
@@ -236,6 +253,11 @@ export const savePhotoAndNotify = async (...args) => {
 export const deletePhotoAndNotify = async (...args) => {
   await _deleteBare(...args);
   notify();
+};
+export const deletePhotosAndNotify = async (...args) => {
+  const result = await deletePhotos(...args);
+  notify();
+  return result;
 };
 
 // === EXPORTS ===

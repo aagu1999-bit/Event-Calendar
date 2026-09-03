@@ -241,6 +241,13 @@ app.post("/api/library/:kind", express.json({ limit: "50mb" }), async (req, res)
   }
 });
 
+async function unlinkLibraryItem(dir, id) {
+  for (const ext of [".bin", ".thumb", ".json"]) {
+    try { await fs.unlink(path.join(dir, `${id}${ext}`)); }
+    catch (e) { if (e.code !== "ENOENT") throw e; }
+  }
+}
+
 // Delete all three files for an item. Best-effort — ENOENT on any of
 // them is fine (the others may still need cleanup).
 app.delete("/api/library/:kind/:id", async (req, res) => {
@@ -248,14 +255,31 @@ app.delete("/api/library/:kind/:id", async (req, res) => {
   const id = safeId(req.params.id);
   if (!dir || !id) return res.status(400).end();
   try {
-    for (const ext of [".bin", ".thumb", ".json"]) {
-      try { await fs.unlink(path.join(dir, `${id}${ext}`)); }
-      catch (e) { if (e.code !== "ENOENT") throw e; }
-    }
+    await unlinkLibraryItem(dir, id);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// Bulk delete — Recap Library / Photo Library modal multi-select.
+// Cap at 500 so a bad client can't walk the whole disk in one request.
+app.post("/api/library/:kind/bulk-delete", express.json({ limit: "200kb" }), async (req, res) => {
+  const dir = getLibDir(req.params.kind);
+  if (!dir) return res.status(404).json({ error: "Unknown library kind" });
+  const raw = Array.isArray(req.body?.ids) ? req.body.ids : [];
+  const ids = [...new Set(raw.map((x) => safeId(x)).filter(Boolean))].slice(0, 500);
+  let deleted = 0;
+  let failed = 0;
+  for (const id of ids) {
+    try {
+      await unlinkLibraryItem(dir, id);
+      deleted++;
+    } catch {
+      failed++;
+    }
+  }
+  res.json({ ok: true, deleted, failed });
 });
 
 // === LIBRARY URL IMPORT ===
