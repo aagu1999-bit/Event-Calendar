@@ -107,7 +107,7 @@ function bestUrlFromStrings(strings, preferIg) {
 export function pickShareUrl(body) {
   const b = body && typeof body === "object" ? body : {};
   const named = [
-    b.sourceUrl, b.source_url, b.url, b.URL, b.Url,
+    b.sourceUrl, b.sourceURL, b.source_url, b.url, b.URL, b.Url,
     b.link, b.pageUrl, b.page_url, b.input, b.href, b.website, b.webpage,
     b.u,
   ];
