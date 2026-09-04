@@ -1121,7 +1121,7 @@ app.get("/cge-intake-url.shortcut", async (req, res) => {
     const shareUrl = `${origin}/api/screenshot-pool/share`;
     const buf = await buildUrlFirstShortcut(shareUrl);
     res.set("Content-Type", "application/octet-stream");
-    res.set("Content-Disposition", 'attachment; filename="CGE-Intake.shortcut"');
+    res.set("Content-Disposition", 'attachment; filename="Save-to-CGE-tool.shortcut"');
     return res.send(buf);
   } catch (err) { res.status(500).send(String(err.message || err)); }
 });
@@ -1131,7 +1131,7 @@ app.get("/cge-intake.shortcut", async (req, res) => {
     const buf = await poolStore.getTeamShortcutBlob();
     if (buf) {
       res.set("Content-Type", "application/octet-stream");
-      res.set("Content-Disposition", 'attachment; filename="CGE-Intake.shortcut"');
+      res.set("Content-Disposition", 'attachment; filename="Save-to-CGE-tool.shortcut"');
       return res.send(buf);
     }
     const st = await poolStore.teamShortcutStatus();
@@ -1144,15 +1144,26 @@ app.get("/shortcut", async (req, res) => {
   try {
     const origin = publicOrigin(req) || "";
     const urlFirst = `${origin}/cge-intake-url.shortcut`;
+    const shareUrl = `${origin}/api/screenshot-pool/share`;
     res.type("html").send(`<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Add CGE Intake</title>
-<body style="margin:0;min-height:100dvh;background:#0e0e10;color:#F5F0E8;font-family:-apple-system,sans-serif;padding:32px 20px">
-  <h1 style="font-size:1.5rem">Add CGE Intake</h1>
-  <p style="color:rgba(245,240,232,.6);line-height:1.45">The old <b>Save to CGE tool</b> Shortcut only takes the picture on screen. Instagram carousels need the <b>post link</b>. Add this URL-first Shortcut, then share the post (or Copy link → share that).</p>
-  <p><a href="${urlFirst}" style="display:block;text-align:center;padding:16px;border-radius:12px;background:#E5BC4F;color:#000;font-weight:800;text-decoration:none">Add CGE Intake</a></p>
-  <p style="font-size:.8rem;color:rgba(245,240,232,.4);line-height:1.45">If iPhone asks, tap <b>Add Shortcut</b> / <b>Allow Untrusted Shortcut</b>. You can delete the old “Save to CGE tool” after this works.</p>
-  <p style="font-size:.8rem;color:rgba(245,240,232,.45);line-height:1.45">Or in Review → Screenshot pool, paste the Instagram link and tap Add link.</p>
+<title>Save to CGE tool</title>
+<body style="margin:0;min-height:100dvh;background:#0e0e10;color:#F5F0E8;font-family:-apple-system,sans-serif;padding:32px 20px;line-height:1.5">
+  <h1 style="font-size:1.5rem;margin:0 0 12px">One button: links and photos</h1>
+  <p style="color:rgba(245,240,232,.7);margin:0 0 16px">Keep the signed <b>Save to CGE tool</b>. If the share has a link (Instagram post), POST it. If it is a screenshot/photo, encode it. Do not turn on all 18 types. Do not add <b>Get URLs from Input</b>.</p>
+  <h2 style="font-size:1rem;margin:0 0 8px">Shortcuts → Save to CGE tool</h2>
+  <ol style="color:rgba(245,240,232,.75);padding-left:1.2rem;font-size:.92rem">
+    <li>Tap <b>ⓘ</b> on Receive. Share Sheet Types: <b>Images</b>, <b>URLs</b>, and <b>Text</b> on. Everything else off — especially Safari web pages and the rest of the 18.</li>
+    <li>Keep <b>Get Text from Shortcut Input</b>.</li>
+    <li>Add <b>If</b>: <b>Text</b> contains <code>http</code>.</li>
+    <li>Inside If, keep your POST:<br>
+      URL <code style="font-size:.78rem;word-break:break-all">${shareUrl}</code><br>
+      Method <b>POST</b> · JSON · <code>sourceURL</code> = <b>Text</b>. Then <b>Show notification</b> → Contents of URL.</li>
+    <li><b>Otherwise</b>: <b>Encode</b> Shortcut Input with <b>base64</b> (line breaks None). Another <b>Get contents of URL</b> to the same address, POST JSON · one field <code>imageDataUrl</code> = Text <code>data:image/jpeg;base64,</code> then the Base64 Encoded variable. Then another Show notification → Contents of URL.</li>
+    <li><b>End If</b>. No Open URLs. No Get URLs from Input.</li>
+  </ol>
+  <p style="color:rgba(245,240,232,.55);font-size:.88rem;margin:16px 0">Instagram carousel: share the <b>post</b> so a link is in the share (If branch → Extract reads every slide). A photo from Photos uses Otherwise. If Instagram only sends the on-screen slide, you get that one image.</p>
+  <p style="font-size:.75rem;color:rgba(245,240,232,.35);margin:24px 0 0">Generated file is unsigned. Last resort: Settings → Shortcuts → Advanced → Allow Untrusted Shortcuts, then <a href="${urlFirst}" style="color:rgba(229,188,79,.8)">download</a>.</p>
 </body>`);
   } catch (err) { res.status(500).send(String(err.message || err)); }
 });
@@ -1170,7 +1181,7 @@ async function handleScreenshotShare(req, res) {
       const keys = req.body && typeof req.body === "object" ? Object.keys(req.body) : [];
       console.warn("[share] no url/image", { keys, query: Object.keys(req.query || {}), stub: !!share.stubImage });
       if (share.stubImage) {
-        const msg = "No Instagram link in that share. On the post tap ••• → Copy link, then share the link to CGE Intake (not just the photo).";
+        const msg = "That Instagram share was only an empty photo. Share the post so the link comes through (URLs on in Receive). Screenshots from Photos still work on the Otherwise / Encode path.";
         res.status(422);
         res.type("text/plain");
         return res.send(msg);
@@ -1971,7 +1982,7 @@ app.post("/api/weekend-review/bulk-update", express.json({ limit: "10mb" }), asy
 // the cloud buttons. Returns version so we can tell apart old servers if
 // the API ever changes.
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, api: "workspaces+library+reviewSessions+weekendReview", version: 11, env: NODE_ENV, sessionBackend: sessionStore.backend, poolBackend: poolStore.backend });
+  res.json({ ok: true, api: "workspaces+library+reviewSessions+weekendReview", version: 13, env: NODE_ENV, sessionBackend: sessionStore.backend, poolBackend: poolStore.backend });
 });
 
 // === NEWS SCOUT (autonomous) ===

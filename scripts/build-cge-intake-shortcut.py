@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Build an unsigned CGE Intake shortcut that prefers the Instagram post URL.
+"""Build Save to CGE tool: Instagram URL *or* a real photo/screenshot.
 
-The old "Save to CGE tool" shortcut only received Images, so Instagram's
-share sheet handed it a preview (often an empty data-URL) and dropped the
-post link. This one accepts URLs + text + Safari pages + images, pulls
-URLs from the share, and POSTs { sourceUrl } to the pool.
+Prefer a post link when Shortcut Input has http(s) text so carousels
+still go to Apify. Otherwise encode the image and POST imageDataUrl.
 
-Usage:
-  python3 scripts/build-cge-intake-shortcut.py --share-url https://example.com/api/screenshot-pool/share
+Do NOT use Get URLs from Input (detect.link) — that opens iPhone's
+"pick links from this page" sheet. Safari web pages stay off.
+
+Receive Images + URLs + Text only — not Apps and 18 more.
 """
 
 import argparse
@@ -65,69 +65,77 @@ def action(identifier, params):
 
 
 def build_workflow(share_url):
-    urls_uuid = uid()
-    first_uuid = uid()
-    resp_uuid = uid()
+    text_uuid = uid()
+    url_resp = uid()
+    enc_uuid = uid()
+    img_resp = uid()
     if_group = uid()
+    as_text = action_output(text_uuid, "Text")
+    encoded = action_output(enc_uuid, "Base64 Encoded")
+    url_out = action_output(url_resp, "Contents of URL")
+    img_out = action_output(img_resp, "Contents of URL")
 
-    urls = action_output(urls_uuid, "URLs")
-    first = action_output(first_uuid, "Item from List")
-    resp = action_output(resp_uuid, "Contents of URL")
+    url_post = {
+        "UUID": url_resp,
+        "WFURL": share_url,
+        "WFHTTPMethod": "POST",
+        "ShowHeaders": False,
+        "WFHTTPBodyType": "JSON",
+        "WFJSONValues": dictionary({"sourceUrl": text(as_text)}),
+    }
+    img_post = {
+        "UUID": img_resp,
+        "WFURL": share_url,
+        "WFHTTPMethod": "POST",
+        "ShowHeaders": False,
+        "WFHTTPBodyType": "JSON",
+        "WFJSONValues": dictionary({
+            "imageDataUrl": text("data:image/jpeg;base64,", encoded),
+        }),
+    }
 
     actions = [
         action("comment", {
             "WFCommentActionText": (
-                "CGE Intake (URL-first). Share an Instagram POST so the link "
-                "comes through. If the share is only a photo, Copy Link on "
-                "the post and share that."
+                "Save to CGE tool. Share an Instagram post (link) or a "
+                "photo/screenshot. If the input has http, POST sourceUrl. "
+                "Otherwise encode the image. No Get URLs from Input. "
+                "Receive Images + URLs + Text only."
             ),
         }),
-        action("detect.link", {
-            "UUID": urls_uuid,
-            "CustomOutputName": "URLs",
+        action("detect.text", {
+            "UUID": text_uuid,
+            "CustomOutputName": "Text",
             "WFInput": attachment(SHORTCUT_INPUT),
         }),
-        action("getitemfromlist", {
-            "UUID": first_uuid,
-            "CustomOutputName": "Item from List",
-            "WFItemSpecifier": "First Item",
-            "WFInput": attachment(urls),
-        }),
         action("conditional", {
-            "UUID": uid(),
             "GroupingIdentifier": if_group,
             "WFControlFlowMode": 0,
-            "WFCondition": 100,
-            "WFInput": {"Type": "Variable", "Variable": attachment(first)},
+            "WFCondition": 4,
+            "WFConditionalActionString": "http",
+            "WFInput": {"Type": "Variable", "Variable": attachment(as_text)},
         }),
-        action("downloadurl", {
-            "UUID": resp_uuid,
-            "WFURL": share_url,
-            "WFHTTPMethod": "POST",
-            "ShowHeaders": False,
-            "WFHTTPBodyType": "JSON",
-            "WFJSONValues": dictionary({
-                "sourceUrl": text(first),
-            }),
-        }),
+        action("downloadurl", url_post),
         action("notification", {
-            "WFNotificationActionTitle": "CGE Intake",
-            "WFNotificationActionBody": text(resp),
+            "WFNotificationActionTitle": "Save to CGE tool",
+            "WFNotificationActionBody": text(url_out),
         }),
         action("conditional", {
-            "UUID": uid(),
             "GroupingIdentifier": if_group,
             "WFControlFlowMode": 1,
         }),
+        action("base64encode", {
+            "UUID": enc_uuid,
+            "CustomOutputName": "Base64 Encoded",
+            "WFInput": attachment(SHORTCUT_INPUT),
+            "WFBase64LineBreakMode": "None",
+        }),
+        action("downloadurl", img_post),
         action("notification", {
-            "WFNotificationActionTitle": "CGE Intake",
-            "WFNotificationActionBody": (
-                "No Instagram link in that share. On the post tap ••• → Copy link, "
-                "then share the link to CGE Intake."
-            ),
+            "WFNotificationActionTitle": "Save to CGE tool",
+            "WFNotificationActionBody": text(img_out),
         }),
         action("conditional", {
-            "UUID": uid(),
             "GroupingIdentifier": if_group,
             "WFControlFlowMode": 2,
         }),
@@ -137,19 +145,15 @@ def build_workflow(share_url):
         "WFWorkflowClientVersion": "1300.0",
         "WFWorkflowMinimumClientVersion": 900,
         "WFWorkflowMinimumClientVersionString": "900",
-        "WFWorkflowName": "CGE Intake",
+        "WFWorkflowName": "Save to CGE tool",
         "WFWorkflowIcon": {
             "WFWorkflowIconStartColor": 431817727,
             "WFWorkflowIconGlyphNumber": 59511,
         },
         "WFWorkflowImportQuestions": [],
-        "WFWorkflowTypes": ["ActionExtension", "NCWidget"],
-        # URL + Safari page + text so Instagram's post link is not dropped.
-        # Images still accepted so the shortcut appears on photo shares.
+        "WFWorkflowTypes": ["ActionExtension"],
         "WFWorkflowInputContentItemClasses": [
             "WFURLContentItem",
-            "WFSafariWebPageContentItem",
-            "WFArticleContentItem",
             "WFStringContentItem",
             "WFImageContentItem",
         ],

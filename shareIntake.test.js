@@ -10,6 +10,9 @@ describe("pickShareUrl", () => {
   it("reads sourceUrl", () => {
     assert.equal(pickShareUrl({ sourceUrl: IG }), IG);
   });
+  it("reads sourceURL the way the iPhone Shortcut JSON field is labeled", () => {
+    assert.equal(pickShareUrl({ sourceURL: IG }), IG);
+  });
   it("reads url / link aliases the Shortcut might send", () => {
     assert.equal(pickShareUrl({ url: IG }), IG);
     assert.equal(pickShareUrl({ link: IG }), IG);
