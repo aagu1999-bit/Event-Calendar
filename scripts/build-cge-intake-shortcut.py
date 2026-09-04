@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
-"""Build an unsigned CGE Intake shortcut that prefers the Instagram post URL.
+"""Build a share-sheet Shortcut that POSTs the Instagram post URL.
 
-The old "Save to CGE tool" shortcut only received Images, so Instagram's
-share sheet handed it a preview (often an empty data-URL) and dropped the
-post link. This one accepts URLs + text + Safari pages + images, pulls
-URLs from the share, and POSTs { sourceUrl } to the pool.
+Do NOT use Get URLs from Input (detect.link) — on an Instagram/Safari
+share that action opens a "pick links from this page" UI, which feels
+like you have to take the link to a website.
+
+Do NOT accept Images — if Images is on, iOS hands the on-screen slide
+to the Shortcut and drops the post URL.
+
+Share sheet types are URL + text only. Shortcut Input is the post link.
+One POST, then a banner. Safari never opens.
 
 Usage:
   python3 scripts/build-cge-intake-shortcut.py --share-url https://example.com/api/screenshot-pool/share
@@ -65,40 +70,23 @@ def action(identifier, params):
 
 
 def build_workflow(share_url):
-    urls_uuid = uid()
-    first_uuid = uid()
+    text_uuid = uid()
     resp_uuid = uid()
-    if_group = uid()
-
-    urls = action_output(urls_uuid, "URLs")
-    first = action_output(first_uuid, "Item from List")
+    as_text = action_output(text_uuid, "Text")
     resp = action_output(resp_uuid, "Contents of URL")
 
     actions = [
         action("comment", {
             "WFCommentActionText": (
-                "CGE Intake (URL-first). Share an Instagram POST so the link "
-                "comes through. If the share is only a photo, Copy Link on "
-                "the post and share that."
+                "Share an Instagram post → this Shortcut. "
+                "It sends the post link to CGE. Do not open the website."
             ),
         }),
-        action("detect.link", {
-            "UUID": urls_uuid,
-            "CustomOutputName": "URLs",
+        # Stringify Shortcut Input (a URL content item) so the JSON is a real href.
+        action("detect.text", {
+            "UUID": text_uuid,
+            "CustomOutputName": "Text",
             "WFInput": attachment(SHORTCUT_INPUT),
-        }),
-        action("getitemfromlist", {
-            "UUID": first_uuid,
-            "CustomOutputName": "Item from List",
-            "WFItemSpecifier": "First Item",
-            "WFInput": attachment(urls),
-        }),
-        action("conditional", {
-            "UUID": uid(),
-            "GroupingIdentifier": if_group,
-            "WFControlFlowMode": 0,
-            "WFCondition": 100,
-            "WFInput": {"Type": "Variable", "Variable": attachment(first)},
         }),
         action("downloadurl", {
             "UUID": resp_uuid,
@@ -107,29 +95,12 @@ def build_workflow(share_url):
             "ShowHeaders": False,
             "WFHTTPBodyType": "JSON",
             "WFJSONValues": dictionary({
-                "sourceUrl": text(first),
+                "sourceUrl": text(as_text),
             }),
         }),
         action("notification", {
             "WFNotificationActionTitle": "CGE Intake",
             "WFNotificationActionBody": text(resp),
-        }),
-        action("conditional", {
-            "UUID": uid(),
-            "GroupingIdentifier": if_group,
-            "WFControlFlowMode": 1,
-        }),
-        action("notification", {
-            "WFNotificationActionTitle": "CGE Intake",
-            "WFNotificationActionBody": (
-                "No Instagram link in that share. On the post tap ••• → Copy link, "
-                "then share the link to CGE Intake."
-            ),
-        }),
-        action("conditional", {
-            "UUID": uid(),
-            "GroupingIdentifier": if_group,
-            "WFControlFlowMode": 2,
         }),
     ]
 
@@ -143,15 +114,13 @@ def build_workflow(share_url):
             "WFWorkflowIconGlyphNumber": 59511,
         },
         "WFWorkflowImportQuestions": [],
-        "WFWorkflowTypes": ["ActionExtension", "NCWidget"],
-        # URL + Safari page + text so Instagram's post link is not dropped.
-        # Images still accepted so the shortcut appears on photo shares.
+        "WFWorkflowTypes": ["ActionExtension"],
+        # URL + text only. Images would make iOS hand over the on-screen
+        # slide and drop the post link. Safari web pages are off so iOS
+        # does not open the "pick links from this page" sheet.
         "WFWorkflowInputContentItemClasses": [
             "WFURLContentItem",
-            "WFSafariWebPageContentItem",
-            "WFArticleContentItem",
             "WFStringContentItem",
-            "WFImageContentItem",
         ],
         "WFWorkflowHasShortcutInputVariables": True,
         "WFWorkflowActions": actions,

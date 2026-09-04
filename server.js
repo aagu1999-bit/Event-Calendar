@@ -1146,13 +1146,24 @@ app.get("/shortcut", async (req, res) => {
     const urlFirst = `${origin}/cge-intake-url.shortcut`;
     res.type("html").send(`<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Add CGE Intake</title>
-<body style="margin:0;min-height:100dvh;background:#0e0e10;color:#F5F0E8;font-family:-apple-system,sans-serif;padding:32px 20px">
-  <h1 style="font-size:1.5rem">Add CGE Intake</h1>
-  <p style="color:rgba(245,240,232,.6);line-height:1.45">The old <b>Save to CGE tool</b> Shortcut only takes the picture on screen. Instagram carousels need the <b>post link</b>. Add this URL-first Shortcut, then share the post (or Copy link → share that).</p>
+<title>CGE Intake Shortcut</title>
+<body style="margin:0;min-height:100dvh;background:#0e0e10;color:#F5F0E8;font-family:-apple-system,sans-serif;padding:32px 20px;line-height:1.5">
+  <h1 style="font-size:1.5rem;margin:0 0 12px">Keep using the share-sheet button</h1>
+  <p style="color:rgba(245,240,232,.7);margin:0 0 16px">Instagram → share → <b>CGE Intake</b> (or your edited <b>Save to CGE tool</b>). The button sends the post link. Safari does not open. You do not paste anything on this site.</p>
+  <p style="color:rgba(245,240,232,.55);font-size:.9rem;margin:0 0 16px">The last version asked iPhone to pick links off a page. That step is gone. Do not add <b>Get URLs from Input</b> and do not add <b>Open URLs</b>.</p>
   <p><a href="${urlFirst}" style="display:block;text-align:center;padding:16px;border-radius:12px;background:#E5BC4F;color:#000;font-weight:800;text-decoration:none">Add CGE Intake</a></p>
-  <p style="font-size:.8rem;color:rgba(245,240,232,.4);line-height:1.45">If iPhone asks, tap <b>Add Shortcut</b> / <b>Allow Untrusted Shortcut</b>. You can delete the old “Save to CGE tool” after this works.</p>
-  <p style="font-size:.8rem;color:rgba(245,240,232,.45);line-height:1.45">Or in Review → Screenshot pool, paste the Instagram link and tap Add link.</p>
+  <p style="font-size:.8rem;color:rgba(245,240,232,.4)">If iPhone asks, tap <b>Add Shortcut</b> / <b>Allow Untrusted Shortcut</b>. Then delete the old Images-only <b>Save to CGE tool</b> so you tap this one.</p>
+  <h2 style="font-size:1rem;margin-top:28px">Or keep the button you already tap</h2>
+  <p style="color:rgba(245,240,232,.55);font-size:.9rem">Edit <b>Save to CGE tool</b> in the Shortcuts app so Instagram hands it the link, not the photo:</p>
+  <ol style="color:rgba(245,240,232,.7);padding-left:1.2rem;font-size:.9rem">
+    <li>Open <b>Shortcuts</b> → <b>Save to CGE tool</b> → ⓘ / Details.</li>
+    <li><b>Share Sheet Types</b>: <b>URLs</b> on. <b>Images</b>, <b>Files</b>, and <b>Safari web pages</b> off. (Images on is why you only got the slide.)</li>
+    <li>Delete <b>Get URLs from Input</b> if it’s there — that is the “pick a link” screen.</li>
+    <li>Delete the step that builds <code>imageDataUrl</code> / Base64.</li>
+    <li>First step: <b>Get Text from Input</b> on <b>Shortcut Input</b>.</li>
+    <li><b>Get Contents of URL</b> → POST JSON <code>{"sourceUrl": Text}</code> to this app’s share endpoint. Then <b>Show Notification</b>. Nothing else.</li>
+  </ol>
+  <p style="font-size:.8rem;color:rgba(245,240,232,.4);margin-top:20px">After Images is off, the button still sits in Instagram’s share sheet — iPhone now passes the post link. If it’s missing, scroll the share row or tap More.</p>
 </body>`);
   } catch (err) { res.status(500).send(String(err.message || err)); }
 });
@@ -1170,7 +1181,7 @@ async function handleScreenshotShare(req, res) {
       const keys = req.body && typeof req.body === "object" ? Object.keys(req.body) : [];
       console.warn("[share] no url/image", { keys, query: Object.keys(req.query || {}), stub: !!share.stubImage });
       if (share.stubImage) {
-        const msg = "No Instagram link in that share. On the post tap ••• → Copy link, then share the link to CGE Intake (not just the photo).";
+        const msg = "That share was only the photo, so CGE never got the post link. In Shortcuts, open Save to CGE tool → Share Sheet Types: URLs on, Images off. Then Instagram → share → that same button.";
         res.status(422);
         res.type("text/plain");
         return res.send(msg);
@@ -1971,7 +1982,7 @@ app.post("/api/weekend-review/bulk-update", express.json({ limit: "10mb" }), asy
 // the cloud buttons. Returns version so we can tell apart old servers if
 // the API ever changes.
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, api: "workspaces+library+reviewSessions+weekendReview", version: 11, env: NODE_ENV, sessionBackend: sessionStore.backend, poolBackend: poolStore.backend });
+  res.json({ ok: true, api: "workspaces+library+reviewSessions+weekendReview", version: 12, env: NODE_ENV, sessionBackend: sessionStore.backend, poolBackend: poolStore.backend });
 });
 
 // === NEWS SCOUT (autonomous) ===

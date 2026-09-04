@@ -464,14 +464,14 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
           <button onClick={onClose} style={{ background: "transparent", border: "none", color: "rgba(245,240,232,0.5)", fontSize: "1.1rem", cursor: "pointer" }}>×</button>
         </div>
         <p style={{ margin: "0 0 10px", fontSize: "0.78rem", color: "rgba(245,240,232,0.55)", lineHeight: 1.5 }}>
-          Everything you dropped this week — screenshots you saved from inside CGE (📸) or shared here from your phone (📱). Weekend filter shows only entries for {wkLabel}; raw shares (no date yet) always show so you can extract them.
+          From the phone: Instagram → share → <b style={{ color: "#F5F0E8" }}>CGE Intake</b> (or your edited Save to CGE tool). The button sends the post link — you do not paste here. Weekend filter shows only entries for {wkLabel}; raw shares (no date yet) always show so you can extract them.
         </p>
         <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
           <input
             value={pasteUrl}
             onChange={(e) => setPasteUrl(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") addPastedUrl(); }}
-            placeholder="Paste Instagram post link…"
+            placeholder="Backup — paste a link only if you're already at a computer"
             inputMode="url"
             style={{ ...I, flex: "1 1 220px", padding: "8px 10px" }}
           />
