@@ -36,6 +36,9 @@ describe("pickShareUrl", () => {
   it("reads urls as a string, not only an array", () => {
     assert.equal(pickShareUrl({ urls: IG }), IG);
   });
+  it("decodes a percent-encoded Instagram URL", () => {
+    assert.equal(pickShareUrl({ sourceUrl: encodeURIComponent(IG) }), IG);
+  });
 });
 
 describe("classifyShare", () => {

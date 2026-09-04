@@ -87,6 +87,8 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
   const [apifyConfigured, setApifyConfigured] = useState(null); // null = unknown
   const [msg, setMsg] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [pasteUrl, setPasteUrl] = useState("");
+  const [addingUrl, setAddingUrl] = useState(false);
   const [allDates, setAllDates] = useState(() => {
     try { return localStorage.getItem("cge_pool_all_dates") === "true"; } catch { return false; }
   });
@@ -124,6 +126,29 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
     } catch (err) {
       setMsg({ ok: false, text: String(err?.message || err) });
     } finally { setLoading(false); }
+  };
+
+  const addPastedUrl = async () => {
+    const raw = pasteUrl.trim();
+    if (!raw || addingUrl) return;
+    setAddingUrl(true);
+    setMsg(null);
+    try {
+      const r = await fetch("/api/screenshot-pool/share", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sourceUrl: raw }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.message || j.detail || j.error || `Server ${r.status}`);
+      setPasteUrl("");
+      await loadPool();
+      setMsg({ ok: true, text: "Link saved. Extract it like any other raw share." });
+    } catch (err) {
+      setMsg({ ok: false, text: String(err?.message || err) });
+    } finally {
+      setAddingUrl(false);
+    }
   };
 
   useEffect(() => {
@@ -441,6 +466,24 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
         <p style={{ margin: "0 0 10px", fontSize: "0.78rem", color: "rgba(245,240,232,0.55)", lineHeight: 1.5 }}>
           Everything you dropped this week — screenshots you saved from inside CGE (📸) or shared here from your phone (📱). Weekend filter shows only entries for {wkLabel}; raw shares (no date yet) always show so you can extract them.
         </p>
+        <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+          <input
+            value={pasteUrl}
+            onChange={(e) => setPasteUrl(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") addPastedUrl(); }}
+            placeholder="Paste Instagram post link…"
+            inputMode="url"
+            style={{ ...I, flex: "1 1 220px", padding: "8px 10px" }}
+          />
+          <button
+            type="button"
+            onClick={addPastedUrl}
+            disabled={addingUrl || !pasteUrl.trim()}
+            style={{ padding: "8px 12px", borderRadius: 5, cursor: (addingUrl || !pasteUrl.trim()) ? "not-allowed" : "pointer", background: "#E5BC4F", color: "#000", border: "none", fontSize: "0.72rem", fontWeight: 800, letterSpacing: "0.3px" }}
+          >
+            {addingUrl ? "Adding…" : "Add link"}
+          </button>
+        </div>
 
         {visibleRaw.some((e) => !e.thumb && /instagram\.com|instagr\.am/i.test(e.sourceUrl || "")) && apifyConfigured === false && (
           <div style={{ marginBottom: 12, padding: "9px 12px", borderRadius: 8, fontSize: "0.78rem", background: "rgba(251,113,133,0.1)", border: "1px solid rgba(251,113,133,0.4)", color: "#FB7185", lineHeight: 1.45 }}>
