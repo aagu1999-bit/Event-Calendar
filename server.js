@@ -1149,24 +1149,22 @@ app.get("/shortcut", async (req, res) => {
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Save to CGE tool</title>
 <body style="margin:0;min-height:100dvh;background:#0e0e10;color:#F5F0E8;font-family:-apple-system,sans-serif;padding:32px 20px;line-height:1.5">
-  <h1 style="font-size:1.5rem;margin:0 0 12px">Edit Save to CGE tool</h1>
-  <p style="color:rgba(245,240,232,.7);margin:0 0 16px">Keep the same share-sheet button. Your live Shortcut receives <b>Apps and 18 more</b>, then <b>If Type is Image → Encode base64</b>. Instagram therefore hands it the slide, not the post link. Change that Shortcut so the button POSTs the URL. Safari does not open. You do not paste on this site.</p>
-  <h2 style="font-size:1rem;margin:0 0 8px">In Shortcuts → Save to CGE tool</h2>
+  <h1 style="font-size:1.5rem;margin:0 0 12px">Use the signed button you already have</h1>
+  <p style="color:rgba(245,240,232,.7);margin:0 0 16px">Apple will not install a file we generate — it is <b>unsigned</b>. Your <b>Save to CGE tool</b> in the Shortcuts app is already signed. Edit that one. Instagram → share → the same button. Safari does not open.</p>
+  <h2 style="font-size:1rem;margin:0 0 8px">Shortcuts → Save to CGE tool</h2>
   <ol style="color:rgba(245,240,232,.75);padding-left:1.2rem;font-size:.92rem">
     <li>Tap <b>ⓘ</b> on <b>Receive Apps and 18 more</b>. Share Sheet Types: <b>URLs</b> on (Text if listed). <b>Images</b>, <b>Files</b>, <b>Safari web pages</b>, and the rest of the 18 <b>off</b>.</li>
     <li>Delete <b>Get type of Shortcut Input</b>.</li>
     <li>Delete the whole <b>If Type is Image</b> block: <b>Encode … base64</b>, <b>Otherwise</b>, the extra <b>Get contents of URL</b> inside it, and <b>End If</b>.</li>
-    <li>Delete the second <b>Get contents of URL</b> that sits after End If (same Replit address). Leave one copy only.</li>
-    <li>Add <b>Get Text from Input</b> → Shortcut Input. Do <b>not</b> add <b>Get URLs from Input</b> (that is the pick-a-link sheet).</li>
-    <li>The remaining <b>Get contents of URL</b>:<br>
+    <li>Delete the second <b>Get contents of URL</b> after End If. Leave one copy.</li>
+    <li>Add <b>Get Text from Input</b> → Shortcut Input. Do <b>not</b> add <b>Get URLs from Input</b>.</li>
+    <li>That <b>Get contents of URL</b>:<br>
       URL <code style="font-size:.78rem;word-break:break-all">${shareUrl}</code><br>
       Method <b>POST</b> · Request Body <b>JSON</b> · one field <code>sourceUrl</code> = that <b>Text</b>.</li>
     <li>Keep <b>Show notification</b> → Contents of URL. No <b>Open URLs</b>.</li>
   </ol>
-  <p style="color:rgba(245,240,232,.55);font-size:.88rem;margin:16px 0">Then Instagram → share → <b>Save to CGE tool</b>. If the button is missing, scroll the share row or tap More — Images off is what makes iPhone pass the link.</p>
-  <p style="color:rgba(245,240,232,.45);font-size:.8rem;margin:0 0 16px">Backup only if you would rather replace the file than edit it:</p>
-  <p><a href="${urlFirst}" style="display:block;text-align:center;padding:16px;border-radius:12px;background:#E5BC4F;color:#000;font-weight:800;text-decoration:none">Add Save to CGE tool</a></p>
-  <p style="font-size:.8rem;color:rgba(245,240,232,.4)">If iPhone asks, tap <b>Add Shortcut</b> / <b>Allow Untrusted Shortcut</b>, then delete the old Images-only copy so you do not tap Encode base64 by habit.</p>
+  <p style="color:rgba(245,240,232,.55);font-size:.88rem;margin:16px 0">When it works, optional: tap Share in Shortcuts → <b>Copy iCloud Link</b> so the team gets a signed install. A downloaded <code>.shortcut</code> from this site will always say unsigned.</p>
+  <p style="font-size:.75rem;color:rgba(245,240,232,.35);margin:24px 0 0">Last resort (unsigned — iPhone will warn): <a href="${urlFirst}" style="color:rgba(229,188,79,.8)">Allow Untrusted Shortcuts, then download</a>. Settings → Shortcuts → Advanced → Allow Untrusted Shortcuts.</p>
 </body>`);
   } catch (err) { res.status(500).send(String(err.message || err)); }
 });
