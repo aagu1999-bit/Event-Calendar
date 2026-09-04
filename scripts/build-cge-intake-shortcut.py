@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
-"""Build a share-sheet Shortcut named Save to CGE tool that POSTs the post URL.
+"""Build Save to CGE tool: Instagram URL *or* a real photo/screenshot.
+
+Prefer a post link when Shortcut Input has http(s) text so carousels
+still go to Apify. Otherwise encode the image and POST imageDataUrl.
 
 Do NOT use Get URLs from Input (detect.link) — that opens iPhone's
-"pick links from this page" sheet.
+"pick links from this page" sheet. Safari web pages stay off.
 
-Do NOT accept Images — Receive "Apps and 18 more" made Instagram hand
-over the on-screen slide and drop the post URL.
-
-Share sheet types are URL + text only. Shortcut Input is the post link.
-One POST, then a banner. Safari never opens.
+Receive Images + URLs + Text only — not Apps and 18 more.
 """
 
 import argparse
@@ -67,37 +66,78 @@ def action(identifier, params):
 
 def build_workflow(share_url):
     text_uuid = uid()
-    resp_uuid = uid()
+    url_resp = uid()
+    enc_uuid = uid()
+    img_resp = uid()
+    if_group = uid()
     as_text = action_output(text_uuid, "Text")
-    resp = action_output(resp_uuid, "Contents of URL")
+    encoded = action_output(enc_uuid, "Base64 Encoded")
+    url_out = action_output(url_resp, "Contents of URL")
+    img_out = action_output(img_resp, "Contents of URL")
+
+    url_post = {
+        "UUID": url_resp,
+        "WFURL": share_url,
+        "WFHTTPMethod": "POST",
+        "ShowHeaders": False,
+        "WFHTTPBodyType": "JSON",
+        "WFJSONValues": dictionary({"sourceUrl": text(as_text)}),
+    }
+    img_post = {
+        "UUID": img_resp,
+        "WFURL": share_url,
+        "WFHTTPMethod": "POST",
+        "ShowHeaders": False,
+        "WFHTTPBodyType": "JSON",
+        "WFJSONValues": dictionary({
+            "imageDataUrl": text("data:image/jpeg;base64,", encoded),
+        }),
+    }
 
     actions = [
         action("comment", {
             "WFCommentActionText": (
-                "Save to CGE tool. Instagram → share → this button. "
-                "Sends the post link. Do not open the website. "
-                "Receive URLs only — not Apps and 18 more / Images."
+                "Save to CGE tool. Share an Instagram post (link) or a "
+                "photo/screenshot. If the input has http, POST sourceUrl. "
+                "Otherwise encode the image. No Get URLs from Input. "
+                "Receive Images + URLs + Text only."
             ),
         }),
-        # Stringify Shortcut Input (a URL content item) so the JSON is a real href.
         action("detect.text", {
             "UUID": text_uuid,
             "CustomOutputName": "Text",
             "WFInput": attachment(SHORTCUT_INPUT),
         }),
-        action("downloadurl", {
-            "UUID": resp_uuid,
-            "WFURL": share_url,
-            "WFHTTPMethod": "POST",
-            "ShowHeaders": False,
-            "WFHTTPBodyType": "JSON",
-            "WFJSONValues": dictionary({
-                "sourceUrl": text(as_text),
-            }),
+        action("conditional", {
+            "GroupingIdentifier": if_group,
+            "WFControlFlowMode": 0,
+            "WFCondition": 4,
+            "WFConditionalActionString": "http",
+            "WFInput": {"Type": "Variable", "Variable": attachment(as_text)},
         }),
+        action("downloadurl", url_post),
         action("notification", {
             "WFNotificationActionTitle": "Save to CGE tool",
-            "WFNotificationActionBody": text(resp),
+            "WFNotificationActionBody": text(url_out),
+        }),
+        action("conditional", {
+            "GroupingIdentifier": if_group,
+            "WFControlFlowMode": 1,
+        }),
+        action("base64encode", {
+            "UUID": enc_uuid,
+            "CustomOutputName": "Base64 Encoded",
+            "WFInput": attachment(SHORTCUT_INPUT),
+            "WFBase64LineBreakMode": "None",
+        }),
+        action("downloadurl", img_post),
+        action("notification", {
+            "WFNotificationActionTitle": "Save to CGE tool",
+            "WFNotificationActionBody": text(img_out),
+        }),
+        action("conditional", {
+            "GroupingIdentifier": if_group,
+            "WFControlFlowMode": 2,
         }),
     ]
 
@@ -112,12 +152,10 @@ def build_workflow(share_url):
         },
         "WFWorkflowImportQuestions": [],
         "WFWorkflowTypes": ["ActionExtension"],
-        # URL + text only. Images would make iOS hand over the on-screen
-        # slide and drop the post link. Safari web pages are off so iOS
-        # does not open the "pick links from this page" sheet.
         "WFWorkflowInputContentItemClasses": [
             "WFURLContentItem",
             "WFStringContentItem",
+            "WFImageContentItem",
         ],
         "WFWorkflowHasShortcutInputVariables": True,
         "WFWorkflowActions": actions,

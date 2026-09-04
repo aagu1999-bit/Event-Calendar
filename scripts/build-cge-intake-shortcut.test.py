@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Guardrails for the share-sheet Shortcut: no link-picker, no image intake."""
+"""Guardrails: URL path when text has http, else photo encode. No link-picker."""
 
 import plistlib
 import subprocess
@@ -24,21 +24,28 @@ def main():
     assert "is.workflow.actions.detect.link" not in ids, ids
     assert "is.workflow.actions.openurl" not in ids, ids
     assert "is.workflow.actions.detect.text" in ids, ids
-    assert "is.workflow.actions.downloadurl" in ids, ids
-    assert "WFImageContentItem" not in classes, classes
+    assert "is.workflow.actions.base64encode" in ids, ids
+    assert ids.count("is.workflow.actions.downloadurl") == 2, ids
+    assert "is.workflow.actions.conditional" in ids, ids
     assert "WFSafariWebPageContentItem" not in classes, classes
+    assert "WFImageContentItem" in classes, classes
     assert "WFURLContentItem" in classes, classes
     assert wf["WFWorkflowTypes"] == ["ActionExtension"], wf["WFWorkflowTypes"]
 
-    post = next(a for a in wf["WFWorkflowActions"] if a["WFWorkflowActionIdentifier"].endswith("downloadurl"))
-    params = post["WFWorkflowActionParameters"]
-    assert params["WFHTTPMethod"] == "POST"
-    assert params["WFURL"] == SHARE
-    keys = [
-        item["WFKey"]["Value"]["string"]
-        for item in params["WFJSONValues"]["Value"]["WFDictionaryFieldValueItems"]
+    posts = [
+        a["WFWorkflowActionParameters"]
+        for a in wf["WFWorkflowActions"]
+        if a["WFWorkflowActionIdentifier"].endswith("downloadurl")
     ]
-    assert keys == ["sourceUrl"], keys
+    keys = []
+    for params in posts:
+        assert params["WFHTTPMethod"] == "POST"
+        assert params["WFURL"] == SHARE
+        keys.append([
+            item["WFKey"]["Value"]["string"]
+            for item in params["WFJSONValues"]["Value"]["WFDictionaryFieldValueItems"]
+        ])
+    assert keys == [["sourceUrl"], ["imageDataUrl"]], keys
     print("ok")
 
 
