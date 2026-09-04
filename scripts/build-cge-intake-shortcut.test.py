@@ -20,6 +20,7 @@ def main():
     ids = [a["WFWorkflowActionIdentifier"] for a in wf["WFWorkflowActions"]]
     classes = wf["WFWorkflowInputContentItemClasses"]
 
+    assert wf["WFWorkflowName"] == "Save to CGE tool", wf["WFWorkflowName"]
     assert "is.workflow.actions.detect.link" not in ids, ids
     assert "is.workflow.actions.openurl" not in ids, ids
     assert "is.workflow.actions.detect.text" in ids, ids

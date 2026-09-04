@@ -1121,7 +1121,7 @@ app.get("/cge-intake-url.shortcut", async (req, res) => {
     const shareUrl = `${origin}/api/screenshot-pool/share`;
     const buf = await buildUrlFirstShortcut(shareUrl);
     res.set("Content-Type", "application/octet-stream");
-    res.set("Content-Disposition", 'attachment; filename="CGE-Intake.shortcut"');
+    res.set("Content-Disposition", 'attachment; filename="Save-to-CGE-tool.shortcut"');
     return res.send(buf);
   } catch (err) { res.status(500).send(String(err.message || err)); }
 });
@@ -1131,7 +1131,7 @@ app.get("/cge-intake.shortcut", async (req, res) => {
     const buf = await poolStore.getTeamShortcutBlob();
     if (buf) {
       res.set("Content-Type", "application/octet-stream");
-      res.set("Content-Disposition", 'attachment; filename="CGE-Intake.shortcut"');
+      res.set("Content-Disposition", 'attachment; filename="Save-to-CGE-tool.shortcut"');
       return res.send(buf);
     }
     const st = await poolStore.teamShortcutStatus();
@@ -1144,26 +1144,29 @@ app.get("/shortcut", async (req, res) => {
   try {
     const origin = publicOrigin(req) || "";
     const urlFirst = `${origin}/cge-intake-url.shortcut`;
+    const shareUrl = `${origin}/api/screenshot-pool/share`;
     res.type("html").send(`<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>CGE Intake Shortcut</title>
+<title>Save to CGE tool</title>
 <body style="margin:0;min-height:100dvh;background:#0e0e10;color:#F5F0E8;font-family:-apple-system,sans-serif;padding:32px 20px;line-height:1.5">
-  <h1 style="font-size:1.5rem;margin:0 0 12px">Keep using the share-sheet button</h1>
-  <p style="color:rgba(245,240,232,.7);margin:0 0 16px">Instagram → share → <b>CGE Intake</b> (or your edited <b>Save to CGE tool</b>). The button sends the post link. Safari does not open. You do not paste anything on this site.</p>
-  <p style="color:rgba(245,240,232,.55);font-size:.9rem;margin:0 0 16px">The last version asked iPhone to pick links off a page. That step is gone. Do not add <b>Get URLs from Input</b> and do not add <b>Open URLs</b>.</p>
-  <p><a href="${urlFirst}" style="display:block;text-align:center;padding:16px;border-radius:12px;background:#E5BC4F;color:#000;font-weight:800;text-decoration:none">Add CGE Intake</a></p>
-  <p style="font-size:.8rem;color:rgba(245,240,232,.4)">If iPhone asks, tap <b>Add Shortcut</b> / <b>Allow Untrusted Shortcut</b>. Then delete the old Images-only <b>Save to CGE tool</b> so you tap this one.</p>
-  <h2 style="font-size:1rem;margin-top:28px">Or keep the button you already tap</h2>
-  <p style="color:rgba(245,240,232,.55);font-size:.9rem">Edit <b>Save to CGE tool</b> in the Shortcuts app so Instagram hands it the link, not the photo:</p>
-  <ol style="color:rgba(245,240,232,.7);padding-left:1.2rem;font-size:.9rem">
-    <li>Open <b>Shortcuts</b> → <b>Save to CGE tool</b> → ⓘ / Details.</li>
-    <li><b>Share Sheet Types</b>: <b>URLs</b> on. <b>Images</b>, <b>Files</b>, and <b>Safari web pages</b> off. (Images on is why you only got the slide.)</li>
-    <li>Delete <b>Get URLs from Input</b> if it’s there — that is the “pick a link” screen.</li>
-    <li>Delete the step that builds <code>imageDataUrl</code> / Base64.</li>
-    <li>First step: <b>Get Text from Input</b> on <b>Shortcut Input</b>.</li>
-    <li><b>Get Contents of URL</b> → POST JSON <code>{"sourceUrl": Text}</code> to this app’s share endpoint. Then <b>Show Notification</b>. Nothing else.</li>
+  <h1 style="font-size:1.5rem;margin:0 0 12px">Edit Save to CGE tool</h1>
+  <p style="color:rgba(245,240,232,.7);margin:0 0 16px">Keep the same share-sheet button. Your live Shortcut receives <b>Apps and 18 more</b>, then <b>If Type is Image → Encode base64</b>. Instagram therefore hands it the slide, not the post link. Change that Shortcut so the button POSTs the URL. Safari does not open. You do not paste on this site.</p>
+  <h2 style="font-size:1rem;margin:0 0 8px">In Shortcuts → Save to CGE tool</h2>
+  <ol style="color:rgba(245,240,232,.75);padding-left:1.2rem;font-size:.92rem">
+    <li>Tap <b>ⓘ</b> on <b>Receive Apps and 18 more</b>. Share Sheet Types: <b>URLs</b> on (Text if listed). <b>Images</b>, <b>Files</b>, <b>Safari web pages</b>, and the rest of the 18 <b>off</b>.</li>
+    <li>Delete <b>Get type of Shortcut Input</b>.</li>
+    <li>Delete the whole <b>If Type is Image</b> block: <b>Encode … base64</b>, <b>Otherwise</b>, the extra <b>Get contents of URL</b> inside it, and <b>End If</b>.</li>
+    <li>Delete the second <b>Get contents of URL</b> that sits after End If (same Replit address). Leave one copy only.</li>
+    <li>Add <b>Get Text from Input</b> → Shortcut Input. Do <b>not</b> add <b>Get URLs from Input</b> (that is the pick-a-link sheet).</li>
+    <li>The remaining <b>Get contents of URL</b>:<br>
+      URL <code style="font-size:.78rem;word-break:break-all">${shareUrl}</code><br>
+      Method <b>POST</b> · Request Body <b>JSON</b> · one field <code>sourceUrl</code> = that <b>Text</b>.</li>
+    <li>Keep <b>Show notification</b> → Contents of URL. No <b>Open URLs</b>.</li>
   </ol>
-  <p style="font-size:.8rem;color:rgba(245,240,232,.4);margin-top:20px">After Images is off, the button still sits in Instagram’s share sheet — iPhone now passes the post link. If it’s missing, scroll the share row or tap More.</p>
+  <p style="color:rgba(245,240,232,.55);font-size:.88rem;margin:16px 0">Then Instagram → share → <b>Save to CGE tool</b>. If the button is missing, scroll the share row or tap More — Images off is what makes iPhone pass the link.</p>
+  <p style="color:rgba(245,240,232,.45);font-size:.8rem;margin:0 0 16px">Backup only if you would rather replace the file than edit it:</p>
+  <p><a href="${urlFirst}" style="display:block;text-align:center;padding:16px;border-radius:12px;background:#E5BC4F;color:#000;font-weight:800;text-decoration:none">Add Save to CGE tool</a></p>
+  <p style="font-size:.8rem;color:rgba(245,240,232,.4)">If iPhone asks, tap <b>Add Shortcut</b> / <b>Allow Untrusted Shortcut</b>, then delete the old Images-only copy so you do not tap Encode base64 by habit.</p>
 </body>`);
   } catch (err) { res.status(500).send(String(err.message || err)); }
 });
@@ -1181,7 +1184,7 @@ async function handleScreenshotShare(req, res) {
       const keys = req.body && typeof req.body === "object" ? Object.keys(req.body) : [];
       console.warn("[share] no url/image", { keys, query: Object.keys(req.query || {}), stub: !!share.stubImage });
       if (share.stubImage) {
-        const msg = "That share was only the photo, so CGE never got the post link. In Shortcuts, open Save to CGE tool → Share Sheet Types: URLs on, Images off. Then Instagram → share → that same button.";
+        const msg = "That share was only the photo. In Save to CGE tool: Receive should be URLs only (not Apps and 18 more). Delete If Type is Image / Encode base64. POST sourceUrl. Then Instagram → share → that same button.";
         res.status(422);
         res.type("text/plain");
         return res.send(msg);

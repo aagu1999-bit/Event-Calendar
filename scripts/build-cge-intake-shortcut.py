@@ -1,18 +1,14 @@
 #!/usr/bin/env python3
-"""Build a share-sheet Shortcut that POSTs the Instagram post URL.
+"""Build a share-sheet Shortcut named Save to CGE tool that POSTs the post URL.
 
-Do NOT use Get URLs from Input (detect.link) — on an Instagram/Safari
-share that action opens a "pick links from this page" UI, which feels
-like you have to take the link to a website.
+Do NOT use Get URLs from Input (detect.link) — that opens iPhone's
+"pick links from this page" sheet.
 
-Do NOT accept Images — if Images is on, iOS hands the on-screen slide
-to the Shortcut and drops the post URL.
+Do NOT accept Images — Receive "Apps and 18 more" made Instagram hand
+over the on-screen slide and drop the post URL.
 
 Share sheet types are URL + text only. Shortcut Input is the post link.
 One POST, then a banner. Safari never opens.
-
-Usage:
-  python3 scripts/build-cge-intake-shortcut.py --share-url https://example.com/api/screenshot-pool/share
 """
 
 import argparse
@@ -78,8 +74,9 @@ def build_workflow(share_url):
     actions = [
         action("comment", {
             "WFCommentActionText": (
-                "Share an Instagram post → this Shortcut. "
-                "It sends the post link to CGE. Do not open the website."
+                "Save to CGE tool. Instagram → share → this button. "
+                "Sends the post link. Do not open the website. "
+                "Receive URLs only — not Apps and 18 more / Images."
             ),
         }),
         # Stringify Shortcut Input (a URL content item) so the JSON is a real href.
@@ -99,7 +96,7 @@ def build_workflow(share_url):
             }),
         }),
         action("notification", {
-            "WFNotificationActionTitle": "CGE Intake",
+            "WFNotificationActionTitle": "Save to CGE tool",
             "WFNotificationActionBody": text(resp),
         }),
     ]
@@ -108,7 +105,7 @@ def build_workflow(share_url):
         "WFWorkflowClientVersion": "1300.0",
         "WFWorkflowMinimumClientVersion": 900,
         "WFWorkflowMinimumClientVersionString": "900",
-        "WFWorkflowName": "CGE Intake",
+        "WFWorkflowName": "Save to CGE tool",
         "WFWorkflowIcon": {
             "WFWorkflowIconStartColor": 431817727,
             "WFWorkflowIconGlyphNumber": 59511,
