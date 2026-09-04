@@ -21,7 +21,7 @@ import { runScout, storyKey, focusForDay } from "./scoutServer.js";
 import { createSessionStore, normalizeSession, applySessionOps } from "./reviewSessionStore.js";
 import { createPoolStore } from "./screenshotPoolStore.js";
 import { normalizeImageDataUrl, usableImageDataUrl, toPreviewDataUrl, sniffImageKind } from "./normalizeImage.js";
-import { classifyShare, isInstagramUrl } from "./shareIntake.js";
+import { classifyShare, isInstagramUrl, coerceShareBody } from "./shareIntake.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || "5000", 10);
@@ -1035,7 +1035,7 @@ function publicOrigin(req) {
 function shareCors(res) {
   res.set("Access-Control-Allow-Origin", "*");
   res.set("Access-Control-Allow-Headers", "Content-Type");
-  res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.set("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
 }
 
 // Team intake page — same form hosted live AND as a downloadable HTML file
@@ -1124,6 +1124,7 @@ app.get("/shortcut", async (req, res) => {
 <body style="margin:0;min-height:100dvh;background:#0e0e10;color:#F5F0E8;font-family:-apple-system,sans-serif;padding:32px 20px">
   <h1 style="font-size:1.5rem">Add CGE Intake</h1>
   <p style="color:rgba(245,240,232,.6);line-height:1.45">This adds the Shortcut to your iPhone. After that, share any Instagram post or photo → <b>CGE Intake</b> and it lands in the pool.</p>
+  <p style="color:rgba(245,240,232,.45);font-size:.85rem;line-height:1.45">The Shortcut must send the <b>post link</b>, not only the picture. In Shortcuts: add <b>Get URLs from Input</b> and put that URL in the JSON as <code>sourceUrl</code>. Sharing only the slide on screen cannot read the rest of the carousel.</p>
   ${ready
     ? `<p><a href="${addHref}" style="display:block;text-align:center;padding:16px;border-radius:12px;background:#E5BC4F;color:#000;font-weight:800;text-decoration:none">Add Shortcut</a></p>
        <p style="font-size:.8rem;color:rgba(245,240,232,.4)">If iPhone asks, tap <b>Add Shortcut</b> / <b>Allow Untrusted Shortcut</b>.</p>`
@@ -1133,18 +1134,21 @@ app.get("/shortcut", async (req, res) => {
 });
 
 app.options("/api/screenshot-pool/share", (_req, res) => { shareCors(res); res.sendStatus(204); });
-app.post("/api/screenshot-pool/share", express.json({ limit: "20mb" }), async (req, res) => {
+
+async function handleScreenshotShare(req, res) {
   shareCors(res);
   try {
-    const share = classifyShare(req.body || {});
+    const share = classifyShare(coerceShareBody(req.body), req.query || {});
     const sourceUrl = share.url;
     const hasUrl = !!sourceUrl;
     const hasImage = !!share.imageDataUrl;
     if (!hasImage && !hasUrl) {
+      const keys = req.body && typeof req.body === "object" ? Object.keys(req.body) : [];
+      console.warn("[share] no url/image", { keys, query: Object.keys(req.query || {}), stub: !!share.stubImage });
       if (share.stubImage) {
         return res.status(422).json({
           error: "bad_image",
-          message: "That share didn't include image bytes or a post link. For an Instagram carousel, share the post itself (not just the photo) so Extract can read every slide. For a camera-roll shot, re-share it from Photos as an image (not a file).",
+          message: "That share didn't include the Instagram post link. In Shortcuts, add Get URLs from Input and send it as sourceUrl (the picture alone is just the slide on screen). Or Copy Link on the post and share that. Camera-roll shots: re-share from Photos as an image.",
         });
       }
       return res.status(400).json({ error: "no_content", detail: "Send imageDataUrl OR sourceUrl" });
@@ -1188,9 +1192,23 @@ app.post("/api/screenshot-pool/share", express.json({ limit: "20mb" }), async (r
     const pool = await poolStore.update((cur) => ({
       entries: [...(cur.entries || []), entry],
     }));
-    res.json({ ok: true, id: entry.id, total: pool.entries.length, thumbFetched: !!(entry.thumb) && !hasImage });
+    const payload = { ok: true, id: entry.id, total: pool.entries.length, thumbFetched: !!(entry.thumb) && !hasImage };
+    const wantHtml = String(req.headers.accept || "").includes("text/html") && req.method === "GET";
+    if (wantHtml) {
+      return res.type("html").send(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><body style="font-family:-apple-system,sans-serif;background:#0e0e10;color:#F5F0E8;padding:2rem"><h1>Saved to the pool</h1><p>Extract it from Review → Screenshot pool.</p></body>`);
+    }
+    res.json(payload);
   } catch (err) { res.status(500).json({ error: err.message }); }
-});
+}
+
+app.post(
+  "/api/screenshot-pool/share",
+  express.json({ limit: "20mb" }),
+  express.urlencoded({ extended: true, limit: "2mb" }),
+  express.text({ type: "text/plain", limit: "20mb" }),
+  handleScreenshotShare,
+);
+app.get("/api/screenshot-pool/share", handleScreenshotShare);
 
 // Safe to expose — boolean only, never the token. Pool modal uses this to
 // warn before Extract if Instagram URL-shares need Apify and the secret
@@ -1929,7 +1947,7 @@ app.post("/api/weekend-review/bulk-update", express.json({ limit: "10mb" }), asy
 // the cloud buttons. Returns version so we can tell apart old servers if
 // the API ever changes.
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, api: "workspaces+library+reviewSessions+weekendReview", version: 9, env: NODE_ENV, sessionBackend: sessionStore.backend, poolBackend: poolStore.backend });
+  res.json({ ok: true, api: "workspaces+library+reviewSessions+weekendReview", version: 10, env: NODE_ENV, sessionBackend: sessionStore.backend, poolBackend: poolStore.backend });
 });
 
 // === NEWS SCOUT (autonomous) ===
