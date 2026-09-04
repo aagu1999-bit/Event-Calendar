@@ -31,8 +31,18 @@ export function isInstagramUrl(raw) {
   }
 }
 
+function decodeOnce(s) {
+  const t = String(s || "");
+  try {
+    const d = decodeURIComponent(t);
+    return d !== t ? d : t;
+  } catch {
+    return t;
+  }
+}
+
 function tidyUrl(raw) {
-  let s = String(raw || "").trim().replace(/^['"]+|['"]+$/g, "");
+  let s = decodeOnce(String(raw || "")).trim().replace(/^['"]+|['"]+$/g, "");
   if (!s) return null;
   if (/^(?:www\.)?(?:instagram\.com|instagr\.am)\//i.test(s)) s = `https://${s.replace(/^\/\//, "")}`;
   if (!HTTP_RE.test(s)) return null;
@@ -41,7 +51,7 @@ function tidyUrl(raw) {
 
 function firstUrlIn(text, preferIg) {
   if (typeof text !== "string" || !text.trim()) return null;
-  const s = text.trim();
+  const s = decodeOnce(text.trim());
   if (s.toLowerCase().startsWith("data:")) return null;
   if (HTTP_RE.test(s)) {
     const firstToken = s.split(/\s+/)[0];

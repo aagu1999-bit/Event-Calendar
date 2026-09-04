@@ -16,6 +16,7 @@ import express from "express";
 import path from "path";
 import fs from "fs/promises";
 import { existsSync } from "fs";
+import { spawn } from "child_process";
 import { fileURLToPath } from "url";
 import { runScout, storyKey, focusForDay } from "./scoutServer.js";
 import { createSessionStore, normalizeSession, applySessionOps } from "./reviewSessionStore.js";
@@ -1098,6 +1099,33 @@ app.post("/api/screenshot-pool/team-shortcut", express.json({ limit: "4mb" }), a
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+function buildUrlFirstShortcut(shareUrl) {
+  const script = path.join(__dirname, "scripts/build-cge-intake-shortcut.py");
+  return new Promise((resolve, reject) => {
+    const child = spawn("python3", [script, "--share-url", shareUrl], { stdio: ["ignore", "pipe", "pipe"] });
+    const chunks = [];
+    let err = "";
+    child.stdout.on("data", (d) => chunks.push(d));
+    child.stderr.on("data", (d) => { err += d; });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code !== 0) reject(new Error(err || `shortcut build exited ${code}`));
+      else resolve(Buffer.concat(chunks));
+    });
+  });
+}
+
+app.get("/cge-intake-url.shortcut", async (req, res) => {
+  try {
+    const origin = publicOrigin(req) || "";
+    const shareUrl = `${origin}/api/screenshot-pool/share`;
+    const buf = await buildUrlFirstShortcut(shareUrl);
+    res.set("Content-Type", "application/octet-stream");
+    res.set("Content-Disposition", 'attachment; filename="CGE-Intake.shortcut"');
+    return res.send(buf);
+  } catch (err) { res.status(500).send(String(err.message || err)); }
+});
+
 app.get("/cge-intake.shortcut", async (req, res) => {
   try {
     const buf = await poolStore.getTeamShortcutBlob();
@@ -1114,21 +1142,17 @@ app.get("/cge-intake.shortcut", async (req, res) => {
 
 app.get("/shortcut", async (req, res) => {
   try {
-    const st = await poolStore.teamShortcutStatus();
     const origin = publicOrigin(req) || "";
-    const addHref = st.hasFile ? `${origin}/cge-intake.shortcut` : (st.icloudUrl || "");
-    const ready = !!(addHref);
+    const urlFirst = `${origin}/cge-intake-url.shortcut`;
     res.type("html").send(`<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Add CGE Intake</title>
 <body style="margin:0;min-height:100dvh;background:#0e0e10;color:#F5F0E8;font-family:-apple-system,sans-serif;padding:32px 20px">
   <h1 style="font-size:1.5rem">Add CGE Intake</h1>
-  <p style="color:rgba(245,240,232,.6);line-height:1.45">This adds the Shortcut to your iPhone. After that, share any Instagram post or photo → <b>CGE Intake</b> and it lands in the pool.</p>
-  <p style="color:rgba(245,240,232,.45);font-size:.85rem;line-height:1.45">The Shortcut must send the <b>post link</b>, not only the picture. In Shortcuts: add <b>Get URLs from Input</b> and put that URL in the JSON as <code>sourceUrl</code>. Sharing only the slide on screen cannot read the rest of the carousel.</p>
-  ${ready
-    ? `<p><a href="${addHref}" style="display:block;text-align:center;padding:16px;border-radius:12px;background:#E5BC4F;color:#000;font-weight:800;text-decoration:none">Add Shortcut</a></p>
-       <p style="font-size:.8rem;color:rgba(245,240,232,.4)">If iPhone asks, tap <b>Add Shortcut</b> / <b>Allow Untrusted Shortcut</b>.</p>`
-    : `<p style="padding:12px;border:1px solid rgba(251,113,133,.4);border-radius:8px;color:#FB7185">Not posted yet — ask whoever runs CGE Tools to share CGE Intake from the Shortcuts app (Screenshot pool → Team Shortcut).</p>`}
+  <p style="color:rgba(245,240,232,.6);line-height:1.45">The old <b>Save to CGE tool</b> Shortcut only takes the picture on screen. Instagram carousels need the <b>post link</b>. Add this URL-first Shortcut, then share the post (or Copy link → share that).</p>
+  <p><a href="${urlFirst}" style="display:block;text-align:center;padding:16px;border-radius:12px;background:#E5BC4F;color:#000;font-weight:800;text-decoration:none">Add CGE Intake</a></p>
+  <p style="font-size:.8rem;color:rgba(245,240,232,.4);line-height:1.45">If iPhone asks, tap <b>Add Shortcut</b> / <b>Allow Untrusted Shortcut</b>. You can delete the old “Save to CGE tool” after this works.</p>
+  <p style="font-size:.8rem;color:rgba(245,240,232,.45);line-height:1.45">Or in Review → Screenshot pool, paste the Instagram link and tap Add link.</p>
 </body>`);
   } catch (err) { res.status(500).send(String(err.message || err)); }
 });
@@ -1146,10 +1170,10 @@ async function handleScreenshotShare(req, res) {
       const keys = req.body && typeof req.body === "object" ? Object.keys(req.body) : [];
       console.warn("[share] no url/image", { keys, query: Object.keys(req.query || {}), stub: !!share.stubImage });
       if (share.stubImage) {
-        return res.status(422).json({
-          error: "bad_image",
-          message: "That share didn't include the Instagram post link. In Shortcuts, add Get URLs from Input and send it as sourceUrl (the picture alone is just the slide on screen). Or Copy Link on the post and share that. Camera-roll shots: re-share from Photos as an image.",
-        });
+        const msg = "No Instagram link in that share. On the post tap ••• → Copy link, then share the link to CGE Intake (not just the photo).";
+        res.status(422);
+        res.type("text/plain");
+        return res.send(msg);
       }
       return res.status(400).json({ error: "no_content", detail: "Send imageDataUrl OR sourceUrl" });
     }
@@ -1947,7 +1971,7 @@ app.post("/api/weekend-review/bulk-update", express.json({ limit: "10mb" }), asy
 // the cloud buttons. Returns version so we can tell apart old servers if
 // the API ever changes.
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, api: "workspaces+library+reviewSessions+weekendReview", version: 10, env: NODE_ENV, sessionBackend: sessionStore.backend, poolBackend: poolStore.backend });
+  res.json({ ok: true, api: "workspaces+library+reviewSessions+weekendReview", version: 11, env: NODE_ENV, sessionBackend: sessionStore.backend, poolBackend: poolStore.backend });
 });
 
 // === NEWS SCOUT (autonomous) ===
