@@ -24,6 +24,18 @@ describe("pickShareUrl", () => {
   it("ignores data: stubs", () => {
     assert.equal(pickShareUrl({ imageDataUrl: STUB }), null);
   });
+  it("reads a URL nested the way Shortcuts serializes magic variables", () => {
+    assert.equal(pickShareUrl({
+      imageDataUrl: STUB,
+      sourceUrl: { string: IG, WFSerializationType: "WFTextTokenAttachment" },
+    }), IG);
+  });
+  it("reads a schemeless instagram.com/p/… link", () => {
+    assert.equal(pickShareUrl({ text: "instagram.com/p/DAbc123xyz/" }), "https://instagram.com/p/DAbc123xyz/");
+  });
+  it("reads urls as a string, not only an array", () => {
+    assert.equal(pickShareUrl({ urls: IG }), IG);
+  });
 });
 
 describe("classifyShare", () => {
@@ -49,6 +61,12 @@ describe("classifyShare", () => {
   it("keeps a non-IG URL share as a link", () => {
     const c = classifyShare({ sourceUrl: "https://beachhaus.com/events" });
     assert.equal(c.instagram, false);
+    assert.equal(c.persistPhoto, false);
+  });
+  it("picks a query-string URL when the JSON body is only a stub image", () => {
+    const c = classifyShare({ imageDataUrl: STUB }, { url: IG });
+    assert.equal(c.url, IG);
+    assert.equal(c.instagram, true);
     assert.equal(c.persistPhoto, false);
   });
 });

@@ -129,7 +129,7 @@
     const params = new URLSearchParams(location.search);
     if (params.get("url")) urlEl.value = params.get("url");
 
-    go.addEventListener("click", async () => {
+    go.addEventListener("click", async function sendIntake() {
       const sourceUrl = (urlEl.value || "").trim();
       const caption = (capEl.value || "").trim();
       const hasUrl = /^https?:\/\//i.test(sourceUrl);
@@ -164,6 +164,9 @@
         setMsg(false, (ok ? ("Saved " + ok + ", ") : "") + fail + " failed — " + last);
       }
     });
+    if (params.get("url") && (params.get("send") === "1" || params.get("autosend") === "1")) {
+      go.click();
+    }
   </script>
 </body>
 </html>
