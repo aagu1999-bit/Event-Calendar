@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Guardrails: URL path when text has http, else photo encode. No link-picker."""
+"""Guardrails: GET ?sourceUrl=, no JSON POST, no Images, no link-picker."""
 
 import plistlib
 import subprocess
@@ -23,29 +23,20 @@ def main():
     assert wf["WFWorkflowName"] == "Save to CGE tool", wf["WFWorkflowName"]
     assert "is.workflow.actions.detect.link" not in ids, ids
     assert "is.workflow.actions.openurl" not in ids, ids
+    assert "is.workflow.actions.base64encode" not in ids, ids
+    assert "is.workflow.actions.conditional" not in ids, ids
     assert "is.workflow.actions.detect.text" in ids, ids
-    assert "is.workflow.actions.base64encode" in ids, ids
-    assert ids.count("is.workflow.actions.downloadurl") == 2, ids
-    assert "is.workflow.actions.conditional" in ids, ids
+    assert "is.workflow.actions.urlencode" in ids, ids
+    assert ids.count("is.workflow.actions.downloadurl") == 1, ids
+    assert "WFImageContentItem" not in classes, classes
     assert "WFSafariWebPageContentItem" not in classes, classes
-    assert "WFImageContentItem" in classes, classes
     assert "WFURLContentItem" in classes, classes
-    assert wf["WFWorkflowTypes"] == ["ActionExtension"], wf["WFWorkflowTypes"]
 
-    posts = [
-        a["WFWorkflowActionParameters"]
-        for a in wf["WFWorkflowActions"]
-        if a["WFWorkflowActionIdentifier"].endswith("downloadurl")
-    ]
-    keys = []
-    for params in posts:
-        assert params["WFHTTPMethod"] == "POST"
-        assert params["WFURL"] == SHARE
-        keys.append([
-            item["WFKey"]["Value"]["string"]
-            for item in params["WFJSONValues"]["Value"]["WFDictionaryFieldValueItems"]
-        ])
-    assert keys == [["sourceUrl"], ["imageDataUrl"]], keys
+    post = next(a for a in wf["WFWorkflowActions"] if a["WFWorkflowActionIdentifier"].endswith("downloadurl"))
+    params = post["WFWorkflowActionParameters"]
+    assert params["WFHTTPMethod"] == "GET"
+    wfurl = params["WFURL"]
+    assert wfurl["Value"]["string"].startswith(SHARE + "?sourceUrl="), wfurl
     print("ok")
 
 

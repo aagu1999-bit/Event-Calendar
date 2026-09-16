@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""Build Save to CGE tool: Instagram URL *or* a real photo/screenshot.
+"""Build Save to CGE tool: GET the share API with ?sourceUrl=
 
-Prefer a post link when Shortcut Input has http(s) text so carousels
-still go to Apify. Otherwise encode the image and POST imageDataUrl.
+Instagram's share sheet drops the post link if Images is on, and Shortcuts
+JSON POST bodies with magic variables often send empty. This Shortcut only
+accepts URLs + text, URL-encodes Shortcut Input, and GETs:
 
-Do NOT use Get URLs from Input (detect.link) — that opens iPhone's
-"pick links from this page" sheet. Safari web pages stay off.
+  {share}/api/screenshot-pool/share?sourceUrl=https%3A%2F%2Finstagram.com%2F...
 
-Receive Images + URLs + Text only — not Apps and 18 more.
+No JSON, no If, no Base64, no Get URLs from Input, no Safari.
+Photos/screenshots use /intake on the Home Screen, not this button.
 """
 
 import argparse
@@ -45,18 +46,6 @@ def text(*parts):
     }
 
 
-def dictionary(items):
-    return {
-        "Value": {
-            "WFDictionaryFieldValueItems": [
-                {"WFItemType": 0, "WFKey": text(key), "WFValue": value}
-                for key, value in items.items()
-            ]
-        },
-        "WFSerializationType": "WFDictionaryFieldValue",
-    }
-
-
 def action(identifier, params):
     return {
         "WFWorkflowActionIdentifier": f"is.workflow.actions.{identifier}",
@@ -66,41 +55,19 @@ def action(identifier, params):
 
 def build_workflow(share_url):
     text_uuid = uid()
-    url_resp = uid()
     enc_uuid = uid()
-    img_resp = uid()
-    if_group = uid()
+    resp_uuid = uid()
     as_text = action_output(text_uuid, "Text")
-    encoded = action_output(enc_uuid, "Base64 Encoded")
-    url_out = action_output(url_resp, "Contents of URL")
-    img_out = action_output(img_resp, "Contents of URL")
-
-    url_post = {
-        "UUID": url_resp,
-        "WFURL": share_url,
-        "WFHTTPMethod": "POST",
-        "ShowHeaders": False,
-        "WFHTTPBodyType": "JSON",
-        "WFJSONValues": dictionary({"sourceUrl": text(as_text)}),
-    }
-    img_post = {
-        "UUID": img_resp,
-        "WFURL": share_url,
-        "WFHTTPMethod": "POST",
-        "ShowHeaders": False,
-        "WFHTTPBodyType": "JSON",
-        "WFJSONValues": dictionary({
-            "imageDataUrl": text("data:image/jpeg;base64,", encoded),
-        }),
-    }
+    encoded = action_output(enc_uuid, "URL Encoded Text")
+    resp = action_output(resp_uuid, "Contents of URL")
+    get_url = f"{share_url}?sourceUrl="
 
     actions = [
         action("comment", {
             "WFCommentActionText": (
-                "Save to CGE tool. Share an Instagram post (link) or a "
-                "photo/screenshot. If the input has http, POST sourceUrl. "
-                "Otherwise encode the image. No Get URLs from Input. "
-                "Receive Images + URLs + Text only."
+                "Instagram → share → this button. Receive URLs + Text only. "
+                "GET sourceUrl. Photos: Home Screen /intake. "
+                "No Get URLs from Input. No Images. No JSON POST."
             ),
         }),
         action("detect.text", {
@@ -108,36 +75,20 @@ def build_workflow(share_url):
             "CustomOutputName": "Text",
             "WFInput": attachment(SHORTCUT_INPUT),
         }),
-        action("conditional", {
-            "GroupingIdentifier": if_group,
-            "WFControlFlowMode": 0,
-            "WFCondition": 4,
-            "WFConditionalActionString": "http",
-            "WFInput": {"Type": "Variable", "Variable": attachment(as_text)},
-        }),
-        action("downloadurl", url_post),
-        action("notification", {
-            "WFNotificationActionTitle": "Save to CGE tool",
-            "WFNotificationActionBody": text(url_out),
-        }),
-        action("conditional", {
-            "GroupingIdentifier": if_group,
-            "WFControlFlowMode": 1,
-        }),
-        action("base64encode", {
+        action("urlencode", {
             "UUID": enc_uuid,
-            "CustomOutputName": "Base64 Encoded",
-            "WFInput": attachment(SHORTCUT_INPUT),
-            "WFBase64LineBreakMode": "None",
+            "CustomOutputName": "URL Encoded Text",
+            "WFInput": attachment(as_text),
         }),
-        action("downloadurl", img_post),
+        action("downloadurl", {
+            "UUID": resp_uuid,
+            "WFHTTPMethod": "GET",
+            "ShowHeaders": False,
+            "WFURL": text(get_url, encoded),
+        }),
         action("notification", {
             "WFNotificationActionTitle": "Save to CGE tool",
-            "WFNotificationActionBody": text(img_out),
-        }),
-        action("conditional", {
-            "GroupingIdentifier": if_group,
-            "WFControlFlowMode": 2,
+            "WFNotificationActionBody": text(resp),
         }),
     ]
 
@@ -155,7 +106,6 @@ def build_workflow(share_url):
         "WFWorkflowInputContentItemClasses": [
             "WFURLContentItem",
             "WFStringContentItem",
-            "WFImageContentItem",
         ],
         "WFWorkflowHasShortcutInputVariables": True,
         "WFWorkflowActions": actions,
