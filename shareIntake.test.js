@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { classifyShare, isInstagramUrl, pickShareUrl, shareSavedReply, SHARE_GET_SAVED } from "./shareIntake.js";
+import { classifyShare, isInstagramUrl, pickShareUrl, shareSavedReply, SHARE_GET_SAVED, bodyFromRaw, classifyShareRequest } from "./shareIntake.js";
 
 const STUB = "data:image/jpeg;base64";
 const REAL = "data:image/jpeg;base64," + Buffer.alloc(64, 0xff).toString("base64");
@@ -88,14 +88,37 @@ describe("classifyShare", () => {
 });
 
 describe("shareSavedReply", () => {
-  it("GET is always plain text so Shortcuts will not treat it as a webpage", () => {
-    const r = shareSavedReply("GET");
-    assert.equal(r.contentType, "text/plain");
-    assert.equal(r.body, SHARE_GET_SAVED);
-    assert.equal(/<html|<!doctype/i.test(r.body), false);
+  it("GET and POST are plain text so Shortcuts will not treat them as a webpage", () => {
+    for (const method of ["GET", "POST"]) {
+      const r = shareSavedReply(method);
+      assert.equal(r.contentType, "text/plain");
+      assert.equal(r.body, SHARE_GET_SAVED);
+      assert.equal(/<html|<!doctype/i.test(r.body), false);
+    }
   });
-  it("POST stays JSON for /intake and the pool paste box", () => {
-    assert.equal(shareSavedReply("POST").contentType, "json");
+});
+
+describe("bodyFromRaw / classifyShareRequest", () => {
+  it("wraps a JPEG File POST as a photo share", () => {
+    const jpeg = Buffer.alloc(64, 0x11);
+    jpeg[0] = 0xff; jpeg[1] = 0xd8; jpeg[2] = 0xff;
+    const body = bodyFromRaw(jpeg, "image/jpeg");
+    const c = classifyShare(body);
+    assert.equal(c.persistPhoto, true);
+    assert.equal(c.url, null);
+    assert.ok(c.imageDataUrl.startsWith("data:image/jpeg;base64,"));
+  });
+  it("keeps a GET query URL as an Instagram share when a File is also present", () => {
+    const jpeg = Buffer.alloc(64, 0x11);
+    jpeg[0] = 0xff; jpeg[1] = 0xd8; jpeg[2] = 0xff;
+    const c = classifyShareRequest({
+      body: jpeg,
+      headers: { "content-type": "image/jpeg" },
+      query: { sourceUrl: IG },
+    });
+    assert.equal(c.url, IG);
+    assert.equal(c.instagram, true);
+    assert.equal(c.persistPhoto, false);
   });
 });
 

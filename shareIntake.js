@@ -1,17 +1,17 @@
-// Classify an iOS Shortcut / intake POST so Instagram posts stay URL-shares.
+// Classify an iOS Shortcut / intake share so Instagram posts stay URL-shares
+// and screenshots stay photos — same Save to CGE tool button for both.
 //
 // Instagram's share sheet often attaches a preview of the *current* slide
-// (sometimes the 23-char stub `data:image/jpeg;base64` with no payload)
 // PLUS the post URL. Treating that preview as the photo made Extract skip
-// Apify and never read the rest of the carousel. A stub preview used to
-// 422 the whole share — the post never landed in the pool at all.
+// Apify and never read the rest of the carousel. If the share text has a
+// link, keep it as a URL-share. If there is only an image, persist the photo.
 //
-// The live Shortcut ("Save to CGE tool") still 422s when it sends the stub
-// and buries the link: nested Dictionary (`{ string: "https://…" }`), a
-// schemeless `instagram.com/p/…`, form/query fields, or a text/plain body.
-// We walk the whole payload and normalize those into a post URL.
+// The live Shortcut used to 422 when it sent a stub preview and buried the
+// link: nested Dictionary (`{ string: "https://…" }`), a schemeless
+// `instagram.com/p/…`, form/query fields, or a text/plain body. We walk the
+// whole payload (and a raw File POST of the screenshot) and normalize.
 
-import { usableImageDataUrl } from "./normalizeImage.js";
+import { usableImageDataUrl, sniffImageKind } from "./normalizeImage.js";
 
 const HTTP_RE = /^https?:\/\//i;
 // Optional scheme — iOS sometimes hands over instagram.com/p/… with no https.
@@ -190,17 +190,42 @@ export function classifyShare(body, query) {
   };
 }
 
-// GET is the signed Save to CGE tool Shortcut. iOS "Get Contents of URL"
-// sends Accept: text/html; if we answer with HTML, Shortcuts treats the
-// result as a webpage and Show Notification is empty. Always plain text.
+const RAW_MIME = {
+  jpeg: "image/jpeg",
+  png: "image/png",
+  gif: "image/gif",
+  webp: "image/webp",
+  heic: "image/heic",
+};
+
+// Screenshot branch of Save to CGE tool POSTs the image as a File (not JSON).
+export function bodyFromRaw(raw, contentType) {
+  if (!Buffer.isBuffer(raw) || raw.length < 32) return {};
+  const head = raw.toString("utf8", 0, Math.min(raw.length, 16)).trim();
+  if (head.startsWith("{") || head.startsWith("[")) {
+    try { return coerceShareBody(JSON.parse(raw.toString("utf8"))); }
+    catch { return {}; }
+  }
+  const ct = String(contentType || "").split(";")[0].trim().toLowerCase();
+  const kind = sniffImageKind(raw, ct);
+  const mime = RAW_MIME[kind] || (ct.startsWith("image/") ? ct : "image/jpeg");
+  return { imageDataUrl: `data:${mime};base64,${raw.toString("base64")}` };
+}
+
+export function classifyShareRequest(req) {
+  const raw = req && req.body;
+  const body = Buffer.isBuffer(raw) ? bodyFromRaw(raw, req.headers && req.headers["content-type"]) : raw;
+  return classifyShare(coerceShareBody(body), (req && req.query) || {});
+}
+
+// iOS Get Contents of URL sends Accept: text/html. HTML makes Shortcuts treat
+// the result as a webpage and Show Notification is empty. Always plain text
+// for both the Instagram GET and the screenshot POST.
 export const SHARE_GET_SAVED =
   "Saved to the CGE pool. Extract it from Review → Screenshot pool.";
 export const SHARE_GET_EMPTY =
-  "No Instagram link in that share. Receive URLs only (Images off), then Instagram → share → Save to CGE tool. Photos go to /intake, not this button.";
+  "Nothing to save. Instagram → share the post to Save to CGE tool. Screenshot → share the photo to the same button. Receive URLs, Text, and Images (Safari off).";
 
-export function shareSavedReply(method) {
-  if (String(method || "").toUpperCase() === "GET") {
-    return { contentType: "text/plain", body: SHARE_GET_SAVED };
-  }
-  return { contentType: "json" };
+export function shareSavedReply(_method) {
+  return { contentType: "text/plain", body: SHARE_GET_SAVED };
 }

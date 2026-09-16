@@ -22,7 +22,7 @@ import { runScout, storyKey, focusForDay } from "./scoutServer.js";
 import { createSessionStore, normalizeSession, applySessionOps } from "./reviewSessionStore.js";
 import { createPoolStore } from "./screenshotPoolStore.js";
 import { normalizeImageDataUrl, usableImageDataUrl, toPreviewDataUrl, sniffImageKind } from "./normalizeImage.js";
-import { classifyShare, isInstagramUrl, coerceShareBody, shareSavedReply, SHARE_GET_EMPTY } from "./shareIntake.js";
+import { isInstagramUrl, classifyShareRequest, shareSavedReply, SHARE_GET_EMPTY } from "./shareIntake.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || "5000", 10);
@@ -1018,16 +1018,15 @@ async function fetchInstagramPostViaApify(postUrl) {
   };
 }
 
-// Raw share intake — the iOS Shortcut hits this endpoint when the operator
-// taps "CGE Intake" from their share sheet. No AI extraction yet; the item
-// lands in the pool as `status: "raw"` and gets extracted on-demand from
-// inside the Review pool modal. Accepts either an image (as data URL) or a
-// URL (post link). Instagram share-sheet previews are NOT photos: a stub
-// or cover of slide 1 plus the post URL must stay a URL-share so Extract
-// can Apify every carousel slide. Camera-roll photos still persist bytes
-// here. Auth is intentionally unenforced: the endpoint is public because
-// the shortcut can't hold a real credential securely; the cap +
-// explicit-review flow contains blast radius if it ever gets spammed.
+// Raw share intake — Save to CGE tool hits this for BOTH Instagram posts
+// (GET ?sourceUrl=) and screenshots (POST the image as a File). No AI yet;
+// the item lands in the pool as `status: "raw"` and gets extracted from
+// the Review pool modal. Instagram share-sheet previews are NOT photos: a
+// stub or cover of slide 1 plus the post URL must stay a URL-share so
+// Extract can Apify every carousel slide. Camera-roll / screenshot shares
+// persist bytes here. Auth is intentionally unenforced: the shortcut can't
+// hold a real credential securely; the cap + explicit-review flow contains
+// blast radius if it ever gets spammed.
 function publicOrigin(req) {
   const proto = String(req.headers["x-forwarded-proto"] || req.protocol || "https").split(",")[0].trim() || "https";
   const host = String(req.headers["x-forwarded-host"] || req.headers.host || "").split(",")[0].trim();
@@ -1152,19 +1151,28 @@ app.get("/shortcut", async (req, res) => {
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Save to CGE tool</title>
 <body style="margin:0;min-height:100dvh;background:#0e0e10;color:#F5F0E8;font-family:-apple-system,sans-serif;padding:32px 20px;line-height:1.5">
-  <h1 style="font-size:1.5rem;margin:0 0 12px">Rebuild Save to CGE tool</h1>
-  <p style="color:rgba(245,240,232,.7);margin:0 0 16px">The JSON POST / If Image shortcut is what iPhone keeps breaking. Use a <b>GET</b> with the Instagram link in the address. Edit the <b>signed</b> Save to CGE tool you already have — do not import an unsigned file.</p>
-  <h2 style="font-size:1rem;margin:0 0 8px">Delete everything except Receive, then:</h2>
+  <h1 style="font-size:1.5rem;margin:0 0 12px">Save to CGE tool — one button</h1>
+  <p style="color:rgba(245,240,232,.7);margin:0 0 16px">Instagram share <b>or</b> a screenshot share. Same signed button. Edit the Save to CGE tool you already have — do not import an unsigned file. Delete everything except Receive, then:</p>
+  <h2 style="font-size:1rem;margin:0 0 8px">Receive</h2>
   <ol style="color:rgba(245,240,232,.75);padding-left:1.2rem;font-size:.92rem">
-    <li>ⓘ on Receive: <b>URLs</b> and <b>Text</b> on. <b>Images off</b>. Safari web pages off. The rest of the 18 off.</li>
+    <li>ⓘ on Receive: <b>URLs</b>, <b>Text</b>, and <b>Images</b> on. Safari web pages off. Apps off. The rest of the 18 off.</li>
     <li><b>Get Text from Input</b> → Shortcut Input.</li>
-    <li><b>URL Encode</b> that Text (Encode, not Decode).</li>
-    <li><b>Get Contents of URL</b> — Method <b>GET</b> (not POST). URL is this, then the Encoded Text variable:<br>
-      <code style="font-size:.75rem;word-break:break-all">${shareUrl}?sourceUrl=</code></li>
-    <li><b>Show Notification</b> → Contents of URL. Banner: <b>Saved to the CGE pool</b> (plain text — not a webpage, not JSON). No JSON body. No Open URLs. No Get URLs from Input.</li>
+    <li><b>If</b> Text <b>contains</b> <code>http</code>:</li>
   </ol>
-  <p style="color:rgba(245,240,232,.55);font-size:.88rem;margin:16px 0">That GET is the same live share URL the site already uses. Instagram → share → <b>Save to CGE tool</b>. Then Extract in Review → Screenshot pool.</p>
-  <p style="color:rgba(245,240,232,.55);font-size:.88rem">Photos / screenshots: this button will not see them (Images off on purpose). Open <a href="${origin}/intake" style="color:#E5BC4F">/intake</a> and Add to Home Screen, or 📸 in Review.</p>
+  <h2 style="font-size:1rem;margin:12px 0 8px">Instagram (the If)</h2>
+  <ol start="4" style="color:rgba(245,240,232,.75);padding-left:1.2rem;font-size:.92rem">
+    <li><b>URL Encode</b> that Text (Encode, not Decode).</li>
+    <li><b>Get Contents of URL</b> — Method <b>GET</b>. URL is this, then the Encoded Text pill:<br>
+      <code style="font-size:.75rem;word-break:break-all">${shareUrl}?sourceUrl=</code></li>
+    <li><b>Show Notification</b> → Contents of URL.</li>
+  </ol>
+  <h2 style="font-size:1rem;margin:12px 0 8px">Screenshot (Otherwise)</h2>
+  <ol start="7" style="color:rgba(245,240,232,.75);padding-left:1.2rem;font-size:.92rem">
+    <li>Otherwise: <b>Get Contents of URL</b> — Method <b>POST</b>. URL is <code style="font-size:.75rem;word-break:break-all">${shareUrl}</code></li>
+    <li>Request Body <b>File</b> = Shortcut Input. Header <code>Content-Type</code> = <code>image/jpeg</code>. No JSON. No Base64.</li>
+    <li><b>Show Notification</b> → Contents of URL.</li>
+  </ol>
+  <p style="color:rgba(245,240,232,.55);font-size:.88rem;margin:16px 0">Instagram → share → <b>Save to CGE tool</b>. Screenshot → share → <b>Save to CGE tool</b>. Banner: Saved to the CGE pool. Then Extract in Review → Screenshot pool.</p>
   <p style="font-size:.75rem;color:rgba(245,240,232,.35);margin:24px 0 0">Unsigned download (iPhone will warn): Settings → Shortcuts → Advanced → Allow Untrusted Shortcuts, then <a href="${urlFirst}" style="color:rgba(229,188,79,.8)">this file</a>.</p>
 </body>`);
   } catch (err) { res.status(500).send(String(err.message || err)); }
@@ -1175,19 +1183,17 @@ app.options("/api/screenshot-pool/share", (_req, res) => { shareCors(res); res.s
 async function handleScreenshotShare(req, res) {
   shareCors(res);
   try {
-    const share = classifyShare(coerceShareBody(req.body), req.query || {});
+    const share = classifyShareRequest(req);
     const sourceUrl = share.url;
     const hasUrl = !!sourceUrl;
     const hasImage = !!share.imageDataUrl;
     if (!hasImage && !hasUrl) {
-      const keys = req.body && typeof req.body === "object" ? Object.keys(req.body) : [];
+      const keys = Buffer.isBuffer(req.body) ? ["<raw>"]
+        : (req.body && typeof req.body === "object" ? Object.keys(req.body) : []);
       console.warn("[share] no url/image", { keys, query: Object.keys(req.query || {}), stub: !!share.stubImage });
-      if (share.stubImage || req.method === "GET") {
-        res.status(share.stubImage ? 422 : 400);
-        res.type("text/plain");
-        return res.send(SHARE_GET_EMPTY);
-      }
-      return res.status(400).json({ error: "no_content", detail: "Send imageDataUrl OR sourceUrl" });
+      res.status(share.stubImage ? 422 : 400);
+      res.type("text/plain");
+      return res.send(SHARE_GET_EMPTY);
     }
     const id = newPoolId("share");
     let storedThumb = null;
@@ -1225,29 +1231,29 @@ async function handleScreenshotShare(req, res) {
       status: "raw", // needs extraction inside the pool modal
       createdAt: new Date().toISOString(),
     };
-    const pool = await poolStore.update((cur) => ({
+    await poolStore.update((cur) => ({
       entries: [...(cur.entries || []), entry],
     }));
-    const payload = { ok: true, id: entry.id, total: pool.entries.length, thumbFetched: !!(entry.thumb) && !hasImage };
     const reply = shareSavedReply(req.method);
-    if (reply.contentType === "text/plain") {
-      return res.type("text/plain").send(reply.body);
-    }
-    res.json(payload);
+    return res.type("text/plain").send(reply.body);
   } catch (err) {
-    if (req.method === "GET") {
-      res.status(500);
-      res.type("text/plain");
-      return res.send(String(err?.message || err));
-    }
-    res.status(500).json({ error: err.message });
+    res.status(500);
+    res.type("text/plain");
+    return res.send(String(err?.message || err));
   }
 }
 
 app.post(
   "/api/screenshot-pool/share",
+  (req, res, next) => {
+    const ct = String(req.headers["content-type"] || "").toLowerCase();
+    if (!ct || ct.startsWith("image/") || ct.includes("octet-stream")) {
+      return express.raw({ type: () => true, limit: "20mb" })(req, res, next);
+    }
+    next();
+  },
   express.json({ limit: "20mb" }),
-  express.urlencoded({ extended: true, limit: "2mb" }),
+  express.urlencoded({ extended: true, limit: "20mb" }),
   express.text({ type: "text/plain", limit: "20mb" }),
   handleScreenshotShare,
 );
@@ -1990,7 +1996,7 @@ app.post("/api/weekend-review/bulk-update", express.json({ limit: "10mb" }), asy
 // the cloud buttons. Returns version so we can tell apart old servers if
 // the API ever changes.
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, api: "workspaces+library+reviewSessions+weekendReview", version: 15, env: NODE_ENV, sessionBackend: sessionStore.backend, poolBackend: poolStore.backend });
+  res.json({ ok: true, api: "workspaces+library+reviewSessions+weekendReview", version: 16, env: NODE_ENV, sessionBackend: sessionStore.backend, poolBackend: poolStore.backend });
 });
 
 // === NEWS SCOUT (autonomous) ===

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Guardrails: GET ?sourceUrl=, no JSON POST, no Images, no link-picker."""
+"""One button: Instagram GET ?sourceUrl= or screenshot POST File. No JSON, no link-picker."""
 
 import plistlib
 import subprocess
@@ -24,20 +24,28 @@ def main():
     assert "is.workflow.actions.detect.link" not in ids, ids
     assert "is.workflow.actions.openurl" not in ids, ids
     assert "is.workflow.actions.base64encode" not in ids, ids
-    assert "is.workflow.actions.conditional" not in ids, ids
+    assert "is.workflow.actions.conditional" in ids, ids
     assert "is.workflow.actions.detect.text" in ids, ids
     assert "is.workflow.actions.urlencode" in ids, ids
-    assert ids.count("is.workflow.actions.downloadurl") == 1, ids
-    assert "WFImageContentItem" not in classes, classes
-    assert "WFSafariWebPageContentItem" not in classes, classes
+    assert ids.count("is.workflow.actions.downloadurl") == 2, ids
+    assert "WFImageContentItem" in classes, classes
     assert "WFURLContentItem" in classes, classes
+    assert "WFStringContentItem" in classes, classes
+    assert "WFSafariWebPageContentItem" not in classes, classes
 
-    post = next(a for a in wf["WFWorkflowActions"] if a["WFWorkflowActionIdentifier"].endswith("downloadurl"))
-    params = post["WFWorkflowActionParameters"]
-    assert params["WFHTTPMethod"] == "GET"
-    assert "WFJSONValues" not in params, params
-    wfurl = params["WFURL"]
-    assert wfurl["Value"]["string"].startswith(SHARE + "?sourceUrl="), wfurl
+    downloads = [
+        a["WFWorkflowActionParameters"]
+        for a in wf["WFWorkflowActions"]
+        if a["WFWorkflowActionIdentifier"].endswith("downloadurl")
+    ]
+    methods = {d["WFHTTPMethod"] for d in downloads}
+    assert methods == {"GET", "POST"}, methods
+    get = next(d for d in downloads if d["WFHTTPMethod"] == "GET")
+    post = next(d for d in downloads if d["WFHTTPMethod"] == "POST")
+    assert "WFJSONValues" not in get and "WFJSONValues" not in post
+    assert get["WFURL"]["Value"]["string"].startswith(SHARE + "?sourceUrl="), get["WFURL"]
+    assert post["WFHTTPBodyType"] == "File", post
+    assert post["WFURL"] == SHARE, post["WFURL"]
     print("ok")
 
 
