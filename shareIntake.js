@@ -189,3 +189,18 @@ export function classifyShare(body, query) {
       : (typeof merged.text === "string" ? merged.text : null),
   };
 }
+
+// GET is the signed Save to CGE tool Shortcut. iOS "Get Contents of URL"
+// sends Accept: text/html; if we answer with HTML, Shortcuts treats the
+// result as a webpage and Show Notification is empty. Always plain text.
+export const SHARE_GET_SAVED =
+  "Saved to the CGE pool. Extract it from Review → Screenshot pool.";
+export const SHARE_GET_EMPTY =
+  "No Instagram link in that share. Receive URLs only (Images off), then Instagram → share → Save to CGE tool. Photos go to /intake, not this button.";
+
+export function shareSavedReply(method) {
+  if (String(method || "").toUpperCase() === "GET") {
+    return { contentType: "text/plain", body: SHARE_GET_SAVED };
+  }
+  return { contentType: "json" };
+}

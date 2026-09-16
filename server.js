@@ -22,7 +22,7 @@ import { runScout, storyKey, focusForDay } from "./scoutServer.js";
 import { createSessionStore, normalizeSession, applySessionOps } from "./reviewSessionStore.js";
 import { createPoolStore } from "./screenshotPoolStore.js";
 import { normalizeImageDataUrl, usableImageDataUrl, toPreviewDataUrl, sniffImageKind } from "./normalizeImage.js";
-import { classifyShare, isInstagramUrl, coerceShareBody } from "./shareIntake.js";
+import { classifyShare, isInstagramUrl, coerceShareBody, shareSavedReply, SHARE_GET_EMPTY } from "./shareIntake.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || "5000", 10);
@@ -1037,6 +1037,9 @@ function shareCors(res) {
   res.set("Access-Control-Allow-Origin", "*");
   res.set("Access-Control-Allow-Headers", "Content-Type");
   res.set("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
+  // Shortcuts may retry a GET; never serve a cached "saved" for a new post.
+  res.set("Cache-Control", "no-store, no-cache, must-revalidate");
+  res.set("Pragma", "no-cache");
 }
 
 // Team intake page — same form hosted live AND as a downloadable HTML file
@@ -1158,9 +1161,9 @@ app.get("/shortcut", async (req, res) => {
     <li><b>URL Encode</b> that Text (Encode, not Decode).</li>
     <li><b>Get Contents of URL</b> — Method <b>GET</b> (not POST). URL is this, then the Encoded Text variable:<br>
       <code style="font-size:.75rem;word-break:break-all">${shareUrl}?sourceUrl=</code></li>
-    <li><b>Show Notification</b> → Contents of URL. No JSON body. No Open URLs. No Get URLs from Input.</li>
+    <li><b>Show Notification</b> → Contents of URL. Banner: <b>Saved to the CGE pool</b> (plain text — not a webpage, not JSON). No JSON body. No Open URLs. No Get URLs from Input.</li>
   </ol>
-  <p style="color:rgba(245,240,232,.55);font-size:.88rem;margin:16px 0">Instagram → share → <b>Save to CGE tool</b>. Banner should say saved. Then Extract in Review → Screenshot pool.</p>
+  <p style="color:rgba(245,240,232,.55);font-size:.88rem;margin:16px 0">That GET is the same live share URL the site already uses. Instagram → share → <b>Save to CGE tool</b>. Then Extract in Review → Screenshot pool.</p>
   <p style="color:rgba(245,240,232,.55);font-size:.88rem">Photos / screenshots: this button will not see them (Images off on purpose). Open <a href="${origin}/intake" style="color:#E5BC4F">/intake</a> and Add to Home Screen, or 📸 in Review.</p>
   <p style="font-size:.75rem;color:rgba(245,240,232,.35);margin:24px 0 0">Unsigned download (iPhone will warn): Settings → Shortcuts → Advanced → Allow Untrusted Shortcuts, then <a href="${urlFirst}" style="color:rgba(229,188,79,.8)">this file</a>.</p>
 </body>`);
@@ -1179,11 +1182,10 @@ async function handleScreenshotShare(req, res) {
     if (!hasImage && !hasUrl) {
       const keys = req.body && typeof req.body === "object" ? Object.keys(req.body) : [];
       console.warn("[share] no url/image", { keys, query: Object.keys(req.query || {}), stub: !!share.stubImage });
-      if (share.stubImage) {
-        const msg = "No Instagram link in that share. Receive URLs only (Images off), then Instagram → share → Save to CGE tool. Photos go to /intake, not this button.";
-        res.status(422);
+      if (share.stubImage || req.method === "GET") {
+        res.status(share.stubImage ? 422 : 400);
         res.type("text/plain");
-        return res.send(msg);
+        return res.send(SHARE_GET_EMPTY);
       }
       return res.status(400).json({ error: "no_content", detail: "Send imageDataUrl OR sourceUrl" });
     }
@@ -1227,16 +1229,19 @@ async function handleScreenshotShare(req, res) {
       entries: [...(cur.entries || []), entry],
     }));
     const payload = { ok: true, id: entry.id, total: pool.entries.length, thumbFetched: !!(entry.thumb) && !hasImage };
-    if (req.method === "GET") {
-      const line = "Saved to the CGE pool. Extract it from Review → Screenshot pool.";
-      const wantHtml = String(req.headers.accept || "").includes("text/html");
-      if (wantHtml) {
-        return res.type("html").send(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><body style="font-family:-apple-system,sans-serif;background:#0e0e10;color:#F5F0E8;padding:2rem"><h1>Saved to the pool</h1><p>${line}</p></body>`);
-      }
-      return res.type("text/plain").send(line);
+    const reply = shareSavedReply(req.method);
+    if (reply.contentType === "text/plain") {
+      return res.type("text/plain").send(reply.body);
     }
     res.json(payload);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) {
+    if (req.method === "GET") {
+      res.status(500);
+      res.type("text/plain");
+      return res.send(String(err?.message || err));
+    }
+    res.status(500).json({ error: err.message });
+  }
 }
 
 app.post(
@@ -1985,7 +1990,7 @@ app.post("/api/weekend-review/bulk-update", express.json({ limit: "10mb" }), asy
 // the cloud buttons. Returns version so we can tell apart old servers if
 // the API ever changes.
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, api: "workspaces+library+reviewSessions+weekendReview", version: 14, env: NODE_ENV, sessionBackend: sessionStore.backend, poolBackend: poolStore.backend });
+  res.json({ ok: true, api: "workspaces+library+reviewSessions+weekendReview", version: 15, env: NODE_ENV, sessionBackend: sessionStore.backend, poolBackend: poolStore.backend });
 });
 
 // === NEWS SCOUT (autonomous) ===

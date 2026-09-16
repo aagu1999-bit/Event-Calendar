@@ -35,6 +35,7 @@ def main():
     post = next(a for a in wf["WFWorkflowActions"] if a["WFWorkflowActionIdentifier"].endswith("downloadurl"))
     params = post["WFWorkflowActionParameters"]
     assert params["WFHTTPMethod"] == "GET"
+    assert "WFJSONValues" not in params, params
     wfurl = params["WFURL"]
     assert wfurl["Value"]["string"].startswith(SHARE + "?sourceUrl="), wfurl
     print("ok")

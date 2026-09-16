@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { classifyShare, isInstagramUrl, pickShareUrl } from "./shareIntake.js";
+import { classifyShare, isInstagramUrl, pickShareUrl, shareSavedReply, SHARE_GET_SAVED } from "./shareIntake.js";
 
 const STUB = "data:image/jpeg;base64";
 const REAL = "data:image/jpeg;base64," + Buffer.alloc(64, 0xff).toString("base64");
@@ -74,6 +74,28 @@ describe("classifyShare", () => {
     assert.equal(c.url, IG);
     assert.equal(c.instagram, true);
     assert.equal(c.persistPhoto, false);
+  });
+  it("reads GET ?sourceUrl= the way Save to CGE tool sends it", () => {
+    const c = classifyShare({}, { sourceUrl: IG });
+    assert.equal(c.url, IG);
+    assert.equal(c.instagram, true);
+    assert.equal(c.persistPhoto, false);
+  });
+  it("pulls the Instagram URL out of share-sheet text in the query", () => {
+    const c = classifyShare({}, { sourceUrl: `Labor Day weekend ${IG} come vibe` });
+    assert.equal(c.url, IG);
+  });
+});
+
+describe("shareSavedReply", () => {
+  it("GET is always plain text so Shortcuts will not treat it as a webpage", () => {
+    const r = shareSavedReply("GET");
+    assert.equal(r.contentType, "text/plain");
+    assert.equal(r.body, SHARE_GET_SAVED);
+    assert.equal(/<html|<!doctype/i.test(r.body), false);
+  });
+  it("POST stays JSON for /intake and the pool paste box", () => {
+    assert.equal(shareSavedReply("POST").contentType, "json");
   });
 });
 
