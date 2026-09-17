@@ -5858,22 +5858,31 @@ export default function MediaTool() {
       <input ref={motionFileRef} type="file" accept="video/*,image/*" onChange={handleMotionUpload} style={{display:"none"}}/>
       <video ref={motionVideoRef} muted loop playsInline style={NEWS_MEDIA_PARK}/>
       <img ref={motionGifRef} alt="" aria-hidden="true" style={NEWS_MEDIA_PARK}/>
-      <div style={{maxWidth:1150,margin:"0 auto",padding:"1.25rem",width:"100%",boxSizing:"border-box"}}>
-        <div style={{display:"flex",alignItems:"center",gap:"0.75rem",marginBottom:"1rem"}}>
-          <h1 style={{fontFamily:"'Syne',sans-serif",fontSize:"1.2rem",fontWeight:800,textTransform:"uppercase"}}>CGE Media Template</h1>
-          <span style={{fontSize:"0.6rem",color:accent,letterSpacing:"1.5px",textTransform:"uppercase",padding:"2px 8px",border:"1px solid rgba(255,255,255,0.08)",borderRadius:"14px"}}>{mode} Slide · Export {exportRatio}</span>
+      <div className="cge-builder-layout" style={{ display: "grid", gridTemplateColumns: "340px 1fr", minHeight: "calc(100vh - 60px)" }}>
+      {/* SIDEBAR — Flyer chrome: settings + sticky Add/Download */}
+      <div style={{
+        padding: "20px",
+        background: "#0a0a0a",
+        borderRight: "1px solid rgba(245,240,232,0.06)",
+        overflowY: "auto",
+        maxHeight: "calc(100vh - 60px)",
+      }}>
+        <div style={{display:"flex",alignItems:"baseline",gap:"10px",marginBottom:"16px",flexWrap:"wrap"}}>
+          <h1 style={{fontFamily:"'Syne',sans-serif",fontSize:"0.7rem",fontWeight:800,letterSpacing:"2px",textTransform:"uppercase",color:"#E5BC4F",margin:0}}>CGE Media Template</h1>
+          <span style={{fontSize:"0.55rem",color:accent,letterSpacing:"1.5px",textTransform:"uppercase",padding:"2px 8px",border:"1px solid rgba(255,255,255,0.08)",borderRadius:"14px"}}>{mode} Slide · Export {exportRatio}</span>
         </div>
-
-        <div style={{display:"flex",gap:"0.4rem",marginBottom:"0.6rem",flexWrap:"wrap",alignItems:"center"}}>
+        <div style={{display:"flex",flexDirection:"column",gap:"0.55rem",marginBottom:"0.75rem"}}>
           {/* Template (mode) picker — was a grid of 15 buttons; now a
-              compact dropdown like the font picker. Keeps the top row
-              tight so the preview can rise. */}
+              compact dropdown like the font picker. Stacked with ratio /
+              branding so the 340px sidebar doesn't wrap into a jumble. */}
           <div style={{display:"flex",alignItems:"center",gap:"0.3rem"}}>
             <span style={{fontSize:"0.55rem",color:"#FACC15",letterSpacing:"1.5px",textTransform:"uppercase",fontWeight:700,fontFamily:"'Syne',sans-serif"}}>Template</span>
             <select
               value={mode}
               onChange={(e)=>setMode(e.target.value)}
               style={{
+                flex:1,
+                minWidth:0,
                 padding:"6px 10px",
                 borderRadius:"5px",
                 fontSize:"0.7rem",
@@ -5893,7 +5902,7 @@ export default function MediaTool() {
               ))}
             </select>
           </div>
-          <div style={{flex:1}}/>
+          <div style={{display:"flex",gap:"0.4rem",flexWrap:"wrap",alignItems:"center"}}>
           <div style={{display:"flex",gap:"3px",alignItems:"center",padding:"2px",border:"2px solid rgba(245,240,232,0.1)",borderRadius:"5px"}} title="Export aspect ratio — applies to single-slide downloads and carousel ZIPs">
             {Object.entries(EXPORT_RATIOS).map(([k, r]) => (
               <button
@@ -5932,8 +5941,8 @@ export default function MediaTool() {
           >
             {Object.entries(FONT_PAIRS).map(([k,p])=><option key={k} value={k} style={{color:"#000"}}>{p.name}</option>)}
           </select>
+          </div>
         </div>
-
         {/* Gemini key panel — only renders when the user still NEEDS to
             paste a key. Once VITE_GEMINI_API_KEY is set in .env.local
             (or pasted into the input below), the whole block disappears
@@ -5964,15 +5973,6 @@ export default function MediaTool() {
             {uiKey && <span style={{fontSize:"0.5rem",color:"#34D399",letterSpacing:"1px"}}>✓ SAVED</span>}
           </div>
         )}
-
-        {/* Outer 70/30 main grid — all the control bands (captions,
-            carousel composer, event tools) and the form sit in the left
-            column; preview is sticky-pinned in the right column so it
-            rises to the top of the page and stays visible while editing.
-            Constrains those wide control bands to the left 70% so they
-            no longer extend full-width past the preview. */}
-        <div className="cge-main-grid" style={{display:"grid",gridTemplateColumns:"7fr 3fr",gap:"1.25rem",alignItems:"start"}}>
-          <div>
         {/* Captions panel — flat layout. User pushed back on collapse:
             wants Generate one tap away always. Vision toggle inline.
             Voice chip only renders when there's something to NOTICE
@@ -6140,7 +6140,17 @@ export default function MediaTool() {
           );
         })()}
         </Collapsible>
-
+        {/* Event Tools — collapsible at the top, sits above the
+            template-specific form. Two modes: Single Event (apply
+            structured data to the current template's fields) and
+            Roundup Generator (multi-select from Review queue → auto-
+            build a Cover + Text + N Spotlights + CTA carousel). */}
+        <EventToolsPanel
+          currentMode={mode}
+          events={events}
+          onApplyToTemplate={(d) => applyEventToCurrentMode(d)}
+          onGenerateRoundup={(payload) => generateRoundupCarousel(payload)}
+        />
         {/* Template Queue banner — shown when the user is walking through
             a Carousel Template. The progress chip narrates which slot
             they're filling next so the auto-advance after each push feels
@@ -6194,7 +6204,6 @@ export default function MediaTool() {
             >Dismiss</button>
           </div>
         )}
-
         <Collapsible title="Carousel" badge={carousel.length} sk="carousel" accent="#A855F7" style={{
           marginBottom: "1rem",
           padding: "10px 12px",
@@ -6202,7 +6211,7 @@ export default function MediaTool() {
           border: "1px solid rgba(168,85,247,0.18)",
           borderRadius: "6px",
         }}>
-          <div style={{display:"flex",alignItems:"center",gap:"0.5rem",marginBottom: carousel.length > 0 ? "8px" : "0",flexWrap:"wrap"}}>
+          <div style={{display:"flex",alignItems:"center",gap:"0.5rem",marginBottom: "0",flexWrap:"wrap"}}>
             {/* Add-to-carousel + its "editing slide N" indicator moved to the
                 unified action bar at the bottom of the form. */}
             {/* From Template picker — built-ins first, customs second.
@@ -6344,109 +6353,16 @@ export default function MediaTool() {
                   : `🔢 Number ${spotlightStats.total} Spotlights`}
               </button>
             )}
-            {carousel.length > 0 && <>
-              {/* Export ZIP moved into the Download ▾ menu in the bottom action bar. */}
+            {carousel.length > 0 && (
               <button
                 onClick={clearCarousel}
                 style={{padding:"6px 12px",background:"transparent",color:"rgba(251,113,133,0.8)",border:"1px solid rgba(251,113,133,0.4)",borderRadius:"4px",fontSize:"0.6rem",fontWeight:700,letterSpacing:"1px",textTransform:"uppercase",cursor:"pointer",fontFamily:"'Syne',sans-serif",whiteSpace:"nowrap"}}
               >Clear</button>
-              <div style={{fontSize:"0.5rem",color:"rgba(245,240,232,0.4)",marginLeft:"auto"}}>
-                Drag to reorder · Click thumb to edit · Slide #s auto-update
-              </div>
-            </>}
+            )}
           </div>
-          {carousel.length > 0 && (
-            <div style={{display:"flex",gap:"6px",overflowX:"auto",paddingBottom:"4px"}}>
-              {carousel.map((slide, idx) => (
-                <div key={slide.id} style={{display:"flex",flexDirection:"column",gap:"3px",flexShrink:0}}>
-                <div
-                  draggable
-                  onDragStart={(e)=>onDragStart(e, idx)}
-                  onDragOver={onDragOver}
-                  onDragEnd={onDragEnd}
-                  onDrop={(e)=>onDrop(e, idx)}
-                  style={{
-                    position:"relative",
-                    minWidth:"86px", width:"86px", height:"86px",
-                    borderRadius:"4px", overflow:"hidden",
-                    cursor:"grab",
-                    border: dragIdx===idx ? "2px solid #A855F7" : (editingSlideId===slide.id ? "2px solid #63B3ED" : "1px solid rgba(168,85,247,0.3)"),
-                    boxShadow: editingSlideId===slide.id ? "0 0 0 2px rgba(99,179,237,0.35)" : "none",
-                    background:"#000",
-                    flexShrink:0,
-                    opacity: dragIdx===idx ? 0.5 : 1,
-                    userSelect: "none",
-                  }}
-                  title={`Slide ${idx+1} · ${slide.type} · click to edit (changes save to this slide), drag to reorder`}
-                  onClick={()=>{
-                    if (dragIdx !== null) return;
-                    loadSnapshot(slide.snapshot, slide.type);
-                    setEditingSlideId(slide.id);
-                    setDots(idx + 1);
-                    setTotalDots(carousel.length);
-                  }}
-                >
-                  <img
-                    src={slide.thumb}
-                    alt={slide.type}
-                    draggable={false}
-                    style={{width:"100%",height:"100%",objectFit:"cover",cursor:"pointer",pointerEvents:"none"}}
-                  />
-                  <div style={{position:"absolute",bottom:0,left:0,right:0,background:"rgba(0,0,0,0.75)",padding:"2px 4px",fontSize:"0.45rem",color:"#FFF",letterSpacing:"1px",textTransform:"uppercase",fontWeight:700,textAlign:"center",pointerEvents:"none"}}>
-                    {idx+1} · {slide.type}
-                  </div>
-                  <button
-                    onClick={(e)=>{e.stopPropagation();duplicateSlide(idx);}}
-                    style={{position:"absolute",top:"2px",right:"22px",width:"18px",height:"18px",background:"rgba(0,0,0,0.75)",color:"#FFF",border:"none",borderRadius:"3px",fontSize:"0.65rem",lineHeight:"16px",cursor:"pointer",padding:0,fontFamily:"sans-serif"}}
-                    title="Duplicate this slide"
-                  >⧉</button>
-                  <button
-                    onClick={(e)=>{e.stopPropagation();deleteSlide(idx);}}
-                    style={{position:"absolute",top:"2px",right:"2px",width:"18px",height:"18px",background:"rgba(0,0,0,0.75)",color:"#FFF",border:"none",borderRadius:"3px",fontSize:"0.85rem",lineHeight:"14px",cursor:"pointer",padding:0,fontFamily:"sans-serif"}}
-                    title="Remove from carousel"
-                  >×</button>
-                </div>
-                {/* Per-slide photo buttons — drop a photo onto a specific
-                    slide without loading it into the active form. Both
-                    buttons update the slide's primary photo (cover.photo,
-                    spotlight.photo, scene.bgPhoto, vibe.vibePhotos[0]) and
-                    regenerate the thumbnail. */}
-                <div style={{display:"flex",gap:"2px",width:"86px"}}>
-                  <button
-                    onClick={(e)=>{e.stopPropagation();triggerSlideUpload(slide.id);}}
-                    title="Upload a photo to this slide from disk"
-                    style={{flex:1,padding:"3px 0",background:"rgba(168,85,247,0.10)",color:"#A855F7",border:"1px solid rgba(168,85,247,0.30)",borderRadius:"3px",fontSize:"0.55rem",cursor:"pointer",fontFamily:"'Syne',sans-serif",letterSpacing:"0.5px",lineHeight:1}}
-                  >📤</button>
-                  <button
-                    onClick={(e)=>{e.stopPropagation();openLibrary(`slide:${slide.id}`);}}
-                    title="Pick a photo from the library for this slide"
-                    style={{flex:1,padding:"3px 0",background:"rgba(168,85,247,0.10)",color:"#A855F7",border:"1px solid rgba(168,85,247,0.30)",borderRadius:"3px",fontSize:"0.55rem",cursor:"pointer",fontFamily:"'Syne',sans-serif",letterSpacing:"0.5px",lineHeight:1}}
-                  >📚</button>
-                </div>
-                </div>
-              ))}
-            </div>
-          )}
         </Collapsible>
 
-        {/* Event Tools — collapsible at the top, sits above the
-            template-specific form. Two modes: Single Event (apply
-            structured data to the current template's fields) and
-            Roundup Generator (multi-select from Review queue → auto-
-            build a Cover + Text + N Spotlights + CTA carousel). */}
-        <EventToolsPanel
-          currentMode={mode}
-          events={events}
-          onApplyToTemplate={(d) => applyEventToCurrentMode(d)}
-          onGenerateRoundup={(payload) => generateRoundupCarousel(payload)}
-        />
-
-        {/* Form fields (per-mode). The outer 70/30 grid above wraps
-            everything; this is just the form area inside the left column.
-            cge-builder-layout class kept so the mobile media query still
-            collapses to a single stacked column on small viewports. */}
-        <div className="cge-builder-layout" style={{display:"block"}}>
-          <div>
+        {/* Per-mode form fields. Sticky Add / Draft / Download lives at the sidebar bottom. */}
             {mode==="cover"&&<>
               <AiSlotBtn slot="cover" label="Cover" onClick={setAiSlotOpen} />
               {/* === PRIMARY FIELDS (always visible) === */}
@@ -7498,7 +7414,7 @@ export default function MediaTool() {
                 Every handler here is the same one that ran when these buttons
                 were scattered across the top row, carousel block, and form
                 footer — this is pure relocation, no behavior change. */}
-            <div style={{position:"sticky",bottom:0,zIndex:5,marginTop:"6px",paddingTop:"10px",paddingBottom:"4px",background:"linear-gradient(180deg,rgba(8,8,8,0) 0%,#080808 24%)"}}>
+            <div style={{position:"sticky",bottom:0,zIndex:5,marginTop:"6px",paddingTop:"10px",paddingBottom:"4px",background:"linear-gradient(180deg,rgba(10,10,10,0) 0%,#0a0a0a 24%)"}}>
               <div style={{display:"flex",alignItems:"center",gap:"8px",flexWrap:"wrap",padding:"10px 12px",borderRadius:"10px",border:"1px solid rgba(245,240,232,0.1)",background:"#0e0e0e",boxShadow:"0 8px 24px rgba(0,0,0,0.4)"}}>
                 <button
                   onClick={addToCarousel}
@@ -7563,18 +7479,92 @@ export default function MediaTool() {
                 </div>
               </div>
             </div>
-          </div>
-        </div>
-          {/* === LEFT COLUMN END === */}
-          </div>
+      </div>
 
-          {/* === RIGHT COLUMN — sticky preview === */}
-          <div className="cge-builder-preview" style={{position:"sticky",top:"80px"}}>
+      {/* PREVIEW — canvas + carousel strip (the thing being composed) */}
+      <div className="cge-builder-preview" style={{ background: "#1a1a1a", padding: "30px", display: "flex", flexDirection: "column", alignItems: "center", overflow: "auto", minWidth: 0 }}>
+        <div style={{ width: "100%", maxWidth: 560 }}>
             <label style={{...L,marginBottom:"6px"}}>Preview</label>
             <canvas ref={cvRef} style={{width:"100%",maxWidth:"100%",aspectRatio:"1 / 1",borderRadius:"4px",display:"block",background:"#000"}}/>
-          </div>
+          {carousel.length > 0 && (
+            <div style={{width:"100%",marginTop:"16px"}}>
+            <div style={{fontSize:"0.5rem",color:"rgba(245,240,232,0.4)",marginBottom:"6px"}}>
+              Drag to reorder · Click thumb to edit · Slide #s auto-update
+            </div>
+            <div style={{display:"flex",gap:"6px",overflowX:"auto",paddingBottom:"4px"}}>
+              {carousel.map((slide, idx) => (
+                <div key={slide.id} style={{display:"flex",flexDirection:"column",gap:"3px",flexShrink:0}}>
+                <div
+                  draggable
+                  onDragStart={(e)=>onDragStart(e, idx)}
+                  onDragOver={onDragOver}
+                  onDragEnd={onDragEnd}
+                  onDrop={(e)=>onDrop(e, idx)}
+                  style={{
+                    position:"relative",
+                    minWidth:"86px", width:"86px", height:"86px",
+                    borderRadius:"4px", overflow:"hidden",
+                    cursor:"grab",
+                    border: dragIdx===idx ? "2px solid #A855F7" : (editingSlideId===slide.id ? "2px solid #63B3ED" : "1px solid rgba(168,85,247,0.3)"),
+                    boxShadow: editingSlideId===slide.id ? "0 0 0 2px rgba(99,179,237,0.35)" : "none",
+                    background:"#000",
+                    flexShrink:0,
+                    opacity: dragIdx===idx ? 0.5 : 1,
+                    userSelect: "none",
+                  }}
+                  title={`Slide ${idx+1} · ${slide.type} · click to edit (changes save to this slide), drag to reorder`}
+                  onClick={()=>{
+                    if (dragIdx !== null) return;
+                    loadSnapshot(slide.snapshot, slide.type);
+                    setEditingSlideId(slide.id);
+                    setDots(idx + 1);
+                    setTotalDots(carousel.length);
+                  }}
+                >
+                  <img
+                    src={slide.thumb}
+                    alt={slide.type}
+                    draggable={false}
+                    style={{width:"100%",height:"100%",objectFit:"cover",cursor:"pointer",pointerEvents:"none"}}
+                  />
+                  <div style={{position:"absolute",bottom:0,left:0,right:0,background:"rgba(0,0,0,0.75)",padding:"2px 4px",fontSize:"0.45rem",color:"#FFF",letterSpacing:"1px",textTransform:"uppercase",fontWeight:700,textAlign:"center",pointerEvents:"none"}}>
+                    {idx+1} · {slide.type}
+                  </div>
+                  <button
+                    onClick={(e)=>{e.stopPropagation();duplicateSlide(idx);}}
+                    style={{position:"absolute",top:"2px",right:"22px",width:"18px",height:"18px",background:"rgba(0,0,0,0.75)",color:"#FFF",border:"none",borderRadius:"3px",fontSize:"0.65rem",lineHeight:"16px",cursor:"pointer",padding:0,fontFamily:"sans-serif"}}
+                    title="Duplicate this slide"
+                  >⧉</button>
+                  <button
+                    onClick={(e)=>{e.stopPropagation();deleteSlide(idx);}}
+                    style={{position:"absolute",top:"2px",right:"2px",width:"18px",height:"18px",background:"rgba(0,0,0,0.75)",color:"#FFF",border:"none",borderRadius:"3px",fontSize:"0.85rem",lineHeight:"14px",cursor:"pointer",padding:0,fontFamily:"sans-serif"}}
+                    title="Remove from carousel"
+                  >×</button>
+                </div>
+                {/* Per-slide photo buttons — drop a photo onto a specific
+                    slide without loading it into the active form. Both
+                    buttons update the slide's primary photo (cover.photo,
+                    spotlight.photo, scene.bgPhoto, vibe.vibePhotos[0]) and
+                    regenerate the thumbnail. */}
+                <div style={{display:"flex",gap:"2px",width:"86px"}}>
+                  <button
+                    onClick={(e)=>{e.stopPropagation();triggerSlideUpload(slide.id);}}
+                    title="Upload a photo to this slide from disk"
+                    style={{flex:1,padding:"3px 0",background:"rgba(168,85,247,0.10)",color:"#A855F7",border:"1px solid rgba(168,85,247,0.30)",borderRadius:"3px",fontSize:"0.55rem",cursor:"pointer",fontFamily:"'Syne',sans-serif",letterSpacing:"0.5px",lineHeight:1}}
+                  >📤</button>
+                  <button
+                    onClick={(e)=>{e.stopPropagation();openLibrary(`slide:${slide.id}`);}}
+                    title="Pick a photo from the library for this slide"
+                    style={{flex:1,padding:"3px 0",background:"rgba(168,85,247,0.10)",color:"#A855F7",border:"1px solid rgba(168,85,247,0.30)",borderRadius:"3px",fontSize:"0.55rem",cursor:"pointer",fontFamily:"'Syne',sans-serif",letterSpacing:"0.5px",lineHeight:1}}
+                  >📚</button>
+                </div>
+                </div>
+              ))}
+            </div>
+            </div>
+          )}
         </div>
-        {/* === OUTER GRID END === */}
+      </div>
       </div>
       <PhotoLibraryModal
         open={libOpen}
