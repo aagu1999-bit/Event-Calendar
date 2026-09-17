@@ -23,6 +23,16 @@ import { createSessionStore, normalizeSession, applySessionOps } from "./reviewS
 import { createPoolStore } from "./screenshotPoolStore.js";
 import { normalizeImageDataUrl, usableImageDataUrl, toPreviewDataUrl, sniffImageKind } from "./normalizeImage.js";
 import { isInstagramUrl, classifyShareRequest, shareSavedReply, SHARE_GET_EMPTY } from "./shareIntake.js";
+import {
+  actorInputForDirectUrls,
+  indexApifyItems,
+  instagramShortcode,
+  lookupApifyItem,
+  pickApifyCaption,
+  pickApifyOwner,
+  pickApifySlideUrls,
+  uniqueDirectUrls,
+} from "./apifyInstagram.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || "5000", 10);
@@ -808,10 +818,10 @@ async function downloadImageAsDataUrl(imgUrl, { timeoutMs = 10000, referer } = {
   return (await tryOnce(false)) || (APIFY_TOKEN ? await tryOnce(true) : null);
 }
 
-function instagramShortcode(raw) {
-  const m = String(raw || "").match(/instagram\.com\/(?:p|reel|reels|tv)\/([A-Za-z0-9_-]+)/i);
-  return m ? m[1] : null;
-}
+const APIFY_BATCH_TIMEOUT = (() => {
+  const n = parseInt(process.env.APIFY_BATCH_TIMEOUT || "1800", 10);
+  return Number.isFinite(n) && n >= 120 ? n : 1800;
+})();
 
 // Cover-only fallback: /media/?size=l redirects to a CDN URL signed for
 // THIS server's IP, so it still works when Apify's displayUrl 403s.
@@ -872,107 +882,26 @@ function instagramCdnExpiryIso(mediaUrl) {
 }
 
 
-function pickApifyMediaUrl(item) {
-  if (!item || typeof item !== "object") return null;
-  const fromList = [];
-  const push = (v) => {
-    if (typeof v === "string" && /^https?:\/\//i.test(v)) fromList.push(v);
-    else if (v && typeof v.url === "string" && /^https?:\/\//i.test(v.url)) fromList.push(v.url);
+function apifyAuthHeaders() {
+  return {
+    Authorization: `Bearer ${APIFY_TOKEN}`,
+    "Content-Type": "application/json",
+    Accept: "application/json",
   };
-  push(item.displayUrl);
-  push(item.display_url);
-  push(item.imageUrl);
-  push(item.image);
-  push(item.thumbnailUrl);
-  push(item.thumbnail_url);
-  if (Array.isArray(item.images)) item.images.forEach(push);
-  if (Array.isArray(item.displayResourceUrls)) item.displayResourceUrls.forEach(push);
-  const still = fromList.find((u) => !/\.mp4(\?|$)/i.test(u));
-  return still || fromList[0] || null;
 }
 
-// Instagram carousels (sidecar posts) put each slide on `childPosts`.
-// Taking only displayUrl is why Extract used to read slide 1 and ignore
-// the rest of a weekend lineup. Cap at 10 — that's IG's carousel max.
-const APIFY_SLIDE_CAP = 10;
-function pickApifySlideUrls(item) {
-  if (!item || typeof item !== "object") return [];
-  const urls = [];
-  const seen = new Set();
-  const add = (u) => {
-    if (typeof u !== "string" || !/^https?:\/\//i.test(u)) return;
-    if (/\.mp4(\?|$)/i.test(u)) return;
-    const key = u.split("?")[0];
-    if (seen.has(key)) return;
-    seen.add(key);
-    urls.push(u);
-  };
-  const children = Array.isArray(item.childPosts) ? item.childPosts
-    : Array.isArray(item.child_posts) ? item.child_posts
-    : Array.isArray(item.sidecarChildren) ? item.sidecarChildren
-    : [];
-  if (children.length) {
-    for (const child of children) add(pickApifyMediaUrl(child));
-  }
-  if (!urls.length) add(pickApifyMediaUrl(item));
-  return urls.slice(0, APIFY_SLIDE_CAP);
-}
-function pickApifyCaption(item) {
-  const c = item?.caption || item?.text || "";
-  return typeof c === "string" ? c.trim() : "";
-}
-function pickApifyOwner(item) {
-  const u = item?.ownerUsername || item?.owner?.username || item?.username || item?.user?.username || "";
-  return typeof u === "string" ? u.replace(/^@+/, "").trim() : "";
-}
-
-async function fetchInstagramPostViaApify(postUrl) {
-  if (!APIFY_TOKEN) {
-    const err = new Error("Set APIFY_TOKEN in this app's Replit Secrets to fetch Instagram images on Extract.");
-    err.code = "not_configured";
-    throw err;
-  }
-  const actorId = APIFY_IG_ACTOR.replace("/", "~");
-  const apiUrl = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?timeout=90&memory=${APIFY_IG_MEMORY}`;
-  const ac = new AbortController();
-  const killer = setTimeout(() => ac.abort(), 95_000);
-  let r, text;
-  try {
-    r = await fetch(apiUrl, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${APIFY_TOKEN}`,
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify({
-        directUrls: [postUrl],
-        resultsType: "posts",
-        resultsLimit: 1,
-        addParentData: false,
-      }),
-      signal: ac.signal,
-    });
-    text = await r.text();
-  } catch (e) {
-    const err = new Error(e?.name === "AbortError"
-      ? "Apify timed out fetching that Instagram post (90s). Retry Extract, or share the image from Photos."
-      : `Couldn't reach Apify: ${String(e?.message || e)}`);
-    err.code = "apify_error";
-    throw err;
-  } finally {
-    clearTimeout(killer);
-  }
-  if (r.status === 401 || r.status === 403) {
+function throwApifyHttp(status, text) {
+  if (status === 401 || status === 403) {
     const err = new Error("Apify rejected the token. Check APIFY_TOKEN in Replit Secrets.");
     err.code = "auth";
     throw err;
   }
-  if (!r.ok) {
-    const err = new Error(`Apify ${r.status}: ${text.slice(0, 240)}`);
-    err.code = "apify_error";
-    throw err;
-  }
+  const err = new Error(`Apify ${status}: ${String(text || "").slice(0, 240)}`);
+  err.code = "apify_error";
+  throw err;
+}
+
+function parseApifyItemsPayload(text) {
   let items;
   try { items = JSON.parse(text); } catch { items = []; }
   if (items && typeof items === "object" && !Array.isArray(items) && items.error) {
@@ -980,12 +909,103 @@ async function fetchInstagramPostViaApify(postUrl) {
     err.code = "apify_error";
     throw err;
   }
-  const item = Array.isArray(items) ? items[0] : null;
-  if (!item) {
-    const err = new Error("Apify returned no post — it may be private, deleted, or a stories/share link the scraper can't open.");
-    err.code = "no_media";
+  if (Array.isArray(items)) return items;
+  if (Array.isArray(items?.data?.items)) return items.data.items;
+  return [];
+}
+
+// One or many Instagram post URLs. A single URL stays on the 90s sync
+// endpoint so Extract-one is still snappy. Two or more share ONE actor
+// run (async + poll) so 200 pool links are not 200 billed starts.
+async function runApifyInstagramActor(directUrls) {
+  if (!APIFY_TOKEN) {
+    const err = new Error("Set APIFY_TOKEN in this app's Replit Secrets to fetch Instagram images on Extract.");
+    err.code = "not_configured";
     throw err;
   }
+  const urls = uniqueDirectUrls(directUrls);
+  if (!urls.length) return [];
+  const actorId = APIFY_IG_ACTOR.replace("/", "~");
+  const input = actorInputForDirectUrls(urls);
+
+  if (urls.length === 1) {
+    const apiUrl = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?timeout=90&memory=${APIFY_IG_MEMORY}`;
+    const ac = new AbortController();
+    const killer = setTimeout(() => ac.abort(), 95_000);
+    let r, text;
+    try {
+      r = await fetch(apiUrl, {
+        method: "POST",
+        headers: apifyAuthHeaders(),
+        body: JSON.stringify(input),
+        signal: ac.signal,
+      });
+      text = await r.text();
+    } catch (e) {
+      const err = new Error(e?.name === "AbortError"
+        ? "Apify timed out fetching that Instagram post (90s). Retry Extract, or share the image from Photos."
+        : `Couldn't reach Apify: ${String(e?.message || e)}`);
+      err.code = "apify_error";
+      throw err;
+    } finally {
+      clearTimeout(killer);
+    }
+    if (!r.ok) throwApifyHttp(r.status, text);
+    return parseApifyItemsPayload(text);
+  }
+
+  const startUrl = `https://api.apify.com/v2/acts/${actorId}/runs?timeout=${APIFY_BATCH_TIMEOUT}&memory=${APIFY_IG_MEMORY}&waitForFinish=0`;
+  let startResp, startText;
+  try {
+    startResp = await fetch(startUrl, { method: "POST", headers: apifyAuthHeaders(), body: JSON.stringify(input) });
+    startText = await startResp.text();
+  } catch (e) {
+    const err = new Error(`Couldn't reach Apify: ${String(e?.message || e)}`);
+    err.code = "apify_error";
+    throw err;
+  }
+  if (!startResp.ok) throwApifyHttp(startResp.status, startText);
+  let started;
+  try { started = JSON.parse(startText); } catch { started = {}; }
+  const runId = started?.data?.id;
+  if (!runId) {
+    const err = new Error("Apify started a run but returned no id.");
+    err.code = "apify_error";
+    throw err;
+  }
+  const deadline = Date.now() + (APIFY_BATCH_TIMEOUT + 60) * 1000;
+  let run = started.data;
+  while (Date.now() < deadline) {
+    const st = String(run?.status || "");
+    if (st === "SUCCEEDED") break;
+    if (st === "FAILED" || st === "ABORTED" || st === "TIMED-OUT") {
+      const err = new Error(`Apify run ${st.toLowerCase()} while fetching Instagram posts.`);
+      err.code = "apify_error";
+      throw err;
+    }
+    await new Promise((r) => setTimeout(r, 3000));
+    const poll = await fetch(`https://api.apify.com/v2/actor-runs/${runId}`, { headers: apifyAuthHeaders() });
+    const pollText = await poll.text();
+    if (!poll.ok) throwApifyHttp(poll.status, pollText);
+    try { run = JSON.parse(pollText)?.data || run; } catch { /* keep last */ }
+  }
+  if (String(run?.status) !== "SUCCEEDED") {
+    const err = new Error("Apify timed out fetching that Instagram batch. Retry Extract.");
+    err.code = "apify_error";
+    throw err;
+  }
+  const datasetId = run.defaultDatasetId;
+  if (!datasetId) return [];
+  const itemsResp = await fetch(
+    `https://api.apify.com/v2/datasets/${datasetId}/items?clean=true&format=json`,
+    { headers: apifyAuthHeaders() },
+  );
+  const itemsText = await itemsResp.text();
+  if (!itemsResp.ok) throwApifyHttp(itemsResp.status, itemsText);
+  return parseApifyItemsPayload(itemsText);
+}
+
+async function materializeApifyPost(item, postUrl) {
   const mediaUrls = pickApifySlideUrls(item);
   if (!mediaUrls.length) {
     const err = new Error("Apify returned the post but no image URL (video-only, or the actor changed shape). Share the image from Photos instead.");
@@ -1016,6 +1036,40 @@ async function fetchInstagramPostViaApify(postUrl) {
     mediaExpiresAt: instagramCdnExpiryIso(mediaUrl),
     fetchedVia: "apify",
   };
+}
+
+async function fetchInstagramPostViaApify(postUrl) {
+  const items = await runApifyInstagramActor([postUrl]);
+  const idx = indexApifyItems(items);
+  const item = lookupApifyItem(idx, postUrl) || (Array.isArray(items) ? items[0] : null);
+  if (!item) {
+    const err = new Error("Apify returned no post — it may be private, deleted, or a stories/share link the scraper can't open.");
+    err.code = "no_media";
+    throw err;
+  }
+  return materializeApifyPost(item, postUrl);
+}
+
+async function fetchInstagramPostsViaApify(postUrls) {
+  const urls = uniqueDirectUrls(postUrls);
+  if (!urls.length) return new Map();
+  const items = await runApifyInstagramActor(urls);
+  return indexApifyItems(items);
+}
+
+async function mapLimit(list, n, fn) {
+  const items = Array.isArray(list) ? list : [];
+  const out = new Array(items.length);
+  let i = 0;
+  const worker = async () => {
+    while (i < items.length) {
+      const idx = i++;
+      out[idx] = await fn(items[idx], idx);
+    }
+  };
+  const width = Math.max(1, Math.min(n || 1, items.length || 1));
+  await Promise.all(Array.from({ length: width }, worker));
+  return out;
 }
 
 // Raw share intake — Save to CGE tool hits this for BOTH Instagram posts
@@ -1286,6 +1340,193 @@ function storedSlideThumbs(entry) {
   return [];
 }
 
+async function persistPoolSlides(id, thumbs, extra = {}) {
+  const safe = [];
+  for (const t of thumbs) {
+    try { safe.push(await normalizeImageDataUrl(t)); }
+    catch (e) {
+      if (e.code === "bad_image") {
+        const err = new Error(e.message);
+        err.code = "bad_image";
+        throw err;
+      }
+      throw e;
+    }
+  }
+  if (!safe.length) {
+    const err = new Error("Couldn't convert that image into a format Gemini can read.");
+    err.code = "bad_image";
+    throw err;
+  }
+  await poolStore.saveEntryMedia(id, safe);
+  let preview = null;
+  try { preview = await toPreviewDataUrl(safe[0]); } catch { preview = null; }
+  const { thumbs: _dropThumbs, ...restExtra } = extra || {};
+  const patch = {
+    thumb: preview,
+    slideCount: safe.length,
+    hasMedia: true,
+    ...restExtra,
+  };
+  const updated = await poolStore.update((cur) => {
+    const idx = (cur.entries || []).findIndex((e) => String(e.id) === String(id));
+    if (idx === -1) return cur;
+    const next = { entries: [...cur.entries] };
+    next.entries[idx] = { ...next.entries[idx], ...patch };
+    delete next.entries[idx].thumbs;
+    return next;
+  });
+  const row = (updated.entries || []).find((e) => String(e.id) === String(id));
+  if (!row) {
+    const err = new Error("That pool entry is gone — refresh and try again.");
+    err.code = "not_found";
+    throw err;
+  }
+  return { thumbs: safe, entry: row };
+}
+
+// In-memory Apify batch jobs. Extract-all/selected POSTs ids, we start ONE
+// actor run in the background, persist slides per pool row, then the client
+// polls until done and runs Gemini per row as before. Deleted rows are
+// skipped (`not_found`), not a whole-batch abort.
+const igPrefetchJobs = new Map();
+
+function pruneIgPrefetchJobs() {
+  if (igPrefetchJobs.size < 24) return;
+  for (const [id, job] of igPrefetchJobs) {
+    if (job.status === "done" || job.status === "error") igPrefetchJobs.delete(id);
+    if (igPrefetchJobs.size < 16) break;
+  }
+}
+
+async function runIgPrefetchJob(job) {
+  job.status = "running";
+  job.hint = `Fetching ${job.targets.length} Instagram post${job.targets.length === 1 ? "" : "s"} via Apify…`;
+  try {
+    const index = await fetchInstagramPostsViaApify(job.targets.map((t) => t.sourceUrl));
+    job.hint = `Saving Instagram slides 0/${job.targets.length}…`;
+    await mapLimit(job.targets, 3, async (target) => {
+      try {
+        const loaded = await poolStore.load();
+        const existing = (loaded.entries || []).find((e) => String(e.id) === String(target.id));
+        if (!existing) {
+          job.failed.push({ id: target.id, message: "That pool entry is gone — refresh and try again." });
+          job.done++;
+          return;
+        }
+        if (existing.fetchedVia === "apify") {
+          const fromBlob = await poolStore.loadEntryMedia(target.id);
+          if (fromBlob.length) {
+            job.ok.push(target.id);
+            job.done++;
+            job.hint = `Saving Instagram slides ${job.done}/${job.targets.length}…`;
+            return;
+          }
+        }
+        const item = lookupApifyItem(index, target.sourceUrl);
+        if (!item) {
+          job.failed.push({
+            id: target.id,
+            message: "Apify returned no post — it may be private, deleted, or a stories/share link the scraper can't open.",
+          });
+          job.done++;
+          job.hint = `Saving Instagram slides ${job.done}/${job.targets.length}…`;
+          return;
+        }
+        const result = await materializeApifyPost(item, target.sourceUrl);
+        const extra = {
+          fetchedVia: "apify",
+          mediaExpiresAt: result.mediaExpiresAt || null,
+        };
+        if (result.caption && !existing.caption) extra.caption = result.caption.slice(0, 500);
+        await persistPoolSlides(target.id, result.thumbs, extra);
+        job.ok.push(target.id);
+      } catch (e) {
+        job.failed.push({ id: target.id, message: String(e?.message || e) });
+      }
+      job.done++;
+      job.hint = `Saving Instagram slides ${job.done}/${job.targets.length}…`;
+    });
+    job.status = "done";
+    const failN = job.failed.length;
+    job.hint = failN
+      ? `Apify saved ${job.ok.length} · ${failN} missed`
+      : `Apify saved ${job.ok.length} Instagram post${job.ok.length === 1 ? "" : "s"}`;
+  } catch (e) {
+    job.status = "error";
+    job.hint = String(e?.message || e);
+    job.error = job.hint;
+    if (e.code === "not_configured") job.code = "not_configured";
+    if (e.code === "auth") job.code = "auth";
+  }
+}
+
+app.post("/api/screenshot-pool/prefetch-instagram", express.json({ limit: "1mb" }), async (req, res) => {
+  try {
+    const ids = (Array.isArray(req.body?.ids) ? req.body.ids : []).map(String).filter(Boolean).slice(0, 500);
+    if (!ids.length) return res.status(400).json({ error: "no_ids", message: "Send pool entry ids to prefetch." });
+    if (!APIFY_TOKEN) {
+      return res.status(503).json({
+        error: "not_configured",
+        message: "Set APIFY_TOKEN in this app's Replit Secrets to fetch Instagram images on Extract.",
+      });
+    }
+    const loaded = await poolStore.load();
+    const byId = new Map((loaded.entries || []).map((e) => [String(e.id), e]));
+    const targets = [];
+    let cached = 0;
+    for (const id of ids) {
+      const existing = byId.get(String(id));
+      if (!existing) continue;
+      const sourceUrl = typeof existing.sourceUrl === "string" ? existing.sourceUrl : "";
+      if (!isInstagramUrl(sourceUrl)) continue;
+      if (existing.fetchedVia === "apify") {
+        const fromBlob = await poolStore.loadEntryMedia(id);
+        if (fromBlob.length) { cached++; continue; }
+      }
+      targets.push({ id: String(existing.id), sourceUrl });
+    }
+    if (!targets.length) {
+      return res.json({ ok: true, jobId: null, status: "done", queued: 0, cached, hint: cached ? "Instagram slides already saved." : "No Instagram links to fetch." });
+    }
+    pruneIgPrefetchJobs();
+    const jobId = `igpf_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const job = {
+      id: jobId,
+      status: "queued",
+      queued: targets.length,
+      done: 0,
+      cached,
+      ok: [],
+      failed: [],
+      targets,
+      hint: `Starting Apify for ${targets.length} post${targets.length === 1 ? "" : "s"}…`,
+    };
+    igPrefetchJobs.set(jobId, job);
+    runIgPrefetchJob(job);
+    res.json({ ok: true, jobId, queued: targets.length, cached, status: "queued" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/screenshot-pool/prefetch-instagram/:jobId", (req, res) => {
+  const job = igPrefetchJobs.get(String(req.params.jobId || ""));
+  if (!job) return res.status(404).json({ error: "not_found", message: "That Apify batch expired — retry Extract." });
+  res.json({
+    ok: true,
+    jobId: job.id,
+    status: job.status,
+    hint: job.hint,
+    queued: job.queued,
+    done: job.done,
+    cached: job.cached || 0,
+    okCount: job.ok.length,
+    failed: job.failed,
+    code: job.code || null,
+  });
+});
+
 app.post("/api/screenshot-pool/resolve-media", express.json({ limit: "1mb" }), async (req, res) => {
   try {
     const { id } = req.body || {};
@@ -1296,50 +1537,7 @@ app.post("/api/screenshot-pool/resolve-media", express.json({ limit: "1mb" }), a
 
     const sourceUrl = typeof existing.sourceUrl === "string" ? existing.sourceUrl : "";
     const ig = isInstagramUrl(sourceUrl);
-    const persistSlides = async (thumbs, extra = {}) => {
-      const safe = [];
-      for (const t of thumbs) {
-        try { safe.push(await normalizeImageDataUrl(t)); }
-        catch (e) {
-          if (e.code === "bad_image") {
-            const err = new Error(e.message);
-            err.code = "bad_image";
-            throw err;
-          }
-          throw e;
-        }
-      }
-      if (!safe.length) {
-        const err = new Error("Couldn't convert that image into a format Gemini can read.");
-        err.code = "bad_image";
-        throw err;
-      }
-      await poolStore.saveEntryMedia(id, safe);
-      let preview = null;
-      try { preview = await toPreviewDataUrl(safe[0]); } catch { preview = null; }
-      const { thumbs: _dropThumbs, ...restExtra } = extra || {};
-      const patch = {
-        thumb: preview,
-        slideCount: safe.length,
-        hasMedia: true,
-        ...restExtra,
-      };
-      const updated = await poolStore.update((cur) => {
-        const idx = (cur.entries || []).findIndex((e) => String(e.id) === String(id));
-        if (idx === -1) return cur;
-        const next = { entries: [...cur.entries] };
-        next.entries[idx] = { ...next.entries[idx], ...patch };
-        delete next.entries[idx].thumbs;
-        return next;
-      });
-      const row = (updated.entries || []).find((e) => String(e.id) === String(id));
-      if (!row) {
-        const err = new Error("That pool entry is gone — refresh and try again.");
-        err.code = "not_found";
-        throw err;
-      }
-      return { thumbs: safe, entry: row };
-    };
+    const persistSlides = (thumbs, extra = {}) => persistPoolSlides(id, thumbs, extra);
 
     const jsonOk = (thumbs, extra) => res.json({
       ok: true,
