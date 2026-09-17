@@ -273,11 +273,59 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
     };
   };
 
+  const prefetchInstagramBatch = async (list) => {
+    const ids = list
+      .filter((e) => /instagram\.com|instagr\.am/i.test(e.sourceUrl || ""))
+      .map((e) => e.id);
+    // One Instagram link still uses resolve-media (90s sync). Two or more
+    // share a single Apify run so 200 pool links are not 200 actor starts.
+    if (ids.length < 2) return;
+    setExtractingHint(`Fetching ${ids.length} Instagram posts via Apify…`);
+    const r = await fetch("/api/screenshot-pool/prefetch-instagram", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (r.status === 503) throw new Error(j.message || "Set APIFY_TOKEN in this app's Replit Secrets to fetch Instagram images on Extract.");
+    if (r.status === 401) throw new Error(j.message || "Apify rejected the token. Check APIFY_TOKEN in Replit Secrets.");
+    if (!r.ok) throw new Error(j.message || j.error || `Server ${r.status}`);
+    if (!j.jobId) {
+      if (j.hint) setExtractingHint(j.hint);
+      return;
+    }
+    const deadline = Date.now() + 36 * 60 * 1000;
+    while (Date.now() < deadline) {
+      await new Promise((ok) => setTimeout(ok, 2000));
+      const s = await fetch(`/api/screenshot-pool/prefetch-instagram/${encodeURIComponent(j.jobId)}`);
+      const st = await s.json().catch(() => ({}));
+      if (!s.ok) throw new Error(st.message || "Apify batch expired — retry Extract.");
+      if (st.hint) setExtractingHint(st.hint);
+      if (st.status === "done") return;
+      if (st.status === "error") {
+        if (st.code === "not_configured" || st.code === "auth") throw new Error(st.hint || "Apify is not ready.");
+        setExtractingHint(st.hint || "Apify batch missed some posts — finishing one by one…");
+        return;
+      }
+    }
+    setExtractingHint("Apify is still running — continuing Extract with whatever is saved…");
+  };
+
   // Bulk-extract raw entries. Extract-all still walks every raw share;
   // Extract-selected only walks the ticked ones (holiday / one-off picks).
+  // Instagram links in the list are prefetched in ONE Apify run first;
+  // Gemini + pool save stay per row (and skip rows the operator deleted).
   const extractRawList = async (list) => {
     if (extracting || !list.length) return;
     setExtracting(true); setExtractingHint(""); setMsg(null);
+    try {
+      await prefetchInstagramBatch(list);
+    } catch (err) {
+      setExtracting(false);
+      setExtractingHint("");
+      setMsg({ ok: false, text: String(err?.message || err) });
+      return;
+    }
     let ok = 0, fail = 0, events = 0, lastErr = "";
     for (const entry of list) {
       try {
