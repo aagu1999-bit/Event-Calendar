@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { classifyShare, isInstagramUrl, pickShareUrl } from "./shareIntake.js";
+import { classifyShare, isInstagramUrl, pickShareUrl, shareSavedReply, SHARE_GET_SAVED, bodyFromRaw, classifyShareRequest } from "./shareIntake.js";
 
 const STUB = "data:image/jpeg;base64";
 const REAL = "data:image/jpeg;base64," + Buffer.alloc(64, 0xff).toString("base64");
@@ -9,6 +9,9 @@ const IG = "https://www.instagram.com/p/DAbc123xyz/";
 describe("pickShareUrl", () => {
   it("reads sourceUrl", () => {
     assert.equal(pickShareUrl({ sourceUrl: IG }), IG);
+  });
+  it("reads sourceURL the way the iPhone Shortcut JSON field is labeled", () => {
+    assert.equal(pickShareUrl({ sourceURL: IG }), IG);
   });
   it("reads url / link aliases the Shortcut might send", () => {
     assert.equal(pickShareUrl({ url: IG }), IG);
@@ -68,6 +71,51 @@ describe("classifyShare", () => {
   });
   it("picks a query-string URL when the JSON body is only a stub image", () => {
     const c = classifyShare({ imageDataUrl: STUB }, { url: IG });
+    assert.equal(c.url, IG);
+    assert.equal(c.instagram, true);
+    assert.equal(c.persistPhoto, false);
+  });
+  it("reads GET ?sourceUrl= the way Save to CGE tool sends it", () => {
+    const c = classifyShare({}, { sourceUrl: IG });
+    assert.equal(c.url, IG);
+    assert.equal(c.instagram, true);
+    assert.equal(c.persistPhoto, false);
+  });
+  it("pulls the Instagram URL out of share-sheet text in the query", () => {
+    const c = classifyShare({}, { sourceUrl: `Labor Day weekend ${IG} come vibe` });
+    assert.equal(c.url, IG);
+  });
+});
+
+describe("shareSavedReply", () => {
+  it("GET and POST are plain text so Shortcuts will not treat them as a webpage", () => {
+    for (const method of ["GET", "POST"]) {
+      const r = shareSavedReply(method);
+      assert.equal(r.contentType, "text/plain");
+      assert.equal(r.body, SHARE_GET_SAVED);
+      assert.equal(/<html|<!doctype/i.test(r.body), false);
+    }
+  });
+});
+
+describe("bodyFromRaw / classifyShareRequest", () => {
+  it("wraps a JPEG File POST as a photo share", () => {
+    const jpeg = Buffer.alloc(64, 0x11);
+    jpeg[0] = 0xff; jpeg[1] = 0xd8; jpeg[2] = 0xff;
+    const body = bodyFromRaw(jpeg, "image/jpeg");
+    const c = classifyShare(body);
+    assert.equal(c.persistPhoto, true);
+    assert.equal(c.url, null);
+    assert.ok(c.imageDataUrl.startsWith("data:image/jpeg;base64,"));
+  });
+  it("keeps a GET query URL as an Instagram share when a File is also present", () => {
+    const jpeg = Buffer.alloc(64, 0x11);
+    jpeg[0] = 0xff; jpeg[1] = 0xd8; jpeg[2] = 0xff;
+    const c = classifyShareRequest({
+      body: jpeg,
+      headers: { "content-type": "image/jpeg" },
+      query: { sourceUrl: IG },
+    });
     assert.equal(c.url, IG);
     assert.equal(c.instagram, true);
     assert.equal(c.persistPhoto, false);
