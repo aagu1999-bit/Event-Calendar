@@ -721,11 +721,13 @@ app.get("/api/screenshot-pool", async (_req, res) => {
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Bulk-add entries. Body: { entries: [{event, thumb?, recurring, alsoRegular, source?}, …] }
+// Bulk-add entries. Body: { entries: [{event, thumb?, recurring, alsoRegular, source?, sourceUrl?}, …] }
 // Server stamps id + createdAt so client doesn't have to. Cap-guarded — silently
 // drops the oldest entries when we'd exceed POOL_MAX_ITEMS.
 // `source` was added when the pool grew to accept iOS-share drops alongside
 // screenshot-modal saves — defaults to "screenshot" for anything unspecified.
+// `sourceUrl` (or event.link) is kept so returned Review rows still land in
+// the pool's Links list and can be re-extracted.
 app.post("/api/screenshot-pool", express.json({ limit: "20mb" }), async (req, res) => {
   try {
     const incoming = Array.isArray(req.body?.entries) ? req.body.entries : [];
@@ -745,6 +747,9 @@ app.post("/api/screenshot-pool", express.json({ limit: "20mb" }), async (req, re
           status: "extracted", // extracted by the modal before save; ready to pull
           createdAt: new Date().toISOString(),
         };
+        const srcUrl = typeof e.sourceUrl === "string" ? e.sourceUrl.trim()
+          : (typeof e.event?.link === "string" ? e.event.link.trim() : "");
+        if (/^https?:\/\//i.test(srcUrl)) entry.sourceUrl = srcUrl;
         next.entries.push(entry);
         added.push(entry);
       }

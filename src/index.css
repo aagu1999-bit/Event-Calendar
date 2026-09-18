@@ -26,6 +26,12 @@ body {
   min-height: 100vh;
 }
 
+/* Desktop Review rows already show FRI + date in .cge-row-day.
+   The inline copy in the subtitle is for the mobile card where that chip hides. */
+.cge-row-day-inline {
+  display: none;
+}
+
 /* ============================================================
    MOBILE RESPONSIVE RULES — additive only.
    Everything below ONLY fires at <= 768px viewport widths. Desktop
@@ -83,9 +89,11 @@ body {
   .cge-review-row > .cge-row-flag     { grid-area: flag; }
   .cge-review-row > .cge-row-tags     { grid-area: tags; max-width: 100% !important; justify-content: flex-start !important; }
   .cge-review-row > .cge-row-actions  { grid-area: actions; justify-content: flex-start !important; flex-wrap: wrap !important; }
-  /* Day chip + region + type meta — redundant on mobile, hide */
+  /* Day chip + region + type meta — redundant on mobile, hide.
+     Date still shows via .cge-row-day-inline in the info subtitle. */
   .cge-review-row > .cge-row-day      { display: none !important; }
   .cge-review-row > .cge-row-meta     { display: none !important; }
+  .cge-row-day-inline                 { display: inline !important; }
   /* Bigger tap targets on the action buttons */
   .cge-review-row .cge-row-actions button,
   .cge-review-row .cge-row-actions a {

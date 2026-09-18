@@ -49,6 +49,23 @@ const NJ_NORTH_OVERRIDE_CITIES = [
   "springfield", "westfield",
 ];
 
+// Compact M/D for the Review day chip / search. ISO (2026-09-19) and
+// M/D/YYYY both collapse so "FRI 9/19" is scannable and searchable.
+function compactMd(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return "";
+  const iso = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (iso) return `${parseInt(iso[2], 10)}/${parseInt(iso[3], 10)}`;
+  const md = s.match(/^(\d{1,2})[/\-](\d{1,2})/);
+  if (md) return `${parseInt(md[1], 10)}/${parseInt(md[2], 10)}`;
+  const parsed = parseDateToDay(s);
+  return parsed?.date || s;
+}
+
+function dayAbbrev(ev) {
+  return DAYFUL[ev?.day]?.slice(0, 3) || (ev?.day ? String(ev.day).slice(0, 3).toUpperCase() : "?");
+}
+
 // Suspicious time vs event-type combos that hint at a typo.
 function timeTypeSuspect(ev) {
   if (!ev.time || !ev.type) return null;
@@ -821,6 +838,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
   // there's a nudge to pull them during that weekend's review.
   const [poolOpen, setPoolOpen] = useState(false);
   const [poolCount, setPoolCount] = useState(0);
+  const [returnPoolBusy, setReturnPoolBusy] = useState(false);
   const refreshPoolCount = async () => {
     try {
       const r = await fetch("/api/screenshot-pool");
@@ -1385,6 +1403,74 @@ export default function ReviewQueue({ betaMode = false } = {}) {
     if (editingId && ids.has(editingId)) { setEditingId(null); setEditDraft({}); }
   };
 
+  // Send selected pending rows back to the screenshot pool so they can be
+  // pulled into a different Review session. Original share thumbs don't
+  // travel with the queue event — Instagram links do (sourceUrl + event.link).
+  const returnSelectedToPool = async () => {
+    if (returnPoolBusy) return;
+    const chosen = pending.filter((e) => approvals[e.id] && String(e.name || "").trim());
+    if (chosen.length === 0) {
+      alert("Select at least one named event to return to the pool.");
+      return;
+    }
+    const msg = chosen.length === 1
+      ? "Return this event to the screenshot pool? It leaves this review list so you can pull it into another session. Back restores the list here; the pool copy stays."
+      : `Return ${chosen.length} selected events to the screenshot pool? They leave this review list so you can pull them into another session. Back restores the list here; the pool copies stay.`;
+    if (!window.confirm(msg)) return;
+    setReturnPoolBusy(true);
+    try {
+      const entries = chosen.map((ev) => {
+        const type = (ev.type || "").toUpperCase();
+        const link = String(ev.link || "").trim();
+        const sourceUrl = /^https?:\/\//i.test(link) ? link : null;
+        return {
+          event: {
+            name: String(ev.name || "").trim(),
+            day: ev.day || "Fri",
+            date: dateForEvent(ev),
+            time: ev.time || "",
+            venue: ev.venue || "",
+            area: ev.area || "",
+            region: ev.region || "",
+            type,
+            emoji: ev.emoji || getEmoji(type),
+            igHandle: normalizeHandle(ev.igHandle || ""),
+            link,
+          },
+          sourceUrl,
+          source: "review-return",
+        };
+      });
+      const r = await fetch("/api/screenshot-pool", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entries }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.message || j.error || `Server ${r.status}`);
+      if (!j.added) throw new Error("Pool saved 0 events");
+      const ids = new Set(chosen.map((e) => e.id));
+      pushUndo("return to pool");
+      setPending((p) => p.filter((e) => !ids.has(e.id)));
+      setApprovals((a) => {
+        const next = { ...a };
+        ids.forEach((id) => { delete next[id]; });
+        return next;
+      });
+      setApprovedSet((s) => {
+        const next = new Set(s);
+        ids.forEach((id) => next.delete(id));
+        return next;
+      });
+      if (editingId && ids.has(editingId)) { setEditingId(null); setEditDraft({}); }
+      refreshPoolCount();
+    } catch (err) {
+      alert(`Couldn't return those to the pool: ${err?.message || err}`);
+    } finally {
+      setReturnPoolBusy(false);
+    }
+  };
+
   // Merged committed view — the local `committed` audit array only
   // tracks events pushed via +Add SINCE the audit filter shipped, so
   // historical calendar events (imported before, or pushed from other
@@ -1435,11 +1521,15 @@ export default function ReviewQueue({ betaMode = false } = {}) {
     // Search filter — additive on top of the active filter
     const q = searchTerm.trim().toLowerCase();
     if (q) {
-      list = list.filter(e =>
-        (e.name || "").toLowerCase().includes(q) ||
-        (e.venue || "").toLowerCase().includes(q) ||
-        (e.area || "").toLowerCase().includes(q)
-      );
+      list = list.filter(e => {
+        const date = compactMd(dateForEvent(e));
+        const hay = [
+          e.name, e.venue, e.area, e.igHandle,
+          e.day, dayAbbrev(e), DAYFUL[e.day],
+          e.date, date,
+        ].filter(Boolean).join(" ").toLowerCase();
+        return hay.includes(q);
+      });
     }
 
     // Sort-to-top by tag (broad): when a tag is selected from the breakdown,
@@ -1475,7 +1565,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
       });
     }
     return list;
-  }, [pending, committed, mergedCommitted, warnings, approvals, approvedSet, filter, searchTerm, sortByTag, highlightedGroup]);
+  }, [pending, committed, mergedCommitted, warnings, approvals, approvedSet, filter, searchTerm, sortByTag, highlightedGroup, weekendDates]);
 
   const approvedCount = pending.filter(e => approvals[e.id]).length;
   const selectedApprovedCount = pending.filter(e => approvals[e.id] && approvedSet.has(e.id)).length;
@@ -2136,7 +2226,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
                     key={ev.id || i}
                     style={{
                       display: "grid",
-                      gridTemplateColumns: "40px 1fr auto",
+                      gridTemplateColumns: "48px 1fr auto",
                       gap: "10px",
                       padding: "4px 8px",
                       fontSize: "0.6rem",
@@ -2144,8 +2234,13 @@ export default function ReviewQueue({ betaMode = false } = {}) {
                       borderRadius: "3px",
                     }}
                   >
-                    <span style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, color: "#E5BC4F", letterSpacing: "1px" }}>
-                      {DAYFUL[ev.day]?.slice(0, 3) || "?"}
+                    <span style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, color: "#E5BC4F", letterSpacing: "0.4px", lineHeight: 1.2 }}>
+                      <span style={{ display: "block" }}>{dayAbbrev(ev)}</span>
+                      {compactMd(ev.date) ? (
+                        <span style={{ display: "block", fontSize: "0.52rem", fontWeight: 600, color: "rgba(229,188,79,0.8)", letterSpacing: "0.3px" }}>
+                          {compactMd(ev.date)}
+                        </span>
+                      ) : null}
                     </span>
                     <span style={{ color: "rgba(245,240,232,0.85)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {ev.name || <em>(no name)</em>} <span style={{ color: "rgba(245,240,232,0.4)" }}>· {ev.venue || "no venue"}{ev.area ? ", " + ev.area : ""}</span>
@@ -2426,6 +2521,14 @@ export default function ReviewQueue({ betaMode = false } = {}) {
                     + Add {selectedApprovedCount} to calendar
                   </button>
                   <button
+                    onClick={returnSelectedToPool}
+                    disabled={returnPoolBusy}
+                    style={{ ...B, background: "rgba(167,139,250,0.12)", borderColor: "rgba(167,139,250,0.4)", color: "#C4B5FD", fontWeight: 700, cursor: returnPoolBusy ? "wait" : "pointer" }}
+                    title="Send selected events back to the screenshot pool so you can pull them into another Review session. Instagram links come with them; original photos/thumbs do not."
+                  >
+                    {returnPoolBusy ? "Returning…" : `↩ Return ${approvedCount} to pool`}
+                  </button>
+                  <button
                     onClick={deleteSelected}
                     style={{ ...B, background: "rgba(251,113,133,0.1)", borderColor: "rgba(251,113,133,0.35)", color: "#FB7185" }}
                     title="Delete every selected row from this review"
@@ -2457,7 +2560,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
                 type="text"
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
-                placeholder="Search by name, venue, or city…"
+                    placeholder="Search by name, venue, city, or date…"
                 style={{
                   flex: 1, padding: "8px 12px",
                   background: "rgba(245,240,232,0.04)",
@@ -2548,7 +2651,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
                     className="cge-review-row"
                     style={{
                       display: "grid",
-                      gridTemplateColumns: "auto auto 50px 1fr auto auto auto auto",
+                      gridTemplateColumns: "auto auto 58px 1fr auto auto auto auto",
                       gap: "12px",
                       alignItems: "center",
                       padding: "10px 14px",
@@ -2624,8 +2727,13 @@ export default function ReviewQueue({ betaMode = false } = {}) {
                     <span className="cge-row-flag" style={{ fontSize: "1rem", width: "20px", textAlign: "center", lineHeight: 1 }}>
                       {isFlagged ? "🚩" : ""}
                     </span>
-                    <span className="cge-row-day" style={{ fontFamily: "'Syne', sans-serif", fontSize: "0.8rem", fontWeight: 700, color: "#E5BC4F", letterSpacing: "1px" }}>
-                      {DAYFUL[ev.day]?.slice(0, 3) || "?"}
+                    <span className="cge-row-day" style={{ fontFamily: "'Syne', sans-serif", fontSize: "0.8rem", fontWeight: 700, color: "#E5BC4F", letterSpacing: "1px", lineHeight: 1.15 }}>
+                      <span style={{ display: "block" }}>{dayAbbrev(ev)}</span>
+                      {compactMd(dateForEvent(ev)) ? (
+                        <span style={{ display: "block", fontSize: "0.58rem", fontWeight: 600, letterSpacing: "0.4px", color: "rgba(229,188,79,0.85)", marginTop: 2 }}>
+                          {compactMd(dateForEvent(ev))}
+                        </span>
+                      ) : null}
                     </span>
                     <div className="cge-row-info">
                       <div style={{ fontSize: "0.85rem", fontWeight: 700, marginBottom: "2px" }}>
@@ -2642,6 +2750,10 @@ export default function ReviewQueue({ betaMode = false } = {}) {
                         )}
                       </div>
                       <div style={{ fontSize: "0.65rem", color: "rgba(245,240,232,0.55)" }}>
+                        <span className="cge-row-day-inline" style={{ color: "#E5BC4F", fontWeight: 700, letterSpacing: "0.4px" }}>
+                          {[dayAbbrev(ev), compactMd(dateForEvent(ev))].filter(Boolean).join(" · ")}
+                          {" · "}
+                        </span>
                         {[ev.venue, ev.area, ev.time].filter(Boolean).join(" · ") || <em>no details</em>}
                         {ev.igHandle && <span style={{ marginLeft: "8px", color: "#C084FC", fontWeight: 600 }}>@{ev.igHandle}</span>}
                       </div>
