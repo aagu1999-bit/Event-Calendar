@@ -20,6 +20,8 @@ import { fileURLToPath } from "url";
 import { runScout, storyKey, focusForDay } from "./scoutServer.js";
 import { createSessionStore, normalizeSession, applySessionOps } from "./reviewSessionStore.js";
 import { normalizeImageDataUrl } from "./normalizeImage.js";
+import * as poolStoreDb from "./poolStoreDb.js";
+import * as eventStoreDb from "./eventStoreDb.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || "5000", 10);
@@ -684,17 +686,100 @@ app.put("/api/brand-kit", express.json({ limit: "1mb" }), async (req, res) => {
 // concurrent-editing concern like sessions have.
 const POOL_DIR = path.resolve(__dirname, "data/screenshot-pool");
 const POOL_FILE = path.join(POOL_DIR, "pool.json");
-const POOL_MAX_ITEMS = 500; // hard cap so a runaway submission spree can't blow up the file
+// Bumped 500 → 1500 when the pool moved to Postgres. The old cap existed
+// because pool.json was one flat file on ephemeral disk — a runaway
+// submission spree could blow up the file AND then vanish on redeploy.
+// Postgres removes both risks: no single-file bloat, no wipe on deploy.
+// Cap still matters (bounds storage cost + keeps the UI list navigable),
+// just at a saner ceiling for heavy iOS-share weeks.
+const POOL_MAX_ITEMS = 1500;
+
+// Pool storage now lives in Postgres (see poolStoreDb.js). These two
+// helpers preserve the pre-existing load-mutate-save API surface used by
+// several endpoints downstream, so the migration is transparent to them.
+// Newer code should prefer the row-level functions on poolStoreDb (upsert,
+// patch, delete) — they avoid the read+write-back overhead loadPool/savePool
+// incur on every mutation.
 async function loadPool() {
-  try {
-    const j = JSON.parse(await fs.readFile(POOL_FILE, "utf8"));
-    return { entries: Array.isArray(j.entries) ? j.entries : [] };
-  } catch { return { entries: [] }; }
+  const entries = await poolStoreDb.listPoolEntries();
+  return { entries };
 }
 async function savePool(pool) {
-  await fs.mkdir(POOL_DIR, { recursive: true });
-  await fs.writeFile(POOL_FILE, JSON.stringify(pool, null, 2));
+  const incoming = Array.isArray(pool?.entries) ? pool.entries : [];
+  const current = await poolStoreDb.listPoolEntries();
+  const incomingIds = new Set(incoming.map((e) => e && e.id).filter(Boolean).map(String));
+  const toDelete = current
+    .filter((e) => e && e.id && !incomingIds.has(String(e.id)))
+    .map((e) => String(e.id));
+  if (toDelete.length) await poolStoreDb.deletePoolEntries(toDelete);
+  if (incoming.length) await poolStoreDb.bulkUpsertPoolEntries(incoming);
 }
+
+// --- EVENTS store (Postgres-backed) ---
+// Replaces the browser-localStorage-only persistence for useEventsStore.
+// Client stores optimistically in Zustand memory (same UX as before) and
+// syncs to Postgres via these endpoints. First-boot migration is client-
+// driven: if the browser has legacy events in localStorage but the server
+// returns none, the client uploads its backup via POST /api/events/bulk.
+//
+// No auth: single-operator app, no threat model that warrants gating this.
+// Match the same "public URL, private stakes" posture the pool endpoints
+// use.
+
+app.get("/api/events", async (_req, res) => {
+  try {
+    const events = await eventStoreDb.listEvents();
+    res.json({ events });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post("/api/events/upsert", express.json({ limit: "2mb" }), async (req, res) => {
+  try {
+    const event = req.body?.event;
+    if (!event || event.id == null) return res.status(400).json({ error: "bad_body", detail: "Send { event: { id, ... } }" });
+    await eventStoreDb.upsertEvent(event);
+    res.json({ ok: true, id: event.id });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post("/api/events/delete", express.json({ limit: "128kb" }), async (req, res) => {
+  try {
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
+    if (!ids.length) return res.status(400).json({ error: "no_ids" });
+    const removed = await eventStoreDb.deleteEvents(ids);
+    res.json({ ok: true, removed });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Bulk replace — used by legacy setEvents() calls that hand us a whole
+// new array. Under the hood it's a transactional diff: rows the incoming
+// list omits are deleted, new/changed rows are upserted. Cross-device
+// racing is last-write-wins for the WHOLE list, so newer callers should
+// use per-row upsert instead when they can.
+app.post("/api/events/replace", express.json({ limit: "20mb" }), async (req, res) => {
+  try {
+    const events = Array.isArray(req.body?.events) ? req.body.events : null;
+    if (events == null) return res.status(400).json({ error: "bad_body", detail: "Send { events: [...] }" });
+    const n = await eventStoreDb.replaceAllEvents(events);
+    res.json({ ok: true, total: n });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// One-shot migration import from localStorage → Postgres. Client calls
+// this on first boot when the server returned an empty events list AND
+// the browser has a legacy `cge-events` localStorage payload. Idempotent:
+// running twice is safe (ON CONFLICT upserts), but the client is expected
+// to only call it once.
+app.post("/api/events/bulk", express.json({ limit: "20mb" }), async (req, res) => {
+  try {
+    const events = Array.isArray(req.body?.events) ? req.body.events : [];
+    if (!events.length) return res.status(400).json({ error: "no_events" });
+    const n = await eventStoreDb.bulkUpsertEvents(events);
+    res.json({ ok: true, inserted: n });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- POOL storage (Postgres-backed, same URL contract as before) ---
 
 app.get("/api/screenshot-pool", async (_req, res) => {
   try { res.json(await loadPool()); }
@@ -1991,5 +2076,12 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`  Photos    at ${LIBRARY_DIRS.photos}`);
   console.log(`  Exports   at ${LIBRARY_DIRS.exports}`);
   console.log(`  Apify     ${APIFY_TOKEN ? "configured (extract-time IG fetch)" : "OFF — set APIFY_TOKEN to fetch IG images on Extract"}`);
+  console.log(`  Persistence ${process.env.DATABASE_URL ? "Postgres (events + pool)" : "OFF — DATABASE_URL not set, using in-memory only"}`);
+  // One-shot pool seed from any pool.json left on disk (dev workspace or
+  // pre-Postgres deployment). Runs asynchronously; if pool_entries is
+  // already populated it's a cheap no-op.
+  poolStoreDb.seedFromJsonFileIfEmpty(POOL_FILE)
+    .then((r) => { if (r.seeded) console.log(`  Pool seed ${r.seeded} entries from pool.json`); })
+    .catch((err) => console.warn("  Pool seed failed:", err.message));
   initScoutCron();
 });

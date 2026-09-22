@@ -700,6 +700,15 @@ export const useCarouselTemplatesStore = create(
   )
 );
 
+// The events store used to persist the whole `events` array to localStorage
+// via Zustand's persist middleware. That worked as long as the operator used
+// one browser and never cleared cache — but the pool wipe made it clear that
+// hours of curation living behind a single browser storage key is a real
+// risk. Events now come from Postgres (see /api/events*); the persist wrapper
+// still owns approvals + vetted (they're per-session UI state that would be
+// wasteful to round-trip). Legacy v3 payloads that carried events inside
+// persisted state get stashed to a one-shot backup key on migration, then
+// hydrate() uploads them to the server the first time it runs.
 export const useEventsStore = create(
   persist(
     (set, get) => ({
@@ -716,16 +725,131 @@ export const useEventsStore = create(
       // and the JSON sent to /api/review-sessions. ReviewQueue derives a
       // memoized Set from this on read; writes go through setVetted().
       vetted: [],
-      setEvents: (events) =>
-        set({ events: typeof events === "function" ? events([]) : events }),
-      updateEvents: (updater) =>
-        set((state) => ({
-          events: typeof updater === "function" ? updater(state.events) : updater,
-        })),
+      // Server-sync state. `hydrated` is true after the first successful
+      // load from /api/events (or after that load errored — we don't
+      // keep retrying blindly). `syncError` surfaces the most recent
+      // write failure so the UI can show a small "unsaved changes" chip.
+      loading: false,
+      hydrated: false,
+      syncError: null,
+
+      // Called once on app mount. Loads events from Postgres. If the server
+      // has none AND we have a v3 legacy backup sitting in localStorage,
+      // upload it via the bulk endpoint so nothing is lost during the
+      // transition. Idempotent — every subsequent call is a no-op.
+      hydrate: async () => {
+        if (get().hydrated || get().loading) return;
+        set({ loading: true });
+        try {
+          const r = await fetch("/api/events");
+          const j = await r.json().catch(() => ({}));
+          let events = Array.isArray(j?.events) ? j.events : [];
+
+          // One-time backup restore. The v3→v4 migrate() writes any
+          // pre-existing events to cge-events-legacy-backup so this
+          // path can find them regardless of when hydrate() runs.
+          if (events.length === 0 && typeof localStorage !== "undefined") {
+            let backup = null;
+            try {
+              const raw = localStorage.getItem("cge-events-legacy-backup");
+              if (raw) backup = JSON.parse(raw);
+            } catch {}
+            if (Array.isArray(backup) && backup.length > 0) {
+              try {
+                const up = await fetch("/api/events/bulk", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ events: backup }),
+                });
+                if (up.ok) {
+                  events = backup;
+                  try { localStorage.setItem("cge-events-legacy-migrated-at", String(Date.now())); } catch {}
+                }
+              } catch (err) {
+                console.warn("[useEventsStore] legacy backup upload failed:", err.message);
+              }
+            }
+          }
+          set({ events, hydrated: true, loading: false, syncError: null });
+        } catch (err) {
+          console.warn("[useEventsStore] hydrate failed:", err.message);
+          set({ loading: false, syncError: err.message, hydrated: true });
+        }
+      },
+
+      // Row-level upsert — the preferred API for new callers. Applies
+      // optimistically to local state, then fires the server sync in the
+      // background. Sync errors surface via syncError but don't roll the
+      // local state back — the operator's edit remains visible so they
+      // can retry manually if needed.
+      upsertEvent: async (event) => {
+        if (!event || event.id == null) return;
+        set((state) => {
+          const idx = state.events.findIndex((e) => e.id === event.id);
+          if (idx === -1) return { events: [...state.events, event] };
+          const next = [...state.events];
+          next[idx] = event;
+          return { events: next };
+        });
+        try {
+          const r = await fetch("/api/events/upsert", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ event }),
+          });
+          if (!r.ok) throw new Error(`Server ${r.status}`);
+          set({ syncError: null });
+        } catch (err) {
+          set({ syncError: err.message });
+          console.warn("[useEventsStore] upsertEvent sync failed:", err.message);
+        }
+      },
+
+      // Row-level delete by id.
+      deleteEventById: async (id) => {
+        set((state) => ({ events: state.events.filter((e) => e.id !== id) }));
+        try {
+          const r = await fetch("/api/events/delete", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ids: [id] }),
+          });
+          if (!r.ok) throw new Error(`Server ${r.status}`);
+          set({ syncError: null });
+        } catch (err) {
+          set({ syncError: err.message });
+        }
+      },
+
+      // --- Whole-array API preserved for backward compat with every
+      // caller that uses setEvents/updateEvents/addEvents/clearEvents.
+      // These route through /api/events/replace which does a transactional
+      // diff on the server. Prefer upsertEvent/deleteEventById in new code.
+      setEvents: async (eventsOrFn) => {
+        const next = typeof eventsOrFn === "function" ? eventsOrFn(get().events) : eventsOrFn;
+        const arr = Array.isArray(next) ? next : [];
+        set({ events: arr });
+        try {
+          const r = await fetch("/api/events/replace", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ events: arr }),
+          });
+          if (!r.ok) throw new Error(`Server ${r.status}`);
+          set({ syncError: null });
+        } catch (err) {
+          set({ syncError: err.message });
+          console.warn("[useEventsStore] setEvents sync failed:", err.message);
+        }
+      },
+      updateEvents: async (updater) => {
+        const next = typeof updater === "function" ? updater(get().events) : updater;
+        return get().setEvents(next);
+      },
       // Append new events to the existing list, skipping duplicates of rows
       // already in the store (matched on day+name+venue+time).
       // Returns { added, skipped } so callers can show a toast.
-      addEvents: (incoming) => {
+      addEvents: async (incoming) => {
         const list = Array.isArray(incoming) ? incoming : [];
         const existing = get().events;
         const seen = new Set(existing.map(dedupeKey));
@@ -738,10 +862,10 @@ export const useEventsStore = create(
           seen.add(k);
           toAdd.push(ev);
         }
-        if (toAdd.length) set({ events: [...existing, ...toAdd] });
+        if (toAdd.length) await get().setEvents([...existing, ...toAdd]);
         return { added: toAdd.length, skipped };
       },
-      clearEvents: () => set({ events: [] }),
+      clearEvents: async () => get().setEvents([]),
       // Vetted actions — array-backed for serialization. Accept either
       // a new array or an updater function for parity with React's
       // setState pattern.
@@ -786,14 +910,36 @@ export const useEventsStore = create(
     }),
     {
       name: "cge-events",
-      version: 3,
-      // Migration: ensure approvals + vetted keys exist on older state.
+      version: 4,
+      // Partialize: events now come from the server via hydrate(). Only
+      // approvals + vetted persist locally — they're per-session UI state
+      // and wouldn't benefit from server round-trips.
+      partialize: (state) => ({
+        approvals: state.approvals,
+        vetted: state.vetted,
+      }),
       migrate: (persistedState, version) => {
-        if (!persistedState) return { events: [], approvals: {}, vetted: [] };
-        const out = { ...persistedState };
-        if (version < 2 && !out.approvals) out.approvals = {};
-        if (version < 3 && !Array.isArray(out.vetted)) out.vetted = [];
-        return out;
+        if (!persistedState) return { approvals: {}, vetted: [] };
+        // v3 → v4: any events sitting in the old persisted state get
+        // stashed to a separate localStorage key so hydrate() can find
+        // and upload them once. We never re-attempt if we've already
+        // recorded a migration timestamp — prevents thrash if the user
+        // clears the server accidentally.
+        if (version < 4 && Array.isArray(persistedState.events) && persistedState.events.length > 0) {
+          try {
+            if (typeof localStorage !== "undefined") {
+              const already = localStorage.getItem("cge-events-legacy-migrated-at");
+              if (!already) {
+                localStorage.setItem("cge-events-legacy-backup", JSON.stringify(persistedState.events));
+              }
+            }
+          } catch {}
+        }
+        return {
+          approvals: persistedState.approvals && typeof persistedState.approvals === "object"
+            ? persistedState.approvals : {},
+          vetted: Array.isArray(persistedState.vetted) ? persistedState.vetted : [],
+        };
       },
     }
   )
