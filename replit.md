@@ -4,6 +4,23 @@ A React app bundling three event-marketing tools (Calendar, Newsletter, Reel)
 for NJ Weekend Events (Central Group Events). All three tools share a single
 event list — paste or upload once on any tool, render on all three.
 
+## Change acceptance checks
+
+Before accepting a change, run `npm run check`. It checks server syntax with
+`node --check` on every root-level JavaScript file (including backend startup
+dependencies) and compiles the full frontend with `npm run build`. A running
+dev server alone does not prove that JSX compiles. These checks do not start
+the server, contact external services, or require application secrets.
+
+The task merge workflow has separate `frontend-build` and `server-syntax`
+validation commands. GitHub also runs the checks on pushes, pull requests,
+and merge queues via `.github/workflows/build-check.yml`. Failures produce
+a failed check with the compiler's file/line diagnostics in its logs.
+For GitHub-enforced merge blocking, repository administrators must require
+the `Frontend compilation` and `Server syntax` checks in branch protection
+or a ruleset; adding a workflow alone does not enforce that policy.
+The normal `npm run dev` server is unchanged.
+
 ## Architecture
 
 - **Frontend**: React 18 + Vite

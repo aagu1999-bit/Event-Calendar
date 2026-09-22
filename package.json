@@ -7,6 +7,8 @@
     "dev": "node server.js",
     "vite-only": "vite --host 0.0.0.0 --port 5000",
     "build": "vite build",
+    "check:server": "node scripts/check-server.mjs",
+    "check": "npm run check:server && npm run build",
     "start": "NODE_ENV=production node server.js",
     "preview": "vite preview"
   },
