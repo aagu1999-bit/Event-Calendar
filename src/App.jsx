@@ -14,15 +14,13 @@ import ReviewBeta from "./pages/ReviewBeta.jsx";
 import ScraperReview from "./pages/ScraperReview.jsx";
 import Regulars from "./pages/Regulars.jsx";
 import BrandKit from "./pages/BrandKit.jsx";
-import { useEventsStore } from "./store";
+import { useEventsStore, useRestoreStore } from "./store.js";
 import { exportWorkspace, previewWorkspace, importWorkspace, workspaceFilename } from "./shared/workspaceSync.js";
 import { checkCloudAvailable, cloudSave, cloudLoad } from "./shared/cloudSync.js";
 import { CloudWorkspaceModal } from "./shared/CloudWorkspaceModal.jsx";
 import { saveExport, loadExportRecord, savePhotoAndNotify } from "./shared/photoLibrary.js";
 import { useBrandSync } from "./shared/brandSync.js";
-import { useEventsStore } from "./store.js";
 import { readCgeExportTag } from "./shared/pngMetadata.js";
-import { useRestoreStore } from "./store";
 
 // Wrap a CSV cell — quote if it contains a comma, quote, or newline.
 const csvCell = (v) => {
