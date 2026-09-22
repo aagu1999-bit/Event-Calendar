@@ -16,6 +16,7 @@ import { CleanSweepModal } from "../shared/CleanSweepModal.jsx";
 import { FixFlagsModal } from "../shared/FixFlagsModal.jsx";
 import { ScreenshotEventModal } from "../shared/ScreenshotEventModal.jsx";
 import { ScreenshotPoolModal } from "../shared/ScreenshotPoolModal.jsx";
+import { CuratorialMatrixModal } from "../shared/CuratorialMatrixModal.jsx";
 import { saveExport } from "../shared/photoLibrary.js";
 import { rememberLastSession, getLastSession, forgetLastSession, loadSession, saveSession, mergeSession, pingPresence, rememberServerPendingIds, getServerPendingIds, suggestedReviewSessionName } from "../shared/reviewSessions.js";
 
@@ -166,6 +167,10 @@ export default function ReviewQueue({ betaMode = false } = {}) {
   // they are).
   const [sessionsOpen, setSessionsOpen] = useState(false);
   const [websiteOpen, setWebsiteOpen] = useState(false);
+  // Matrix editor — opens for one event at a time. Keyed by id so the
+  // modal receives the freshest event object from useEventsStore (not a
+  // stale one captured at open time).
+  const [matrixEventId, setMatrixEventId] = useState(null);
   const [lastSessionName, setLastSessionName] = useState(() => getLastSession());
   const [autoSaveStatus, setAutoSaveStatus] = useState("idle"); // "idle" | "saving" | "saved" | "error"
   // How many devices are actively working in the current session (incl.
@@ -2892,6 +2897,26 @@ export default function ReviewQueue({ betaMode = false } = {}) {
                         {isEditing ? "✕" : "✎"}
                       </button>
                       <button
+                        onClick={() => setMatrixEventId(ev.id)}
+                        title="Open Curatorial Matrix — tier, hooks, POV, data points"
+                        style={{
+                          padding: "5px 9px",
+                          background: ev.matrix && Object.keys(ev.matrix).length
+                            ? "rgba(167,139,250,0.14)"
+                            : "rgba(167,139,250,0.05)",
+                          color: ev.matrix && Object.keys(ev.matrix).length
+                            ? "#A78BFA"
+                            : "rgba(167,139,250,0.6)",
+                          border: "1px solid rgba(167,139,250,0.35)",
+                          borderRadius: "4px",
+                          fontSize: "0.7rem",
+                          cursor: "pointer",
+                          fontFamily: "inherit",
+                        }}
+                      >
+                        ◆
+                      </button>
+                      <button
                         onClick={() => deleteRow(ev.id)}
                         title="Delete this row from the upload entirely (not skip — delete)"
                         style={{
@@ -3209,6 +3234,12 @@ export default function ReviewQueue({ betaMode = false } = {}) {
         onAdd={addScreenshotEvent}
         onPoolChanged={refreshPoolCount}
         onClose={() => setPoolOpen(false)}
+      />
+
+      <CuratorialMatrixModal
+        open={!!matrixEventId}
+        event={events.find((e) => e.id === matrixEventId) || null}
+        onClose={() => setMatrixEventId(null)}
       />
     </div>
   );
