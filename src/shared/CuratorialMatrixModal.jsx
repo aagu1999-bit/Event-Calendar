@@ -128,17 +128,12 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
     setCitations([]);
   }, [event?.id]);
 
-  if (!open || !event) return null;
-
   const applyPatch = (patch) => {
-    setLocal((prev) => {
-      const next = { ...prev, ...patch };
-      // Strip null/undefined for the store call so keys don't stay set-null
-      const clean = { ...patch };
-      for (const k of Object.keys(clean)) if (clean[k] === undefined) delete clean[k];
-      updateEventMatrix(event.id, clean);
-      return next;
-    });
+    setLocal((prev) => ({ ...prev, ...patch }));
+    // Keep the updater pure: React may replay it while rendering.
+    const clean = { ...patch };
+    for (const k of Object.keys(clean)) if (clean[k] === undefined) delete clean[k];
+    updateEventMatrix(event.id, clean);
   };
 
   const tier = local.event_tier || null;
@@ -156,6 +151,9 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
     for (const e of readyValidation.errors) m[e.field] = e.message;
     return m;
   }, [readyValidation]);
+
+  // Keep every hook above this guard so opening/closing preserves hook order.
+  if (!open || !event) return null;
 
   // Handlers
   const setTier = (key) => {
