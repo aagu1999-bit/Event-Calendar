@@ -782,7 +782,7 @@ app.post("/api/events/bulk", express.json({ limit: "20mb" }), async (req, res) =
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// --- MATRIX RESEARCH (Perplexity Sonar Pro) ---
+// --- MATRIX RESEARCH (Perplexity Agent API) ---
 // Fuel Research button in the Curatorial Matrix modal hits this endpoint
 // with the record's cluster / topic / POV / existing bullets and gets
 // back 3–4 factually grounded new bullets plus source URLs. Perplexity
@@ -804,7 +804,8 @@ app.post("/api/matrix/research", express.json({ limit: "128kb" }), async (req, r
       tier: typeof tier === "string" ? tier : "",
     });
     if (!result.ok) {
-      const statusByCode = { not_configured: 501, no_seed: 400, auth: 401, upstream: 502, bad_response: 502, empty: 422, timeout: 504, network: 502 };
+      const statusByCode = { not_configured: 501, no_seed: 400, auth: 401, rate_limit: 429, upstream: 502, bad_response: 502, empty: 422, timeout: 504, network: 502 };
+      if (result.code === "rate_limit") res.set("Retry-After", result.retryAfter);
       return res.status(statusByCode[result.code] || 500).json({ error: result.code, message: result.message });
     }
     res.json({ ok: true, bullets: result.bullets, citations: result.citations, model: result.model });

@@ -180,7 +180,7 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
   };
 
   // Fuel Research — calls the server's /api/matrix/research endpoint,
-  // which relays to Perplexity's Sonar Pro. Response bullets append to
+  // which relays to Perplexity's web-grounded Agent API. Response bullets append to
   // data_points (up to BULLETS_MAX cap); citations render below the
   // list so the operator can vet before shipping. Errors surface inline.
   const fuelResearch = async () => {
