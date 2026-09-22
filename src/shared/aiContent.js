@@ -1784,10 +1784,39 @@ function letterModeBlock() {
   ];
 }
 
+// Parse matrix-shaped context — dashed bullets that each carry one
+// atomic fact — so buildTemplatePrompt can steer the model into a
+// 1:1 bullet→slot mapping instead of concatenating facts.
+//
+// Recognizes both "- " and "• " openings (some pipelines normalize
+// dashes to bullets). Trims each bullet, drops empties. Returns an
+// empty array when the context has no structured bullets, so callers
+// can safely check .length.
+function parseContextBullets(context) {
+  if (typeof context !== "string" || !context.trim()) return [];
+  const lines = context.split(/\r?\n/);
+  const bullets = [];
+  for (const raw of lines) {
+    const m = raw.match(/^\s*(?:[-•*]|\d+[.)])\s+(.+?)\s*$/);
+    if (m && m[1]) bullets.push(m[1]);
+  }
+  return bullets;
+}
+
 function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, templateMeta, mode, today, letterMode = false }) {
   const hasVoiceDesc = voice && typeof voice.description === "string" && voice.description.trim();
   const exemplars = Array.isArray(voice?.exemplars) ? voice.exemplars.filter(e => e && e.trim()) : [];
   const hasExemplars = exemplars.length > 0;
+
+  // Detect matrix-shaped context (POV: ... + "- bullet" lines) so we can
+  // teach the model to map each bullet 1:1 to a slot instead of cramming
+  // multiple facts onto one slide. Seeded from CuratorialMatrixModal's
+  // Preview Carousel via eventMatrixToFillSeed — the seed helper writes
+  // exactly this format. Any other caller that happens to use dashed
+  // bullets in context benefits too; the directive is bullet-shape
+  // agnostic beyond that.
+  const atomicBullets = parseContextBullets(context);
+  const atomicSlotCount = sequence.filter((t) => t === "text" || t === "spotlight" || t === "stat").length;
 
   const voiceBlock = (hasVoiceDesc || hasExemplars) ? [
     "BRAND VOICE FINGERPRINT — every slide MUST sound like this voice.",
@@ -1883,6 +1912,24 @@ function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, tem
     ...(context && context.trim() ? [
       "Context (event details, selling points, lineup — break this up across slides as the rules below dictate):",
       context.trim(),
+      "",
+      "─────────────────────────────",
+      "",
+    ] : []),
+    // Atomic-mapping guardrail: when the context is a matrix-shaped set
+    // of dashed bullets (from CuratorialMatrixModal's Preview Carousel
+    // handoff, or any caller that hand-writes bullets), teach the model
+    // to spread them across slots 1:1 rather than combining them onto
+    // a single slide. Only fires when the sequence actually has slots
+    // that carry atomic facts (text, spotlight, stat).
+    ...(atomicBullets.length && atomicSlotCount ? [
+      `ATOMIC MAPPING — the Context above contains ${atomicBullets.length} bulleted data point${atomicBullets.length === 1 ? "" : "s"}. Each is a self-contained fact. This carousel's sequence has ${atomicSlotCount} slot${atomicSlotCount === 1 ? "" : "s"} of type TEXT / SPOTLIGHT / STAT that can carry them.`,
+      `- Map ONE bullet per atomic slot as its primary content. Do NOT concatenate two bullets on the same slide.`,
+      `- ${atomicBullets.length > atomicSlotCount
+        ? `You have MORE bullets (${atomicBullets.length}) than atomic slots (${atomicSlotCount}). Pick the ${atomicSlotCount} strongest — the ones with the most concrete specifics — and skip the rest.`
+        : atomicBullets.length < atomicSlotCount
+        ? `You have FEWER bullets (${atomicBullets.length}) than atomic slots (${atomicSlotCount}). Fill the remaining ${atomicSlotCount - atomicBullets.length} slot${atomicSlotCount - atomicBullets.length === 1 ? "" : "s"} with implicit specifics that STAY HONEST to the POV — never invent a fact the operator didn't imply.`
+        : `You have EXACTLY ${atomicBullets.length} bullets for ${atomicSlotCount} atomic slots — one per slot, in the order that best carries the story arc (not necessarily the order they're listed).`}`,
       "",
       "─────────────────────────────",
       "",
