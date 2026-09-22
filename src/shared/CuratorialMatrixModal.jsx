@@ -110,6 +110,13 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
   const setCarouselSeed = useCarouselSeedStore((s) => s.setSeed);
   const navigate = useNavigate();
 
+  // Fuel Research (Perplexity) state — one research call at a time,
+  // errors and citations render inline in the Data Points group so the
+  // operator can vet sources before adding.
+  const [researching, setResearching] = useState(false);
+  const [researchError, setResearchError] = useState(null);
+  const [citations, setCitations] = useState([]);
+
   // Local mirror of matrix values so typing is snappy — we push each
   // change to the store on blur/select rather than every keystroke, and
   // sync back if the store's matrix changes from underneath us (e.g.
@@ -117,6 +124,8 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
   const [local, setLocal] = useState(() => ({ ...(event?.matrix || {}) }));
   useEffect(() => {
     setLocal({ ...(event?.matrix || {}) });
+    setResearchError(null);
+    setCitations([]);
   }, [event?.id]);
 
   if (!open || !event) return null;
@@ -170,6 +179,47 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
   const removeBullet = (i) => {
     const next = bullets.filter((_, idx) => idx !== i);
     applyPatch({ data_points: next });
+  };
+
+  // Fuel Research — calls the server's /api/matrix/research endpoint,
+  // which relays to Perplexity's Sonar Pro. Response bullets append to
+  // data_points (up to BULLETS_MAX cap); citations render below the
+  // list so the operator can vet before shipping. Errors surface inline.
+  const fuelResearch = async () => {
+    if (researching) return;
+    setResearching(true);
+    setResearchError(null);
+    try {
+      const r = await fetch("/api/matrix/research", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cluster: local.cluster || "",
+          topic: local.hook_a_side || event?.name || "",
+          pov: local.editorial_pov || "",
+          existingBullets: bullets,
+          tier: local.event_tier || "",
+        }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setResearchError(j.message || j.error || `Server ${r.status}`);
+        return;
+      }
+      const incoming = Array.isArray(j.bullets) ? j.bullets : [];
+      if (!incoming.length) {
+        setResearchError("No bullets returned. Try broadening the cluster or hook.");
+        return;
+      }
+      // Append while respecting BULLETS_MAX; the operator can trim later.
+      const merged = [...bullets, ...incoming].slice(0, LIMITS.BULLETS_MAX);
+      applyPatch({ data_points: merged });
+      setCitations(Array.isArray(j.citations) ? j.citations.slice(0, 8) : []);
+    } catch (err) {
+      setResearchError(String(err?.message || err));
+    } finally {
+      setResearching(false);
+    }
   };
 
   return createPortal(
@@ -386,7 +436,38 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
 
           {/* Data Points */}
           <div>
-            <div style={groupLabelStyle}><span style={{ width: 3, height: 12, background: orbit, borderRadius: 2, display: "inline-block" }} />Data Points · {LIMITS.BULLETS_MIN}–{LIMITS.BULLETS_MAX} atomic bullets</div>
+            <div style={{ ...groupLabelStyle, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ width: 3, height: 12, background: orbit, borderRadius: 2, display: "inline-block" }} />
+                Data Points · {LIMITS.BULLETS_MIN}–{LIMITS.BULLETS_MAX} atomic bullets
+              </span>
+              <button
+                type="button"
+                onClick={fuelResearch}
+                disabled={researching || (!local.cluster && !local.hook_a_side)}
+                title={
+                  researching ? "Researching…"
+                  : (!local.cluster && !local.hook_a_side) ? "Add a cluster or hook A-side first — Perplexity needs an angle"
+                  : "Ask Perplexity for 3–4 verified factual bullets"
+                }
+                style={{
+                  background: researching ? "rgba(167,139,250,0.06)" : "rgba(167,139,250,0.14)",
+                  color: researching ? faint : orbit,
+                  border: `1px solid ${orbit}`,
+                  borderRadius: 4,
+                  padding: "4px 10px",
+                  fontFamily: "inherit",
+                  fontSize: "0.6rem",
+                  letterSpacing: "0.14em",
+                  textTransform: "uppercase",
+                  fontWeight: 700,
+                  cursor: researching || (!local.cluster && !local.hook_a_side) ? "not-allowed" : "pointer",
+                  opacity: (!local.cluster && !local.hook_a_side) ? 0.5 : 1,
+                }}
+              >
+                {researching ? "🔮 Researching…" : "🔮 Fuel Research"}
+              </button>
+            </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {bullets.map((b, i) => {
                 const over = (b || "").length > LIMITS.BULLET_MAX;
@@ -440,6 +521,57 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
             </div>
             {errorsByField.data_points && (
               <div style={{ fontSize: "0.68rem", color: warn, marginTop: 6 }}>⚠ {errorsByField.data_points}</div>
+            )}
+            {researchError && (
+              <div style={{
+                marginTop: 8,
+                padding: "8px 10px",
+                background: warnBg,
+                border: `1px solid rgba(251,191,36,0.32)`,
+                borderRadius: 6,
+                fontSize: "0.7rem",
+                color: warn,
+              }}>
+                ⚠ Fuel Research: {researchError}
+              </div>
+            )}
+            {citations.length > 0 && (
+              <div style={{
+                marginTop: 8,
+                padding: "8px 10px",
+                background: "rgba(167,139,250,0.06)",
+                border: `1px solid rgba(167,139,250,0.18)`,
+                borderRadius: 6,
+                fontSize: "0.66rem",
+                color: muted,
+              }}>
+                <div style={{
+                  fontSize: "0.56rem",
+                  letterSpacing: "0.14em",
+                  textTransform: "uppercase",
+                  fontWeight: 700,
+                  color: orbit,
+                  marginBottom: 6,
+                }}>
+                  ◆ Sources · vet before shipping
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                  {citations.map((url, i) => (
+                    <a
+                      key={i}
+                      href={url}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      style={{
+                        color: orbit,
+                        textDecoration: "none",
+                        wordBreak: "break-all",
+                        fontVariantNumeric: "tabular-nums",
+                      }}
+                    >{i + 1}. {url}</a>
+                  ))}
+                </div>
+              </div>
             )}
           </div>
 
