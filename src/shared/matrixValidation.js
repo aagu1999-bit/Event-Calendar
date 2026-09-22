@@ -53,7 +53,9 @@ export function validateMatrix(matrix, { targetStatus } = {}) {
 
   // Ready-for-pipeline gate: minimum viable matrix depth. Tier + one
   // hook + one data point is our line for "the carousel prompt has
-  // enough to generate something useful."
+  // enough to generate something useful." Feature tier adds POV as a
+  // required field because evergreen editorial without a thesis just
+  // becomes a listicle — the operator's take is the whole point.
   if (targetStatus === PIPELINE_STATUS.READY.key) {
     if (!m.event_tier) {
       errors.push({ field: "event_tier", message: "Pick a tier to ship" });
@@ -63,6 +65,12 @@ export function validateMatrix(matrix, { targetStatus } = {}) {
     }
     if (bullets.length < LIMITS.BULLETS_MIN) {
       errors.push({ field: "data_points", message: `At least ${LIMITS.BULLETS_MIN} data point required to ship` });
+    }
+    // Feature-tier only: POV is the editorial thesis for evergreen
+    // pieces. Anchor/Orbit stay lightweight so quick weekend listings
+    // don't get blocked by a thesis requirement they don't need.
+    if (m.event_tier === "FEATURE" && (!m.editorial_pov || !m.editorial_pov.trim())) {
+      errors.push({ field: "editorial_pov", message: "Editorial POV required for Feature-tier pieces" });
     }
   }
 

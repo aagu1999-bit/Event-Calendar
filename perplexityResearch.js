@@ -20,19 +20,53 @@ const DEFAULT_MODEL = (process.env.PERPLEXITY_MODEL || "sonar-pro").trim();
 // The prompt is deliberately tight. Sonar is good but chatty by
 // default; we tell it exactly what shape to return so the client can
 // parse without a second round-trip.
+//
+// Guardrails (added after the "Let Me Know" incident where a 15-char
+// ambiguous hook made sonar-pro return song-lyrics facts instead of
+// NJ-culture context):
+//   - Lead with CGE's NJ Black-culture beat so Sonar knows the frame
+//     before it sees any user field.
+//   - Explicit refusal instruction: 0 bullets is better than off-topic
+//     bullets. Never fill quota with unrelated entertainment/celebrity
+//     facts to hit the "3-4" number.
+//   - Cluster and Tier are elevated to the FIRST user-message lines
+//     because they're the least ambiguous signals of intent.
+//   - Short hooks (<40 chars) get a specific instruction: treat as
+//     rhetorical/emotive framing, NOT as a literal title lookup.
 function buildResearchMessages({ cluster, topic, pov, existingBullets, tier }) {
   const existing = Array.isArray(existingBullets) ? existingBullets.filter(Boolean) : [];
+  const isShortHook = typeof topic === "string" && topic.trim().length > 0 && topic.trim().length < 40;
   const systemLines = [
-    "You are a research assistant for Central Group Events (CGE), a Black-culture events media brand in New Jersey.",
-    "Return 3–4 concise factual bullet points relevant to the operator's editorial angle. Each bullet under 200 characters. Format each as one line starting with '- '.",
-    "Every bullet must be a verifiable fact grounded in reputable sources: municipal data, transit info, historical records, verified news, policy documents. Never invent, never speculate.",
-    "If the operator lists existing bullets, do NOT repeat them — add complementary facts that broaden the angle.",
-    "No preamble, no closing summary, no headings. ONLY the dashed bullet lines.",
+    "You are a research assistant for Central Group Events (CGE) — a media brand covering Black cultural, social, and civic life in New Jersey.",
+    "Every bullet you return MUST connect to New Jersey specifically (a NJ neighborhood, transit corridor, municipality, historical event, policy, venue, community, or demographic pattern) AND to the editorial cluster the operator names.",
+    "",
+    "STRICT REFUSAL RULE — this is the most important rule:",
+    "  - If you cannot find at least 2 verified NJ-tied, cluster-relevant facts, return ZERO bullets. Do NOT fill the quota with generic entertainment, celebrity, song-lyric, national politics, or non-NJ historical facts.",
+    "  - Returning nothing is BETTER than returning off-topic content. The operator would rather see 'no bullets — try broadening' than get pulled off-brand.",
+    "",
+    "FORMAT RULES:",
+    "  - Return 2–4 concise factual bullet points. Each bullet under 200 characters.",
+    "  - Format each as one line starting with '- '.",
+    "  - Every bullet must be a verifiable fact grounded in reputable sources: municipal records, transit/demographic data, NJ history, verified news, policy documents, cultural archives.",
+    "  - Never invent, never speculate.",
+    "  - If existing bullets are listed, do NOT repeat them — add complementary NJ-tied facts.",
+    "  - No preamble, no closing summary, no headings. ONLY dashed bullet lines.",
   ];
   const userLines = [];
+  // Cluster and tier lead — the least ambiguous signals of what the
+  // operator actually wants. Sonar reads top-to-bottom weightily.
+  if (cluster) userLines.push(`EDITORIAL CLUSTER (primary frame): ${cluster}`);
   if (tier) userLines.push(`Tier: ${tier}`);
-  if (cluster) userLines.push(`Editorial cluster: ${cluster}`);
-  if (topic) userLines.push(`Topic / hook: ${topic}`);
+  userLines.push("");
+  if (topic) {
+    if (isShortHook) {
+      // Explicit: don't literal-lookup a short hook. The operator meant
+      // it as a curated angle, not a search query.
+      userLines.push(`Editorial hook (short/rhetorical — treat as thematic framing, NOT a literal title to look up): "${topic}"`);
+    } else {
+      userLines.push(`Editorial hook: ${topic}`);
+    }
+  }
   if (pov) userLines.push(`Operator POV (thesis): ${pov}`);
   if (existing.length) {
     userLines.push("");
@@ -40,7 +74,7 @@ function buildResearchMessages({ cluster, topic, pov, existingBullets, tier }) {
     for (const b of existing) userLines.push(`- ${b}`);
   }
   userLines.push("");
-  userLines.push("Return 3–4 NEW dashed bullets that complement the above.");
+  userLines.push(`Return 2–4 NEW dashed bullets that are strictly NJ-tied and strictly aligned with the "${cluster || "(cluster missing)"}" cluster. Return NOTHING if you can't meet both bars.`);
   return [
     { role: "system", content: systemLines.join("\n") },
     { role: "user", content: userLines.join("\n") },
@@ -74,8 +108,8 @@ function pickCitations(json) {
 export async function fuelResearchViaPerplexity({ cluster, topic, pov, existingBullets, tier } = {}) {
   const key = (process.env.PERPLEXITY_API_KEY || "").trim();
   if (!key) return { ok: false, code: "not_configured", message: "Set PERPLEXITY_API_KEY in Replit Secrets to enable Fuel Research." };
-  if (!cluster && !topic) {
-    return { ok: false, code: "no_seed", message: "Add a cluster or a hook A-side before running Fuel Research — the model needs an angle to research." };
+  if (!cluster) {
+    return { ok: false, code: "no_seed", message: "Pick a Cluster before running Fuel Research — it's the primary frame Sonar uses to stay on-brand." };
   }
   const messages = buildResearchMessages({ cluster, topic, pov, existingBullets, tier });
   const ctrl = new AbortController();
