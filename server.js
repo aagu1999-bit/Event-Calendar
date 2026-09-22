@@ -34,6 +34,7 @@ import {
   uniqueDirectUrls,
 } from "./apifyInstagram.js";
 import * as eventStoreDb from "./eventStoreDb.js";
+import * as perplexityResearch from "./perplexityResearch.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || "5000", 10);
@@ -778,6 +779,35 @@ app.post("/api/events/bulk", express.json({ limit: "20mb" }), async (req, res) =
     if (!events.length) return res.status(400).json({ error: "no_events" });
     const n = await eventStoreDb.bulkUpsertEvents(events);
     res.json({ ok: true, inserted: n });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- MATRIX RESEARCH (Perplexity Sonar Pro) ---
+// Fuel Research button in the Curatorial Matrix modal hits this endpoint
+// with the record's cluster / topic / POV / existing bullets and gets
+// back 3–4 factually grounded new bullets plus source URLs. Perplexity
+// key stays server-side. Client renders bullets into the data_points
+// list and shows citations in a small vetting strip.
+
+app.get("/api/matrix/perplexity-status", (_req, res) => {
+  res.json({ configured: perplexityResearch.isPerplexityConfigured() });
+});
+
+app.post("/api/matrix/research", express.json({ limit: "128kb" }), async (req, res) => {
+  try {
+    const { cluster, topic, pov, existingBullets, tier } = req.body || {};
+    const result = await perplexityResearch.fuelResearchViaPerplexity({
+      cluster: typeof cluster === "string" ? cluster : "",
+      topic: typeof topic === "string" ? topic : "",
+      pov: typeof pov === "string" ? pov : "",
+      existingBullets: Array.isArray(existingBullets) ? existingBullets : [],
+      tier: typeof tier === "string" ? tier : "",
+    });
+    if (!result.ok) {
+      const statusByCode = { not_configured: 501, no_seed: 400, auth: 401, upstream: 502, bad_response: 502, empty: 422, timeout: 504, network: 502 };
+      return res.status(statusByCode[result.code] || 500).json({ error: result.code, message: result.message });
+    }
+    res.json({ ok: true, bullets: result.bullets, citations: result.citations, model: result.model });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
