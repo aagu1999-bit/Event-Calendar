@@ -20,6 +20,7 @@ import { checkCloudAvailable, cloudSave, cloudLoad } from "./shared/cloudSync.js
 import { CloudWorkspaceModal } from "./shared/CloudWorkspaceModal.jsx";
 import { saveExport, loadExportRecord, savePhotoAndNotify } from "./shared/photoLibrary.js";
 import { useBrandSync } from "./shared/brandSync.js";
+import { useEventsStore } from "./store.js";
 import { readCgeExportTag } from "./shared/pngMetadata.js";
 import { useRestoreStore } from "./store";
 
@@ -680,6 +681,10 @@ export default function App() {
   // Lives at the top so every page benefits (any tab can READ the
   // server brand state; edits on /brand auto-PUT to the server).
   useBrandSync();
+  // Events store now lives on the server (Postgres) — hydrate once on
+  // mount. hydrate() is idempotent so remounts are safe.
+  const hydrateEvents = useEventsStore((s) => s.hydrate);
+  useEffect(() => { hydrateEvents(); }, [hydrateEvents]);
   return (
     <BrowserRouter>
       <Nav />
