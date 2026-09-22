@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { useEventsStore, useCarouselSeedStore } from "../store.js";
 import {
   EVENT_TIERS, EVENT_TIER_ORDER,
-  CORRIDORS, CLUSTERS, EMOTIONS,
+  CORRIDORS, CLUSTERS, EMOTIONS, DEMOGRAPHIC_PRESETS,
   PIPELINE_STATUS, PIPELINE_STATUS_ORDER,
   LIMITS,
 } from "./matrixEnums.js";
@@ -45,6 +45,47 @@ const ready = "#34D399";
 const readyBg = "rgba(52,211,153,0.14)";
 const warn = "#FBBF24";
 const warnBg = "rgba(251,191,36,0.14)";
+
+// Normalize target_demographic to an array regardless of what shape the
+// persisted matrix has. Legacy records stored it as a comma-separated
+// string; new records use string[]. Both flow through this one place so
+// every consumer sees the same shape.
+function normalizeDemographic(raw) {
+  if (Array.isArray(raw)) return raw.map((s) => String(s || "").trim()).filter(Boolean);
+  if (typeof raw === "string" && raw.trim()) {
+    return raw.split(/[,;]/).map((s) => s.trim()).filter(Boolean);
+  }
+  return [];
+}
+
+// Custom demographics the operator has typed in past sessions live in
+// localStorage so they appear as presets on subsequent records. Keeps
+// personal cultural vocabulary sticky without a store field.
+const CUSTOM_DEMOGRAPHICS_KEY = "cge_matrix_custom_demographics";
+function loadCustomDemographics() {
+  try {
+    const raw = localStorage.getItem(CUSTOM_DEMOGRAPHICS_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter(Boolean) : [];
+  } catch { return []; }
+}
+function saveCustomDemographic(value) {
+  const clean = String(value || "").trim();
+  if (!clean) return;
+  try {
+    const existing = loadCustomDemographics();
+    if (existing.includes(clean)) return;
+    if (DEMOGRAPHIC_PRESETS.includes(clean)) return; // already a built-in
+    localStorage.setItem(CUSTOM_DEMOGRAPHICS_KEY, JSON.stringify([...existing, clean].slice(-20)));
+  } catch {}
+}
+
+// Extract hostname for the sources strip so a wall of URLs collapses
+// into a scannable "wikipedia.org · genius.com · ..." row.
+function hostnameOf(url) {
+  try { return new URL(url).hostname.replace(/^www\./, ""); }
+  catch { return url; }
+}
 
 const groupLabelStyle = {
   fontSize: "0.62rem",
@@ -106,6 +147,7 @@ function CharCounter({ current, max, error }) {
 
 export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle }) {
   const updateEventMatrix = useEventsStore((s) => s.updateEventMatrix);
+  const upsertEvent = useEventsStore((s) => s.upsertEvent);
   const syncError = useEventsStore((s) => s.syncError);
   const setCarouselSeed = useCarouselSeedStore((s) => s.setSeed);
   const navigate = useNavigate();
@@ -116,6 +158,22 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
   const [researching, setResearching] = useState(false);
   const [researchError, setResearchError] = useState(null);
   const [citations, setCitations] = useState([]);
+  // Snapshot of data_points BEFORE the last research call, so a bad
+  // Fuel Research (off-topic bullets) can be discarded in one tap.
+  const [preResearchSnapshot, setPreResearchSnapshot] = useState(null);
+  // Sources panel starts collapsed — 8 URLs stacked vertically was a
+  // wall of text. Operator expands with the toggle.
+  const [sourcesExpanded, setSourcesExpanded] = useState(false);
+
+  // Inline name edit — click the header title to rename. `null` = not
+  // editing; a string = the pending edit buffer.
+  const [nameEdit, setNameEdit] = useState(null);
+
+  // Demographic multi-select state — presets are static, custom values
+  // load from localStorage and grow via + Add Custom.
+  const [customDemographics, setCustomDemographics] = useState(() => loadCustomDemographics());
+  const [demographicInput, setDemographicInput] = useState("");
+  const [addingDemographic, setAddingDemographic] = useState(false);
 
   // Local mirror of matrix values so typing is snappy — we push each
   // change to the store on blur/select rather than every keystroke, and
@@ -126,6 +184,11 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
     setLocal({ ...(event?.matrix || {}) });
     setResearchError(null);
     setCitations([]);
+    setPreResearchSnapshot(null);
+    setSourcesExpanded(false);
+    setNameEdit(null);
+    setDemographicInput("");
+    setAddingDemographic(false);
   }, [event?.id]);
 
   const applyPatch = (patch) => {
@@ -185,6 +248,9 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
   // list so the operator can vet before shipping. Errors surface inline.
   const fuelResearch = async () => {
     if (researching) return;
+    // Snapshot the bullets we have now so a bad research can be undone
+    // in one tap via the sources strip's ↺ Discard button.
+    setPreResearchSnapshot(bullets);
     setResearching(true);
     setResearchError(null);
     try {
@@ -220,6 +286,58 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
     }
   };
 
+  // Undo the last Fuel Research call — restores the bullet list to
+  // the snapshot taken before we appended AI-returned bullets, and
+  // clears the citations panel. Useful when Sonar returns off-topic
+  // results (see the "Let Me Know" incident that spawned this button).
+  const discardResearch = () => {
+    if (preResearchSnapshot == null) return;
+    applyPatch({ data_points: preResearchSnapshot });
+    setPreResearchSnapshot(null);
+    setCitations([]);
+    setResearchError(null);
+  };
+
+  // Demographic chip helpers. Demographics are stored as an array on
+  // matrix.target_demographic; normalizeDemographic() handles legacy
+  // comma-string values transparently.
+  const selectedDemographics = normalizeDemographic(local.target_demographic);
+  const setDemographics = (arr) => applyPatch({ target_demographic: arr });
+  const toggleDemographic = (value) => {
+    const clean = String(value || "").trim();
+    if (!clean) return;
+    if (selectedDemographics.includes(clean)) {
+      setDemographics(selectedDemographics.filter((v) => v !== clean));
+    } else {
+      setDemographics([...selectedDemographics, clean]);
+    }
+  };
+  const addCustomDemographic = () => {
+    const clean = String(demographicInput || "").trim();
+    if (!clean) return;
+    saveCustomDemographic(clean);
+    setCustomDemographics(loadCustomDemographics());
+    if (!selectedDemographics.includes(clean)) {
+      setDemographics([...selectedDemographics, clean]);
+    }
+    setDemographicInput("");
+    setAddingDemographic(false);
+  };
+  // Preset row is built-ins + any custom values the operator has added
+  // in past sessions. Deduped so nothing shows twice.
+  const allDemographicPresets = [...DEMOGRAPHIC_PRESETS,
+    ...customDemographics.filter((c) => !DEMOGRAPHIC_PRESETS.includes(c))];
+
+  // Save the inline-edited name to the store.
+  const commitNameEdit = () => {
+    if (nameEdit == null) return;
+    const clean = String(nameEdit || "").trim();
+    if (clean && clean !== event.name && upsertEvent) {
+      upsertEvent({ ...event, name: clean });
+    }
+    setNameEdit(null);
+  };
+
   return createPortal(
     <div
       onClick={onClose}
@@ -253,8 +371,49 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
             <div style={{ fontFamily: "'Syne', ui-sans-serif, sans-serif", fontWeight: 800, fontSize: "1.1rem" }}>
               ◆ Curatorial Matrix
             </div>
-            <div style={{ fontSize: "0.72rem", color: muted, marginTop: 3 }}>
-              {event.name || "Untitled event"}
+            <div style={{ fontSize: "0.72rem", color: muted, marginTop: 3, display: "flex", alignItems: "center", gap: 6 }}>
+              {nameEdit == null ? (
+                <span
+                  onClick={() => setNameEdit(event.name || "")}
+                  title="Click to rename"
+                  style={{
+                    cursor: "pointer",
+                    padding: "2px 6px",
+                    marginLeft: -6,
+                    borderRadius: 4,
+                    color: (event.name && event.name !== "Untitled Editorial" && event.name !== "Untitled event") ? cream : orbit,
+                    background: "rgba(167,139,250,0.06)",
+                    border: `1px solid rgba(167,139,250,0.18)`,
+                    fontStyle: (event.name === "Untitled Editorial" || event.name === "Untitled event" || !event.name) ? "italic" : "normal",
+                  }}
+                >
+                  {event.name || "Untitled event"}{" ✎"}
+                </span>
+              ) : (
+                <input
+                  type="text"
+                  value={nameEdit}
+                  onChange={(e) => setNameEdit(e.target.value)}
+                  onBlur={commitNameEdit}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") { e.preventDefault(); commitNameEdit(); }
+                    else if (e.key === "Escape") { e.preventDefault(); setNameEdit(null); }
+                  }}
+                  autoFocus
+                  placeholder="Name this piece…"
+                  style={{
+                    background: "#0e0e10",
+                    border: `1px solid ${orbit}`,
+                    color: cream,
+                    borderRadius: 4,
+                    padding: "3px 8px",
+                    fontFamily: "inherit",
+                    fontSize: "0.78rem",
+                    outline: "none",
+                    minWidth: 260,
+                  }}
+                />
+              )}
               {event.venue ? ` · ${event.venue}` : ""}
               {event.date ? ` · ${event.date}` : ""}
             </div>
@@ -379,14 +538,118 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
             </div>
             <div>
               <label style={labelStyle}>Target Demographic</label>
-              <input
-                type="text"
-                style={inputStyle}
-                value={local.target_demographic || ""}
-                onChange={(e) => applyPatch({ target_demographic: e.target.value })}
-                placeholder="Young Professionals, Diaspora Networks"
-              />
-              <div style={hintStyle}>Comma-separated · shows on public filters</div>
+              {/* Selected chips row */}
+              {selectedDemographics.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 8 }}>
+                  {selectedDemographics.map((d) => (
+                    <span
+                      key={d}
+                      style={{
+                        display: "inline-flex", alignItems: "center", gap: 6,
+                        padding: "4px 10px",
+                        background: "rgba(52,211,153,0.14)",
+                        border: `1px solid rgba(52,211,153,0.42)`,
+                        color: "#34D399",
+                        borderRadius: 999,
+                        fontSize: "0.7rem",
+                        fontWeight: 600,
+                      }}
+                    >
+                      {d}
+                      <button
+                        type="button"
+                        onClick={() => toggleDemographic(d)}
+                        style={{ background: "transparent", border: "none", color: "#34D399", cursor: "pointer", padding: 0, fontSize: "0.85rem", lineHeight: 1 }}
+                        aria-label={`Remove ${d}`}
+                      >×</button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              {/* Preset options — click to add */}
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                {allDemographicPresets.filter((d) => !selectedDemographics.includes(d)).map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => toggleDemographic(d)}
+                    style={{
+                      padding: "4px 10px",
+                      background: "transparent",
+                      border: `1px solid ${whisper}`,
+                      color: muted,
+                      borderRadius: 999,
+                      fontFamily: "inherit",
+                      fontSize: "0.7rem",
+                      fontWeight: 500,
+                      cursor: "pointer",
+                    }}
+                  >+ {d}</button>
+                ))}
+                {!addingDemographic ? (
+                  <button
+                    type="button"
+                    onClick={() => setAddingDemographic(true)}
+                    style={{
+                      padding: "4px 10px",
+                      background: "transparent",
+                      border: `1px dashed ${orbit}`,
+                      color: orbit,
+                      borderRadius: 999,
+                      fontFamily: "inherit",
+                      fontSize: "0.7rem",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                  >+ Add custom</button>
+                ) : (
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                    <input
+                      type="text"
+                      value={demographicInput}
+                      onChange={(e) => setDemographicInput(e.target.value)}
+                      onBlur={() => { if (!demographicInput.trim()) setAddingDemographic(false); }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") { e.preventDefault(); addCustomDemographic(); }
+                        else if (e.key === "Escape") { e.preventDefault(); setDemographicInput(""); setAddingDemographic(false); }
+                      }}
+                      autoFocus
+                      placeholder="New segment…"
+                      style={{
+                        background: "#0e0e10",
+                        border: `1px solid ${orbit}`,
+                        color: cream,
+                        borderRadius: 999,
+                        padding: "4px 10px",
+                        fontFamily: "inherit",
+                        fontSize: "0.7rem",
+                        outline: "none",
+                        minWidth: 160,
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={addCustomDemographic}
+                      disabled={!demographicInput.trim()}
+                      style={{
+                        padding: "4px 10px",
+                        background: orbit,
+                        color: "#1a0d3d",
+                        border: "none",
+                        borderRadius: 999,
+                        fontFamily: "inherit",
+                        fontSize: "0.7rem",
+                        fontWeight: 700,
+                        cursor: demographicInput.trim() ? "pointer" : "not-allowed",
+                        opacity: demographicInput.trim() ? 1 : 0.5,
+                      }}
+                    >Add</button>
+                  </span>
+                )}
+              </div>
+              <div style={hintStyle}>
+                Multi-select · click a preset to add, ✕ to remove · custom entries persist for next time
+              </div>
             </div>
           </div>
 
@@ -442,10 +705,10 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
               <button
                 type="button"
                 onClick={fuelResearch}
-                disabled={researching || (!local.cluster && !local.hook_a_side)}
+                disabled={researching || !local.cluster}
                 title={
                   researching ? "Researching…"
-                  : (!local.cluster && !local.hook_a_side) ? "Add a cluster or hook A-side first — Perplexity needs an angle"
+                  : !local.cluster ? "Pick a cluster first — Perplexity needs an editorial frame"
                   : "Ask Perplexity for 3–4 verified factual bullets"
                 }
                 style={{
@@ -459,8 +722,8 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
                   letterSpacing: "0.14em",
                   textTransform: "uppercase",
                   fontWeight: 700,
-                  cursor: researching || (!local.cluster && !local.hook_a_side) ? "not-allowed" : "pointer",
-                  opacity: (!local.cluster && !local.hook_a_side) ? 0.5 : 1,
+                  cursor: researching || !local.cluster ? "not-allowed" : "pointer",
+                  opacity: !local.cluster ? 0.5 : 1,
                 }}
               >
                 {researching ? "🔮 Researching…" : "🔮 Fuel Research"}
@@ -543,32 +806,82 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
                 fontSize: "0.66rem",
                 color: muted,
               }}>
-                <div style={{
-                  fontSize: "0.56rem",
-                  letterSpacing: "0.14em",
-                  textTransform: "uppercase",
-                  fontWeight: 700,
-                  color: orbit,
-                  marginBottom: 6,
-                }}>
-                  ◆ Sources · vet before shipping
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                  {citations.map((url, i) => (
-                    <a
-                      key={i}
-                      href={url}
-                      target="_blank"
-                      rel="noreferrer noopener"
+                {/* Header row: title + Discard action + expand toggle */}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => setSourcesExpanded((v) => !v)}
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      color: orbit,
+                      fontFamily: "inherit",
+                      fontSize: "0.56rem",
+                      letterSpacing: "0.14em",
+                      textTransform: "uppercase",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      padding: 0,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                    }}
+                    aria-expanded={sourcesExpanded}
+                  >
+                    {sourcesExpanded ? "▾" : "▸"} ◆ {citations.length} source{citations.length === 1 ? "" : "s"} · vet before shipping
+                  </button>
+                  {preResearchSnapshot != null && (
+                    <button
+                      type="button"
+                      onClick={discardResearch}
+                      title="Undo the last Fuel Research — restore bullets and clear sources"
                       style={{
-                        color: orbit,
-                        textDecoration: "none",
-                        wordBreak: "break-all",
-                        fontVariantNumeric: "tabular-nums",
+                        background: "transparent",
+                        border: `1px solid rgba(251,191,36,0.4)`,
+                        color: warn,
+                        fontFamily: "inherit",
+                        fontSize: "0.56rem",
+                        letterSpacing: "0.1em",
+                        textTransform: "uppercase",
+                        fontWeight: 700,
+                        cursor: "pointer",
+                        padding: "3px 8px",
+                        borderRadius: 4,
                       }}
-                    >{i + 1}. {url}</a>
-                  ))}
+                    >↺ Discard research</button>
+                  )}
                 </div>
+                {/* Collapsed: just the hostname strip so wall-of-URLs
+                    turns into a scannable "wikipedia.org · genius.com …" */}
+                {!sourcesExpanded && (
+                  <div style={{
+                    marginTop: 6,
+                    fontSize: "0.62rem",
+                    color: faint,
+                    wordBreak: "break-word",
+                  }}>
+                    {citations.map((u) => hostnameOf(u)).join(" · ")}
+                  </div>
+                )}
+                {/* Expanded: the full URL list, one per line */}
+                {sourcesExpanded && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 6 }}>
+                    {citations.map((url, i) => (
+                      <a
+                        key={i}
+                        href={url}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        style={{
+                          color: orbit,
+                          textDecoration: "none",
+                          wordBreak: "break-all",
+                          fontVariantNumeric: "tabular-nums",
+                        }}
+                      ><b style={{ color: cream }}>{hostnameOf(url)}</b> · {i + 1}. {url}</a>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>

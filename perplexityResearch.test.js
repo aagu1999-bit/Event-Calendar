@@ -13,7 +13,7 @@ test("research uses Agent preset, web search, and structured output", () => {
 
 test("reads output_text and collects safe source and annotation URLs", () => {
   const result = parseResearchResponse({
-    output_text: '{"bullets":["A supported fact"]}',
+    output_text: '{"bullets":["A supported fact","Another supported fact"]}',
     model: "test-model",
     output: [
       { type: "search_results", results: [{ url: "https://example.org/source" }, { url: "javascript:alert(1)" }] },
@@ -29,5 +29,13 @@ test("rejects malformed, empty, oversized, and unsourced answers", () => {
     assert.equal(parseResearchResponse({ output_text }).code, "bad_response");
   }
   assert.equal(parseResearchResponse({ output_text: '{"bullets":[]}' }).code, "empty");
-  assert.equal(parseResearchResponse({ output_text: '{"bullets":["No sources"]}' }).code, "empty");
+  assert.equal(parseResearchResponse({ output_text: '{"bullets":["No sources","Another unsourced fact"]}' }).code, "empty");
+});
+
+test("merged research rules preserve NJ relevance and short-hook framing", () => {
+  const request = researchRequest({ cluster: "Culture", topic: "Let Me Know" });
+  assert.match(request.instructions, /at least 2 verified NJ-tied/);
+  assert.match(request.instructions, /NOT a literal song/);
+  assert.match(request.instructions, /primary frame/);
+  assert.equal(parseResearchResponse({ output_text: '{"bullets":["Only one fact"]}' }).code, "empty");
 });
