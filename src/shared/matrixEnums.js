@@ -61,6 +61,21 @@ export const EMOTIONS = [
   "Ambition/Sovereignty",
 ];
 
+// Preset demographic archetypes — CGE-specific cultural segments the
+// operator uses regularly. Rendered as click-to-add chips in the
+// Matrix modal. Custom demographics the operator adds persist to
+// localStorage so they surface as presets on subsequent records.
+// Order is the display order in the chip row.
+export const DEMOGRAPHIC_PRESETS = [
+  "Young Working Professionals",
+  "Diaspora Networks",
+  "Corporate-to-Creative Hybrids",
+  "Low-Decibel / Alcohol-Conscious",
+  "Sonic Purists (House / Afrobeats / R&B)",
+  "Kinetic / Adult Play",
+  "Creatives & DJs",
+];
+
 export const PIPELINE_STATUS = {
   DRAFT:     { key: "DRAFT",     label: "Draft" },
   READY:     { key: "READY",     label: "Ready" },
