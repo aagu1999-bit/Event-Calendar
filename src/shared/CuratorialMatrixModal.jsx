@@ -1,13 +1,15 @@
 import { useState, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
-import { useEventsStore } from "../store.js";
+import { useNavigate } from "react-router-dom";
+import { useEventsStore, useCarouselSeedStore } from "../store.js";
 import {
   EVENT_TIERS, EVENT_TIER_ORDER,
   CORRIDORS, CLUSTERS, EMOTIONS,
   PIPELINE_STATUS, PIPELINE_STATUS_ORDER,
   LIMITS,
 } from "./matrixEnums.js";
-import { validateMatrix, matrixCompleteness } from "./matrixValidation.js";
+import { validateMatrix, matrixCompleteness, isMatrixReadyForGeneration } from "./matrixValidation.js";
+import { eventMatrixToFillSeed } from "./eventMatrixToFillSeed.js";
 
 // The Curatorial Matrix editor — dedicated modal (not inline in the row)
 // per operator preference: matrix curation is deep editorial work that
@@ -105,6 +107,8 @@ function CharCounter({ current, max, error }) {
 export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle }) {
   const updateEventMatrix = useEventsStore((s) => s.updateEventMatrix);
   const syncError = useEventsStore((s) => s.syncError);
+  const setCarouselSeed = useCarouselSeedStore((s) => s.setSeed);
+  const navigate = useNavigate();
 
   // Local mirror of matrix values so typing is snappy — we push each
   // change to the store on blur/select rather than every keystroke, and
@@ -532,23 +536,57 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
         </div>
 
         {/* Footer */}
-        <div style={{ borderTop: `1px solid ${hair}`, padding: "14px 22px", display: "flex", justifyContent: "flex-end", gap: 8 }}>
-          <button
-            onClick={onClose}
-            style={{
-              padding: "10px 18px",
-              borderRadius: 6,
-              border: `1px solid ${whisper}`,
-              background: "transparent",
-              color: cream,
-              cursor: "pointer",
-              fontFamily: "inherit",
-              fontSize: "0.72rem",
-              letterSpacing: "0.1em",
-              textTransform: "uppercase",
-              fontWeight: 700,
-            }}
-          >Done</button>
+        <div style={{ borderTop: `1px solid ${hair}`, padding: "14px 22px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <div style={{ fontSize: "0.66rem", color: faint, letterSpacing: "0.06em" }}>
+            {isMatrixReadyForGeneration(local)
+              ? "✓ Matrix ready — Preview Carousel will hand off to the AI Fill modal"
+              : "Fill tier + hook A + one bullet to enable Preview Carousel"}
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              onClick={onClose}
+              style={{
+                padding: "10px 18px",
+                borderRadius: 6,
+                border: `1px solid ${whisper}`,
+                background: "transparent",
+                color: cream,
+                cursor: "pointer",
+                fontFamily: "inherit",
+                fontSize: "0.72rem",
+                letterSpacing: "0.1em",
+                textTransform: "uppercase",
+                fontWeight: 700,
+              }}
+            >Done</button>
+            <button
+              onClick={() => {
+                const seed = eventMatrixToFillSeed({ ...event, matrix: local });
+                if (!seed) return;
+                setCarouselSeed(seed);
+                onClose && onClose();
+                navigate("/media");
+              }}
+              disabled={!isMatrixReadyForGeneration(local)}
+              title={isMatrixReadyForGeneration(local)
+                ? "Hand off matrix data to the AI Fill modal on Media"
+                : "Fill required fields first"}
+              style={{
+                padding: "10px 20px",
+                borderRadius: 6,
+                border: `1px solid ${isMatrixReadyForGeneration(local) ? orbit : whisper}`,
+                background: isMatrixReadyForGeneration(local) ? orbit : "transparent",
+                color: isMatrixReadyForGeneration(local) ? "#1a0d3d" : "rgba(245,240,232,0.28)",
+                cursor: isMatrixReadyForGeneration(local) ? "pointer" : "not-allowed",
+                fontFamily: "inherit",
+                fontSize: "0.72rem",
+                letterSpacing: "0.1em",
+                textTransform: "uppercase",
+                fontWeight: 800,
+                opacity: isMatrixReadyForGeneration(local) ? 1 : 0.5,
+              }}
+            >🎨 Preview Carousel →</button>
+          </div>
         </div>
       </div>
     </div>,

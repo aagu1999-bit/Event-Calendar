@@ -3444,7 +3444,7 @@ export default function MediaTool() {
   // Seed for AI Fill Template. Set by the News Scout's "Build carousel" so the
   // modal opens pre-filled with a story (and AI-arrange on); the plain ✨ AI
   // Fill button clears it so it opens blank.
-  const [aiFillSeed, setAiFillSeed] = useState({ topic: "", context: "", arrange: false });
+  const [aiFillSeed, setAiFillSeed] = useState({ topic: "", context: "", arrange: false, register: null, templateId: null });
   // Scout → Media handoff: if the Event Scout stashed a "Make Carousel" seed
   // before navigating here, open AI Fill pre-filled with that event (arrange
   // on) once on mount. consumeSeed() clears it so a refresh won't re-open it.
@@ -3452,7 +3452,13 @@ export default function MediaTool() {
   useEffect(() => {
     const seed = consumeCarouselSeed();
     if (seed && seed.topic) {
-      setAiFillSeed({ topic: seed.topic, context: seed.context || "", arrange: true });
+      setAiFillSeed({
+        topic: seed.topic,
+        context: seed.context || "",
+        arrange: seed.arrange !== false,
+        register: seed.register || null,
+        templateId: seed.templateId || null,
+      });
       setAiFillOpen(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -6265,7 +6271,7 @@ export default function MediaTool() {
                 + slot prompts. Pair this with the From Template dropdown
                 (manual fill) — both compose with the same templates. */}
             <button
-              onClick={() => { setAiFillSeed({ topic: "", context: "", arrange: false }); setAiFillOpen(true); }}
+              onClick={() => { setAiFillSeed({ topic: "", context: "", arrange: false, register: null, templateId: null }); setAiFillOpen(true); }}
               title="AI-fill the whole template in one call — type topic + context, get every slide back (Cover + Text + N×Spotlight or N×CTA + Closer)"
               style={{
                 padding: "6px 10px",
@@ -7603,9 +7609,11 @@ export default function MediaTool() {
       <AiTemplateFillModal
         open={aiFillOpen}
         apiKey={geminiKey}
+        initialTemplateId={aiFillSeed.templateId || undefined}
         initialTopic={aiFillSeed.topic}
         initialContext={aiFillSeed.context}
         initialArrange={aiFillSeed.arrange}
+        initialRegister={aiFillSeed.register}
         onClose={() => setAiFillOpen(false)}
         onAccept={onAiTemplateAccept}
       />
@@ -7624,6 +7632,8 @@ export default function MediaTool() {
               c.whenWhere ? `When / where: ${c.whenWhere}` : "",
             ].filter(Boolean).join("\n"),
             arrange: true,
+            register: null,
+            templateId: null,
           });
           setAiFillOpen(true);
         }}

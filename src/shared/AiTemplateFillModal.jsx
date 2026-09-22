@@ -27,7 +27,7 @@ const CONTEXT_SCAFFOLD = [
 //   onClose()
 //   onAccept(slides)   — slides array matching the template's sequence
 
-export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTopic = "", initialContext = "", initialArrange = false, onClose, onAccept }) {
+export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTopic = "", initialContext = "", initialArrange = false, initialRegister = null, onClose, onAccept }) {
   const voice = useBrandStore((s) => s.voice);
   const slotPrompts = useBrandStore((s) => s.slotPrompts);
   const addExemplar = useBrandStore((s) => s.addExemplar);
@@ -138,8 +138,15 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
       if (initialTopic) setTopic(initialTopic);
       if (initialContext) setContext(initialContext);
       if (initialArrange) setAiArrange(true);
+      // Seeded register overrides the reset default ("editorial") — used
+      // when a caller (Matrix modal's Preview Carousel) already knows
+      // which mode fits the record's tier + emotion. Whitelist to the
+      // known modes so a bad payload can't wedge the segmented control.
+      if (initialRegister === "promo" || initialRegister === "editorial" || initialRegister === "story") {
+        setMode(initialRegister);
+      }
     }
-  }, [open, initialTemplateId, initialTopic, initialContext, initialArrange]);
+  }, [open, initialTemplateId, initialTopic, initialContext, initialArrange, initialRegister]);
 
   // Every freshly generated batch starts fully kept — but a single-slot
   // re-roll (same array length, one entry swapped) must NOT wipe the user's
