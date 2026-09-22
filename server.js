@@ -16,11 +16,23 @@ import express from "express";
 import path from "path";
 import fs from "fs/promises";
 import { existsSync } from "fs";
+import { spawn } from "child_process";
 import { fileURLToPath } from "url";
 import { runScout, storyKey, focusForDay } from "./scoutServer.js";
 import { createSessionStore, normalizeSession, applySessionOps } from "./reviewSessionStore.js";
-import { normalizeImageDataUrl } from "./normalizeImage.js";
-import * as poolStoreDb from "./poolStoreDb.js";
+import { createPoolStore } from "./screenshotPoolStore.js";
+import { normalizeImageDataUrl, usableImageDataUrl, toPreviewDataUrl, sniffImageKind } from "./normalizeImage.js";
+import { isInstagramUrl, classifyShareRequest, shareSavedReply, SHARE_GET_EMPTY } from "./shareIntake.js";
+import {
+  actorInputForDirectUrls,
+  indexApifyItems,
+  instagramShortcode,
+  lookupApifyItem,
+  pickApifyCaption,
+  pickApifyOwner,
+  pickApifySlideUrls,
+  uniqueDirectUrls,
+} from "./apifyInstagram.js";
 import * as eventStoreDb from "./eventStoreDb.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -680,39 +692,29 @@ app.put("/api/brand-kit", express.json({ limit: "1mb" }), async (req, res) => {
 // from screenshot" flow, previews/edits, and instead of dropping into the
 // current queue chooses "Save to pool for later". Entries persist here and
 // come back into the queue during that event's actual weekend review via a
-// weekend-filter identical in behavior to the booking-import filter. Server-
-// side so a submission from any device is visible on every other device.
-// Kept intentionally simple (single JSON file, bulk API) — there's no
-// concurrent-editing concern like sessions have.
+// weekend-filter identical in behavior to the booking-import filter.
+//
+// Postgres (DATABASE_URL), not the deploy disk. A Replit republish wipes
+// local files — that's how the pool vanished after Deploy. Same pattern
+// as review sessions. Filesystem is a local-dev fallback only.
 const POOL_DIR = path.resolve(__dirname, "data/screenshot-pool");
-const POOL_FILE = path.join(POOL_DIR, "pool.json");
-// Bumped 500 → 1500 when the pool moved to Postgres. The old cap existed
-// because pool.json was one flat file on ephemeral disk — a runaway
-// submission spree could blow up the file AND then vanish on redeploy.
-// Postgres removes both risks: no single-file bloat, no wipe on deploy.
-// Cap still matters (bounds storage cost + keeps the UI list navigable),
-// just at a saner ceiling for heavy iOS-share weeks.
-const POOL_MAX_ITEMS = 1500;
-
-// Pool storage now lives in Postgres (see poolStoreDb.js). These two
-// helpers preserve the pre-existing load-mutate-save API surface used by
-// several endpoints downstream, so the migration is transparent to them.
-// Newer code should prefer the row-level functions on poolStoreDb (upsert,
-// patch, delete) — they avoid the read+write-back overhead loadPool/savePool
-// incur on every mutation.
-async function loadPool() {
-  const entries = await poolStoreDb.listPoolEntries();
-  return { entries };
+const POOL_MAX_ITEMS = 500; // hard cap so a runaway submission spree can't blow up storage
+const poolStore = createPoolStore(POOL_DIR, { maxItems: POOL_MAX_ITEMS });
+function newPoolId(suffix = "") {
+  return `pool_${Date.now()}_${Math.random().toString(36).slice(2, 8)}${suffix ? `_${suffix}` : ""}`;
 }
-async function savePool(pool) {
-  const incoming = Array.isArray(pool?.entries) ? pool.entries : [];
-  const current = await poolStoreDb.listPoolEntries();
-  const incomingIds = new Set(incoming.map((e) => e && e.id).filter(Boolean).map(String));
-  const toDelete = current
-    .filter((e) => e && e.id && !incomingIds.has(String(e.id)))
-    .map((e) => String(e.id));
-  if (toDelete.length) await poolStoreDb.deletePoolEntries(toDelete);
-  if (incoming.length) await poolStoreDb.bulkUpsertPoolEntries(incoming);
+// List responses omit the extra carousel `thumbs` array (full JPEGs). The
+// first-slide `thumb` + `slideCount` is enough for the modal; Extract gets
+// every slide back from resolve-media.
+function poolForClient(pool) {
+  const entries = (pool?.entries || []).map((e) => {
+    if (!e || typeof e !== "object") return e;
+    const { thumbs, ...rest } = e;
+    const n = Array.isArray(thumbs) ? thumbs.length : 0;
+    if (n && !rest.slideCount) rest.slideCount = n;
+    return rest;
+  });
+  return { entries, backend: poolStore.backend };
 }
 
 // --- EVENTS store (Postgres-backed) ---
@@ -782,40 +784,44 @@ app.post("/api/events/bulk", express.json({ limit: "20mb" }), async (req, res) =
 // --- POOL storage (Postgres-backed, same URL contract as before) ---
 
 app.get("/api/screenshot-pool", async (_req, res) => {
-  try { res.json(await loadPool()); }
+  try { res.json(poolForClient(await poolStore.load())); }
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Bulk-add entries. Body: { entries: [{event, thumb?, recurring, alsoRegular, source?}, …] }
+// Bulk-add entries. Body: { entries: [{event, thumb?, recurring, alsoRegular, source?, sourceUrl?}, …] }
 // Server stamps id + createdAt so client doesn't have to. Cap-guarded — silently
 // drops the oldest entries when we'd exceed POOL_MAX_ITEMS.
 // `source` was added when the pool grew to accept iOS-share drops alongside
 // screenshot-modal saves — defaults to "screenshot" for anything unspecified.
+// `sourceUrl` (or event.link) is kept so returned Review rows still land in
+// the pool's Links list and can be re-extracted.
 app.post("/api/screenshot-pool", express.json({ limit: "20mb" }), async (req, res) => {
   try {
     const incoming = Array.isArray(req.body?.entries) ? req.body.entries : [];
     if (!incoming.length) return res.status(400).json({ error: "no_entries" });
-    const pool = await loadPool();
     const added = [];
-    for (const e of incoming) {
-      if (!e || !e.event || !e.event.name) continue;
-      const entry = {
-        id: `pool_${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${added.length}`,
-        event: e.event,
-        thumb: typeof e.thumb === "string" && e.thumb.startsWith("data:image/") ? e.thumb : null,
-        recurring: !!e.recurring,
-        alsoRegular: !!e.alsoRegular,
-        source: typeof e.source === "string" && e.source ? e.source : "screenshot",
-        status: "extracted", // extracted by the modal before save; ready to pull
-        createdAt: new Date().toISOString(),
-      };
-      pool.entries.push(entry);
-      added.push(entry);
-    }
-    if (pool.entries.length > POOL_MAX_ITEMS) {
-      pool.entries = pool.entries.slice(-POOL_MAX_ITEMS);
-    }
-    await savePool(pool);
+    const pool = await poolStore.update((cur) => {
+      const next = { entries: [...(cur.entries || [])] };
+      for (const e of incoming) {
+        if (!e || !e.event || !e.event.name) continue;
+        const entry = {
+          id: newPoolId(String(added.length)),
+          event: e.event,
+          thumb: typeof e.thumb === "string" && e.thumb.startsWith("data:image/") ? e.thumb : null,
+          recurring: !!e.recurring,
+          alsoRegular: !!e.alsoRegular,
+          source: typeof e.source === "string" && e.source ? e.source : "screenshot",
+          status: "extracted", // extracted by the modal before save; ready to pull
+          createdAt: new Date().toISOString(),
+        };
+        const srcUrl = typeof e.sourceUrl === "string" ? e.sourceUrl.trim()
+          : (typeof e.event?.link === "string" ? e.event.link.trim() : "");
+        if (/^https?:\/\//i.test(srcUrl)) entry.sourceUrl = srcUrl;
+        next.entries.push(entry);
+        added.push(entry);
+      }
+      return next;
+    });
     res.json({ added: added.length, total: pool.entries.length });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -826,23 +832,82 @@ function withTimeout(ms) {
   return { signal: c.signal, done: setTimeout(() => c.abort(), ms) };
 }
 
+// Apify token stays server-side (Replit Secret). Never sent to the
+// browser or the iOS Shortcut. APIFY_IG_ACTOR overrides the default
+// official scraper if IG changes and we need to swap actors without a
+// code push.
+const APIFY_TOKEN = (process.env.APIFY_TOKEN || process.env.APIFY_API_TOKEN || "").trim();
+const APIFY_IG_ACTOR = (process.env.APIFY_IG_ACTOR || "apify/instagram-scraper").trim();
+const APIFY_IG_MEMORY = (() => {
+  const n = parseInt(process.env.APIFY_IG_MEMORY || "4096", 10);
+  return Number.isFinite(n) && n >= 1024 ? n : 4096;
+})();
+
+// Instagram CDN URLs from Apify are often signed to Apify's IP/ASN.
+// Fetching them from the Replit deploy IP then 403s ("CDN download failed").
+// Retry through Apify's proxy so the download comes from a matching network.
+async function fetchMaybeProxy(url, { headers, signal, useProxy } = {}) {
+  if (useProxy && APIFY_TOKEN) {
+    try {
+      const { ProxyAgent, fetch: ufetch } = await import("undici");
+      const dispatcher = new ProxyAgent(`http://auto:${encodeURIComponent(APIFY_TOKEN)}@proxy.apify.com:8000`);
+      return await ufetch(url, { redirect: "follow", headers, signal, dispatcher });
+    } catch {
+      /* fall through to a direct fetch */
+    }
+  }
+  return fetch(url, { redirect: "follow", headers, signal });
+}
+
 // Download a remote image as a data URL. Used for og:image AND for the
 // Apify displayUrl — Instagram CDN links are signed and expire (see
 // instagramCdnExpiryIso), so we persist the bytes, never the URL.
+// Trust magic bytes, not Content-Type — IG/CDN often returns octet-stream.
 async function downloadImageAsDataUrl(imgUrl, { timeoutMs = 10000, referer } = {}) {
-  const t = withTimeout(timeoutMs);
-  try {
-    const headers = { "User-Agent": BROWSER_UA };
-    if (referer) headers.Referer = referer;
-    const imgResp = await fetch(imgUrl, { redirect: "follow", signal: t.signal, headers })
-      .finally(() => clearTimeout(t.done));
-    if (!imgResp.ok) return null;
-    const contentType = (imgResp.headers.get("content-type") || "image/jpeg").split(";")[0].trim();
-    if (!contentType.startsWith("image/")) return null;
-    const buf = Buffer.from(await imgResp.arrayBuffer());
-    if (buf.length > 15 * 1024 * 1024) return null;
-    return `data:${contentType};base64,${buf.toString("base64")}`;
-  } catch { return null; }
+  const headers = {
+    "User-Agent": BROWSER_UA,
+    Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+  };
+  if (referer) headers.Referer = referer;
+  const tryOnce = async (useProxy) => {
+    const t = withTimeout(timeoutMs);
+    try {
+      const imgResp = await fetchMaybeProxy(imgUrl, { headers, signal: t.signal, useProxy })
+        .finally(() => clearTimeout(t.done));
+      if (!imgResp.ok) return null;
+      const buf = Buffer.from(await imgResp.arrayBuffer());
+      if (buf.length < 32 || buf.length > 15 * 1024 * 1024) return null;
+      const ct = (imgResp.headers.get("content-type") || "").split(";")[0].trim();
+      const kind = sniffImageKind(buf, ct);
+      if (kind === "unknown" && !ct.startsWith("image/")) return null;
+      const mime = kind === "png" ? "image/png"
+        : kind === "webp" ? "image/webp"
+        : kind === "gif" ? "image/gif"
+        : (ct.startsWith("image/") ? ct : "image/jpeg");
+      return `data:${mime};base64,${buf.toString("base64")}`;
+    } catch { return null; }
+  };
+  return (await tryOnce(false)) || (APIFY_TOKEN ? await tryOnce(true) : null);
+}
+
+const APIFY_BATCH_TIMEOUT = (() => {
+  const n = parseInt(process.env.APIFY_BATCH_TIMEOUT || "1800", 10);
+  return Number.isFinite(n) && n >= 120 ? n : 1800;
+})();
+
+// Cover-only fallback: /media/?size=l redirects to a CDN URL signed for
+// THIS server's IP, so it still works when Apify's displayUrl 403s.
+async function fetchInstagramCoverViaRedirect(postUrl) {
+  const code = instagramShortcode(postUrl);
+  if (!code) return null;
+  const paths = /\/reel/i.test(postUrl)
+    ? [`https://www.instagram.com/reel/${code}/media/?size=l`, `https://www.instagram.com/p/${code}/media/?size=l`]
+    : [`https://www.instagram.com/p/${code}/media/?size=l`];
+  for (const u of paths) {
+    const d = await downloadImageAsDataUrl(u, { timeoutMs: 15000, referer: "https://www.instagram.com/" });
+    if (d) return d;
+  }
+  return null;
 }
 
 // Fetch a page's og:image and return it as a base64 data URL, so URL-only
@@ -888,98 +953,27 @@ function instagramCdnExpiryIso(mediaUrl) {
   } catch { return null; }
 }
 
-function isInstagramUrl(raw) {
-  try {
-    const h = new URL(raw).hostname.replace(/^www\./, "").toLowerCase();
-    return h === "instagram.com" || h === "instagr.am" || h.endsWith(".instagram.com");
-  } catch { return false; }
-}
 
-// Apify token stays server-side (Replit Secret). Never sent to the
-// browser or the iOS Shortcut. APIFY_IG_ACTOR overrides the default
-// official scraper if IG changes and we need to swap actors without a
-// code push.
-const APIFY_TOKEN = (process.env.APIFY_TOKEN || process.env.APIFY_API_TOKEN || "").trim();
-const APIFY_IG_ACTOR = (process.env.APIFY_IG_ACTOR || "apify/instagram-scraper").trim();
-const APIFY_IG_MEMORY = (() => {
-  const n = parseInt(process.env.APIFY_IG_MEMORY || "4096", 10);
-  return Number.isFinite(n) && n >= 1024 ? n : 4096;
-})();
-
-function pickApifyMediaUrl(item) {
-  if (!item || typeof item !== "object") return null;
-  const fromList = [];
-  const push = (v) => {
-    if (typeof v === "string" && /^https?:\/\//i.test(v)) fromList.push(v);
-    else if (v && typeof v.url === "string" && /^https?:\/\//i.test(v.url)) fromList.push(v.url);
+function apifyAuthHeaders() {
+  return {
+    Authorization: `Bearer ${APIFY_TOKEN}`,
+    "Content-Type": "application/json",
+    Accept: "application/json",
   };
-  push(item.displayUrl);
-  push(item.display_url);
-  push(item.imageUrl);
-  push(item.image);
-  push(item.thumbnailUrl);
-  push(item.thumbnail_url);
-  if (Array.isArray(item.images)) item.images.forEach(push);
-  if (Array.isArray(item.displayResourceUrls)) item.displayResourceUrls.forEach(push);
-  const still = fromList.find((u) => !/\.mp4(\?|$)/i.test(u));
-  return still || fromList[0] || null;
-}
-function pickApifyCaption(item) {
-  const c = item?.caption || item?.text || "";
-  return typeof c === "string" ? c.trim() : "";
-}
-function pickApifyOwner(item) {
-  const u = item?.ownerUsername || item?.owner?.username || item?.username || item?.user?.username || "";
-  return typeof u === "string" ? u.replace(/^@+/, "").trim() : "";
 }
 
-async function fetchInstagramPostViaApify(postUrl) {
-  if (!APIFY_TOKEN) {
-    const err = new Error("Set APIFY_TOKEN in this app's Replit Secrets to fetch Instagram images on Extract.");
-    err.code = "not_configured";
-    throw err;
-  }
-  const actorId = APIFY_IG_ACTOR.replace("/", "~");
-  const apiUrl = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?timeout=90&memory=${APIFY_IG_MEMORY}`;
-  const ac = new AbortController();
-  const killer = setTimeout(() => ac.abort(), 95_000);
-  let r, text;
-  try {
-    r = await fetch(apiUrl, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${APIFY_TOKEN}`,
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify({
-        directUrls: [postUrl],
-        resultsType: "posts",
-        resultsLimit: 1,
-        addParentData: false,
-      }),
-      signal: ac.signal,
-    });
-    text = await r.text();
-  } catch (e) {
-    const err = new Error(e?.name === "AbortError"
-      ? "Apify timed out fetching that Instagram post (90s). Retry Extract, or share the image from Photos."
-      : `Couldn't reach Apify: ${String(e?.message || e)}`);
-    err.code = "apify_error";
-    throw err;
-  } finally {
-    clearTimeout(killer);
-  }
-  if (r.status === 401 || r.status === 403) {
+function throwApifyHttp(status, text) {
+  if (status === 401 || status === 403) {
     const err = new Error("Apify rejected the token. Check APIFY_TOKEN in Replit Secrets.");
     err.code = "auth";
     throw err;
   }
-  if (!r.ok) {
-    const err = new Error(`Apify ${r.status}: ${text.slice(0, 240)}`);
-    err.code = "apify_error";
-    throw err;
-  }
+  const err = new Error(`Apify ${status}: ${String(text || "").slice(0, 240)}`);
+  err.code = "apify_error";
+  throw err;
+}
+
+function parseApifyItemsPayload(text) {
   let items;
   try { items = JSON.parse(text); } catch { items = []; }
   if (items && typeof items === "object" && !Array.isArray(items) && items.error) {
@@ -987,26 +981,127 @@ async function fetchInstagramPostViaApify(postUrl) {
     err.code = "apify_error";
     throw err;
   }
-  const item = Array.isArray(items) ? items[0] : null;
-  if (!item) {
-    const err = new Error("Apify returned no post — it may be private, deleted, or a stories/share link the scraper can't open.");
-    err.code = "no_media";
+  if (Array.isArray(items)) return items;
+  if (Array.isArray(items?.data?.items)) return items.data.items;
+  return [];
+}
+
+// One or many Instagram post URLs. A single URL stays on the 90s sync
+// endpoint so Extract-one is still snappy. Two or more share ONE actor
+// run (async + poll) so 200 pool links are not 200 billed starts.
+async function runApifyInstagramActor(directUrls) {
+  if (!APIFY_TOKEN) {
+    const err = new Error("Set APIFY_TOKEN in this app's Replit Secrets to fetch Instagram images on Extract.");
+    err.code = "not_configured";
     throw err;
   }
-  const mediaUrl = pickApifyMediaUrl(item);
-  if (!mediaUrl) {
+  const urls = uniqueDirectUrls(directUrls);
+  if (!urls.length) return [];
+  const actorId = APIFY_IG_ACTOR.replace("/", "~");
+  const input = actorInputForDirectUrls(urls);
+
+  if (urls.length === 1) {
+    const apiUrl = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?timeout=90&memory=${APIFY_IG_MEMORY}`;
+    const ac = new AbortController();
+    const killer = setTimeout(() => ac.abort(), 95_000);
+    let r, text;
+    try {
+      r = await fetch(apiUrl, {
+        method: "POST",
+        headers: apifyAuthHeaders(),
+        body: JSON.stringify(input),
+        signal: ac.signal,
+      });
+      text = await r.text();
+    } catch (e) {
+      const err = new Error(e?.name === "AbortError"
+        ? "Apify timed out fetching that Instagram post (90s). Retry Extract, or share the image from Photos."
+        : `Couldn't reach Apify: ${String(e?.message || e)}`);
+      err.code = "apify_error";
+      throw err;
+    } finally {
+      clearTimeout(killer);
+    }
+    if (!r.ok) throwApifyHttp(r.status, text);
+    return parseApifyItemsPayload(text);
+  }
+
+  const startUrl = `https://api.apify.com/v2/acts/${actorId}/runs?timeout=${APIFY_BATCH_TIMEOUT}&memory=${APIFY_IG_MEMORY}&waitForFinish=0`;
+  let startResp, startText;
+  try {
+    startResp = await fetch(startUrl, { method: "POST", headers: apifyAuthHeaders(), body: JSON.stringify(input) });
+    startText = await startResp.text();
+  } catch (e) {
+    const err = new Error(`Couldn't reach Apify: ${String(e?.message || e)}`);
+    err.code = "apify_error";
+    throw err;
+  }
+  if (!startResp.ok) throwApifyHttp(startResp.status, startText);
+  let started;
+  try { started = JSON.parse(startText); } catch { started = {}; }
+  const runId = started?.data?.id;
+  if (!runId) {
+    const err = new Error("Apify started a run but returned no id.");
+    err.code = "apify_error";
+    throw err;
+  }
+  const deadline = Date.now() + (APIFY_BATCH_TIMEOUT + 60) * 1000;
+  let run = started.data;
+  while (Date.now() < deadline) {
+    const st = String(run?.status || "");
+    if (st === "SUCCEEDED") break;
+    if (st === "FAILED" || st === "ABORTED" || st === "TIMED-OUT") {
+      const err = new Error(`Apify run ${st.toLowerCase()} while fetching Instagram posts.`);
+      err.code = "apify_error";
+      throw err;
+    }
+    await new Promise((r) => setTimeout(r, 3000));
+    const poll = await fetch(`https://api.apify.com/v2/actor-runs/${runId}`, { headers: apifyAuthHeaders() });
+    const pollText = await poll.text();
+    if (!poll.ok) throwApifyHttp(poll.status, pollText);
+    try { run = JSON.parse(pollText)?.data || run; } catch { /* keep last */ }
+  }
+  if (String(run?.status) !== "SUCCEEDED") {
+    const err = new Error("Apify timed out fetching that Instagram batch. Retry Extract.");
+    err.code = "apify_error";
+    throw err;
+  }
+  const datasetId = run.defaultDatasetId;
+  if (!datasetId) return [];
+  const itemsResp = await fetch(
+    `https://api.apify.com/v2/datasets/${datasetId}/items?clean=true&format=json`,
+    { headers: apifyAuthHeaders() },
+  );
+  const itemsText = await itemsResp.text();
+  if (!itemsResp.ok) throwApifyHttp(itemsResp.status, itemsText);
+  return parseApifyItemsPayload(itemsText);
+}
+
+async function materializeApifyPost(item, postUrl) {
+  const mediaUrls = pickApifySlideUrls(item);
+  if (!mediaUrls.length) {
     const err = new Error("Apify returned the post but no image URL (video-only, or the actor changed shape). Share the image from Photos instead.");
     err.code = "no_media";
     throw err;
   }
-  const thumb = await downloadImageAsDataUrl(mediaUrl, { timeoutMs: 15000, referer: "https://www.instagram.com/" });
-  if (!thumb) {
-    const err = new Error("Got an Instagram image URL from Apify but the CDN download failed. Retry Extract, or share the image from Photos.");
+  const downloaded = await Promise.all(
+    mediaUrls.map((u) => downloadImageAsDataUrl(u, { timeoutMs: 15000, referer: "https://www.instagram.com/" })),
+  );
+  let thumbs = downloaded.filter((t) => usableImageDataUrl(t));
+  if (!thumbs.length) {
+    const cover = await fetchInstagramCoverViaRedirect(postUrl);
+    if (cover) thumbs = [cover];
+  }
+  if (!thumbs.length) {
+    const err = new Error("Got Instagram image URL(s) from Apify but the CDN download failed. Retry Extract, or share the image from Photos.");
     err.code = "cdn_download_failed";
     throw err;
   }
+  const mediaUrl = mediaUrls[downloaded.findIndex((t) => t === thumbs[0])] || mediaUrls[0];
   return {
-    thumb,
+    thumb: thumbs[0],
+    thumbs,
+    slideCount: thumbs.length,
     caption: pickApifyCaption(item).slice(0, 2000),
     ownerUsername: pickApifyOwner(item),
     mediaUrl,
@@ -1015,17 +1110,49 @@ async function fetchInstagramPostViaApify(postUrl) {
   };
 }
 
-// Raw share intake — the iOS Shortcut hits this endpoint when the operator
-// taps "CGE Intake" from their share sheet. No AI extraction yet; the item
-// lands in the pool as `status: "raw"` and gets extracted on-demand from
-// inside the Review pool modal. Accepts either an image (as data URL) or a
-// URL (post link) — an operator can share IG posts either way. When only a
-// URL is sent, the server tries to grab the page's og:image so the entry
-// still has a thumbnail to extract from. Instagram usually blocks that
-// scrape; Extract then calls Apify (resolve-media) so the Shortcut stays
-// fast. Auth is intentionally unenforced: the endpoint is public because
-// the shortcut can't hold a real credential securely; the cap +
-// explicit-review flow contains blast radius if it ever gets spammed.
+async function fetchInstagramPostViaApify(postUrl) {
+  const items = await runApifyInstagramActor([postUrl]);
+  const idx = indexApifyItems(items);
+  const item = lookupApifyItem(idx, postUrl) || (Array.isArray(items) ? items[0] : null);
+  if (!item) {
+    const err = new Error("Apify returned no post — it may be private, deleted, or a stories/share link the scraper can't open.");
+    err.code = "no_media";
+    throw err;
+  }
+  return materializeApifyPost(item, postUrl);
+}
+
+async function fetchInstagramPostsViaApify(postUrls) {
+  const urls = uniqueDirectUrls(postUrls);
+  if (!urls.length) return new Map();
+  const items = await runApifyInstagramActor(urls);
+  return indexApifyItems(items);
+}
+
+async function mapLimit(list, n, fn) {
+  const items = Array.isArray(list) ? list : [];
+  const out = new Array(items.length);
+  let i = 0;
+  const worker = async () => {
+    while (i < items.length) {
+      const idx = i++;
+      out[idx] = await fn(items[idx], idx);
+    }
+  };
+  const width = Math.max(1, Math.min(n || 1, items.length || 1));
+  await Promise.all(Array.from({ length: width }, worker));
+  return out;
+}
+
+// Raw share intake — Save to CGE tool hits this for BOTH Instagram posts
+// (GET ?sourceUrl=) and screenshots (POST the image as a File). No AI yet;
+// the item lands in the pool as `status: "raw"` and gets extracted from
+// the Review pool modal. Instagram share-sheet previews are NOT photos: a
+// stub or cover of slide 1 plus the post URL must stay a URL-share so
+// Extract can Apify every carousel slide. Camera-roll / screenshot shares
+// persist bytes here. Auth is intentionally unenforced: the shortcut can't
+// hold a real credential securely; the cap + explicit-review flow contains
+// blast radius if it ever gets spammed.
 function publicOrigin(req) {
   const proto = String(req.headers["x-forwarded-proto"] || req.protocol || "https").split(",")[0].trim() || "https";
   const host = String(req.headers["x-forwarded-host"] || req.headers.host || "").split(",")[0].trim();
@@ -1034,7 +1161,10 @@ function publicOrigin(req) {
 function shareCors(res) {
   res.set("Access-Control-Allow-Origin", "*");
   res.set("Access-Control-Allow-Headers", "Content-Type");
-  res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.set("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
+  // Shortcuts may retry a GET; never serve a cached "saved" for a new post.
+  res.set("Cache-Control", "no-store, no-cache, must-revalidate");
+  res.set("Pragma", "no-cache");
 }
 
 // Team intake page — same form hosted live AND as a downloadable HTML file
@@ -1063,38 +1193,15 @@ app.get("/cge-intake.html", async (req, res) => {
 // already has a working CGE Intake — they upload that signed file (or
 // paste the iCloud share link) once. We host it so the team can download
 // https://…/cge-intake.shortcut and Add Shortcut on their iPhone.
-const TEAM_SHORTCUT_BIN = path.join(POOL_DIR, "CGE-Intake.shortcut");
-const TEAM_SHORTCUT_META = path.join(POOL_DIR, "team-shortcut.json");
-
+// Stored in Postgres with the pool so Deploy doesn't wipe it.
 function parseIcloudShortcutUrl(raw) {
   const s = String(raw || "").trim();
   const m = s.match(/^https:\/\/(?:www\.)?icloud\.com\/shortcuts\/([a-zA-Z0-9]+)\/?$/i);
   return m ? `https://www.icloud.com/shortcuts/${m[1]}` : null;
 }
-async function teamShortcutStatus() {
-  let icloudUrl = null;
-  try {
-    const j = JSON.parse(await fs.readFile(TEAM_SHORTCUT_META, "utf8"));
-    icloudUrl = j.icloudUrl || null;
-  } catch { /* none yet */ }
-  let hasFile = false, bytes = 0;
-  try {
-    const st = await fs.stat(TEAM_SHORTCUT_BIN);
-    hasFile = st.isFile() && st.size > 32;
-    bytes = hasFile ? st.size : 0;
-  } catch { /* none yet */ }
-  return { hasFile, bytes, icloudUrl };
-}
-async function saveTeamShortcutMeta(patch) {
-  const cur = await teamShortcutStatus();
-  const next = { icloudUrl: cur.icloudUrl, ...patch, savedAt: new Date().toISOString() };
-  await fs.mkdir(POOL_DIR, { recursive: true });
-  await fs.writeFile(TEAM_SHORTCUT_META, JSON.stringify(next, null, 2));
-  return teamShortcutStatus();
-}
 
 app.get("/api/screenshot-pool/team-shortcut", async (_req, res) => {
-  try { res.json(await teamShortcutStatus()); }
+  try { res.json(await poolStore.teamShortcutStatus()); }
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 app.post("/api/screenshot-pool/team-shortcut", express.json({ limit: "4mb" }), async (req, res) => {
@@ -1105,7 +1212,7 @@ app.post("/api/screenshot-pool/team-shortcut", express.json({ limit: "4mb" }), a
       if (body.icloudUrl.trim() && !url) {
         return res.status(400).json({ error: "bad_icloud", message: "Paste an iCloud shortcut link (icloud.com/shortcuts/…)." });
       }
-      return res.json(await saveTeamShortcutMeta({ icloudUrl: url }));
+      return res.json(await poolStore.saveTeamShortcutMeta({ icloudUrl: url }));
     }
     if (typeof body.shortcutBase64 === "string" && body.shortcutBase64.trim()) {
       let buf;
@@ -1114,22 +1221,48 @@ app.post("/api/screenshot-pool/team-shortcut", express.json({ limit: "4mb" }), a
       if (buf.length < 32 || buf.length > 3 * 1024 * 1024) {
         return res.status(400).json({ error: "bad_file", message: "That doesn't look like a Shortcut file." });
       }
-      await fs.mkdir(POOL_DIR, { recursive: true });
-      await fs.writeFile(TEAM_SHORTCUT_BIN, buf);
-      return res.json(await teamShortcutStatus());
+      return res.json(await poolStore.saveTeamShortcutBlob(buf));
     }
     return res.status(400).json({ error: "bad_body", message: "Send icloudUrl or shortcutBase64." });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+function buildUrlFirstShortcut(shareUrl) {
+  const script = path.join(__dirname, "scripts/build-cge-intake-shortcut.py");
+  return new Promise((resolve, reject) => {
+    const child = spawn("python3", [script, "--share-url", shareUrl], { stdio: ["ignore", "pipe", "pipe"] });
+    const chunks = [];
+    let err = "";
+    child.stdout.on("data", (d) => chunks.push(d));
+    child.stderr.on("data", (d) => { err += d; });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code !== 0) reject(new Error(err || `shortcut build exited ${code}`));
+      else resolve(Buffer.concat(chunks));
+    });
+  });
+}
+
+app.get("/cge-intake-url.shortcut", async (req, res) => {
+  try {
+    const origin = publicOrigin(req) || "";
+    const shareUrl = `${origin}/api/screenshot-pool/share`;
+    const buf = await buildUrlFirstShortcut(shareUrl);
+    res.set("Content-Type", "application/octet-stream");
+    res.set("Content-Disposition", 'attachment; filename="Save-to-CGE-tool.shortcut"');
+    return res.send(buf);
+  } catch (err) { res.status(500).send(String(err.message || err)); }
+});
+
 app.get("/cge-intake.shortcut", async (req, res) => {
   try {
-    const st = await teamShortcutStatus();
-    if (st.hasFile) {
+    const buf = await poolStore.getTeamShortcutBlob();
+    if (buf) {
       res.set("Content-Type", "application/octet-stream");
-      res.set("Content-Disposition", 'attachment; filename="CGE-Intake.shortcut"');
-      return res.sendFile(TEAM_SHORTCUT_BIN);
+      res.set("Content-Disposition", 'attachment; filename="Save-to-CGE-tool.shortcut"');
+      return res.send(buf);
     }
+    const st = await poolStore.teamShortcutStatus();
     if (st.icloudUrl) return res.redirect(302, st.icloudUrl);
     res.status(404).type("html").send(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><body style="font-family:sans-serif;background:#0e0e10;color:#F5F0E8;padding:2rem"><h1>No Shortcut file yet</h1><p>The operator needs to upload CGE Intake from the Shortcuts app first (Screenshot pool → Team Shortcut).</p></body>`);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -1137,43 +1270,85 @@ app.get("/cge-intake.shortcut", async (req, res) => {
 
 app.get("/shortcut", async (req, res) => {
   try {
-    const st = await teamShortcutStatus();
     const origin = publicOrigin(req) || "";
-    const addHref = st.hasFile ? `${origin}/cge-intake.shortcut` : (st.icloudUrl || "");
-    const ready = !!(addHref);
+    const urlFirst = `${origin}/cge-intake-url.shortcut`;
+    const shareUrl = `${origin}/api/screenshot-pool/share`;
     res.type("html").send(`<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Add CGE Intake</title>
-<body style="margin:0;min-height:100dvh;background:#0e0e10;color:#F5F0E8;font-family:-apple-system,sans-serif;padding:32px 20px">
-  <h1 style="font-size:1.5rem">Add CGE Intake</h1>
-  <p style="color:rgba(245,240,232,.6);line-height:1.45">This adds the Shortcut to your iPhone. After that, share any Instagram post or photo → <b>CGE Intake</b> and it lands in the pool.</p>
-  ${ready
-    ? `<p><a href="${addHref}" style="display:block;text-align:center;padding:16px;border-radius:12px;background:#E5BC4F;color:#000;font-weight:800;text-decoration:none">Add Shortcut</a></p>
-       <p style="font-size:.8rem;color:rgba(245,240,232,.4)">If iPhone asks, tap <b>Add Shortcut</b> / <b>Allow Untrusted Shortcut</b>.</p>`
-    : `<p style="padding:12px;border:1px solid rgba(251,113,133,.4);border-radius:8px;color:#FB7185">Not posted yet — ask whoever runs CGE Tools to share CGE Intake from the Shortcuts app (Screenshot pool → Team Shortcut).</p>`}
+<title>Save to CGE tool</title>
+<body style="margin:0;min-height:100dvh;background:#0e0e10;color:#F5F0E8;font-family:-apple-system,sans-serif;padding:32px 20px;line-height:1.5">
+  <h1 style="font-size:1.5rem;margin:0 0 12px">Save to CGE tool — one button</h1>
+  <p style="color:rgba(245,240,232,.7);margin:0 0 16px">Instagram share <b>or</b> a screenshot share. Same signed button. Edit the Save to CGE tool you already have — do not import an unsigned file. Delete everything except Receive, then:</p>
+  <h2 style="font-size:1rem;margin:0 0 8px">Receive</h2>
+  <ol style="color:rgba(245,240,232,.75);padding-left:1.2rem;font-size:.92rem">
+    <li>ⓘ on Receive: <b>URLs</b>, <b>Text</b>, and <b>Images</b> on. Safari web pages off. Apps off. The rest of the 18 off.</li>
+    <li><b>Get Text from Input</b> → Shortcut Input.</li>
+    <li><b>If</b> Text <b>contains</b> <code>http</code>:</li>
+  </ol>
+  <h2 style="font-size:1rem;margin:12px 0 8px">Instagram (the If)</h2>
+  <ol start="4" style="color:rgba(245,240,232,.75);padding-left:1.2rem;font-size:.92rem">
+    <li><b>URL Encode</b> that Text (Encode, not Decode).</li>
+    <li><b>Get Contents of URL</b> — Method <b>GET</b>. URL is this, then the Encoded Text pill:<br>
+      <code style="font-size:.75rem;word-break:break-all">${shareUrl}?sourceUrl=</code></li>
+    <li><b>Show Notification</b> → Contents of URL.</li>
+  </ol>
+  <h2 style="font-size:1rem;margin:12px 0 8px">Screenshot (Otherwise)</h2>
+  <ol start="7" style="color:rgba(245,240,232,.75);padding-left:1.2rem;font-size:.92rem">
+    <li>Otherwise: <b>Get Contents of URL</b> — Method <b>POST</b>. URL is <code style="font-size:.75rem;word-break:break-all">${shareUrl}</code></li>
+    <li>Request Body <b>File</b> = Shortcut Input. Header <code>Content-Type</code> = <code>image/jpeg</code>. No JSON. No Base64.</li>
+    <li><b>Show Notification</b> → Contents of URL.</li>
+  </ol>
+  <p style="color:rgba(245,240,232,.55);font-size:.88rem;margin:16px 0">Instagram → share → <b>Save to CGE tool</b>. Screenshot → share → <b>Save to CGE tool</b>. Banner: Saved to the CGE pool. Then Extract in Review → Screenshot pool.</p>
+  <p style="font-size:.75rem;color:rgba(245,240,232,.35);margin:24px 0 0">Unsigned download (iPhone will warn): Settings → Shortcuts → Advanced → Allow Untrusted Shortcuts, then <a href="${urlFirst}" style="color:rgba(229,188,79,.8)">this file</a>.</p>
 </body>`);
   } catch (err) { res.status(500).send(String(err.message || err)); }
 });
 
 app.options("/api/screenshot-pool/share", (_req, res) => { shareCors(res); res.sendStatus(204); });
-app.post("/api/screenshot-pool/share", express.json({ limit: "20mb" }), async (req, res) => {
+
+async function handleScreenshotShare(req, res) {
   shareCors(res);
   try {
-    const { imageDataUrl, sourceUrl, caption } = req.body || {};
-    const hasImage = typeof imageDataUrl === "string" && imageDataUrl.startsWith("data:image/");
-    const hasUrl = typeof sourceUrl === "string" && /^https?:\/\//i.test(sourceUrl);
-    if (!hasImage && !hasUrl) return res.status(400).json({ error: "no_content", detail: "Send imageDataUrl OR sourceUrl" });
-    let storedThumb = hasImage ? imageDataUrl : null;
-    if (hasImage) {
-      try { storedThumb = await normalizeImageDataUrl(imageDataUrl); }
-      catch { storedThumb = imageDataUrl; } // extract-time normalize retries; don't fail the shortcut
+    const share = classifyShareRequest(req);
+    const sourceUrl = share.url;
+    const hasUrl = !!sourceUrl;
+    const hasImage = !!share.imageDataUrl;
+    if (!hasImage && !hasUrl) {
+      const keys = Buffer.isBuffer(req.body) ? ["<raw>"]
+        : (req.body && typeof req.body === "object" ? Object.keys(req.body) : []);
+      console.warn("[share] no url/image", { keys, query: Object.keys(req.query || {}), stub: !!share.stubImage });
+      res.status(share.stubImage ? 422 : 400);
+      res.type("text/plain");
+      return res.send(SHARE_GET_EMPTY);
     }
-    const fetchedThumb = (hasUrl && !hasImage) ? await fetchOgImageAsDataUrl(sourceUrl) : null;
-    const pool = await loadPool();
+    const id = newPoolId("share");
+    let storedThumb = null;
+    const persistPhoto = async (dataUrl) => {
+      if (!usableImageDataUrl(dataUrl)) return;
+      let jpeg = dataUrl;
+      try { jpeg = await normalizeImageDataUrl(dataUrl); } catch { /* keep original bytes */ }
+      await poolStore.saveEntryMedia(id, [jpeg]);
+      try { storedThumb = await toPreviewDataUrl(jpeg); }
+      catch { storedThumb = null; }
+    };
+    // Instagram URL → never write the share-sheet cover into media blobs.
+    // resolve-media used to see those bytes and skip Apify (slide 1 only).
+    if (share.persistPhoto) await persistPhoto(share.imageDataUrl);
+    else if (share.instagram && share.imageDataUrl) {
+      try { storedThumb = await toPreviewDataUrl(share.imageDataUrl); }
+      catch { storedThumb = null; }
+    } else if (hasUrl && !storedThumb && !share.instagram) {
+      const fetchedThumb = await fetchOgImageAsDataUrl(sourceUrl);
+      if (fetchedThumb && usableImageDataUrl(fetchedThumb)) {
+        try { storedThumb = await toPreviewDataUrl(fetchedThumb); }
+        catch { storedThumb = null; }
+      }
+    }
+    const caption = share.caption;
     const entry = {
-      id: `pool_${Date.now()}_${Math.random().toString(36).slice(2, 8)}_share`,
+      id,
       event: null, // will be filled when the operator extracts inside the pool modal
-      thumb: storedThumb || fetchedThumb,
+      thumb: storedThumb,
       sourceUrl: hasUrl ? sourceUrl : null,
       caption: typeof caption === "string" ? caption.slice(0, 500) : null,
       recurring: false,
@@ -1182,12 +1357,33 @@ app.post("/api/screenshot-pool/share", express.json({ limit: "20mb" }), async (r
       status: "raw", // needs extraction inside the pool modal
       createdAt: new Date().toISOString(),
     };
-    pool.entries.push(entry);
-    if (pool.entries.length > POOL_MAX_ITEMS) pool.entries = pool.entries.slice(-POOL_MAX_ITEMS);
-    await savePool(pool);
-    res.json({ ok: true, id: entry.id, total: pool.entries.length, thumbFetched: !!(entry.thumb) && !hasImage });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
+    await poolStore.update((cur) => ({
+      entries: [...(cur.entries || []), entry],
+    }));
+    const reply = shareSavedReply(req.method);
+    return res.type("text/plain").send(reply.body);
+  } catch (err) {
+    res.status(500);
+    res.type("text/plain");
+    return res.send(String(err?.message || err));
+  }
+}
+
+app.post(
+  "/api/screenshot-pool/share",
+  (req, res, next) => {
+    const ct = String(req.headers["content-type"] || "").toLowerCase();
+    if (!ct || ct.startsWith("image/") || ct.includes("octet-stream")) {
+      return express.raw({ type: () => true, limit: "20mb" })(req, res, next);
+    }
+    next();
+  },
+  express.json({ limit: "20mb" }),
+  express.urlencoded({ extended: true, limit: "20mb" }),
+  express.text({ type: "text/plain", limit: "20mb" }),
+  handleScreenshotShare,
+);
+app.get("/api/screenshot-pool/share", handleScreenshotShare);
 
 // Safe to expose — boolean only, never the token. Pool modal uses this to
 // warn before Extract if Instagram URL-shares need Apify and the secret
@@ -1197,57 +1393,272 @@ app.get("/api/screenshot-pool/apify-status", (_req, res) => {
 });
 
 // Prepare a Gemini-safe JPEG for Extract. Two entry points:
-//   1. URL-only shares (Instagram) — Apify / og:image, then normalize
+//   1. URL-only shares (Instagram) — Apify / og:image, then normalize.
+//      Instagram carousels download EVERY slide (childPosts), not just
+//      the cover — that's what "multi-slide extract" needs.
 //   2. Photo shares (iOS camera roll) — already have a thumb, but it's often
 //      HEIC or a 12MP JPEG Gemini / the browser can't use. Convert + downscale.
 // Always rewrites the stored thumb to a JPEG data URL so the pool preview
 // stops showing a broken-image icon.
+//
+// Instagram URLs always go through Apify unless we already stored slides
+// from a previous Apify run. An og:image cover (or a leftover first-slide
+// thumb) must NOT skip the carousel fetch — that was the multi-slide miss.
+function storedSlideThumbs(entry) {
+  if (Array.isArray(entry?.thumbs) && entry.thumbs.length) {
+    return entry.thumbs.filter((t) => usableImageDataUrl(t));
+  }
+  if (usableImageDataUrl(entry?.thumb)) return [entry.thumb];
+  return [];
+}
+
+async function persistPoolSlides(id, thumbs, extra = {}) {
+  const safe = [];
+  for (const t of thumbs) {
+    try { safe.push(await normalizeImageDataUrl(t)); }
+    catch (e) {
+      if (e.code === "bad_image") {
+        const err = new Error(e.message);
+        err.code = "bad_image";
+        throw err;
+      }
+      throw e;
+    }
+  }
+  if (!safe.length) {
+    const err = new Error("Couldn't convert that image into a format Gemini can read.");
+    err.code = "bad_image";
+    throw err;
+  }
+  await poolStore.saveEntryMedia(id, safe);
+  let preview = null;
+  try { preview = await toPreviewDataUrl(safe[0]); } catch { preview = null; }
+  const { thumbs: _dropThumbs, ...restExtra } = extra || {};
+  const patch = {
+    thumb: preview,
+    slideCount: safe.length,
+    hasMedia: true,
+    ...restExtra,
+  };
+  const updated = await poolStore.update((cur) => {
+    const idx = (cur.entries || []).findIndex((e) => String(e.id) === String(id));
+    if (idx === -1) return cur;
+    const next = { entries: [...cur.entries] };
+    next.entries[idx] = { ...next.entries[idx], ...patch };
+    delete next.entries[idx].thumbs;
+    return next;
+  });
+  const row = (updated.entries || []).find((e) => String(e.id) === String(id));
+  if (!row) {
+    const err = new Error("That pool entry is gone — refresh and try again.");
+    err.code = "not_found";
+    throw err;
+  }
+  return { thumbs: safe, entry: row };
+}
+
+// In-memory Apify batch jobs. Extract-all/selected POSTs ids, we start ONE
+// actor run in the background, persist slides per pool row, then the client
+// polls until done and runs Gemini per row as before. Deleted rows are
+// skipped (`not_found`), not a whole-batch abort.
+const igPrefetchJobs = new Map();
+
+function pruneIgPrefetchJobs() {
+  if (igPrefetchJobs.size < 24) return;
+  for (const [id, job] of igPrefetchJobs) {
+    if (job.status === "done" || job.status === "error") igPrefetchJobs.delete(id);
+    if (igPrefetchJobs.size < 16) break;
+  }
+}
+
+async function runIgPrefetchJob(job) {
+  job.status = "running";
+  job.hint = `Fetching ${job.targets.length} Instagram post${job.targets.length === 1 ? "" : "s"} via Apify…`;
+  try {
+    const index = await fetchInstagramPostsViaApify(job.targets.map((t) => t.sourceUrl));
+    job.hint = `Saving Instagram slides 0/${job.targets.length}…`;
+    await mapLimit(job.targets, 3, async (target) => {
+      try {
+        const loaded = await poolStore.load();
+        const existing = (loaded.entries || []).find((e) => String(e.id) === String(target.id));
+        if (!existing) {
+          job.failed.push({ id: target.id, message: "That pool entry is gone — refresh and try again." });
+          job.done++;
+          return;
+        }
+        if (existing.fetchedVia === "apify") {
+          const fromBlob = await poolStore.loadEntryMedia(target.id);
+          if (fromBlob.length) {
+            job.ok.push(target.id);
+            job.done++;
+            job.hint = `Saving Instagram slides ${job.done}/${job.targets.length}…`;
+            return;
+          }
+        }
+        const item = lookupApifyItem(index, target.sourceUrl);
+        if (!item) {
+          job.failed.push({
+            id: target.id,
+            message: "Apify returned no post — it may be private, deleted, or a stories/share link the scraper can't open.",
+          });
+          job.done++;
+          job.hint = `Saving Instagram slides ${job.done}/${job.targets.length}…`;
+          return;
+        }
+        const result = await materializeApifyPost(item, target.sourceUrl);
+        const extra = {
+          fetchedVia: "apify",
+          mediaExpiresAt: result.mediaExpiresAt || null,
+        };
+        if (result.caption && !existing.caption) extra.caption = result.caption.slice(0, 500);
+        await persistPoolSlides(target.id, result.thumbs, extra);
+        job.ok.push(target.id);
+      } catch (e) {
+        job.failed.push({ id: target.id, message: String(e?.message || e) });
+      }
+      job.done++;
+      job.hint = `Saving Instagram slides ${job.done}/${job.targets.length}…`;
+    });
+    job.status = "done";
+    const failN = job.failed.length;
+    job.hint = failN
+      ? `Apify saved ${job.ok.length} · ${failN} missed`
+      : `Apify saved ${job.ok.length} Instagram post${job.ok.length === 1 ? "" : "s"}`;
+  } catch (e) {
+    job.status = "error";
+    job.hint = String(e?.message || e);
+    job.error = job.hint;
+    if (e.code === "not_configured") job.code = "not_configured";
+    if (e.code === "auth") job.code = "auth";
+  }
+}
+
+app.post("/api/screenshot-pool/prefetch-instagram", express.json({ limit: "1mb" }), async (req, res) => {
+  try {
+    const ids = (Array.isArray(req.body?.ids) ? req.body.ids : []).map(String).filter(Boolean).slice(0, 500);
+    if (!ids.length) return res.status(400).json({ error: "no_ids", message: "Send pool entry ids to prefetch." });
+    if (!APIFY_TOKEN) {
+      return res.status(503).json({
+        error: "not_configured",
+        message: "Set APIFY_TOKEN in this app's Replit Secrets to fetch Instagram images on Extract.",
+      });
+    }
+    const loaded = await poolStore.load();
+    const byId = new Map((loaded.entries || []).map((e) => [String(e.id), e]));
+    const targets = [];
+    let cached = 0;
+    for (const id of ids) {
+      const existing = byId.get(String(id));
+      if (!existing) continue;
+      const sourceUrl = typeof existing.sourceUrl === "string" ? existing.sourceUrl : "";
+      if (!isInstagramUrl(sourceUrl)) continue;
+      if (existing.fetchedVia === "apify") {
+        const fromBlob = await poolStore.loadEntryMedia(id);
+        if (fromBlob.length) { cached++; continue; }
+      }
+      targets.push({ id: String(existing.id), sourceUrl });
+    }
+    if (!targets.length) {
+      return res.json({ ok: true, jobId: null, status: "done", queued: 0, cached, hint: cached ? "Instagram slides already saved." : "No Instagram links to fetch." });
+    }
+    pruneIgPrefetchJobs();
+    const jobId = `igpf_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const job = {
+      id: jobId,
+      status: "queued",
+      queued: targets.length,
+      done: 0,
+      cached,
+      ok: [],
+      failed: [],
+      targets,
+      hint: `Starting Apify for ${targets.length} post${targets.length === 1 ? "" : "s"}…`,
+    };
+    igPrefetchJobs.set(jobId, job);
+    runIgPrefetchJob(job);
+    res.json({ ok: true, jobId, queued: targets.length, cached, status: "queued" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/screenshot-pool/prefetch-instagram/:jobId", (req, res) => {
+  const job = igPrefetchJobs.get(String(req.params.jobId || ""));
+  if (!job) return res.status(404).json({ error: "not_found", message: "That Apify batch expired — retry Extract." });
+  res.json({
+    ok: true,
+    jobId: job.id,
+    status: job.status,
+    hint: job.hint,
+    queued: job.queued,
+    done: job.done,
+    cached: job.cached || 0,
+    okCount: job.ok.length,
+    failed: job.failed,
+    code: job.code || null,
+  });
+});
+
 app.post("/api/screenshot-pool/resolve-media", express.json({ limit: "1mb" }), async (req, res) => {
   try {
     const { id } = req.body || {};
     if (!id) return res.status(400).json({ error: "bad_body", message: "Send the pool entry id." });
-    const pool = await loadPool();
-    const idx = pool.entries.findIndex((e) => String(e.id) === String(id));
-    if (idx === -1) return res.status(404).json({ error: "not_found", message: "That pool entry is gone — refresh and try again." });
-    const entry = pool.entries[idx];
+    const loaded = await poolStore.load();
+    const existing = (loaded.entries || []).find((e) => String(e.id) === String(id));
+    if (!existing) return res.status(404).json({ error: "not_found", message: "That pool entry is gone — refresh and try again." });
 
-    const saveThumb = async (thumb, extra = {}) => {
-      let safe = thumb;
-      try { safe = await normalizeImageDataUrl(thumb); }
-      catch (e) {
-        if (e.code === "bad_image") {
-          const err = new Error(e.message);
-          err.code = "bad_image";
-          throw err;
-        }
-        throw e;
-      }
-      const patch = { thumb: safe, ...extra };
-      pool.entries[idx] = { ...pool.entries[idx], ...patch };
-      await savePool(pool);
-      return safe;
-    };
+    const sourceUrl = typeof existing.sourceUrl === "string" ? existing.sourceUrl : "";
+    const ig = isInstagramUrl(sourceUrl);
+    const persistSlides = (thumbs, extra = {}) => persistPoolSlides(id, thumbs, extra);
 
-    if (typeof entry.thumb === "string" && entry.thumb.startsWith("data:image/")) {
+    const jsonOk = (thumbs, extra) => res.json({
+      ok: true,
+      thumb: thumbs[0],
+      thumbs,
+      slideCount: thumbs.length,
+      caption: extra.caption || existing.caption || null,
+      ownerUsername: extra.ownerUsername || null,
+      mediaExpiresAt: extra.mediaExpiresAt || existing.mediaExpiresAt || null,
+      fetchedVia: extra.fetchedVia || existing.fetchedVia || "normalized",
+    });
+
+    const fromBlob = await poolStore.loadEntryMedia(id);
+    const fromRow = storedSlideThumbs(existing);
+    const havePhotoBytes = fromBlob.length > 0 || fromRow.length > 0;
+
+    if (!ig && havePhotoBytes) {
       try {
-        const thumb = await saveThumb(entry.thumb);
-        return res.json({
-          ok: true,
-          thumb,
-          caption: entry.caption || null,
-          ownerUsername: null,
-          mediaExpiresAt: entry.mediaExpiresAt || null,
-          fetchedVia: "normalized",
-        });
+        const { thumbs, entry } = await persistSlides(fromBlob.length ? fromBlob : fromRow);
+        return jsonOk(thumbs, { caption: entry.caption, fetchedVia: "normalized" });
       } catch (e) {
-        if (e.code === "bad_image") {
-          return res.status(422).json({ error: "bad_image", message: e.message });
-        }
+        if (e.code === "bad_image") return res.status(422).json({ error: "bad_image", message: e.message });
+        if (e.code === "not_found") return res.status(404).json({ error: "not_found", message: e.message });
         throw e;
       }
     }
-    const sourceUrl = typeof entry.sourceUrl === "string" ? entry.sourceUrl : "";
-    if (!/^https?:\/\//i.test(sourceUrl)) {
+
+    if (!ig && !havePhotoBytes) {
+      return res.status(422).json({
+        error: "missing_image",
+        message: "This photo's image bytes are gone from the pool (only a placeholder is left). Re-share it from Photos — Extract can't recover a missing picture.",
+      });
+    }
+
+    // Reuse stored slides only after a real Apify run. A share-sheet
+    // cover (or og:image) sitting in media:{id} used to skip the carousel
+    // fetch and Extract would only ever see slide 1.
+    if (ig && existing.fetchedVia === "apify" && (fromBlob.length || fromRow.length)) {
+      try {
+        const { thumbs, entry } = await persistSlides(fromBlob.length ? fromBlob : fromRow, { fetchedVia: "apify" });
+        return jsonOk(thumbs, { caption: entry.caption, fetchedVia: "apify", mediaExpiresAt: entry.mediaExpiresAt });
+      } catch (e) {
+        if (e.code === "bad_image") return res.status(422).json({ error: "bad_image", message: e.message });
+        if (e.code === "not_found") return res.status(404).json({ error: "not_found", message: e.message });
+        throw e;
+      }
+    }
+
+    if (!/^https?:\/\//i.test(sourceUrl) && !storedSlideThumbs(existing).length) {
       return res.status(400).json({
         error: "no_url",
         message: "This entry has no source URL to fetch an image from. Share the image from Photos instead.",
@@ -1255,7 +1666,7 @@ app.post("/api/screenshot-pool/resolve-media", express.json({ limit: "1mb" }), a
     }
 
     let result;
-    if (isInstagramUrl(sourceUrl)) {
+    if (ig) {
       try {
         result = await fetchInstagramPostViaApify(sourceUrl);
       } catch (e) {
@@ -1267,7 +1678,7 @@ app.post("/api/screenshot-pool/resolve-media", express.json({ limit: "1mb" }), a
         }
         return res.status(502).json({ error: "apify_error", message: e.message });
       }
-    } else {
+    } else if (/^https?:\/\//i.test(sourceUrl)) {
       const thumb = await fetchOgImageAsDataUrl(sourceUrl);
       if (!thumb) {
         return res.status(502).json({
@@ -1275,47 +1686,94 @@ app.post("/api/screenshot-pool/resolve-media", express.json({ limit: "1mb" }), a
           message: "Couldn't fetch a preview image from that URL. Open it, save the image, and re-share from Photos.",
         });
       }
-      result = { thumb, caption: "", ownerUsername: "", mediaExpiresAt: null, fetchedVia: "og" };
+      result = { thumb, thumbs: [thumb], caption: "", ownerUsername: "", mediaExpiresAt: null, fetchedVia: "og" };
+    } else {
+      return res.status(400).json({
+        error: "no_url",
+        message: "This entry has no source URL to fetch an image from. Share the image from Photos instead.",
+      });
     }
 
-    let safeThumb;
+    const incomingThumbs = Array.isArray(result.thumbs) && result.thumbs.length
+      ? result.thumbs
+      : (result.thumb ? [result.thumb] : []);
     try {
       const extra = {
         fetchedVia: result.fetchedVia || "apify",
         mediaExpiresAt: result.mediaExpiresAt || null,
       };
-      if (result.caption && !entry.caption) extra.caption = result.caption.slice(0, 500);
-      safeThumb = await saveThumb(result.thumb, extra);
+      if (result.caption && !existing.caption) extra.caption = result.caption.slice(0, 500);
+      const { thumbs, entry } = await persistSlides(incomingThumbs, extra);
+      return jsonOk(thumbs, {
+        caption: entry.caption,
+        ownerUsername: result.ownerUsername || null,
+        mediaExpiresAt: result.mediaExpiresAt || null,
+        fetchedVia: result.fetchedVia || "apify",
+      });
     } catch (e) {
-      if (e.code === "bad_image") {
-        return res.status(422).json({ error: "bad_image", message: e.message });
-      }
+      if (e.code === "bad_image") return res.status(422).json({ error: "bad_image", message: e.message });
+      if (e.code === "not_found") return res.status(404).json({ error: "not_found", message: e.message });
       throw e;
     }
-    res.json({
-      ok: true,
-      thumb: safeThumb,
-      caption: pool.entries[idx].caption || null,
-      ownerUsername: result.ownerUsername || null,
-      mediaExpiresAt: result.mediaExpiresAt || null,
-      fetchedVia: result.fetchedVia || "apify",
-    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // Update an existing pool entry — used when the operator extracts a raw
 // share, edits fields inline, or flips alsoRegular. Client sends the id
-// and the fields to overwrite (partial merge).
+// and the fields to overwrite (partial merge). `patch.siblings` (optional)
+// is an array of extra extracted events from the same carousel / flyer —
+// each becomes its own pool row so the operator can edit + pull them
+// independently (same as the in-app screenshot modal).
 app.post("/api/screenshot-pool/update", express.json({ limit: "5mb" }), async (req, res) => {
   try {
     const { id, patch } = req.body || {};
     if (!id || !patch || typeof patch !== "object") return res.status(400).json({ error: "bad_body" });
-    const pool = await loadPool();
-    const idx = pool.entries.findIndex((e) => String(e.id) === String(id));
-    if (idx === -1) return res.status(404).json({ error: "not_found" });
-    pool.entries[idx] = { ...pool.entries[idx], ...patch };
-    await savePool(pool);
-    res.json({ ok: true, entry: pool.entries[idx] });
+    const siblingsIn = Array.isArray(patch.siblings) ? patch.siblings : [];
+    const { siblings: _drop, thumbs: _dropThumbs, ...safePatch } = patch;
+    let added = [];
+    let entry = null;
+    const pool = await poolStore.update((cur) => {
+      const idx = (cur.entries || []).findIndex((e) => String(e.id) === String(id));
+      if (idx === -1) return cur;
+      const next = { entries: [...cur.entries] };
+      const merged = { ...next.entries[idx], ...safePatch };
+      // After extract we keep the cover thumb for the card; drop the extra
+      // full-size carousel JPEGs so the row doesn't stay multi-megabyte.
+      if (safePatch.status === "extracted") {
+        delete merged.thumbs;
+      }
+      next.entries[idx] = merged;
+      entry = merged;
+      added = [];
+      if (siblingsIn.length) {
+        const extras = [];
+        for (const sib of siblingsIn) {
+          if (!sib || !sib.event || !sib.event.name) continue;
+          extras.push({
+            id: newPoolId("sib"),
+            event: sib.event,
+            thumb: typeof sib.thumb === "string" && sib.thumb.startsWith("data:image/") ? sib.thumb : merged.thumb,
+            sourceUrl: merged.sourceUrl || null,
+            caption: merged.caption || null,
+            recurring: !!sib.recurring,
+            alsoRegular: !!sib.alsoRegular,
+            source: merged.source || "share-ios",
+            status: "extracted",
+            aiFilledFields: Array.isArray(sib.aiFilledFields) ? sib.aiFilledFields : [],
+            siblingOf: String(id),
+            slideCount: merged.slideCount || null,
+            createdAt: new Date().toISOString(),
+          });
+        }
+        if (extras.length) {
+          next.entries.splice(idx + 1, 0, ...extras);
+          added = extras;
+        }
+      }
+      return next;
+    });
+    if (!entry) return res.status(404).json({ error: "not_found" });
+    res.json({ ok: true, entry: poolForClient({ entries: [entry] }).entries[0], added, total: pool.entries.length });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1325,11 +1783,17 @@ app.post("/api/screenshot-pool/delete", express.json({ limit: "1mb" }), async (r
   try {
     const ids = new Set((Array.isArray(req.body?.ids) ? req.body.ids : []).map(String));
     if (!ids.size) return res.status(400).json({ error: "no_ids" });
-    const pool = await loadPool();
-    const before = pool.entries.length;
-    pool.entries = pool.entries.filter((e) => !ids.has(String(e.id)));
-    await savePool(pool);
-    res.json({ removed: before - pool.entries.length, total: pool.entries.length });
+    let removed = 0;
+    const pool = await poolStore.update((cur) => {
+      const before = (cur.entries || []).length;
+      const entries = (cur.entries || []).filter((e) => !ids.has(String(e.id)));
+      removed = before - entries.length;
+      return { entries };
+    });
+    if (removed) {
+      try { await poolStore.deleteEntryMedia([...ids]); } catch { /* orphan media is harmless */ }
+    }
+    res.json({ removed, total: pool.entries.length });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1802,7 +2266,7 @@ app.post("/api/weekend-review/bulk-update", express.json({ limit: "10mb" }), asy
 // the cloud buttons. Returns version so we can tell apart old servers if
 // the API ever changes.
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, api: "workspaces+library+reviewSessions+weekendReview", version: 6, env: NODE_ENV, sessionBackend: sessionStore.backend });
+  res.json({ ok: true, api: "workspaces+library+reviewSessions+weekendReview", version: 16, env: NODE_ENV, sessionBackend: sessionStore.backend, poolBackend: poolStore.backend });
 });
 
 // === NEWS SCOUT (autonomous) ===
@@ -2076,12 +2540,6 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`  Photos    at ${LIBRARY_DIRS.photos}`);
   console.log(`  Exports   at ${LIBRARY_DIRS.exports}`);
   console.log(`  Apify     ${APIFY_TOKEN ? "configured (extract-time IG fetch)" : "OFF — set APIFY_TOKEN to fetch IG images on Extract"}`);
-  console.log(`  Persistence ${process.env.DATABASE_URL ? "Postgres (events + pool)" : "OFF — DATABASE_URL not set, using in-memory only"}`);
-  // One-shot pool seed from any pool.json left on disk (dev workspace or
-  // pre-Postgres deployment). Runs asynchronously; if pool_entries is
-  // already populated it's a cheap no-op.
-  poolStoreDb.seedFromJsonFileIfEmpty(POOL_FILE)
-    .then((r) => { if (r.seeded) console.log(`  Pool seed ${r.seeded} entries from pool.json`); })
-    .catch((err) => console.warn("  Pool seed failed:", err.message));
+  console.log(`  Events    ${process.env.DATABASE_URL ? "Postgres" : "in-memory (DATABASE_URL not set)"}`);
   initScoutCron();
 });

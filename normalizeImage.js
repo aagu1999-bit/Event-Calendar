@@ -20,17 +20,40 @@ const HEIC_BRANDS = new Set([
 
 export function parseDataUrl(raw) {
   const s = String(raw || "").trim();
-  const m = s.match(/^data:([^;,]+)?(;charset=[^;,]+)?(;base64)?,(.*)$/is);
-  if (!m) return null;
-  const mime = (m[1] || "application/octet-stream").trim().toLowerCase();
-  const isB64 = !!m[3];
+  if (!s.toLowerCase().startsWith("data:")) return null;
+  const comma = s.indexOf(",");
+  if (comma < 5) return null;
+  const header = s.slice(5, comma);
+  const payload = s.slice(comma + 1).replace(/\s/g, "");
+  if (!payload) return null;
+  const isB64 = /(?:^|;)base64$/i.test(header.replace(/\s/g, "")) || /;base64;/i.test(header);
+  const mime = (header.split(";")[0] || "application/octet-stream").trim().toLowerCase();
   let bytes;
   try {
-    const payload = String(m[4] || "").replace(/\s/g, "");
     bytes = Buffer.from(payload, isB64 ? "base64" : "utf8");
   } catch { return null; }
   if (!bytes.length) return null;
   return { mime, bytes };
+}
+
+// True only when the data URL actually contains image bytes. The live pool
+// had 74 "photos" stored as the 23-char stub `data:image/jpeg;base64`
+// (header, no comma, no payload) — Extract 422'd on every one of them.
+export function usableImageDataUrl(raw) {
+  const parsed = parseDataUrl(raw);
+  return !!(parsed && parsed.bytes && parsed.bytes.length >= 32);
+}
+
+export async function toPreviewDataUrl(dataUrl, edge = 240) {
+  const normalized = await normalizeImageDataUrl(dataUrl);
+  const parsed = parseDataUrl(normalized);
+  if (!parsed) return normalized;
+  const small = await sharp(parsed.bytes, { failOn: "none" })
+    .rotate()
+    .resize(edge, edge, { fit: "inside", withoutEnlargement: true })
+    .jpeg({ quality: 72, mozjpeg: true })
+    .toBuffer();
+  return `data:image/jpeg;base64,${small.toString("base64")}`;
 }
 
 export function sniffImageKind(buf, mimeHint = "") {

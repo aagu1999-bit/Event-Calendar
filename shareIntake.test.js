@@ -1,0 +1,131 @@
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { classifyShare, isInstagramUrl, pickShareUrl, shareSavedReply, SHARE_GET_SAVED, bodyFromRaw, classifyShareRequest } from "./shareIntake.js";
+
+const STUB = "data:image/jpeg;base64";
+const REAL = "data:image/jpeg;base64," + Buffer.alloc(64, 0xff).toString("base64");
+const IG = "https://www.instagram.com/p/DAbc123xyz/";
+
+describe("pickShareUrl", () => {
+  it("reads sourceUrl", () => {
+    assert.equal(pickShareUrl({ sourceUrl: IG }), IG);
+  });
+  it("reads sourceURL the way the iPhone Shortcut JSON field is labeled", () => {
+    assert.equal(pickShareUrl({ sourceURL: IG }), IG);
+  });
+  it("reads url / link aliases the Shortcut might send", () => {
+    assert.equal(pickShareUrl({ url: IG }), IG);
+    assert.equal(pickShareUrl({ link: IG }), IG);
+    assert.equal(pickShareUrl({ urls: [IG] }), IG);
+  });
+  it("pulls an Instagram URL out of caption text", () => {
+    assert.equal(pickShareUrl({ caption: `makejerseyhouseagain ${IG} come vibe` }), IG);
+  });
+  it("treats a URL stuffed into imageDataUrl as the post link", () => {
+    assert.equal(pickShareUrl({ imageDataUrl: IG }), IG);
+  });
+  it("ignores data: stubs", () => {
+    assert.equal(pickShareUrl({ imageDataUrl: STUB }), null);
+  });
+  it("reads a URL nested the way Shortcuts serializes magic variables", () => {
+    assert.equal(pickShareUrl({
+      imageDataUrl: STUB,
+      sourceUrl: { string: IG, WFSerializationType: "WFTextTokenAttachment" },
+    }), IG);
+  });
+  it("reads a schemeless instagram.com/p/… link", () => {
+    assert.equal(pickShareUrl({ text: "instagram.com/p/DAbc123xyz/" }), "https://instagram.com/p/DAbc123xyz/");
+  });
+  it("reads urls as a string, not only an array", () => {
+    assert.equal(pickShareUrl({ urls: IG }), IG);
+  });
+  it("decodes a percent-encoded Instagram URL", () => {
+    assert.equal(pickShareUrl({ sourceUrl: encodeURIComponent(IG) }), IG);
+  });
+});
+
+describe("classifyShare", () => {
+  it("drops a stub preview when the Instagram URL is present", () => {
+    const c = classifyShare({ imageDataUrl: STUB, sourceUrl: IG });
+    assert.equal(c.url, IG);
+    assert.equal(c.instagram, true);
+    assert.equal(c.imageDataUrl, null);
+    assert.equal(c.persistPhoto, false);
+    assert.equal(c.stubImage, true);
+  });
+  it("does not persist a real cover photo for an Instagram URL", () => {
+    const c = classifyShare({ imageDataUrl: REAL, sourceUrl: IG });
+    assert.equal(c.instagram, true);
+    assert.equal(c.imageDataUrl, REAL);
+    assert.equal(c.persistPhoto, false);
+  });
+  it("persists a real camera-roll photo with no URL", () => {
+    const c = classifyShare({ imageDataUrl: REAL });
+    assert.equal(c.url, null);
+    assert.equal(c.persistPhoto, true);
+  });
+  it("keeps a non-IG URL share as a link", () => {
+    const c = classifyShare({ sourceUrl: "https://beachhaus.com/events" });
+    assert.equal(c.instagram, false);
+    assert.equal(c.persistPhoto, false);
+  });
+  it("picks a query-string URL when the JSON body is only a stub image", () => {
+    const c = classifyShare({ imageDataUrl: STUB }, { url: IG });
+    assert.equal(c.url, IG);
+    assert.equal(c.instagram, true);
+    assert.equal(c.persistPhoto, false);
+  });
+  it("reads GET ?sourceUrl= the way Save to CGE tool sends it", () => {
+    const c = classifyShare({}, { sourceUrl: IG });
+    assert.equal(c.url, IG);
+    assert.equal(c.instagram, true);
+    assert.equal(c.persistPhoto, false);
+  });
+  it("pulls the Instagram URL out of share-sheet text in the query", () => {
+    const c = classifyShare({}, { sourceUrl: `Labor Day weekend ${IG} come vibe` });
+    assert.equal(c.url, IG);
+  });
+});
+
+describe("shareSavedReply", () => {
+  it("GET and POST are plain text so Shortcuts will not treat them as a webpage", () => {
+    for (const method of ["GET", "POST"]) {
+      const r = shareSavedReply(method);
+      assert.equal(r.contentType, "text/plain");
+      assert.equal(r.body, SHARE_GET_SAVED);
+      assert.equal(/<html|<!doctype/i.test(r.body), false);
+    }
+  });
+});
+
+describe("bodyFromRaw / classifyShareRequest", () => {
+  it("wraps a JPEG File POST as a photo share", () => {
+    const jpeg = Buffer.alloc(64, 0x11);
+    jpeg[0] = 0xff; jpeg[1] = 0xd8; jpeg[2] = 0xff;
+    const body = bodyFromRaw(jpeg, "image/jpeg");
+    const c = classifyShare(body);
+    assert.equal(c.persistPhoto, true);
+    assert.equal(c.url, null);
+    assert.ok(c.imageDataUrl.startsWith("data:image/jpeg;base64,"));
+  });
+  it("keeps a GET query URL as an Instagram share when a File is also present", () => {
+    const jpeg = Buffer.alloc(64, 0x11);
+    jpeg[0] = 0xff; jpeg[1] = 0xd8; jpeg[2] = 0xff;
+    const c = classifyShareRequest({
+      body: jpeg,
+      headers: { "content-type": "image/jpeg" },
+      query: { sourceUrl: IG },
+    });
+    assert.equal(c.url, IG);
+    assert.equal(c.instagram, true);
+    assert.equal(c.persistPhoto, false);
+  });
+});
+
+describe("isInstagramUrl", () => {
+  it("matches p / reel hosts", () => {
+    assert.equal(isInstagramUrl(IG), true);
+    assert.equal(isInstagramUrl("https://www.instagram.com/reel/xyz/"), true);
+    assert.equal(isInstagramUrl("https://beachhaus.com"), false);
+  });
+});

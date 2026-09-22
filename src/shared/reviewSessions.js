@@ -20,6 +20,32 @@ function safeName(raw) {
   return String(raw || "").replace(/[/\\]+/g, "-").trim();
 }
 
+// Default session name: "8-28-26 Review". Slashes are illegal in the
+// name (Replit's proxy 404s on / in the path — "7/3 triage" never
+// saved). Dashes keep the date readable on a phone without wrapping.
+// Prefer the Review Friday when given; otherwise the upcoming Friday.
+export function suggestedReviewSessionName(friDate) {
+  const now = new Date();
+  let y = now.getFullYear();
+  let m = now.getMonth() + 1;
+  let d = now.getDate();
+  const p = String(friDate || "").trim().match(/^(\d{1,2})[/\-.](\d{1,2})(?:[/\-.](\d{2,4}))?$/);
+  if (p) {
+    m = parseInt(p[1], 10);
+    d = parseInt(p[2], 10);
+    if (p[3]) y = String(p[3]).length <= 2 ? 2000 + parseInt(p[3], 10) : parseInt(p[3], 10);
+  } else {
+    const dow = now.getDay();
+    const offset = dow <= 5 ? (5 - dow) : 6;
+    const fri = new Date(now);
+    fri.setDate(now.getDate() + offset);
+    m = fri.getMonth() + 1;
+    d = fri.getDate();
+    y = fri.getFullYear();
+  }
+  return `${m}-${d}-${String(y).slice(-2)} Review`;
+}
+
 async function api(path, init = {}) {
   const res = await retryFetch(API + path, init);
   if (!res.ok) {

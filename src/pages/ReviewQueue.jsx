@@ -17,7 +17,7 @@ import { FixFlagsModal } from "../shared/FixFlagsModal.jsx";
 import { ScreenshotEventModal } from "../shared/ScreenshotEventModal.jsx";
 import { ScreenshotPoolModal } from "../shared/ScreenshotPoolModal.jsx";
 import { saveExport } from "../shared/photoLibrary.js";
-import { rememberLastSession, getLastSession, forgetLastSession, loadSession, mergeSession, pingPresence, rememberServerPendingIds, getServerPendingIds } from "../shared/reviewSessions.js";
+import { rememberLastSession, getLastSession, forgetLastSession, loadSession, saveSession, mergeSession, pingPresence, rememberServerPendingIds, getServerPendingIds, suggestedReviewSessionName } from "../shared/reviewSessions.js";
 
 // Flag glossary — shown in the collapsible cheat sheet. Order matters
 // (most-severe first); descriptions are 1-line so the grid stays tight.
@@ -48,6 +48,23 @@ const NJ_NORTH_OVERRIDE_CITIES = [
   "mountainside", "new providence", "plainfield", "scotch plains",
   "springfield", "westfield",
 ];
+
+// Compact M/D for the Review day chip / search. ISO (2026-09-19) and
+// M/D/YYYY both collapse so "FRI 9/19" is scannable and searchable.
+function compactMd(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return "";
+  const iso = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (iso) return `${parseInt(iso[2], 10)}/${parseInt(iso[3], 10)}`;
+  const md = s.match(/^(\d{1,2})[/\-](\d{1,2})/);
+  if (md) return `${parseInt(md[1], 10)}/${parseInt(md[2], 10)}`;
+  const parsed = parseDateToDay(s);
+  return parsed?.date || s;
+}
+
+function dayAbbrev(ev) {
+  return DAYFUL[ev?.day]?.slice(0, 3) || (ev?.day ? String(ev.day).slice(0, 3).toUpperCase() : "?");
+}
 
 // Suspicious time vs event-type combos that hint at a typo.
 function timeTypeSuspect(ev) {
@@ -263,6 +280,22 @@ export default function ReviewQueue({ betaMode = false } = {}) {
   // Live snapshot of the synced state, readable inside async callbacks.
   const stateRef = useRef(null);
   stateRef.current = { events, approvals, vetted: vettedArr, pending };
+  const committedRef = useRef(committed);
+  committedRef.current = committed;
+  const lastSessionNameRef = useRef(lastSessionName);
+  lastSessionNameRef.current = lastSessionName;
+
+  // Local Back stack. Sweeps already undo inside their modals; this covers
+  // the page-level moves that used to be one-way (load a session over the
+  // calendar, Clear, import, add-to-calendar, delete rows). Not a partner
+  // undo — tapping Back restores THIS phone, then sync sends that as the
+  // next diff. Keep ~20; full calendar copies are the cost of being able
+  // to reverse an accidental overwrite.
+  const UNDO_LIMIT = 20;
+  const [undoStack, setUndoStack] = useState([]);
+  const undoStackRef = useRef([]);
+  undoStackRef.current = undoStack;
+  const cloneSnap = (v) => JSON.parse(JSON.stringify(v ?? null));
 
   const makeBase = (payload) => ({
     payload: {
@@ -274,6 +307,64 @@ export default function ReviewQueue({ betaMode = false } = {}) {
     eventsMap: new Map((Array.isArray(payload?.events) ? payload.events : []).map((e) => [evKey(e), e])),
     version: Number(payload?.version) || 0,
   });
+
+  const pushUndo = (label) => {
+    const cur = stateRef.current || {};
+    const snap = {
+      label: String(label || "change"),
+      events: cloneSnap(cur.events || []),
+      approvals: cloneSnap(cur.approvals || {}),
+      vetted: cloneSnap(cur.vetted || []),
+      pending: cloneSnap(cur.pending || []),
+      committed: cloneSnap(committedRef.current || []),
+      sessionName: lastSessionNameRef.current || null,
+    };
+    setUndoStack((s) => [...s.slice(-(UNDO_LIMIT - 1)), snap]);
+  };
+
+  const undoLast = () => {
+    const stack = undoStackRef.current;
+    if (!stack.length) return;
+    const snap = stack[stack.length - 1];
+    setUndoStack((s) => s.slice(0, -1));
+    setEvents(Array.isArray(snap.events) ? snap.events : []);
+    setApprovals(snap.approvals && typeof snap.approvals === "object" ? snap.approvals : {});
+    setVettedArr(Array.isArray(snap.vetted) ? snap.vetted : []);
+    setPending(Array.isArray(snap.pending) ? snap.pending : []);
+    setCommitted(Array.isArray(snap.committed) ? snap.committed : []);
+    if (snap.sessionName) {
+      rememberLastSession(snap.sessionName);
+      setLastSessionName(snap.sessionName);
+    }
+    const restored = {
+      events: snap.events || [],
+      approvals: snap.approvals || {},
+      vetted: snap.vetted || [],
+      pending: snap.pending || [],
+      version: syncBaseRef.current?.version || 0,
+    };
+    syncBaseRef.current = makeBase(restored);
+    if (snap.sessionName) {
+      rememberServerPendingIds(
+        snap.sessionName,
+        (snap.pending || []).map((e) => String(e.id)),
+      );
+    }
+    setSyncTick((t) => t + 1);
+  };
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!(e.metaKey || e.ctrlKey) || String(e.key).toLowerCase() !== "z" || e.shiftKey) return;
+      const tag = (e.target && e.target.tagName) || "";
+      if (tag === "INPUT" || tag === "TEXTAREA" || e.target?.isContentEditable) return;
+      if (!undoStackRef.current.length) return;
+      e.preventDefault();
+      undoLast();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   // Diff this device's state against the last known server copy → ops.
   const diffOps = (base, curr) => {
@@ -394,13 +485,14 @@ export default function ReviewQueue({ betaMode = false } = {}) {
     // calendar made "Clear All" look broken — everything came back on the
     // next visit to /review. Calendar restore only happens on a MANUAL
     // session load, where the user gets the confirm prompt below.
+    if (!isAutoLoad) pushUndo(`load ${name}`);
     let shouldLoadEvents = !isAutoLoad;
     if (!isAutoLoad && Array.isArray(payload?.events) && payload.events.length > 0) {
+      const here = (stateRef.current?.events || []).length;
       shouldLoadEvents = window.confirm(
-        `This session was saved with ${payload.events.length} calendar event(s).\n\n` +
-        `Do you want to restore these events to the calendar?\n` +
-        `• Click OK to restore them (overwrites your current calendar).\n` +
-        `• Click Cancel to keep your current calendar (only restores the review queue).`
+        `Load "${name}"?\n\n` +
+        `OK = Put this session's ${payload.events.length} event(s) on the calendar (replaces the ${here} currently on screen). Tap Back if that's wrong.\n\n` +
+        `Cancel = Keep the calendar that's on screen. Only load this session's review queue.`
       );
     }
 
@@ -563,6 +655,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
   // Dedup + append helper — used both by the auto-append path (no
   // session active) and by the "Append to current" modal choice.
   const appendIntakeToPending = (incoming) => {
+    pushUndo("scraper intake");
     setPending((prev) => {
       const seen = new Set(prev.map((e) => String(e.id)));
       const fresh = incoming.filter((e) => !seen.has(String(e.id)));
@@ -596,38 +689,6 @@ export default function ReviewQueue({ betaMode = false } = {}) {
     setIntakeChoiceOpen(false);
   };
   const handleIntakeCancel = () => {
-    setPendingIntake(null);
-    setIntakeChoiceOpen(false);
-  };
-  const handleIntakeNewSession = async () => {
-    const intake = pendingIntake || [];
-    // 1. Force-save current session so the debounced auto-save can't
-    //    lose the last few keystrokes.
-    if (lastSessionName) {
-      try {
-        await saveSession(lastSessionName, getSessionPayload());
-      } catch (err) {
-        console.warn("Force-save before new session failed (proceeding anyway):", err);
-      }
-    }
-    // 2. Prompt for the new session name.
-    const suggested = new Date().toISOString().slice(0, 10) + " review";
-    const proposed = window.prompt("Name the new session:", suggested);
-    if (!proposed || !proposed.trim()) {
-      handleIntakeCancel();
-      return;
-    }
-    // 3. Clear review-queue state (pending/approvals/vetted). Events
-    //    store stays intact so Calendar/Newsletter/Media keep content.
-    setPending([]);
-    setApprovals({});
-    setVettedArr([]);
-    // 4. Point auto-save + sync at the new name.
-    syncBaseRef.current = null;
-    rememberLastSession(proposed.trim());
-    setLastSessionName(proposed.trim());
-    // 5. Seed intake into now-empty queue.
-    if (intake.length) appendIntakeToPending(intake);
     setPendingIntake(null);
     setIntakeChoiceOpen(false);
   };
@@ -727,6 +788,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
         fresh.push(mapBooking(b));
       }
       if (fresh.length) {
+        pushUndo("import website bookings");
         setPending((prev) => {
           const existing = new Set(prev.map((e) => String(e.id)));
           return [...prev, ...fresh.filter((e) => !existing.has(String(e.id)))];
@@ -765,6 +827,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
     try { return envKey || localStorage.getItem("cge_gemini_key") || ""; } catch { return envKey; }
   })();
   const addScreenshotEvent = (ev) => {
+    pushUndo("add from pool");
     setPending((prev) => {
       const seen = new Set(prev.map((e) => String(e.id)));
       return seen.has(String(ev.id)) ? prev : [...prev, ev];
@@ -775,6 +838,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
   // there's a nudge to pull them during that weekend's review.
   const [poolOpen, setPoolOpen] = useState(false);
   const [poolCount, setPoolCount] = useState(0);
+  const [returnPoolBusy, setReturnPoolBusy] = useState(false);
   const refreshPoolCount = async () => {
     try {
       const r = await fetch("/api/screenshot-pool");
@@ -797,6 +861,67 @@ export default function ReviewQueue({ betaMode = false } = {}) {
   // a concrete date when they're committed to the store. Defaults to
   // the next upcoming Friday (today if today is Friday).
   const [friDate, setFriDate] = useState(() => todaysFridayMD());
+
+  // Explicit "New Session": force-save the current named session (if any),
+  // prompt with "8-28-26 Review" (dashes — slashes 404 on Replit's proxy),
+  // clear the review queue, and point auto-save at the new name. Calendar
+  // events stay. Used by the toolbar button, the Sessions modal, and the
+  // scraper-intake "new session" choice.
+  const startFreshSession = async ({ seed = [] } = {}) => {
+    if (lastSessionName) {
+      try {
+        await saveSession(lastSessionName, getSessionPayload());
+      } catch (err) {
+        console.warn("Force-save before new session failed (proceeding anyway):", err);
+      }
+    } else if (pending.length > 0 || Object.keys(approvals || {}).length > 0 || (vettedArr || []).length > 0) {
+      if (!window.confirm("Start a new session? This review list isn't saved to a named session and will be cleared from this phone.")) {
+        return null;
+      }
+    }
+    const proposed = window.prompt("Name the new session:", suggestedReviewSessionName(friDate));
+    if (!proposed || !proposed.trim()) return null;
+    const name = proposed.trim();
+    pushUndo("new session");
+
+    setPending([]);
+    setApprovals({});
+    setVettedArr([]);
+    syncBaseRef.current = null;
+    rememberLastSession(name);
+    setLastSessionName(name);
+    try {
+      await saveSession(name, {
+        events,
+        approvals: {},
+        vetted: [],
+        pending: [],
+        committed,
+        filter,
+        sortByTag,
+      });
+      const payload = await loadSession(name);
+      syncBaseRef.current = makeBase(payload);
+      setSyncTick((t) => t + 1);
+    } catch (err) {
+      console.warn("Couldn't create the new session on the server:", err);
+    }
+    if (seed.length) appendIntakeToPending(seed);
+    setAutoSaveStatus("idle");
+    return name;
+  };
+
+  const handleIntakeNewSession = async () => {
+    const intake = pendingIntake || [];
+    const name = await startFreshSession({ seed: intake });
+    if (!name) {
+      handleIntakeCancel();
+      return;
+    }
+    setPendingIntake(null);
+    setIntakeChoiceOpen(false);
+  };
+
   // Pagination cap — rendering 200+ rich event rows up-front was the
   // most likely cause of "Aw, Snap!" tab crashes on big imports. Show
   // first N, button to load the rest. Resets whenever pending changes
@@ -889,6 +1014,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
       return;
     }
     let added = 0, skipped = 0;
+    if (force) pushUndo("pull regulars");
     setPending((prev) => {
       const existing = new Set((prev || []).map((e) => nkey(e.name, e.day)));
       const fresh = [];
@@ -1136,6 +1262,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
     try {
       const parsed = parseRows(importRows, { columnMap, hasHeaderRow });
       const withIds = parsed.map((ev, i) => ({ ...ev, id: `pending_${Date.now()}_${i}` }));
+      pushUndo("import sheet");
       setPending(withIds);
       // Same approve/select reset as the original handleFile.
       setApprovals({});
@@ -1179,6 +1306,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
       `show in the Committed filter (backfilled from the calendar store). ` +
       `Re-upload the sheet (or load a session) to bring the queue back.`
     )) return;
+    pushUndo("clear review");
     setPending([]);
     setCommitted([]);
     setApprovals({});
@@ -1202,6 +1330,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
   const addRowToCalendar = (id) => {
     const ev = pending.find(e => e.id === id);
     if (!ev) return;
+    pushUndo("add to calendar");
     // Stamp .date if missing — derive from weekend anchor + day-of-week.
     // The store/CSV export depends on this; without it the date column
     // would be empty for any sheet imported without a date column.
@@ -1219,6 +1348,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
   const addSelectedToCalendar = () => {
     const sel = pending.filter(e => approvals[e.id] && approvedSet.has(e.id));
     if (sel.length === 0) return;
+    pushUndo("add selected to calendar");
     const fresh = sel.map(e => ({
       ...e,
       // Same date-stamping rule as the single-row add — derive from
@@ -1266,10 +1396,79 @@ export default function ReviewQueue({ betaMode = false } = {}) {
     const ids = new Set(pending.filter(e => approvals[e.id]).map(e => e.id));
     if (ids.size === 0) return;
     if (ids.size > 5 && !window.confirm(`Delete ${ids.size} selected rows from this review?`)) return;
+    pushUndo("delete selected");
     setPending(p => p.filter(e => !ids.has(e.id)));
     setApprovals(a => { const next = { ...a }; ids.forEach(id => { delete next[id]; }); return next; });
     setApprovedSet(s => { const next = new Set(s); ids.forEach(id => next.delete(id)); return next; });
     if (editingId && ids.has(editingId)) { setEditingId(null); setEditDraft({}); }
+  };
+
+  // Send selected pending rows back to the screenshot pool so they can be
+  // pulled into a different Review session. Original share thumbs don't
+  // travel with the queue event — Instagram links do (sourceUrl + event.link).
+  const returnSelectedToPool = async () => {
+    if (returnPoolBusy) return;
+    const chosen = pending.filter((e) => approvals[e.id] && String(e.name || "").trim());
+    if (chosen.length === 0) {
+      alert("Select at least one named event to return to the pool.");
+      return;
+    }
+    const msg = chosen.length === 1
+      ? "Return this event to the screenshot pool? It leaves this review list so you can pull it into another session. Back restores the list here; the pool copy stays."
+      : `Return ${chosen.length} selected events to the screenshot pool? They leave this review list so you can pull them into another session. Back restores the list here; the pool copies stay.`;
+    if (!window.confirm(msg)) return;
+    setReturnPoolBusy(true);
+    try {
+      const entries = chosen.map((ev) => {
+        const type = (ev.type || "").toUpperCase();
+        const link = String(ev.link || "").trim();
+        const sourceUrl = /^https?:\/\//i.test(link) ? link : null;
+        return {
+          event: {
+            name: String(ev.name || "").trim(),
+            day: ev.day || "Fri",
+            date: dateForEvent(ev),
+            time: ev.time || "",
+            venue: ev.venue || "",
+            area: ev.area || "",
+            region: ev.region || "",
+            type,
+            emoji: ev.emoji || getEmoji(type),
+            igHandle: normalizeHandle(ev.igHandle || ""),
+            link,
+          },
+          sourceUrl,
+          source: "review-return",
+        };
+      });
+      const r = await fetch("/api/screenshot-pool", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entries }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.message || j.error || `Server ${r.status}`);
+      if (!j.added) throw new Error("Pool saved 0 events");
+      const ids = new Set(chosen.map((e) => e.id));
+      pushUndo("return to pool");
+      setPending((p) => p.filter((e) => !ids.has(e.id)));
+      setApprovals((a) => {
+        const next = { ...a };
+        ids.forEach((id) => { delete next[id]; });
+        return next;
+      });
+      setApprovedSet((s) => {
+        const next = new Set(s);
+        ids.forEach((id) => next.delete(id));
+        return next;
+      });
+      if (editingId && ids.has(editingId)) { setEditingId(null); setEditDraft({}); }
+      refreshPoolCount();
+    } catch (err) {
+      alert(`Couldn't return those to the pool: ${err?.message || err}`);
+    } finally {
+      setReturnPoolBusy(false);
+    }
   };
 
   // Merged committed view — the local `committed` audit array only
@@ -1322,11 +1521,15 @@ export default function ReviewQueue({ betaMode = false } = {}) {
     // Search filter — additive on top of the active filter
     const q = searchTerm.trim().toLowerCase();
     if (q) {
-      list = list.filter(e =>
-        (e.name || "").toLowerCase().includes(q) ||
-        (e.venue || "").toLowerCase().includes(q) ||
-        (e.area || "").toLowerCase().includes(q)
-      );
+      list = list.filter(e => {
+        const date = compactMd(dateForEvent(e));
+        const hay = [
+          e.name, e.venue, e.area, e.igHandle,
+          e.day, dayAbbrev(e), DAYFUL[e.day],
+          e.date, date,
+        ].filter(Boolean).join(" ").toLowerCase();
+        return hay.includes(q);
+      });
     }
 
     // Sort-to-top by tag (broad): when a tag is selected from the breakdown,
@@ -1362,7 +1565,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
       });
     }
     return list;
-  }, [pending, committed, mergedCommitted, warnings, approvals, approvedSet, filter, searchTerm, sortByTag, highlightedGroup]);
+  }, [pending, committed, mergedCommitted, warnings, approvals, approvedSet, filter, searchTerm, sortByTag, highlightedGroup, weekendDates]);
 
   const approvedCount = pending.filter(e => approvals[e.id]).length;
   const selectedApprovedCount = pending.filter(e => approvals[e.id] && approvedSet.has(e.id)).length;
@@ -1432,6 +1635,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
     const grp = eventsInHighlightedGroup();
     if (grp.length === 0) return;
     if (!window.confirm(`Delete ${grp.length} events in ${highlightedGroup} from the upload?`)) return;
+    pushUndo("delete group");
     const ids = new Set(grp.map(e => e.id));
     setPending(p => p.filter(e => !ids.has(e.id)));
     setApprovals(a => { const next = { ...a }; ids.forEach(id => { delete next[id]; }); return next; });
@@ -1443,6 +1647,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
   // leaves the row in view. Delete removes them and they no longer count
   // toward any tally.
   const deleteRow = (id) => {
+    pushUndo("delete row");
     setPending(p => p.filter(e => e.id !== id));
     setApprovals(a => { const next = { ...a }; delete next[id]; return next; });
     setApprovedSet(s => { const next = new Set(s); next.delete(id); return next; });
@@ -1451,6 +1656,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
   const deleteVisible = () => {
     if (visible.length === 0) return;
     if (visible.length > 5 && !window.confirm(`Delete ${visible.length} rows from the upload? They'll be gone from this review — re-upload the sheet to get them back.`)) return;
+    pushUndo("delete visible");
     const ids = new Set(visible.map(e => e.id));
     setPending(p => p.filter(e => !ids.has(e.id)));
     setApprovals(a => {
@@ -1780,7 +1986,44 @@ export default function ReviewQueue({ betaMode = false } = {}) {
               fontFamily: "inherit",
               whiteSpace: "nowrap",
             }}
-          >📁 {lastSessionName ? `Session: ${lastSessionName.length > 14 ? lastSessionName.slice(0, 14) + "…" : lastSessionName}` : "Sessions"}</button>
+          >📁 {lastSessionName ? `Session: ${lastSessionName.length > 22 ? lastSessionName.slice(0, 22) + "…" : lastSessionName}` : "Sessions"}</button>
+          <button
+            onClick={undoLast}
+            disabled={undoStack.length === 0}
+            title={undoStack.length ? `Back: ${undoStack[undoStack.length - 1].label} (${undoStack.length} to undo). Also Cmd/Ctrl+Z.` : "Back — undoes the last load, clear, import, add, or delete on this phone"}
+            style={{
+              padding: "6px 12px",
+              background: undoStack.length ? "rgba(192,132,252,0.14)" : "rgba(245,240,232,0.04)",
+              border: `1px solid ${undoStack.length ? "rgba(192,132,252,0.45)" : "rgba(245,240,232,0.12)"}`,
+              borderRadius: "5px",
+              color: undoStack.length ? "#C084FC" : "rgba(245,240,232,0.28)",
+              fontSize: "0.6rem",
+              fontWeight: 700,
+              letterSpacing: "1.5px",
+              textTransform: "uppercase",
+              cursor: undoStack.length ? "pointer" : "not-allowed",
+              fontFamily: "inherit",
+              whiteSpace: "nowrap",
+            }}
+          >↶ Back{undoStack.length ? ` (${undoStack.length})` : ""}</button>
+          <button
+            onClick={() => startFreshSession()}
+            title="Save the current session (if named), then start an empty review list under a new name. Calendar events stay."
+            style={{
+              padding: "6px 12px",
+              background: "rgba(229,188,79,0.10)",
+              border: "1px solid rgba(229,188,79,0.4)",
+              borderRadius: "5px",
+              color: "#E5BC4F",
+              fontSize: "0.6rem",
+              fontWeight: 700,
+              letterSpacing: "1.5px",
+              textTransform: "uppercase",
+              cursor: "pointer",
+              fontFamily: "inherit",
+              whiteSpace: "nowrap",
+            }}
+          >+ New session</button>
 
           {lastSessionName && (
             <span
@@ -1983,7 +2226,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
                     key={ev.id || i}
                     style={{
                       display: "grid",
-                      gridTemplateColumns: "40px 1fr auto",
+                      gridTemplateColumns: "48px 1fr auto",
                       gap: "10px",
                       padding: "4px 8px",
                       fontSize: "0.6rem",
@@ -1991,8 +2234,13 @@ export default function ReviewQueue({ betaMode = false } = {}) {
                       borderRadius: "3px",
                     }}
                   >
-                    <span style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, color: "#E5BC4F", letterSpacing: "1px" }}>
-                      {DAYFUL[ev.day]?.slice(0, 3) || "?"}
+                    <span style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, color: "#E5BC4F", letterSpacing: "0.4px", lineHeight: 1.2 }}>
+                      <span style={{ display: "block" }}>{dayAbbrev(ev)}</span>
+                      {compactMd(ev.date) ? (
+                        <span style={{ display: "block", fontSize: "0.52rem", fontWeight: 600, color: "rgba(229,188,79,0.8)", letterSpacing: "0.3px" }}>
+                          {compactMd(ev.date)}
+                        </span>
+                      ) : null}
                     </span>
                     <span style={{ color: "rgba(245,240,232,0.85)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {ev.name || <em>(no name)</em>} <span style={{ color: "rgba(245,240,232,0.4)" }}>· {ev.venue || "no venue"}{ev.area ? ", " + ev.area : ""}</span>
@@ -2273,6 +2521,14 @@ export default function ReviewQueue({ betaMode = false } = {}) {
                     + Add {selectedApprovedCount} to calendar
                   </button>
                   <button
+                    onClick={returnSelectedToPool}
+                    disabled={returnPoolBusy}
+                    style={{ ...B, background: "rgba(167,139,250,0.12)", borderColor: "rgba(167,139,250,0.4)", color: "#C4B5FD", fontWeight: 700, cursor: returnPoolBusy ? "wait" : "pointer" }}
+                    title="Send selected events back to the screenshot pool so you can pull them into another Review session. Instagram links come with them; original photos/thumbs do not."
+                  >
+                    {returnPoolBusy ? "Returning…" : `↩ Return ${approvedCount} to pool`}
+                  </button>
+                  <button
                     onClick={deleteSelected}
                     style={{ ...B, background: "rgba(251,113,133,0.1)", borderColor: "rgba(251,113,133,0.35)", color: "#FB7185" }}
                     title="Delete every selected row from this review"
@@ -2304,7 +2560,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
                 type="text"
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
-                placeholder="Search by name, venue, or city…"
+                    placeholder="Search by name, venue, city, or date…"
                 style={{
                   flex: 1, padding: "8px 12px",
                   background: "rgba(245,240,232,0.04)",
@@ -2395,7 +2651,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
                     className="cge-review-row"
                     style={{
                       display: "grid",
-                      gridTemplateColumns: "auto auto 50px 1fr auto auto auto auto",
+                      gridTemplateColumns: "auto auto 58px 1fr auto auto auto auto",
                       gap: "12px",
                       alignItems: "center",
                       padding: "10px 14px",
@@ -2471,8 +2727,13 @@ export default function ReviewQueue({ betaMode = false } = {}) {
                     <span className="cge-row-flag" style={{ fontSize: "1rem", width: "20px", textAlign: "center", lineHeight: 1 }}>
                       {isFlagged ? "🚩" : ""}
                     </span>
-                    <span className="cge-row-day" style={{ fontFamily: "'Syne', sans-serif", fontSize: "0.8rem", fontWeight: 700, color: "#E5BC4F", letterSpacing: "1px" }}>
-                      {DAYFUL[ev.day]?.slice(0, 3) || "?"}
+                    <span className="cge-row-day" style={{ fontFamily: "'Syne', sans-serif", fontSize: "0.8rem", fontWeight: 700, color: "#E5BC4F", letterSpacing: "1px", lineHeight: 1.15 }}>
+                      <span style={{ display: "block" }}>{dayAbbrev(ev)}</span>
+                      {compactMd(dateForEvent(ev)) ? (
+                        <span style={{ display: "block", fontSize: "0.58rem", fontWeight: 600, letterSpacing: "0.4px", color: "rgba(229,188,79,0.85)", marginTop: 2 }}>
+                          {compactMd(dateForEvent(ev))}
+                        </span>
+                      ) : null}
                     </span>
                     <div className="cge-row-info">
                       <div style={{ fontSize: "0.85rem", fontWeight: 700, marginBottom: "2px" }}>
@@ -2489,6 +2750,10 @@ export default function ReviewQueue({ betaMode = false } = {}) {
                         )}
                       </div>
                       <div style={{ fontSize: "0.65rem", color: "rgba(245,240,232,0.55)" }}>
+                        <span className="cge-row-day-inline" style={{ color: "#E5BC4F", fontWeight: 700, letterSpacing: "0.4px" }}>
+                          {[dayAbbrev(ev), compactMd(dateForEvent(ev))].filter(Boolean).join(" · ")}
+                          {" · "}
+                        </span>
                         {[ev.venue, ev.area, ev.time].filter(Boolean).join(" · ") || <em>no details</em>}
                         {ev.igHandle && <span style={{ marginLeft: "8px", color: "#C084FC", fontWeight: 600 }}>@{ev.igHandle}</span>}
                       </div>
@@ -2786,6 +3051,8 @@ export default function ReviewQueue({ betaMode = false } = {}) {
         onClose={() => setSessionsOpen(false)}
         onLoad={applyLoadedSession}
         getCurrent={getSessionPayload}
+        suggestedName={suggestedReviewSessionName(friDate)}
+        onNewSession={() => startFreshSession()}
         onSaveSuccess={async (name) => {
           // Clear the base FIRST (synchronously) so the sync effect can't
           // fire against the previous session's base while we re-fetch.
@@ -2853,6 +3120,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
         }}
         onApplyDeletions={(idsToDelete) => {
           if (!idsToDelete || idsToDelete.length === 0) return;
+          pushUndo("conflict sweep");
           const idSet = new Set(idsToDelete.map(String));
           setPending(p => p.filter(e => !idSet.has(String(e.id))));
           setApprovals(a => {
@@ -2873,6 +3141,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
           setPending(p => p.map(e => String(e.id) === String(eventId) ? { ...e, ...patch } : e));
         }}
         onApply={({ keepIds, cutIds }) => {
+          if ((cutIds && cutIds.length) || (keepIds && keepIds.length)) pushUndo("clean sweep");
           if (cutIds && cutIds.length > 0) {
             const cutSet = new Set(cutIds.map(String));
             setPending(p => p.filter(e => !cutSet.has(String(e.id))));
@@ -2903,6 +3172,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
           setPending(p => p.map(e => String(e.id) === String(eventId) ? { ...e, ...patch } : e));
         }}
         onApply={({ approveIds, deleteIds }) => {
+          if ((deleteIds && deleteIds.length) || (approveIds && approveIds.length)) pushUndo("fix flags");
           if (deleteIds && deleteIds.length > 0) {
             const delSet = new Set(deleteIds.map(String));
             setPending(p => p.filter(e => !delSet.has(String(e.id))));
