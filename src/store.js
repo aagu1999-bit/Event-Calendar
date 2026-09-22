@@ -821,6 +821,33 @@ export const useEventsStore = create(
         }
       },
 
+      // Curatorial-matrix specific update. Merges `patch` onto the
+      // event's `matrix` object (creating it if the event never had one).
+      // Uses the same optimistic + server-sync pattern as upsertEvent —
+      // in fact it routes through upsertEvent so there's one code path
+      // for persisting event mutations.
+      //
+      // Example:
+      //   updateEventMatrix(evId, { event_tier: "ANCHOR", hook_a_side: "..." })
+      //
+      // Passing null values clears fields:
+      //   updateEventMatrix(evId, { data_points: null })
+      //
+      // Backward-safe: existing events without `matrix` get one lazily.
+      updateEventMatrix: async (id, patch) => {
+        if (id == null || !patch || typeof patch !== "object") return;
+        const current = get().events.find((e) => e.id === id);
+        if (!current) return;
+        const nextMatrix = { ...(current.matrix || {}), ...patch };
+        // Strip keys that were explicitly set to null so we don't leave
+        // dead fields cluttering the JSONB blob.
+        for (const k of Object.keys(nextMatrix)) {
+          if (nextMatrix[k] === null || nextMatrix[k] === undefined) delete nextMatrix[k];
+        }
+        const nextEvent = { ...current, matrix: nextMatrix };
+        return get().upsertEvent(nextEvent);
+      },
+
       // --- Whole-array API preserved for backward compat with every
       // caller that uses setEvents/updateEvents/addEvents/clearEvents.
       // These route through /api/events/replace which does a transactional
