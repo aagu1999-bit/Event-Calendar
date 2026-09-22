@@ -9,6 +9,8 @@ import { PhotoLibraryModal } from "../shared/PhotoLibraryModal.jsx";
 import { EventToolsPanel } from "../shared/EventToolsPanel.jsx";
 import { AiSlideGeneratorModal } from "../shared/AiSlideGeneratorModal.jsx";
 import { AiTemplateFillModal } from "../shared/AiTemplateFillModal.jsx";
+import { CuratorialMatrixModal } from "../shared/CuratorialMatrixModal.jsx";
+import { EVENT_TIERS } from "../shared/matrixEnums.js";
 import { NewsScoutModal } from "../shared/NewsScoutModal.jsx";
 
 const COLORS = {
@@ -3441,6 +3443,39 @@ export default function MediaTool() {
   // shows the modal; the picker inside lets the user choose template.
   const [aiFillOpen, setAiFillOpen] = useState(false);
   const [newsScoutOpen, setNewsScoutOpen] = useState(false);
+  // Matrix editor state — set when the operator taps "+ New Editorial Piece"
+  // or (future) picks an existing editorial record to edit. Keyed by id so
+  // the modal always sees the freshest event from the store.
+  const [matrixEventId, setMatrixEventId] = useState(null);
+  const upsertEvent = useEventsStore((s) => s.upsertEvent);
+  const eventsList = useEventsStore((s) => s.events);
+  // Handler for the "New Editorial Piece" button. Creates a stub record
+  // in the events store keyed by a generated id, then opens the Matrix
+  // modal on it. The stub carries `_kind: "editorial"` so future filters
+  // (Phase 2 refactor) can distinguish it from dated events, and defaults
+  // to FEATURE tier because that's the evergreen-editorial shape.
+  const startNewEditorialPiece = () => {
+    const id = `editorial_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const stub = {
+      id,
+      name: "Untitled Editorial",
+      day: "",
+      date: "",
+      time: "",
+      venue: "",
+      area: "",
+      region: "",
+      type: "FEATURE",
+      igHandle: "",
+      link: "",
+      featured: false,
+      _kind: "editorial",
+      _source: "media-editorial",
+      matrix: { event_tier: EVENT_TIERS.FEATURE.key },
+    };
+    upsertEvent(stub);
+    setMatrixEventId(id);
+  };
   // Seed for AI Fill Template. Set by the News Scout's "Build carousel" so the
   // modal opens pre-filled with a story (and AI-arrange on); the plain ✨ AI
   // Fill button clears it so it opens blank.
@@ -6288,6 +6323,28 @@ export default function MediaTool() {
                 whiteSpace: "nowrap",
               }}
             >✨ AI Fill Template</button>
+            {/* ◆ New Editorial Piece — starts a standalone matrix-first
+                content record (no event required). Opens the Curatorial
+                Matrix modal on a fresh stub; from there, Preview Carousel
+                pipes back into AI Fill Template like any curated event. */}
+            <button
+              onClick={startNewEditorialPiece}
+              title="Start a standalone editorial piece — matrix-first, no event required"
+              style={{
+                padding: "6px 10px",
+                background: "rgba(167,139,250,0.18)",
+                color: "#A78BFA",
+                border: "1px dashed rgba(167,139,250,0.55)",
+                borderRadius: 4,
+                fontSize: "0.6rem",
+                fontWeight: 700,
+                letterSpacing: "1px",
+                textTransform: "uppercase",
+                cursor: "pointer",
+                fontFamily: "'Syne',sans-serif",
+                whiteSpace: "nowrap",
+              }}
+            >◆ New Editorial Piece</button>
             {/* 🗞️ News Scout — hunts the web for timely, event-based Black
                 culture/community happenings in NJ that fit the CGE beat and
                 ranks them; "Use in News slot" drops one into the News template. */}
@@ -7616,6 +7673,11 @@ export default function MediaTool() {
         initialRegister={aiFillSeed.register}
         onClose={() => setAiFillOpen(false)}
         onAccept={onAiTemplateAccept}
+      />
+      <CuratorialMatrixModal
+        open={!!matrixEventId}
+        event={eventsList.find((e) => e.id === matrixEventId) || null}
+        onClose={() => setMatrixEventId(null)}
       />
       <NewsScoutModal
         open={newsScoutOpen}
