@@ -70,21 +70,20 @@ export function eventMatrixToFillSeed(event) {
   // event name in a pinch.
   const topic = hookA || String(event.name || "").trim() || "";
 
-  // Context is structured: CLUSTER DIRECTIVE first (so Gemini adopts the
-  // Compass analytical lens for the whole carousel), then POV, then a
-  // blank line, then one dashed bullet per data point. Consistent
-  // format across seed calls means the prompt-assembly rules can rely
-  // on it later.
+  // Context is structured: POV on top, then a blank line, then one
+  // dashed bullet per data point. Consistent format across seed calls
+  // means the prompt-assembly rules can rely on it later.
+  //
+  // The CLUSTER DIRECTIVE is NO LONGER embedded here — as of the
+  // architectural override it gets its own top-level block in
+  // buildTemplatePrompt (rendered after registerBlock, before context)
+  // so it reads as a voice/framing constraint rather than one line
+  // buried under academic research bullets. We surface it as its own
+  // seed field instead.
   const clusterDirective = getClusterDirective(m.cluster);
   const clusterLabel = m.cluster ? (getClusterLabel(m.cluster) || m.cluster) : "";
   const contextLines = [];
-  if (clusterDirective) {
-    contextLines.push(`CLUSTER DIRECTIVE (${clusterLabel} — adopt this analytical lens for every slide): ${clusterDirective}`);
-  }
-  if (pov) {
-    if (contextLines.length) contextLines.push("");
-    contextLines.push(`POV: ${pov}`);
-  }
+  if (pov) contextLines.push(`POV: ${pov}`);
   if (bullets.length) {
     if (contextLines.length) contextLines.push("");
     for (const b of bullets) contextLines.push(`- ${b}`);
@@ -100,5 +99,14 @@ export function eventMatrixToFillSeed(event) {
     // what we want when the operator is coming from Matrix (they've done
     // the editorial thinking; let the AI handle sequence).
     arrange: true,
+    // Cluster directive as its own field — buildTemplatePrompt renders it
+    // as a top-level VOICE + FRAMING block, not a context footnote.
+    clusterDirective,
+    clusterLabel,
+    // DM keyword trigger — if set, generateTemplateFill deterministically
+    // stitches the final CTA slide with this token, bypassing LLM drift
+    // that produces limp "link in bio" fallbacks when the trigger is
+    // orphaned from the prompt.
+    keywordTrigger: String(m.keyword_trigger || "").trim() || null,
   };
 }
