@@ -1,5 +1,6 @@
 // Server-only Agent API adapter for the existing Matrix Fuel Research UI.
 import Perplexity from "@perplexity-ai/perplexity_ai";
+import { getClusterDirective, getClusterLabel } from "./src/shared/matrixCompass.js";
 
 export function isPerplexityConfigured() {
   return !!process.env.PERPLEXITY_API_KEY?.trim();
@@ -7,6 +8,14 @@ export function isPerplexityConfigured() {
 
 export function researchRequest({ cluster = "", topic = "", pov = "", existingBullets = [], tier = "" } = {}) {
   const isShortHook = topic.trim().length > 0 && topic.trim().length < 40;
+  // Compass injection: the cluster's ANALYTICAL LENS (its directive) is
+  // the whole point of the Compass architecture. Without it, "Nightlife
+  // Dilemma" is just a label; with it, Sonar knows to look for mega-club
+  // closures, bottle-service fatigue, hi-fi listening rooms — not
+  // generic "party" facts. Injected into the instructions AND surfaced
+  // in the input JSON so the model reads it from both channels.
+  const clusterLabel = getClusterLabel(cluster) || String(cluster || "").trim();
+  const clusterDirective = getClusterDirective(cluster);
   return {
     preset: "low",
     tools: [{ type: "web_search" }],
@@ -14,6 +23,9 @@ export function researchRequest({ cluster = "", topic = "", pov = "", existingBu
       "You research facts for Central Group Events, a media brand covering Black cultural, social, and civic life in New Jersey.",
       "Search the web. Return 2–4 complementary, verifiable facts, each under 200 characters.",
       "Every fact MUST connect specifically to New Jersey AND the named editorial cluster, which is the primary frame.",
+      ...(clusterDirective
+        ? [`ANALYTICAL LENS for the "${clusterLabel}" cluster (adopt this frame — do not deviate): ${clusterDirective}`]
+        : []),
       "If you cannot find at least 2 verified NJ-tied, cluster-relevant facts, return an empty bullets array.",
       "Never fill the quota with generic entertainment, celebrity, song-lyric, national politics, or non-NJ historical facts.",
       "Use reputable municipal records, transit/demographic data, NJ history, verified news, policy documents, and cultural archives.",
@@ -23,7 +35,8 @@ export function researchRequest({ cluster = "", topic = "", pov = "", existingBu
       "Return JSON with a bullets array, without bullet prefixes. No preamble or closing summary.",
     ].join(" "),
     input: JSON.stringify({
-      cluster: String(cluster).slice(0, 1000),
+      cluster: clusterLabel.slice(0, 1000),
+      clusterDirective: clusterDirective.slice(0, 1000),
       tier: String(tier).slice(0, 100),
       topic: String(topic).slice(0, 2000),
       pov: String(pov).slice(0, 2000),

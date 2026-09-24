@@ -33,11 +33,18 @@ export const EVENT_TIER_ORDER = ["ANCHOR", "ORBIT", "FEATURE"];
 
 export const CORRIDORS = [
   "Urban / Commuter Core",       // Essex · Hudson · Union
-  "Route 1 Crossroads",
+  "Route 1 Central Crossroads",  // Middlesex · Somerset · Mercer commuter belt
   "Transit Village Suburbs",
   "Shore / Southern Arteries",
   "Decentralized Borderlands",
 ];
+
+// Legacy corridor labels that appear in older records. The modal
+// normalizes a stored value through this map so a pre-rename record
+// still highlights the right dropdown option.
+export const LEGACY_CORRIDOR_ALIASES = {
+  "Route 1 Crossroads": "Route 1 Central Crossroads",
+};
 
 export const CLUSTERS = [
   "Suburban Third-Place Crisis",
@@ -71,10 +78,16 @@ export const DEMOGRAPHIC_PRESETS = [
   "Diaspora Networks",
   "Corporate-to-Creative Hybrids",
   "Low-Decibel / Alcohol-Conscious",
-  "Sonic Purists (House / Afrobeats / R&B)",
+  "Sonic Purists",
   "Kinetic / Adult Play",
   "Creatives & DJs",
 ];
+
+// Legacy demographic labels — normalize old records that stored the
+// long parenthetical variant to the new short form.
+export const LEGACY_DEMOGRAPHIC_ALIASES = {
+  "Sonic Purists (House / Afrobeats / R&B)": "Sonic Purists",
+};
 
 export const PIPELINE_STATUS = {
   DRAFT:     { key: "DRAFT",     label: "Draft" },
