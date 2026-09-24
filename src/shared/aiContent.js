@@ -1318,7 +1318,7 @@ export async function designSequence({ apiKey, topic, context, mode, targetCount
     "- cover: the hook. ALWAYS slide 1. Its job is to stop the scroll and open a loop.",
     "- text: a short manifesto/thesis — the 'why this matters', the emotional stakes.",
     "- news: a punchy news-card + photo — short stacked lines that open a loop and land a bold payoff, over",
-    "  an image. This is your STRONGEST middle-of-carousel beat: high-retention and reported. PREFER it over",
+    "  an image. This is your STRONGEST middle-of-carousel beat: an insider dispatch beat that lands like reporting. PREFER it over",
     "  a plain 'text' slide for any backstory / why-it-matters / breaking / human-context beat. A healthy",
     "  carousel carries 1-3 'news' beats — lean on it, but don't make EVERY slide news (keep some variety).",
     "- spotlight: ONE venue/feature/angle per slide; several in a row build a listicle rhythm.",
@@ -1470,6 +1470,25 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   if (!Array.isArray(sequence) || !sequence.length) throw new Error("Missing template sequence");
   if ((!topic || !topic.trim()) && (!context || !context.trim())) throw new Error("Add a topic or event details first");
 
+  // THIN_INPUT guard — refuse to write a 7-slide dispatch from 2 facts.
+  // Without this the fill's response-shape enforcement ("expected N slides,
+  // got M") is asymmetric: it lets the model return exactly N slides, but
+  // when the raw material is thinner than the shape demands, the model
+  // resolves the mismatch by paraphrasing 2 facts across 5 extra slots.
+  // Better to refuse than to generate that echo carousel. Skipped for
+  // single-slot regen and for sequences where atomic-content slots are
+  // sparse (e.g. a mostly-photo sequence doesn't need atomic bullets).
+  const atomicContentSlots = sequence.filter(t => t === "text" || t === "spotlight" || t === "stat" || t === "news").length;
+  const suppliedBullets = parseContextBullets(context || "").length;
+  const THIN_MATERIAL_FLOOR = 3;
+  if (spine && sequence.length >= 3 && atomicContentSlots >= 5 && suppliedBullets > 0 && suppliedBullets < THIN_MATERIAL_FLOOR) {
+    const err = new Error(`THIN_INPUT: this sequence has ${atomicContentSlots} slots that carry facts, but only ${suppliedBullets} bullet${suppliedBullets === 1 ? "" : "s"} were supplied. Add at least ${THIN_MATERIAL_FLOOR - suppliedBullets} more data point${THIN_MATERIAL_FLOOR - suppliedBullets === 1 ? "" : "s"}, or pick a shorter template — anything less and the engine will echo the same facts across slides instead of building an argument.`);
+    err.code = "THIN_INPUT";
+    err.needed = THIN_MATERIAL_FLOOR;
+    err.supplied = suppliedBullets;
+    throw err;
+  }
+
   const today = (() => { try { return new Date().toISOString().slice(0, 10); } catch { return null; } })();
 
   // Narrative spine pre-pass — the outline step a human editor takes before
@@ -1497,11 +1516,19 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
 
   const prompt = buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, templateMeta, mode, today, letterMode, clusterDirective, clusterLabel, narrativeSpine });
 
+  // Temperature split by register — the fill call was writing at 0.95
+  // universally, which is right for promo (energy matters) but wrong for
+  // editorial/story where 0.95 reaches into the low-probability token
+  // space where MFA purple prose ("shared breath of a room") lives. The
+  // polish pass at 0.4 can't fully weed what a 0.95 fill plants; drop
+  // fill temperature for the analytical registers so the crop is
+  // cleaner in the first place.
+  const fillTemperature = (mode === "story" || mode === "editorial") ? 0.75 : 0.95;
   const data = await geminiGenerate(apiKey, {
     contents: [{ parts: [{ text: prompt }] }],
     generationConfig: {
       responseMimeType: "application/json",
-      temperature: 0.95,
+      temperature: fillTemperature,
     },
   });
   const raw = extractResponseText(data);
@@ -1578,9 +1605,10 @@ export async function generateNarrativeSpine({ apiKey, topic, context, clusterDi
     "    If the topic genuinely calls for a different arc (e.g. sonic-history: ORIGIN → BREAK → LEGACY → NOW), use those beats instead — but keep the count at 4 and the shape identical.",
     "  - slideAssignments: an array of length equal to slide count. Each entry is the beat label (PARADOX/FRICTION/MECHANISM/GATE — or your adapted labels) that this slide serves. Distribute the beats across the slides (typically the last slide is GATE; the beats spread across the middle).",
     "  - bulletRoles: object mapping each context bullet (verbatim, first 60 chars as key) to ONE role: 'proof' (proves the thesis, must be used), 'context' (background, may be used), or 'veto' (breaks the argument's geographic/thematic focus — DISCARD, must NOT appear in any slide). Every context bullet must be classified. Be willing to VETO — a bullet from Hasbrouck Heights in a Somerset County carousel is a veto; a bullet about restaurants in a nightlife carousel is a veto.",
+    "  - proofAssignments: object mapping each PROOF bullet (same 60-char key) to the SINGLE slide index (1-based) where that specific fact should land. Every PROOF bullet MUST be assigned to exactly ONE slide — no bullet appears on two slides, no slide gets two PROOFS. If two facts belong on the same beat, pick the stronger one for the primary slide and either assign the second to a different beat or downgrade it to 'context'. This is the deduplication contract — the fill call is not allowed to spread one bullet across multiple slides in different words.",
     "",
     'Return ONLY JSON in this exact shape:',
-    '{"thesis":"...","beats":[{"label":"PARADOX","description":"..."},{"label":"FRICTION","description":"..."},{"label":"MECHANISM","description":"..."},{"label":"GATE","description":"..."}],"slideAssignments":["PARADOX","FRICTION","FRICTION","MECHANISM","MECHANISM","GATE"],"bulletRoles":{"first 60 chars of bullet":"proof|context|veto"}}',
+    '{"thesis":"...","beats":[{"label":"PARADOX","description":"..."},{"label":"FRICTION","description":"..."},{"label":"MECHANISM","description":"..."},{"label":"GATE","description":"..."}],"slideAssignments":["PARADOX","FRICTION","FRICTION","MECHANISM","MECHANISM","GATE"],"bulletRoles":{"first 60 chars of bullet":"proof|context|veto"},"proofAssignments":{"first 60 chars of bullet":3}}',
   ];
   const data = await geminiGenerate(apiKey, {
     contents: [{ parts: [{ text: promptLines.join("\n") }] }],
@@ -1598,10 +1626,31 @@ export async function generateNarrativeSpine({ apiKey, topic, context, clusterDi
     ? parsed.slideAssignments.map(a => String(a || "").trim().toUpperCase()).slice(0, slideCount)
     : [];
   const bulletRoles = (parsed?.bulletRoles && typeof parsed.bulletRoles === "object") ? parsed.bulletRoles : {};
+  const proofAssignments = (parsed?.proofAssignments && typeof parsed.proofAssignments === "object") ? parsed.proofAssignments : {};
   if (!thesis || beats.length < 3 || slideAssignments.length !== slideCount) {
     throw new Error("Malformed spine — missing thesis, beats, or slideAssignments");
   }
-  return { thesis, beats, slideAssignments, bulletRoles };
+  // PROOF DISTINCTNESS ENFORCEMENT — if the outliner assigned two proof
+  // bullets to the same slide, or one proof bullet to two slides, that
+  // violates the deduplication contract that keeps the fill from
+  // paraphrasing. We reject rather than paper over, so the caller either
+  // retries the spine call or falls back to no-spine generation (which
+  // still has RELEVANCE VETO in the fill prompt).
+  const slotToProof = {};
+  const proofToSlot = {};
+  for (const [bulletKey, slotRaw] of Object.entries(proofAssignments)) {
+    const slot = Number(slotRaw);
+    if (!Number.isInteger(slot) || slot < 1 || slot > slideCount) continue;
+    if (slotToProof[slot]) {
+      throw new Error(`Spine PROOF collision: slide ${slot} was assigned two proof bullets ("${slotToProof[slot]}" and "${bulletKey}")`);
+    }
+    if (proofToSlot[bulletKey]) {
+      throw new Error(`Spine PROOF collision: bullet "${bulletKey}" was assigned to two slides (${proofToSlot[bulletKey]} and ${slot})`);
+    }
+    slotToProof[slot] = bulletKey;
+    proofToSlot[bulletKey] = slot;
+  }
+  return { thesis, beats, slideAssignments, bulletRoles, proofAssignments };
 }
 
 // Deterministic CTA stitch — when the operator has set a DM keyword trigger,
@@ -1773,6 +1822,14 @@ export async function polishCarousel({ apiKey, topic, context, voice, sequence, 
     "  for space ('the neighborhood breathes'). These are internet-fiction defaults,",
     "  not observation. Replace with a specific concrete moment: a name, a sound source,",
     "  a real behavior, an actual time of day.",
+    "- CROSS-SLIDE RESTATEMENT BAN — read the draft end-to-end. If any two slides make",
+    "  the SAME CLAIM in different words (a stat paraphrased, a proof restated with new",
+    "  adjectives, the same specific dressed up twice), ONE OF THEM IS WRONG. Rewrite the",
+    "  later occurrence to advance the argument with something the earlier slide did NOT",
+    "  say — a different fact, a different angle, an obstacle, an actor, a mechanism.",
+    "  If you genuinely cannot find a distinct thing to say on the later slide, that slide",
+    "  has no reason to exist — say so plainly in its copy ('More below.' + one sharper",
+    "  line) rather than fill it with a paraphrase.",
     "- The COVER slide must open with a real HOOK — curiosity gap, before→after, a",
     "  number, or a question. Never a bland label like 'First Annual X'.",
     "- Every slide honest (a claim the event actually delivers) and on the CGE voice.",
@@ -1869,11 +1926,21 @@ function registerBlock(mode) {
     "- NO MFA-WORKSHOP PURPLE PROSE. Story does NOT mean sentimental. Banned tropes: 'the sound of silence',",
     "  'felt like a ghost town', 'now it has a pulse', 'the hum of activity', 'the murmur of conversation',",
     "  'the shared breath of a room', 'a pin drop', 'you could hear a heartbeat', 'the air was thick with',",
-    "  'time stood still', body-metaphor for space ('the neighborhood breathes', 'the corridor's heartbeat').",
-    "  These are internet-fiction defaults, not observation. If a slide reads like a creative-writing exercise,",
-    "  rewrite it as a specific concrete moment — a name, a sound source, a real behavior — instead of a mood.",
-    "- Tension comes from SYSTEMS (economics, zoning, logistics, cultural pressure), not from purple adjectives.",
-    "  A story about libraries filling a third-place gap should read like reporting, not eulogy.",
+    "  'time stood still', body-metaphor for space ('the neighborhood breathes', 'the corridor's heartbeat'),",
+    "  '[topic] is dying', 'stitching the community together', 'against the odds', 'the last of its kind'",
+    "  (unless the context contains a documented end-of-something specific), and any variant of 'community",
+    "  in mourning' framing. These are internet-fiction defaults, not observation. If a slide reads like a",
+    "  creative-writing exercise, rewrite it as a specific concrete moment — a name, a sound source, a real",
+    "  behavior — instead of a mood.",
+    "- TENSION IN THIS BRAND MEANS SYSTEMIC PRESSURE. Full stop. The specific sources of tension for CGE are:",
+    "  rent per square foot, permit deadlines, transit gaps and headway, cultural gatekeeping, zoning",
+    "  collision, headcount caps, insurance costs, alcohol quotas, curfew ordinances, sound ordinances,",
+    "  parking economics, gentrification pricing. NEVER narrative death (dying / silence / ghost town / pulse).",
+    "  If your instinct is to eulogize the subject, you are writing the wrong story — the CGE story is that",
+    "  the SYSTEMS are visible and mappable, not that the culture is doomed. A story about libraries filling a",
+    "  third-place gap reads as 'commercial third places cost $18 a drink; the library is free and open till 9'",
+    "  — that is systemic tension. It does NOT read as 'the community was silent until the library opened its",
+    "  doors and gave them a home' — that is eulogy.",
     "- Concrete and honest: real details, real people, real stakes; the story must be true to the event.",
     "- Leans into the News slide and Letter/Manifesto mode — 'here's the story behind it'. Logistics last, if at all.",
     "─────────────────────────────",
@@ -1963,8 +2030,16 @@ function hookFrameworks() {
     "- INFORMATION ASYMMETRY (status play): imply insiders know a secret. \"The one rule we're forcing every single to follow at Friday's mixer…\"",
     "- INCOMPLETE LISTICLE: promise a list, withhold the best item for later slides (\"the boldest one is on the next slide\") — great for multi-slide swipe.",
     "- PATTERN INTERRUPT: open with something jarring, absurd, or a corrected 'lie' that stops autopilot scrolling.",
-    "- LOSS / STAKES FRAME: open on something ending, at risk, or that almost didn't happen — loss aversion hits about twice as hard as any gain-framed hype line. \"This might be the last one…\" / \"We almost lost the venue three times.\" Then the carousel reveals why it matters and how it's being saved. Works for POSITIVE stories too — the near-miss or hidden cost behind a win. Use sparingly: it's a one-time card, not every post, and only when the stakes are REAL (never cry wolf).",
     "- THEN → NOW / NUMBER-ANCHORED / SCENE DETAIL are also fair game when they fit.",
+    "",
+    "CONDITIONAL-ONLY FRAMEWORK (do NOT reach for this by default):",
+    "- LOSS / STAKES FRAME is BANNED unless the CONTEXT contains a documented",
+    "  end-of-something specific — a real closing date, a permit denial, a lease",
+    "  non-renewal, a documented shutdown. If no such specific exists in the material",
+    "  the operator supplied, you MAY NOT open on 'dying', 'the last one', 'ghost town',",
+    "  'silence', 'we almost lost'. Reach for OPEN LOOP, THEN → NOW, or NUMBER-ANCHORED",
+    "  instead. Loss framing without a real loss is manufactured melodrama — the exact",
+    "  failure mode this brand refuses to ship.",
     "Hard rules: the open loop MUST be honestly paid off by the rest of the carousel — tease, never mislead. Match the framework to the vibe: a 2000s throwback, a singles mixer, and a wellness fair each demand a DIFFERENT framework and energy.",
     "─────────────────────────────",
     "",
@@ -1978,7 +2053,7 @@ function hookFrameworks() {
 // the way through. Injected only when there's more than one slide.
 function retentionEngineering(slideCount) {
   return [
-    `RETENTION ENGINEERING — this is a ${slideCount}-slide SWIPE, not ${slideCount} standalone cards. Build it so a reader can't comfortably stop mid-way:`,
+    `INSIDER DISPATCH ARCHITECTURE — this is a ${slideCount}-slide SWIPE, not ${slideCount} standalone cards. You are writing as an ANALYTICAL CURATOR — an insider whose job is to make systems visible, not to entertain. Build the swipe so a reader can't comfortably stop mid-way; do it through concrete specifics and analytical escalation, NOT through sensationalist storytelling. The word 'retention' as it's used in influencer training pattern-matches to BuzzFeed emotional pageant — that is NOT the register here. The register is a local critic's dispatch:`,
     "- THE FORMULA (the backbone every great carousel runs on): OPEN A LOOP → CREATE TENSION → DELIVER",
     "  THE PAYOFF. In beats: Hook curiosity → tell a story → teach a framework / land the concrete takeaway",
     "  → end with action. Curiosity opens it, the story carries it, a real framework or specific makes it",
@@ -2108,13 +2183,21 @@ function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, tem
     const rule = slotPrompts?.[slotType];
     const refBlock = formatSlotReferenceBlock(slotType);
     const refPrefix = refBlock.length ? refBlock.join("\n") + "\n" : "";
-    // Per-slide beat prefix from the narrative spine — reminds the model
-    // AT the slot instruction site (where recency bias is strongest) which
-    // beat this slide is serving, so slot mechanics don't overwhelm arc.
+    // Per-slide beat + proof prefix from the narrative spine — reminds the
+    // model AT the slot instruction site (where recency bias is strongest)
+    // which beat this slide serves AND which single proof bullet (if any)
+    // is reserved for this slide. Reserving proof per-slide is what stops
+    // the paraphrase-across-slides failure mode when material is thin.
     const beatLabel = (narrativeSpine && Array.isArray(narrativeSpine.slideAssignments))
       ? narrativeSpine.slideAssignments[idx]
       : null;
-    const beatPrefix = beatLabel ? `>>> BEAT: ${beatLabel} — this slide advances ONLY this beat, no other. <<<\n` : "";
+    const slideNum = idx + 1;
+    const reservedProof = (narrativeSpine && narrativeSpine.proofAssignments)
+      ? Object.entries(narrativeSpine.proofAssignments).find(([, s]) => Number(s) === slideNum)?.[0]
+      : null;
+    const beatPrefix = beatLabel
+      ? `>>> BEAT: ${beatLabel} — this slide advances ONLY this beat, no other.${reservedProof ? ` Reserved PROOF for this slide: "${reservedProof}..." — this bullet lands HERE and NOWHERE ELSE in the carousel.` : " NO proof bullet is reserved for this slide — do NOT reach for a proof already assigned to another slide; carry the beat with tension, framing, or a specific from context marked 'context' (not 'proof')."} <<<\n`
+      : "";
     if (!rule) {
       return `SLIDE ${idx + 1} (${slotType.toUpperCase()}) — no rule defined; produce reasonable defaults matching brand voice.\n${beatPrefix}${refPrefix}`;
     }
@@ -2137,7 +2220,7 @@ function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, tem
       const ctaTotal = sequence.filter(t => t === "cta").length;
       extra = `\n\nThis is CTA ${ctaIdxAmong} of ${ctaTotal}. Each CTA is a DIRECTORY LISTING for ONE event. ctaKicker stays BLANK. ctaDate slot becomes the EVENT NAME (uppercased big-bold headline of the card). ctaVenue slot is "<venue> · <day> · <time>". ctaUrl is that event's URL or page link. Pick a DIFFERENT event from the context for each CTA — don't repeat. If context lists fewer events than CTAs, invent plausible ones grounded in the topic.`;
     } else if (slotType === "news") {
-      extra = "\n\nNEWS slide — a SUPPORTING explainer beat, not a cover, written in the HIGH-RETENTION format: open a small loop, hold a beat, land the payoff. newsKicker = a 1-3 word eyebrow (BREAKING / THE BACKSTORY / WHY IT MATTERS / THE BIGGER PICTURE). newsHeadline = an optional short heading, or empty. newsBody = SHORT STACKED LINES (one thought per line, single \\n between lines; a blank \\n\\n before the payoff), three-beat rhythm, NOT a dense paragraph and NOT a repeat of the cover — real reported substance. End on ONE payoff line wrapped in *asterisks* so it bolds (exactly one). Every specific must be true; never manufacture drama. newsBold true only for a genuinely urgent breaking beat.";
+      extra = "\n\nNEWS slide — a SUPPORTING explainer beat, not a cover, written in the INSIDER DISPATCH format: open a small loop, hold a beat, land the payoff. newsKicker = a 1-3 word eyebrow (BREAKING / THE BACKSTORY / WHY IT MATTERS / THE BIGGER PICTURE). newsHeadline = an optional short heading, or empty. newsBody = SHORT STACKED LINES (one thought per line, single \\n between lines; a blank \\n\\n before the payoff), three-beat rhythm, NOT a dense paragraph and NOT a repeat of the cover — real reported substance. End on ONE payoff line wrapped in *asterisks* so it bolds (exactly one). Every specific must be true; never manufacture drama. newsBold true only for a genuinely urgent breaking beat.";
     } else if (slotType === "features") {
       // The Features slot is the one most prone to filler because each card is
       // tiny — force concrete promises and a single standout card.
@@ -2258,6 +2341,23 @@ function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, tem
     ] : []),
     `Template sequence (${sequence.length} slides): ${sequence.join(" → ")}`,
     "",
+    // TOP-LEVEL CTA VALUE-EXCHANGE MANDATE — enforced even if the operator's
+    // stored slotPrompts.cta rule is stale or omits the mandate. Covers the
+    // case where an old browser cache still has the legacy "link in bio"
+    // slot prompt and would otherwise reintroduce the passive-CTA failure.
+    ...(sequence.includes("cta") ? [
+      "═════════════════════════════",
+      "CTA VALUE-EXCHANGE MANDATE (top-level rule — overrides any conflicting per-slot instruction):",
+      "The CTA slide is a VALUE-EXCHANGE ASK. It MUST offer the reader a specific unlock in exchange for a specific action.",
+      "BANNED phrasings on any CTA slot (kicker, mainLine, subLine, ctaKicker, ctaDate, ctaVenue): 'link in bio', 'stay tuned', 'stay informed', 'explore', 'pull up' as CTA verb, 'stand with the scene', 'honor the day', 'keep watching', 'keep following', 'keep listening', 'more soon', 'catch us next time'. These are passive redirects, not asks.",
+      "REQUIRED shape: NAME THE ACTION → NAME THE UNLOCK.",
+      "  - kicker/ctaKicker: an insider label (e.g. 'INSIDER ACCESS', 'THE DISPATCH', 'GATE OPEN', 'ON THE LIST') — NEVER 'LINK IN BIO' or 'STAY TUNED'.",
+      "  - mainLine/ctaDate: 3-7 words naming what the reader GETS (an unlisted list, a map, a full breakdown, the invite, the routing).",
+      "  - subLine/ctaVenue: ONE sentence stating the exact ask + the exact unlock ('Comment X below for the full breakdown', 'DM X for the dispatch', 'Save this and tag the friend who needs the map').",
+      "If no specific keyword or link is available in the context, DEFAULT to a save-and-share ask ('Save this — the [thing] drops [when]'), NEVER to a passive redirect.",
+      "═════════════════════════════",
+      "",
+    ] : []),
     "For EACH slide, apply the per-slot rule below. Return ONE big JSON payload.",
     "",
     "─────────────────────────────",

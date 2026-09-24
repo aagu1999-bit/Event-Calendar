@@ -295,24 +295,38 @@ Return JSON ONLY in this exact shape:
 
         cta: `Generate editorial CTA copy for a CGE carousel CLOSER slide.
 
-Requirements:
-- Soft invitation, NEVER "RSVP NOW!!!" or hype.
-- Reference the link directly or imply "link in bio" naturally.
-- Community/curatorial framing — "stand with the scene", "pull up", "honor the day".
-- Match the brand voice (editorial, NJ-first, three-beat sentences welcome).
-- Structure:
-    · kicker: 1-3 word pill (e.g. "LINK IN BIO", "FULL LIST", "STAY TUNED")
-    · mainLine: 3-7 word bold statement
-    · subLine: 1 short sentence (8-15 words)
+The CTA is a VALUE-EXCHANGE ASK. It MUST offer the reader a specific unlock in exchange for a specific action.
 
-Return JSON ONLY in this exact shape (3 different variations):
+BANNED phrasings — NEVER emit any of these:
+- "link in bio" (as kicker OR body copy)
+- "stay tuned", "stay informed", "more soon", "catch us next time"
+- "explore", "explore the network"
+- "pull up" as the CTA verb
+- "stand with the scene", "honor the day", "keep the culture alive"
+- "keep watching / following / listening"
+- any variant of passive redirect that doesn't name what the reader GETS
+
+REQUIRED shape — NAME THE ACTION → NAME THE UNLOCK:
+- kicker: an insider label naming the value type ("INSIDER ACCESS", "THE DISPATCH", "GATE OPEN", "ON THE LIST", "SAVE THIS"). NEVER a passive label.
+- mainLine: 3-7 words naming what the reader gets (an unlisted list, a map, the full breakdown, the invite, the routing).
+- subLine: ONE sentence with the exact ask + the exact unlock. Templates:
+    · "Comment X below for the full breakdown" (when a keyword trigger is set)
+    · "DM X for the dispatch"
+    · "Save this — the [specific thing] drops [when]"
+    · "Save this and tag the friend who needs the map"
+
+If no specific keyword trigger or link is in the context, DEFAULT to a save-and-share ask. NEVER default to a redirect ("link in bio", "more on our page").
+
+Match the brand voice (editorial, NJ-first, direct). No hype ("RSVP NOW!!!"). No exclamation stacks. The ask lands because it names a specific value, not because it shouts.
+
+Return JSON ONLY in this exact shape (3 different variations, each honoring the mandate):
 {"options":[{"kicker":"...","mainLine":"...","subLine":"..."},{...},{...}]}`,
 
         news: `Generate ONE News-slide (supporting explainer) for a CGE editorial carousel.
 
 The News slide is a SUPPORTING beat in the MIDDLE of a carousel — the "here's the story / the backstory / why it matters / breaking update" slide. It's a cream (or dark) news-card block over a photo, and it carries the substance the Cover promised.
 
-WRITE IT IN THE HIGH-RETENTION FORMAT — the same craft that makes a great carousel slide: open a small loop, hold a beat of tension, then land the payoff. NOT a dense paragraph.
+WRITE IT IN THE INSIDER DISPATCH FORMAT — the same craft that makes a great analytical carousel slide: open a small loop, hold a beat of tension, then land the payoff. NOT a dense paragraph. Read as a local critic reporting, not as viral influencer bait.
 - SHORT STACKED LINES, not a wall of prose. One thought per line. Put each line on its own row with a single line break "\\n"; use a blank line "\\n\\n" only to separate the setup from the payoff.
 - THREE-BEAT RHYTHM is a signature ("Dark since 2016. Packed again Saturday."). Punchy, declarative.
 - SETUP → PAYOFF within the slide: the first lines set up a small tension or open a mini-loop; the LAST line delivers the payoff or the "so what". Wrap that ONE payoff line in *asterisks* so it renders bold. Exactly one bold payoff — don't bold everything.
@@ -385,12 +399,19 @@ Return JSON ONLY in this exact shape:
       // content in AI Fill because slotPrompts had no `news` key, so
       // buildTemplatePrompt fell into its "no rule defined" branch). Same
       // drop-slotPrompts move so the new default reaches existing users.
-      // v5 (2026-07): rewrite the `news` rule to the high-retention punchy
+      // v5 (2026-07): rewrite the `news` rule to the insider-dispatch punchy
       // format (short stacked lines, open loop → *bold* payoff). Drop
       // slotPrompts again so the new default reaches existing users.
-      version: 5,
+      // v6 (2026-09): overhaul the `cta` rule for VALUE-EXCHANGE ASK — old
+      // rule explicitly told the model to use "link in bio" as a kicker and
+      // "imply link in bio naturally", which is why every closer slide read
+      // "STAY TUNED / link in bio". New rule mandates NAME THE ACTION → NAME
+      // THE UNLOCK and bans all passive redirects. Drop slotPrompts so the
+      // new default reaches existing users who have the passive rule cached
+      // in localStorage.
+      version: 6,
       migrate: (persisted, version) => {
-        if (version < 5 && persisted && typeof persisted === "object") {
+        if (version < 6 && persisted && typeof persisted === "object") {
           const { slotPrompts, ...rest } = persisted;
           return rest;
         }
