@@ -1465,13 +1465,37 @@ export async function pickTemplate({ apiKey, topic, context, candidates }) {
 //
 // Output: { slides: [{ type, ...slot-fields }, ...] }
 
-export async function generateTemplateFill({ apiKey, sequence, topic, context, voice, slotPrompts, templateMeta, mode, polish = true, letterMode = false, clusterDirective = "", clusterLabel = "", keywordTrigger = null }) {
+export async function generateTemplateFill({ apiKey, sequence, topic, context, voice, slotPrompts, templateMeta, mode, polish = true, letterMode = false, clusterDirective = "", clusterLabel = "", keywordTrigger = null, spine = true }) {
   if (!apiKey) throw new Error("Missing Gemini API key");
   if (!Array.isArray(sequence) || !sequence.length) throw new Error("Missing template sequence");
   if ((!topic || !topic.trim()) && (!context || !context.trim())) throw new Error("Add a topic or event details first");
 
   const today = (() => { try { return new Date().toISOString().slice(0, 10); } catch { return null; } })();
-  const prompt = buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, templateMeta, mode, today, letterMode, clusterDirective, clusterLabel });
+
+  // Narrative spine pre-pass — the outline step a human editor takes before
+  // writing a single slide. Without it the model jumps from raw bullets to
+  // formatted JSON in one call, improvising the argument arc on the fly while
+  // also counting characters and honoring 800 tokens of voice rules. The
+  // spine gives it (and the polish pass) a fixed thesis + Paradox → Friction
+  // → Mechanism → Gate beat map, and it flags which context bullets prove
+  // the thesis vs. which are candidates for the RELEVANCE VETO. Runs at low
+  // temperature for a stable outline; skipped for very short sequences
+  // (single-slot regen, 2-slide teasers) and when the caller opts out.
+  let narrativeSpine = null;
+  if (spine && sequence.length >= 3) {
+    try {
+      narrativeSpine = await generateNarrativeSpine({
+        apiKey, topic, context, clusterDirective, clusterLabel, sequence, mode, today, letterMode,
+      });
+    } catch (e) {
+      // The spine is an assist, not a blocker — if it fails the pipeline
+      // falls back to the pre-spine behavior (one-shot generation).
+      if (typeof console !== "undefined") console.warn("Narrative spine failed, generating without outline:", e?.message || e);
+      narrativeSpine = null;
+    }
+  }
+
+  const prompt = buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, templateMeta, mode, today, letterMode, clusterDirective, clusterLabel, narrativeSpine });
 
   const data = await geminiGenerate(apiKey, {
     contents: [{ parts: [{ text: prompt }] }],
@@ -1499,15 +1523,85 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   // prepend a targeted rewrite instruction to the polish prompt so the editor
   // has a concrete order to follow, not just a vague "escalate" rule.
   const dedupPreamble = buildDedupPreamble(slides);
-  // Critic pass — raise every slide to its quality bar. Falls back to the draft
-  // if the polish call fails or returns the wrong shape, so it never blocks output.
+  // Critic pass — raise every slide to its quality bar. The spine is passed
+  // through so the editor checks arc adherence (is slide N still doing the
+  // beat the outline assigned it?), not just per-slide polish.
   try {
-    const improved = await polishCarousel({ apiKey, topic, context, voice, sequence, slides, mode, today, letterMode, dedupPreamble });
+    const improved = await polishCarousel({ apiKey, topic, context, voice, sequence, slides, mode, today, letterMode, dedupPreamble, narrativeSpine });
     if (Array.isArray(improved) && improved.length === sequence.length) slides = improved;
   } catch (e) {
     if (typeof console !== "undefined") console.warn("Carousel polish failed, returning draft:", e?.message || e);
   }
   return stitchKeywordCta(slides, sequence, keywordTrigger);
+}
+
+// === NARRATIVE SPINE — the outline step (the missing intermediate) ===
+// A human editor never jumps from raw notes to formatted slides in one pass.
+// They first pin down: what's the singular tension, what's the escalation,
+// which facts prove the thesis, which are noise. This function makes the
+// model do that step FIRST, at low temperature, before the high-temperature
+// generation writes copy. The returned spine is threaded into both
+// buildTemplatePrompt and polishCarousel so the arc is fixed BEFORE the
+// pretty writing starts, not improvised while formatting JSON.
+//
+// Uses the operator's four-beat schema by default (Paradox → Friction →
+// Mechanism → Gate) but lets the model adapt the beats when the topic calls
+// for a different arc (e.g., historical → sonic-lineage arcs may run
+// Origin → Break → Legacy → Now). Explicitly asks the model to sort context
+// bullets by role (proves the thesis / macro context / veto candidate) so
+// the fill call gets an authoritative discard list instead of feeling
+// obligated to consume every bullet.
+export async function generateNarrativeSpine({ apiKey, topic, context, clusterDirective, clusterLabel, sequence, mode, today, letterMode }) {
+  const slideCount = sequence.length;
+  const promptLines = [
+    "You are the OUTLINING editor for a CGE Instagram carousel — the step before any copy is written.",
+    "Your job is NOT to write slides. Your job is to pin down the argument arc so the writer can't improvise it on the fly.",
+    "",
+    `Topic: ${topic?.trim() || "(unspecified)"}`,
+    ...(clusterDirective ? [`Cluster: ${clusterLabel || "(cluster)"} — Analytical lens: ${clusterDirective}`] : []),
+    `Register: ${mode || "editorial"}${letterMode ? " (letter/manifesto mode)" : ""}`,
+    `Slide count: ${slideCount}`,
+    ...(today ? [`Today: ${today}`] : []),
+    "",
+    ...(context && context.trim() ? [
+      "Raw context (the writer will draw from these; you decide which serve the thesis and which are noise):",
+      context.trim(),
+      "",
+    ] : []),
+    "Return a spine with:",
+    '  - thesis: ONE sentence naming the singular tension this carousel exposes. Concrete, not abstract. Not a topic ("Diaspora Infrastructure") but a claim ("Newark\'s Portuguese social clubs quietly do what commercial nightlife charges $60 a table for").',
+    "  - beats: an ordered array of 4 beats mapping to slides in this order:",
+    "      1. PARADOX — name the specific conflict/paradox this carousel opens. NO stats, NO conclusions. Sets the tension.",
+    "      2. FRICTION — why the obvious answer fails (commercial cost, zoning, cultural gatekeeping, geographic distance).",
+    "      3. MECHANISM — the unseen infrastructure/venue/collective actually solving it. THIS is where a focused metric lands if one exists.",
+    "      4. GATE — the ask: the specific action or keyword access. Never a limp 'link in bio'.",
+    "    If the topic genuinely calls for a different arc (e.g. sonic-history: ORIGIN → BREAK → LEGACY → NOW), use those beats instead — but keep the count at 4 and the shape identical.",
+    "  - slideAssignments: an array of length equal to slide count. Each entry is the beat label (PARADOX/FRICTION/MECHANISM/GATE — or your adapted labels) that this slide serves. Distribute the beats across the slides (typically the last slide is GATE; the beats spread across the middle).",
+    "  - bulletRoles: object mapping each context bullet (verbatim, first 60 chars as key) to ONE role: 'proof' (proves the thesis, must be used), 'context' (background, may be used), or 'veto' (breaks the argument's geographic/thematic focus — DISCARD, must NOT appear in any slide). Every context bullet must be classified. Be willing to VETO — a bullet from Hasbrouck Heights in a Somerset County carousel is a veto; a bullet about restaurants in a nightlife carousel is a veto.",
+    "",
+    'Return ONLY JSON in this exact shape:',
+    '{"thesis":"...","beats":[{"label":"PARADOX","description":"..."},{"label":"FRICTION","description":"..."},{"label":"MECHANISM","description":"..."},{"label":"GATE","description":"..."}],"slideAssignments":["PARADOX","FRICTION","FRICTION","MECHANISM","MECHANISM","GATE"],"bulletRoles":{"first 60 chars of bullet":"proof|context|veto"}}',
+  ];
+  const data = await geminiGenerate(apiKey, {
+    contents: [{ parts: [{ text: promptLines.join("\n") }] }],
+    generationConfig: { responseMimeType: "application/json", temperature: 0.4 },
+  });
+  const raw = extractResponseText(data);
+  if (!raw) throw new Error("Empty spine response");
+  const parsed = extractJson(raw);
+  const thesis = String(parsed?.thesis || "").trim();
+  const beats = Array.isArray(parsed?.beats) ? parsed.beats.map(b => ({
+    label: String(b?.label || "").trim().toUpperCase(),
+    description: String(b?.description || "").trim(),
+  })).filter(b => b.label && b.description) : [];
+  const slideAssignments = Array.isArray(parsed?.slideAssignments)
+    ? parsed.slideAssignments.map(a => String(a || "").trim().toUpperCase()).slice(0, slideCount)
+    : [];
+  const bulletRoles = (parsed?.bulletRoles && typeof parsed.bulletRoles === "object") ? parsed.bulletRoles : {};
+  if (!thesis || beats.length < 3 || slideAssignments.length !== slideCount) {
+    throw new Error("Malformed spine — missing thesis, beats, or slideAssignments");
+  }
+  return { thesis, beats, slideAssignments, bulletRoles };
 }
 
 // Deterministic CTA stitch — when the operator has set a DM keyword trigger,
@@ -1629,14 +1723,36 @@ function fillSlotShape(t) {
 // that raises EVERY slide to its quality bar (kill filler, make the cover hook,
 // keep facts honest) while preserving each slide's type, order, and JSON shape.
 // Returns the improved slides; throws on failure so the caller falls back to the draft.
-export async function polishCarousel({ apiKey, topic, context, voice, sequence, slides, mode, today, letterMode = false, dedupPreamble = "" }) {
+export async function polishCarousel({ apiKey, topic, context, voice, sequence, slides, mode, today, letterMode = false, dedupPreamble = "", narrativeSpine = null }) {
   if (!apiKey) throw new Error("Missing Gemini API key");
   if (!Array.isArray(slides) || !slides.length) throw new Error("No slides to polish");
 
   const hasVoiceDesc = voice && typeof voice.description === "string" && voice.description.trim();
   const voiceLine = hasVoiceDesc ? `Brand voice: ${voice.description.trim()}` : "";
 
-  const draft = slides.map((s, i) => `SLIDE ${i + 1} (${s?.type || sequence[i]}):\n${JSON.stringify(s)}`).join("\n\n");
+  const draft = slides.map((s, i) => {
+    const beat = (narrativeSpine && Array.isArray(narrativeSpine.slideAssignments))
+      ? narrativeSpine.slideAssignments[i]
+      : null;
+    const beatTag = beat ? ` [BEAT: ${beat}]` : "";
+    return `SLIDE ${i + 1} (${s?.type || sequence[i]})${beatTag}:\n${JSON.stringify(s)}`;
+  }).join("\n\n");
+
+  // Spine block for polish — the editor checks not just per-slide quality
+  // but whether each slide is still serving the beat the outline assigned it.
+  const spineBlock = (narrativeSpine && narrativeSpine.thesis) ? [
+    "═════════════════════════════",
+    "NARRATIVE SPINE THE DRAFT WAS BUILT AGAINST — enforce arc adherence:",
+    `THESIS: ${narrativeSpine.thesis}`,
+    "BEATS:",
+    ...narrativeSpine.beats.map((b, i) => `  ${i + 1}. ${b.label}: ${b.description}`),
+    "",
+    "If a slide labeled PARADOX contains the MECHANISM's metric, MOVE the metric to the mechanism slide and rewrite paradox as tension only.",
+    "If a slide labeled FRICTION states the resolution, rewrite it as the obstacle.",
+    "If a slide restates the thesis instead of advancing its beat, rewrite it to do the beat's actual job.",
+    "═════════════════════════════",
+    "",
+  ] : [];
 
   const prompt = [
     dedupPreamble,
@@ -1651,6 +1767,12 @@ export async function polishCarousel({ apiKey, topic, context, voice, sequence, 
     "  'preserve', 'celebrate', 'showcase', 'highlights the', 'diverse traditions',",
     "  and the whole '-ing verb + abstract noun' pattern. Rewrite to street-level",
     "  cultural dispatch — a moment, a name, a specific detail — not a grant report.",
+    "- KILL MFA-workshop purple prose too: 'the sound of silence', 'felt like a ghost",
+    "  town', 'now it has a pulse', 'the hum of activity', 'the murmur of conversation',",
+    "  'the shared breath of a room', 'a pin drop', 'time stood still', body-metaphor",
+    "  for space ('the neighborhood breathes'). These are internet-fiction defaults,",
+    "  not observation. Replace with a specific concrete moment: a name, a sound source,",
+    "  a real behavior, an actual time of day.",
     "- The COVER slide must open with a real HOOK — curiosity gap, before→after, a",
     "  number, or a question. Never a bland label like 'First Annual X'.",
     "- Every slide honest (a claim the event actually delivers) and on the CGE voice.",
@@ -1680,6 +1802,7 @@ export async function polishCarousel({ apiKey, topic, context, voice, sequence, 
         : ["- REGISTER: EDITORIAL — restrained newsroom confidence. Inform, don't sell."]),
     voiceLine,
     "",
+    ...spineBlock,
     ...(context && context.trim() ? ["Event facts (do NOT invent beyond these):", context.trim(), ""] : []),
     `Topic: ${topic?.trim() || "(unspecified)"}`,
     "",
@@ -1743,6 +1866,14 @@ function registerBlock(mode) {
     "- Arc over facts: set up → tension / stakes → turn → payoff → what it MEANS. Each slide is a BEAT, not a bullet.",
     "- NO MANUFACTURED EMOTION: the feeling must be true to what actually happened. Don't invent 'the room went",
     "  quiet' beats or sentiment the facts don't support — if there's no real emotional turn, tell it plainer.",
+    "- NO MFA-WORKSHOP PURPLE PROSE. Story does NOT mean sentimental. Banned tropes: 'the sound of silence',",
+    "  'felt like a ghost town', 'now it has a pulse', 'the hum of activity', 'the murmur of conversation',",
+    "  'the shared breath of a room', 'a pin drop', 'you could hear a heartbeat', 'the air was thick with',",
+    "  'time stood still', body-metaphor for space ('the neighborhood breathes', 'the corridor's heartbeat').",
+    "  These are internet-fiction defaults, not observation. If a slide reads like a creative-writing exercise,",
+    "  rewrite it as a specific concrete moment — a name, a sound source, a real behavior — instead of a mood.",
+    "- Tension comes from SYSTEMS (economics, zoning, logistics, cultural pressure), not from purple adjectives.",
+    "  A story about libraries filling a third-place gap should read like reporting, not eulogy.",
     "- Concrete and honest: real details, real people, real stakes; the story must be true to the event.",
     "- Leans into the News slide and Letter/Manifesto mode — 'here's the story behind it'. Logistics last, if at all.",
     "─────────────────────────────",
@@ -1936,7 +2067,7 @@ function parseContextBullets(context) {
   return bullets;
 }
 
-function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, templateMeta, mode, today, letterMode = false, clusterDirective = "", clusterLabel = "" }) {
+function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, templateMeta, mode, today, letterMode = false, clusterDirective = "", clusterLabel = "", narrativeSpine = null }) {
   const hasVoiceDesc = voice && typeof voice.description === "string" && voice.description.trim();
   const exemplars = Array.isArray(voice?.exemplars) ? voice.exemplars.filter(e => e && e.trim()) : [];
   const hasExemplars = exemplars.length > 0;
@@ -1977,8 +2108,15 @@ function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, tem
     const rule = slotPrompts?.[slotType];
     const refBlock = formatSlotReferenceBlock(slotType);
     const refPrefix = refBlock.length ? refBlock.join("\n") + "\n" : "";
+    // Per-slide beat prefix from the narrative spine — reminds the model
+    // AT the slot instruction site (where recency bias is strongest) which
+    // beat this slide is serving, so slot mechanics don't overwhelm arc.
+    const beatLabel = (narrativeSpine && Array.isArray(narrativeSpine.slideAssignments))
+      ? narrativeSpine.slideAssignments[idx]
+      : null;
+    const beatPrefix = beatLabel ? `>>> BEAT: ${beatLabel} — this slide advances ONLY this beat, no other. <<<\n` : "";
     if (!rule) {
-      return `SLIDE ${idx + 1} (${slotType.toUpperCase()}) — no rule defined; produce reasonable defaults matching brand voice.\n${refPrefix}`;
+      return `SLIDE ${idx + 1} (${slotType.toUpperCase()}) — no rule defined; produce reasonable defaults matching brand voice.\n${beatPrefix}${refPrefix}`;
     }
     let extra = "";
     if (letterMode) {
@@ -2005,7 +2143,7 @@ function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, tem
       // tiny — force concrete promises and a single standout card.
       extra = `\n\nFEATURES: give 3-5 cards. Each card is ONE concrete, specific promise — name the REAL thing (the actual DJ, the exact activity, the real giveaway/prize, the specific format), never a vague benefit. BAN 'good vibes', 'great music', 'fun for all', 'something for everyone', 'good food'. headline = 2-4 punchy words; sub = one concrete detail (a name, a time, a number). Set featured:true on exactly ONE card — the single biggest draw (the headliner / the giveaway) — and featured:false on the rest. Still give each card an apt emoji in case the icon style is used.`;
     }
-    return `SLIDE ${idx + 1} (${slotType.toUpperCase()}):\n${refPrefix}${rule}${extra}`;
+    return `SLIDE ${idx + 1} (${slotType.toUpperCase()}):\n${beatPrefix}${refPrefix}${rule}${extra}`;
   }).join("\n\n─────────────────────────────\n\n");
 
   const purposeBlock = formatTemplatePurposeBlock(templateMeta);
@@ -2056,6 +2194,30 @@ function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, tem
       "═════════════════════════════",
       "",
     ] : []),
+    // NARRATIVE SPINE — the outline the model must follow. Rendered as its
+    // own top-level block above topic + context so the beat map anchors the
+    // model's attention before the raw material lands. Each slide gets a
+    // per-slide beat label injected into slotInstructionBlock (see below).
+    ...(narrativeSpine && narrativeSpine.thesis ? [
+      "═════════════════════════════",
+      "NARRATIVE SPINE — the outline every slide must serve. Do NOT improvise a different arc:",
+      "",
+      `THESIS: ${narrativeSpine.thesis}`,
+      "",
+      "BEATS (in order):",
+      ...narrativeSpine.beats.map((b, i) => `  ${i + 1}. ${b.label}: ${b.description}`),
+      "",
+      "SLIDE-TO-BEAT ASSIGNMENT — each slide serves ONE beat and only that beat:",
+      ...narrativeSpine.slideAssignments.map((a, i) => `  Slide ${i + 1}: ${a}`),
+      "",
+      "Rules that follow from the spine:",
+      "- Do not restate the thesis on every slide — the thesis is the frame, not the copy. Each slide advances ONE beat.",
+      "- A slide labeled PARADOX must NOT contain the metric that belongs to MECHANISM. Hold the number.",
+      "- A slide labeled FRICTION must name the OBSTACLE, not the resolution. If you write the resolution here, you've written the wrong beat.",
+      "- A slide labeled GATE ends the arc; it is the ask, not another explainer.",
+      "═════════════════════════════",
+      "",
+    ] : []),
     ...variationDirective(),
     ...((topic && topic.trim()) ? [`Carousel topic: ${topic.trim()}`, ""] : []),
     ...(context && context.trim() ? [
@@ -2065,22 +2227,33 @@ function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, tem
       "─────────────────────────────",
       "",
     ] : []),
-    // Atomic-mapping guardrail: when the context is a matrix-shaped set
-    // of dashed bullets (from CuratorialMatrixModal's Preview Carousel
-    // handoff, or any caller that hand-writes bullets), teach the model
-    // to spread them across slots 1:1 rather than combining them onto
-    // a single slide. Only fires when the sequence actually has slots
-    // that carry atomic facts (text, spotlight, stat).
-    ...(atomicBullets.length && atomicSlotCount ? [
-      `ATOMIC MAPPING — the Context above contains ${atomicBullets.length} bulleted data point${atomicBullets.length === 1 ? "" : "s"}. Each is a self-contained fact. This carousel's sequence has ${atomicSlotCount} slot${atomicSlotCount === 1 ? "" : "s"} of type TEXT / SPOTLIGHT / STAT that can carry them.`,
-      `- Map ONE bullet per atomic slot as its primary content. Do NOT concatenate two bullets on the same slide.`,
-      `- ${atomicBullets.length > atomicSlotCount
-        ? `You have MORE bullets (${atomicBullets.length}) than atomic slots (${atomicSlotCount}). Pick the ${atomicSlotCount} strongest — the ones with the most concrete specifics — and skip the rest.`
-        : atomicBullets.length < atomicSlotCount
-        ? `You have FEWER bullets (${atomicBullets.length}) than atomic slots (${atomicSlotCount}). Fill the remaining ${atomicSlotCount - atomicBullets.length} slot${atomicSlotCount - atomicBullets.length === 1 ? "" : "s"} with implicit specifics that STAY HONEST to the POV — never invent a fact the operator didn't imply.`
-        : `You have EXACTLY ${atomicBullets.length} bullets for ${atomicSlotCount} atomic slots — one per slot, in the order that best carries the story arc (not necessarily the order they're listed).`}`,
-      "",
-      "─────────────────────────────",
+    // RELEVANCE VETO — architectural override to the "Kitchen Sink" heuristic.
+    // The old ATOMIC MAPPING rule instructed the model to consume every bullet
+    // in the context, which is how a Hasbrouck Heights stat ended up in a
+    // Somerset County carousel. The bot was following orders. Now: the model
+    // is explicitly given permission (and required) to DISCARD bullets that
+    // break geographic or argumentative focus. When a narrative spine is
+    // available, the spine's bulletRoles map is the authoritative discard
+    // list.
+    ...(atomicBullets.length ? [
+      "═════════════════════════════",
+      `RELEVANCE VETO — the Context above contains ${atomicBullets.length} bullet${atomicBullets.length === 1 ? "" : "s"}. You are NOT required to use every one.`,
+      "- If a bullet contradicts the primary geographic corridor (e.g. a Hasbrouck Heights bullet in a Somerset-focused carousel), DISCARD IT.",
+      "- If a bullet introduces an unrelated municipality, an off-cluster subject, or breaks the argument's focus, DISCARD IT.",
+      "- If a bullet is macro context (background you don't need to state), DISCARD IT — hold it in your head as framing only.",
+      "- Use ONLY bullets that PROVE THE THESIS. It is BETTER to use 2 bullets that build one argument than to distribute 4 bullets across 6 slides just to consume them all.",
+      "- Do NOT restate the same bullet across multiple slides in different words. One bullet earns one moment, then the argument moves on.",
+      ...(narrativeSpine && narrativeSpine.bulletRoles && Object.keys(narrativeSpine.bulletRoles).length ? (() => {
+        const vetoed = Object.entries(narrativeSpine.bulletRoles).filter(([, r]) => String(r || "").toLowerCase() === "veto").map(([k]) => k);
+        const proof = Object.entries(narrativeSpine.bulletRoles).filter(([, r]) => String(r || "").toLowerCase() === "proof").map(([k]) => k);
+        return [
+          "",
+          "OUTLINE-ASSIGNED BULLET ROLES (authoritative — the outline pass already sorted these):",
+          ...proof.map(k => `  PROOF (use this): ${k}...`),
+          ...vetoed.map(k => `  VETO (do NOT use this — it breaks the arc): ${k}...`),
+        ];
+      })() : []),
+      "═════════════════════════════",
       "",
     ] : []),
     `Template sequence (${sequence.length} slides): ${sequence.join(" → ")}`,
