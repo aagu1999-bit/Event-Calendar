@@ -349,6 +349,9 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
         // Single-slot regen must NOT stitch — the operator is redoing one
         // slide, not asking for the deterministic keyword-CTA replacement.
         keywordTrigger: null,
+        // Skip the narrative-spine pre-pass on a single-slot regen — the
+        // outline exists to structure a whole carousel, not one slide.
+        spine: false,
       });
       const fresh = Array.isArray(result) && result[0] ? result[0] : null;
       if (!fresh) throw new Error("No slide returned");
