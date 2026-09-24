@@ -281,6 +281,7 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
           pov: local.editorial_pov || "",
           existingBullets: bullets,
           tier: local.event_tier || "",
+          corridor: local.corridor || "",
         }),
       });
       const j = await r.json().catch(() => ({}));

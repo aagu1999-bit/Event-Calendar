@@ -27,7 +27,7 @@ const CONTEXT_SCAFFOLD = [
 //   onClose()
 //   onAccept(slides)   — slides array matching the template's sequence
 
-export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTopic = "", initialContext = "", initialArrange = false, initialRegister = null, onClose, onAccept }) {
+export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTopic = "", initialContext = "", initialArrange = false, initialRegister = null, initialClusterDirective = "", initialClusterLabel = "", initialKeywordTrigger = null, onClose, onAccept }) {
   const voice = useBrandStore((s) => s.voice);
   const slotPrompts = useBrandStore((s) => s.slotPrompts);
   const addExemplar = useBrandStore((s) => s.addExemplar);
@@ -276,6 +276,11 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
         templateMeta: useTemplate,
         mode,
         letterMode,
+        // Compass override: cluster directive as its own top-level block +
+        // deterministic keyword-trigger stitch on the final CTA slot.
+        clusterDirective: initialClusterDirective,
+        clusterLabel: initialClusterLabel,
+        keywordTrigger: initialKeywordTrigger,
       });
       setSlides(result);
     } catch (err) {
@@ -339,6 +344,11 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
         mode,
         polish: false,
         letterMode,
+        clusterDirective: initialClusterDirective,
+        clusterLabel: initialClusterLabel,
+        // Single-slot regen must NOT stitch — the operator is redoing one
+        // slide, not asking for the deterministic keyword-CTA replacement.
+        keywordTrigger: null,
       });
       const fresh = Array.isArray(result) && result[0] ? result[0] : null;
       if (!fresh) throw new Error("No slide returned");

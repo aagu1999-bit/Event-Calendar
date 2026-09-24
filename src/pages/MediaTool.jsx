@@ -3479,7 +3479,7 @@ export default function MediaTool() {
   // Seed for AI Fill Template. Set by the News Scout's "Build carousel" so the
   // modal opens pre-filled with a story (and AI-arrange on); the plain ✨ AI
   // Fill button clears it so it opens blank.
-  const [aiFillSeed, setAiFillSeed] = useState({ topic: "", context: "", arrange: false, register: null, templateId: null });
+  const [aiFillSeed, setAiFillSeed] = useState({ topic: "", context: "", arrange: false, register: null, templateId: null, clusterDirective: "", clusterLabel: "", keywordTrigger: null });
   // Scout → Media handoff AND Matrix → Media handoff: whenever a seed lands in
   // the store, open AI Fill pre-filled with it (arrange on). Watching the
   // store's `seed` field (not just running on mount) matters when the operator
@@ -3499,6 +3499,9 @@ export default function MediaTool() {
         arrange: seed.arrange !== false,
         register: seed.register || null,
         templateId: seed.templateId || null,
+        clusterDirective: seed.clusterDirective || "",
+        clusterLabel: seed.clusterLabel || "",
+        keywordTrigger: seed.keywordTrigger || null,
       });
       setAiFillOpen(true);
     }
@@ -7677,6 +7680,9 @@ export default function MediaTool() {
         initialContext={aiFillSeed.context}
         initialArrange={aiFillSeed.arrange}
         initialRegister={aiFillSeed.register}
+        initialClusterDirective={aiFillSeed.clusterDirective}
+        initialClusterLabel={aiFillSeed.clusterLabel}
+        initialKeywordTrigger={aiFillSeed.keywordTrigger}
         onClose={() => setAiFillOpen(false)}
         onAccept={onAiTemplateAccept}
       />

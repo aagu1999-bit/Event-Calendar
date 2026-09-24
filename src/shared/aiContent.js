@@ -1465,13 +1465,13 @@ export async function pickTemplate({ apiKey, topic, context, candidates }) {
 //
 // Output: { slides: [{ type, ...slot-fields }, ...] }
 
-export async function generateTemplateFill({ apiKey, sequence, topic, context, voice, slotPrompts, templateMeta, mode, polish = true, letterMode = false }) {
+export async function generateTemplateFill({ apiKey, sequence, topic, context, voice, slotPrompts, templateMeta, mode, polish = true, letterMode = false, clusterDirective = "", clusterLabel = "", keywordTrigger = null }) {
   if (!apiKey) throw new Error("Missing Gemini API key");
   if (!Array.isArray(sequence) || !sequence.length) throw new Error("Missing template sequence");
   if ((!topic || !topic.trim()) && (!context || !context.trim())) throw new Error("Add a topic or event details first");
 
   const today = (() => { try { return new Date().toISOString().slice(0, 10); } catch { return null; } })();
-  const prompt = buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, templateMeta, mode, today, letterMode });
+  const prompt = buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, templateMeta, mode, today, letterMode, clusterDirective, clusterLabel });
 
   const data = await geminiGenerate(apiKey, {
     contents: [{ parts: [{ text: prompt }] }],
@@ -1485,20 +1485,123 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
 
   const parsed = extractJson(raw);
 
-  const slides = Array.isArray(parsed?.slides) ? parsed.slides : [];
+  let slides = Array.isArray(parsed?.slides) ? parsed.slides : [];
   if (slides.length !== sequence.length) {
     throw new Error(`Expected ${sequence.length} slides, got ${slides.length}`);
   }
-  if (!polish) return slides;
+  if (!polish) {
+    // Even without polish, honor the deterministic CTA stitch — it's about
+    // removing LLM drift on the ask, not about editorial quality.
+    return stitchKeywordCta(slides, sequence, keywordTrigger);
+  }
+  // Deterministic pre-polish dedup: scan adjacent slides for a shared numeric
+  // token (a "1 in 5", "$1M", "28.5%", "1979", etc.). If any is repeated,
+  // prepend a targeted rewrite instruction to the polish prompt so the editor
+  // has a concrete order to follow, not just a vague "escalate" rule.
+  const dedupPreamble = buildDedupPreamble(slides);
   // Critic pass — raise every slide to its quality bar. Falls back to the draft
   // if the polish call fails or returns the wrong shape, so it never blocks output.
   try {
-    const improved = await polishCarousel({ apiKey, topic, context, voice, sequence, slides, mode, today, letterMode });
-    if (Array.isArray(improved) && improved.length === sequence.length) return improved;
+    const improved = await polishCarousel({ apiKey, topic, context, voice, sequence, slides, mode, today, letterMode, dedupPreamble });
+    if (Array.isArray(improved) && improved.length === sequence.length) slides = improved;
   } catch (e) {
     if (typeof console !== "undefined") console.warn("Carousel polish failed, returning draft:", e?.message || e);
   }
-  return slides;
+  return stitchKeywordCta(slides, sequence, keywordTrigger);
+}
+
+// Deterministic CTA stitch — when the operator has set a DM keyword trigger,
+// the LLM has no reserved slot for it and generates a limp "link in bio"
+// fallback (or invents an @handle it wasn't told about). We replace the FINAL
+// slide in code IFF the sequence ends in a `cta` slot and a trigger is set.
+//
+// The CTA render contract (see renderCTA in MediaTool.jsx) uses four fields:
+//   ctaKicker → uppercased top pill
+//   ctaDate   → biggest centered text (multi-line via \n)
+//   ctaVenue  → subtitle text (wraps if long)
+//   ctaUrl    → accent-colored link line
+// The operator spec used aspirational `headline`/`textBody` field names for
+// this stitch — we map their intent to the actual four fields so the slide
+// actually renders. If the final slot isn't `cta`, we don't stitch (a
+// features/news ending would break under a forced replacement).
+function stitchKeywordCta(slides, sequence, keywordTrigger) {
+  if (!Array.isArray(slides) || !slides.length) return slides;
+  const trigger = String(keywordTrigger || "").trim().toUpperCase();
+  if (!trigger) return slides;
+  const lastIdx = sequence.length - 1;
+  if (sequence[lastIdx] !== "cta") return slides;
+  const stitched = slides.slice();
+  stitched[lastIdx] = {
+    type: "cta",
+    ctaKicker: "INSIDER ACCESS",
+    ctaDate: "GET THE UNLISTED\nMAP & DISPATCH",
+    ctaVenue: `Comment "${trigger}" below and we'll DM you the full breakdown + direct ticket access.`,
+    ctaUrl: "centralgroupevents.com",
+  };
+  return stitched;
+}
+
+// Pull "numeric tokens" out of a slide's copy — the class of specifics most
+// likely to visibly repeat across adjacent slides ("1 in 5", "$1M", "28.5%",
+// "1979", "150-cap", "1:3,000", etc.). Returns lower-cased strings for cheap
+// set comparison. Deliberately narrow: we're catching visible duplication a
+// reader would notice, not chasing every noun.
+function extractNumericTokens(slide) {
+  if (!slide || typeof slide !== "object") return [];
+  const parts = [];
+  for (const v of Object.values(slide)) {
+    if (typeof v === "string") parts.push(v);
+    else if (Array.isArray(v)) {
+      for (const inner of v) {
+        if (typeof inner === "string") parts.push(inner);
+        else if (inner && typeof inner === "object") {
+          for (const iv of Object.values(inner)) if (typeof iv === "string") parts.push(iv);
+        }
+      }
+    }
+  }
+  const text = parts.join(" \n ");
+  const tokens = new Set();
+  const patterns = [
+    /\d+\s*(?:in|of)\s*\d+/gi,        // "1 in 5", "3 of 10"
+    /\d+\s*:\s*[\d,]+/g,               // "1:3,000"
+    /\$\s*[\d.,]+\s*(?:M|B|K)?/gi,     // "$1M", "$500K", "$1.2B"
+    /[\d.]+\s*%/g,                     // "28.5%", "20 %"
+    /\d{4}(?!\d)/g,                    // years like "1979", "2026"
+    /\d+[-–]\s*(?:cap|seat|room|person|people|year|hour|min)\w*/gi, // "150-cap", "10-year"
+    /\d[\d,]*\s+(?:towns|cities|venues|municipalities|residents|businesses|clubs|people|attendees)/gi,
+  ];
+  for (const re of patterns) {
+    const matches = text.match(re) || [];
+    for (const m of matches) tokens.add(m.trim().toLowerCase().replace(/\s+/g, " "));
+  }
+  return Array.from(tokens);
+}
+
+// Compare adjacent slides for a shared numeric token; when one repeats,
+// build a targeted rewrite preamble that names the exact token and the
+// exact slide index that must drop it. Returns "" when nothing repeats,
+// so the polish pass runs with its normal prompt.
+export function buildDedupPreamble(slides) {
+  if (!Array.isArray(slides) || slides.length < 2) return "";
+  const lines = [];
+  const tokensPerSlide = slides.map(extractNumericTokens);
+  for (let i = 1; i < slides.length; i++) {
+    const prev = new Set(tokensPerSlide[i - 1]);
+    for (const t of tokensPerSlide[i]) {
+      if (prev.has(t)) {
+        lines.push(`CRITICAL DEDUP: Slide ${i + 1} repeated "${t}" from Slide ${i}. Rewrite Slide ${i + 1} WITHOUT using "${t}" — pick a DIFFERENT specific from the context, or a ground-level observation that continues the thread without restating the same number.`);
+      }
+    }
+  }
+  if (!lines.length) return "";
+  return [
+    "═════════════════════════════",
+    "PRE-POLISH DEDUP INSTRUCTIONS — these take precedence over anything else in this prompt:",
+    ...lines,
+    "═════════════════════════════",
+    "",
+  ].join("\n");
 }
 
 // The per-slide JSON shape the Template Fill (and its critic pass) must return
@@ -1526,7 +1629,7 @@ function fillSlotShape(t) {
 // that raises EVERY slide to its quality bar (kill filler, make the cover hook,
 // keep facts honest) while preserving each slide's type, order, and JSON shape.
 // Returns the improved slides; throws on failure so the caller falls back to the draft.
-export async function polishCarousel({ apiKey, topic, context, voice, sequence, slides, mode, today, letterMode = false }) {
+export async function polishCarousel({ apiKey, topic, context, voice, sequence, slides, mode, today, letterMode = false, dedupPreamble = "" }) {
   if (!apiKey) throw new Error("Missing Gemini API key");
   if (!Array.isArray(slides) || !slides.length) throw new Error("No slides to polish");
 
@@ -1536,12 +1639,18 @@ export async function polishCarousel({ apiKey, topic, context, voice, sequence, 
   const draft = slides.map((s, i) => `SLIDE ${i + 1} (${s?.type || sequence[i]}):\n${JSON.stringify(s)}`).join("\n\n");
 
   const prompt = [
+    dedupPreamble,
     "You are a ruthless CGE editor reviewing a DRAFT Instagram carousel before it",
     "ships. Raise EVERY slide to the quality bar, then return the full carousel.",
     "",
     "QUALITY BAR:",
     "- Concrete over generic. KILL filler: 'educate/inspire/uplift', 'for all',",
     "  'something for everyone', 'come out and enjoy', 'delicious food', 'great vibes'.",
+    "- KILL civic-grant / nonprofit register too: 'authentic cultural spaces',",
+    "  'keep diverse traditions alive', 'outside the mainstream', 'vibrant community',",
+    "  'preserve', 'celebrate', 'showcase', 'highlights the', 'diverse traditions',",
+    "  and the whole '-ing verb + abstract noun' pattern. Rewrite to street-level",
+    "  cultural dispatch — a moment, a name, a specific detail — not a grant report.",
     "- The COVER slide must open with a real HOOK — curiosity gap, before→after, a",
     "  number, or a question. Never a bland label like 'First Annual X'.",
     "- Every slide honest (a claim the event actually delivers) and on the CGE voice.",
@@ -1579,8 +1688,18 @@ export async function polishCarousel({ apiKey, topic, context, voice, sequence, 
     draft,
     "",
     "Rules: keep the SAME number of slides in the SAME order, and each slide's SAME",
-    "type + JSON fields. Rewrite only the copy. Don't invent events or facts not in",
-    "the context. Return JSON ONLY (no fences, no prose) in this exact shape:",
+    "type + JSON fields. Rewrite only the copy.",
+    "INVENTION LIMITS (split by category):",
+    "  - You MAY NOT invent NUMBERS, DATES, PRICES, PROPER NAMES, CITED FACTS,",
+    "    STREET NAMES, CROSS-STREETS, or VENUE NAMES that aren't in the context.",
+    "    These are the load-bearing specifics; the operator has to be able to vouch",
+    "    for them. Never invent one.",
+    "  - You SHOULD add SENSORY / ATMOSPHERIC TEXTURE when a slide reads abstract:",
+    "    basslines, late-night door energy, the way a corridor sounds at 11pm,",
+    "    what people are actually wearing / drinking / doing. Consistent with the",
+    "    cluster + corridor, never a fabricated fact. This is what pulls the copy",
+    "    out of civic-report register and into cultural dispatch.",
+    "Return JSON ONLY (no fences, no prose) in this exact shape:",
     `{"slides":[${sequence.map(fillSlotShape).join(",")}]}`,
   ].join("\n");
 
@@ -1697,6 +1816,14 @@ function creativeDirection() {
 // IG carousels. Injected only when the generation involves a cover.
 function hookFrameworks() {
   return [
+    "COVER SLIDE MANDATE — read before picking a framework:",
+    "A statistic is NEVER a hook by itself. Slide 1 must tease the UNSPOKEN REALITY,",
+    "PARADOX, or TENSION behind the number — not the number itself. If the source",
+    "material is 'X% of Y', the cover names what that number MEANS at street level,",
+    "and holds the number itself back for a later slide. A number on the cover is a",
+    "flat report; a paradox on the cover is a swipe.",
+    "─────────────────────────────",
+    "",
     "COVER HOOK FRAMEWORKS — pick the one that fits THIS event's genre; rotate across posts, never reuse the same one every time:",
     "- TEASED OUTCOME: a setup + a withheld payoff. \"We're playing ONE song at midnight that will officially cause a noise complaint…\"",
     "- THE 'WHY' HOOK: name a behavior, promise the reason. \"The [group] does [action] — here's exactly why.\"",
@@ -1745,6 +1872,12 @@ function retentionEngineering(slideCount) {
     "- ESCALATE. Each slide raises the stakes, specificity, or surprise over the one before —",
     "  never a flat list of equal-weight facts. Order the beats small→big, ordinary→wild, so",
     "  momentum builds toward the end instead of peaking early.",
+    "- SLIDE 2 IS STRICTLY FORBIDDEN from reusing the primary statistic, phrase, or",
+    "  named specific from Slide 1. Slide 2's job is to introduce FRICTION or the",
+    "  ground obstacle — the wall, the constraint, the trap — that makes the cover's",
+    "  tease worth swiping into. If you catch yourself restating slide 1's number in a",
+    "  longer sentence, you've written the wrong slide 2: throw it out and write the",
+    "  obstacle instead.",
     "- THE 'AND?' TEST: after each middle slide the reader should think 'okay… and?'. If a",
     "  slide leaves them fully satisfied with nothing left to wonder, it's in the wrong spot",
     "  or it gave away too much — move the reveal later.",
@@ -1803,7 +1936,7 @@ function parseContextBullets(context) {
   return bullets;
 }
 
-function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, templateMeta, mode, today, letterMode = false }) {
+function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, templateMeta, mode, today, letterMode = false, clusterDirective = "", clusterLabel = "" }) {
   const hasVoiceDesc = voice && typeof voice.description === "string" && voice.description.trim();
   const exemplars = Array.isArray(voice?.exemplars) ? voice.exemplars.filter(e => e && e.trim()) : [];
   const hasExemplars = exemplars.length > 0;
@@ -1907,6 +2040,22 @@ function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, tem
     ...(sequence.length > 2 ? retentionEngineering(sequence.length) : []),
     ...(letterMode ? letterModeBlock() : []),
     ...registerBlock(mode),
+    // CLUSTER DIRECTIVE — promoted to its own top-level block AFTER
+    // registerBlock and BEFORE context. This is the architectural override:
+    // the directive is a VOICE + FRAMING constraint on every slide, not a
+    // topic filter buried in a context footnote. Anchored by a visible
+    // separator so Gemini can't miss it.
+    ...(clusterDirective && clusterDirective.trim() ? [
+      "═════════════════════════════",
+      `CLUSTER DIRECTIVE${clusterLabel ? ` — ${clusterLabel}` : ""}:`,
+      clusterDirective.trim(),
+      "",
+      "This directive is a VOICE + FRAMING constraint on EVERY slide, not just a topic filter.",
+      "Do NOT adopt academic, grant-application, or civic-report register even when the source",
+      "bullets below arrive in that register — translate them into street-level cultural dispatch.",
+      "═════════════════════════════",
+      "",
+    ] : []),
     ...variationDirective(),
     ...((topic && topic.trim()) ? [`Carousel topic: ${topic.trim()}`, ""] : []),
     ...(context && context.trim() ? [
