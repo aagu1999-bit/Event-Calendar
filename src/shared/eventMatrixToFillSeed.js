@@ -9,6 +9,7 @@
 // point, not a lock.
 
 import { EVENT_TIERS } from "./matrixEnums.js";
+import { getClusterDirective, getClusterLabel } from "./matrixCompass.js";
 
 // Register (mode) mapping — matches the state variable `mode` in
 // AiTemplateFillModal. Valid values: "promo", "editorial", "story".
@@ -69,11 +70,21 @@ export function eventMatrixToFillSeed(event) {
   // event name in a pinch.
   const topic = hookA || String(event.name || "").trim() || "";
 
-  // Context is structured: POV on top, then a blank line, then one
-  // dashed bullet per data point. Consistent format across seed calls
-  // means the prompt-assembly rules can rely on it later.
+  // Context is structured: CLUSTER DIRECTIVE first (so Gemini adopts the
+  // Compass analytical lens for the whole carousel), then POV, then a
+  // blank line, then one dashed bullet per data point. Consistent
+  // format across seed calls means the prompt-assembly rules can rely
+  // on it later.
+  const clusterDirective = getClusterDirective(m.cluster);
+  const clusterLabel = m.cluster ? (getClusterLabel(m.cluster) || m.cluster) : "";
   const contextLines = [];
-  if (pov) contextLines.push(`POV: ${pov}`);
+  if (clusterDirective) {
+    contextLines.push(`CLUSTER DIRECTIVE (${clusterLabel} — adopt this analytical lens for every slide): ${clusterDirective}`);
+  }
+  if (pov) {
+    if (contextLines.length) contextLines.push("");
+    contextLines.push(`POV: ${pov}`);
+  }
   if (bullets.length) {
     if (contextLines.length) contextLines.push("");
     for (const b of bullets) contextLines.push(`- ${b}`);

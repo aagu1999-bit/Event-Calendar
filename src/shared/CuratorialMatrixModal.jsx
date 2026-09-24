@@ -4,10 +4,17 @@ import { useNavigate } from "react-router-dom";
 import { useEventsStore, useCarouselSeedStore } from "../store.js";
 import {
   EVENT_TIERS, EVENT_TIER_ORDER,
-  CORRIDORS, CLUSTERS, EMOTIONS, DEMOGRAPHIC_PRESETS,
+  CORRIDORS, LEGACY_CORRIDOR_ALIASES,
+  EMOTIONS, DEMOGRAPHIC_PRESETS, LEGACY_DEMOGRAPHIC_ALIASES,
   PIPELINE_STATUS, PIPELINE_STATUS_ORDER,
   LIMITS,
 } from "./matrixEnums.js";
+import {
+  CONTENT_CLUSTER_LIST,
+  resolveClusterKey,
+  getClusterDirective,
+  COMPASS_TOPICS,
+} from "./matrixCompass.js";
 import { validateMatrix, matrixCompleteness, isMatrixReadyForGeneration } from "./matrixValidation.js";
 import { eventMatrixToFillSeed } from "./eventMatrixToFillSeed.js";
 
@@ -51,11 +58,15 @@ const warnBg = "rgba(251,191,36,0.14)";
 // string; new records use string[]. Both flow through this one place so
 // every consumer sees the same shape.
 function normalizeDemographic(raw) {
-  if (Array.isArray(raw)) return raw.map((s) => String(s || "").trim()).filter(Boolean);
-  if (typeof raw === "string" && raw.trim()) {
-    return raw.split(/[,;]/).map((s) => s.trim()).filter(Boolean);
-  }
-  return [];
+  let list;
+  if (Array.isArray(raw)) list = raw.map((s) => String(s || "").trim()).filter(Boolean);
+  else if (typeof raw === "string" && raw.trim()) list = raw.split(/[,;]/).map((s) => s.trim()).filter(Boolean);
+  else list = [];
+  // Fold any legacy long-form label to its canonical short form so a
+  // record saved before the Compass rename doesn't render a duplicate
+  // chip next to its aliased twin.
+  const aliased = list.map((v) => LEGACY_DEMOGRAPHIC_ALIASES[v] || v);
+  return Array.from(new Set(aliased));
 }
 
 // Custom demographics the operator has typed in past sessions live in
@@ -169,6 +180,12 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
   // editing; a string = the pending edit buffer.
   const [nameEdit, setNameEdit] = useState(null);
 
+  // 🧭 Topic Compass — collapsed by default so the modal doesn't get
+  // taller than the operator's screen. Click to expand a seed-topic
+  // shelf; clicking a seed one-shots cluster/corridor/hook/emotion/
+  // demographic into the local matrix.
+  const [compassOpen, setCompassOpen] = useState(false);
+
   // Demographic multi-select state — presets are static, custom values
   // load from localStorage and grow via + Add Custom.
   const [customDemographics, setCustomDemographics] = useState(() => loadCustomDemographics());
@@ -189,6 +206,7 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
     setNameEdit(null);
     setDemographicInput("");
     setAddingDemographic(false);
+    setCompassOpen(false);
   }, [event?.id]);
 
   const applyPatch = (patch) => {
@@ -328,6 +346,31 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
   const allDemographicPresets = [...DEMOGRAPHIC_PRESETS,
     ...customDemographics.filter((c) => !DEMOGRAPHIC_PRESETS.includes(c))];
 
+  // Apply a Compass seed topic — writes cluster (as canonical KEY),
+  // corridor, hook_a_side, target_emotion, and demographics in one
+  // patch. Anything already filled by the operator is preserved unless
+  // the seed explicitly sets it; the seed is a starting point, not a
+  // reset. Closes the drawer after so the operator can keep editing.
+  const applyCompassTopic = (topic) => {
+    if (!topic) return;
+    const patch = {};
+    const clusterKey = resolveClusterKey(topic.cluster);
+    if (clusterKey) patch.cluster = clusterKey;
+    if (topic.corridor) patch.corridor = topic.corridor;
+    if (topic.suggestedHook) patch.hook_a_side = topic.suggestedHook;
+    if (topic.targetEmotion) patch.target_emotion = topic.targetEmotion;
+    if (Array.isArray(topic.demographics) && topic.demographics.length) {
+      // Merge (not replace) — keep anything the operator already added.
+      const merged = Array.from(new Set([
+        ...selectedDemographics,
+        ...topic.demographics.filter(Boolean),
+      ]));
+      patch.target_demographic = merged;
+    }
+    applyPatch(patch);
+    setCompassOpen(false);
+  };
+
   // Save the inline-edited name to the store.
   const commitNameEdit = () => {
     if (nameEdit == null) return;
@@ -441,6 +484,94 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
         {/* Body */}
         <div style={{ padding: 22, display: "flex", flexDirection: "column", gap: 22 }}>
 
+          {/* 🧭 Topic Compass — one-tap seed topics that fill cluster + corridor
+              + hook + emotion + demographics from the operator's own beat board.
+              Collapsed by default to keep the modal short. */}
+          <div style={{
+            border: `1px solid ${compassOpen ? orbit : whisper}`,
+            borderRadius: 8,
+            background: compassOpen ? "rgba(167,139,250,0.06)" : "transparent",
+            overflow: "hidden",
+          }}>
+            <button
+              type="button"
+              onClick={() => setCompassOpen((v) => !v)}
+              aria-expanded={compassOpen}
+              style={{
+                width: "100%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                background: "transparent",
+                border: "none",
+                color: compassOpen ? orbit : muted,
+                cursor: "pointer",
+                padding: "10px 14px",
+                fontFamily: "inherit",
+                fontSize: "0.66rem",
+                letterSpacing: "0.14em",
+                textTransform: "uppercase",
+                fontWeight: 700,
+              }}
+            >
+              <span>🧭 Topic Compass · {COMPASS_TOPICS.length} seed angles</span>
+              <span style={{ fontSize: "0.7rem" }}>{compassOpen ? "▾" : "▸"}</span>
+            </button>
+            {compassOpen && (
+              <div style={{ padding: "0 14px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ fontSize: "0.66rem", color: faint, lineHeight: 1.5 }}>
+                  Click any seed to auto-fill cluster, corridor, hook A-side, emotion, and demographics.
+                  Anything you've already typed is preserved.
+                </div>
+                <div style={{ display: "grid", gap: 6 }}>
+                  {COMPASS_TOPICS.map((t) => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => applyCompassTopic(t)}
+                      title={t.suggestedHook}
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "auto 1fr auto",
+                        alignItems: "center",
+                        gap: 10,
+                        background: "#0e0e10",
+                        border: `1px solid ${whisper}`,
+                        borderRadius: 6,
+                        padding: "8px 12px",
+                        color: cream,
+                        cursor: "pointer",
+                        fontFamily: "inherit",
+                        textAlign: "left",
+                      }}
+                    >
+                      <span style={{
+                        fontSize: "0.56rem",
+                        color: faint,
+                        letterSpacing: "0.1em",
+                        fontVariantNumeric: "tabular-nums",
+                      }}>{t.id}</span>
+                      <span style={{ display: "flex", flexDirection: "column", gap: 3, minWidth: 0 }}>
+                        <span style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: "0.82rem" }}>{t.title}</span>
+                        <span style={{ fontSize: "0.68rem", color: muted, lineHeight: 1.4, whiteSpace: "normal", overflow: "hidden", textOverflow: "ellipsis" }}>{t.suggestedHook}</span>
+                        <span style={{ fontSize: "0.58rem", color: faint, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                          {t.cluster} · {t.corridor}
+                        </span>
+                      </span>
+                      <span style={{
+                        fontSize: "0.6rem",
+                        color: orbit,
+                        letterSpacing: "0.12em",
+                        textTransform: "uppercase",
+                        fontWeight: 700,
+                      }}>Fill →</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
           {isFeature && (
             <div style={{
               padding: "10px 14px",
@@ -500,7 +631,7 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
               <label style={labelStyle}>Corridor</label>
               <select
                 style={selectStyle}
-                value={local.corridor || ""}
+                value={LEGACY_CORRIDOR_ALIASES[local.corridor] || local.corridor || ""}
                 onChange={(e) => applyPatch({ corridor: e.target.value || undefined })}
               >
                 <option value="">— pick corridor —</option>
@@ -512,13 +643,22 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
               <label style={labelStyle}>Content Cluster</label>
               <select
                 style={selectStyle}
-                value={local.cluster || ""}
+                value={resolveClusterKey(local.cluster) || ""}
                 onChange={(e) => applyPatch({ cluster: e.target.value || undefined })}
               >
                 <option value="">— pick cluster —</option>
-                {CLUSTERS.map((c) => <option key={c} value={c}>{c}</option>)}
+                {CONTENT_CLUSTER_LIST.map((c) => (
+                  <option key={c.key} value={c.key}>{c.label}</option>
+                ))}
               </select>
-              <div style={hintStyle}>Editorial axis · seeds the Substack angle</div>
+              {getClusterDirective(local.cluster) ? (
+                <div style={{ ...hintStyle, color: muted, fontStyle: "italic", lineHeight: 1.55 }}>
+                  <span style={{ color: orbit, fontStyle: "normal", fontWeight: 700, letterSpacing: "0.06em" }}>◆ LENS</span>{" "}
+                  {getClusterDirective(local.cluster)}
+                </div>
+              ) : (
+                <div style={hintStyle}>Editorial axis · locks the AI's analytical lens for research + carousel copy</div>
+              )}
             </div>
           </div>
 
