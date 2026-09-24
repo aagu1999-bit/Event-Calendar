@@ -3480,11 +3480,17 @@ export default function MediaTool() {
   // modal opens pre-filled with a story (and AI-arrange on); the plain ✨ AI
   // Fill button clears it so it opens blank.
   const [aiFillSeed, setAiFillSeed] = useState({ topic: "", context: "", arrange: false, register: null, templateId: null });
-  // Scout → Media handoff: if the Event Scout stashed a "Make Carousel" seed
-  // before navigating here, open AI Fill pre-filled with that event (arrange
-  // on) once on mount. consumeSeed() clears it so a refresh won't re-open it.
+  // Scout → Media handoff AND Matrix → Media handoff: whenever a seed lands in
+  // the store, open AI Fill pre-filled with it (arrange on). Watching the
+  // store's `seed` field (not just running on mount) matters when the operator
+  // is ALREADY on /media — clicking Preview Carousel from the matrix modal
+  // that MediaTool itself mounted (via "New Editorial Piece") does not
+  // remount the page, so a mount-only effect would silently drop the seed.
+  // consumeSeed() clears the store after read so a refresh won't re-open it.
   const consumeCarouselSeed = useCarouselSeedStore((s) => s.consumeSeed);
+  const pendingCarouselSeed = useCarouselSeedStore((s) => s.seed);
   useEffect(() => {
+    if (!pendingCarouselSeed) return;
     const seed = consumeCarouselSeed();
     if (seed && seed.topic) {
       setAiFillSeed({
@@ -3497,7 +3503,7 @@ export default function MediaTool() {
       setAiFillOpen(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [pendingCarouselSeed]);
   // Unread count from the server scout inbox → badge on the News Scout button.
   // Refetches when the scout modal closes (opening it marks everything read).
   const [scoutUnread, setScoutUnread] = useState(0);
