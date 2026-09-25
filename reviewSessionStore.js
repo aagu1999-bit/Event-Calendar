@@ -235,7 +235,10 @@ export function createSessionStore(fsDir) {
   // data survives republishes — unlike the deployment's local disk, which is
   // reset on every publish (that wipe is exactly the bug this fixes).
   if (pgUrl) {
-    const pool = new pg.Pool({ connectionString: pgUrl, max: 3 });
+    // max=15 matches screenshotPoolStore — bulk extract from the pool
+    // and reads on this store overlap; a max-3 pool queued them into
+    // spurious 500s when the pool bulk extract was running.
+    const pool = new pg.Pool({ connectionString: pgUrl, max: 15, connectionTimeoutMillis: 8_000 });
     let ready = null;
     const ensureReady = () => {
       if (!ready) {

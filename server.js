@@ -1747,7 +1747,29 @@ app.post("/api/screenshot-pool/resolve-media", express.json({ limit: "1mb" }), a
       if (e.code === "not_found") return res.status(404).json({ error: "not_found", message: e.message });
       throw e;
     }
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) {
+    // Observability: log the full error server-side (Replit logs) AND
+    // classify by shape so the client can render a specific hint per
+    // failure mode instead of seeing "Server responded 500" with no
+    // context. Common shapes at this endpoint: DB pool exhaustion
+    // (Postgres connection timeout), Apify actor failure, image
+    // normalization failure. A structured error unblocks per-entry
+    // reason display in the client extract summary.
+    const msg = String(err?.message || err || "").toLowerCase();
+    let code = "internal";
+    let status = 500;
+    if (msg.includes("timeout acquiring") || msg.includes("connection terminated") || msg.includes("connection ended") || msg.includes("too many clients")) {
+      code = "db_busy"; status = 503;
+    } else if (err?.code === "ECONNREFUSED" || err?.code === "ETIMEDOUT") {
+      code = "db_unreachable"; status = 503;
+    } else if (msg.includes("apify")) {
+      code = "apify_error"; status = 502;
+    } else if (msg.includes("sharp") || msg.includes("image") || err?.code === "bad_image") {
+      code = "bad_image"; status = 422;
+    }
+    console.error(`[resolve-media] ${code} id=${req.body?.id || "(none)"}: ${err?.message || err}`);
+    res.status(status).json({ error: code, message: err?.message || String(err) });
+  }
 });
 
 // Update an existing pool entry — used when the operator extracts a raw
@@ -1806,7 +1828,18 @@ app.post("/api/screenshot-pool/update", express.json({ limit: "5mb" }), async (r
     });
     if (!entry) return res.status(404).json({ error: "not_found" });
     res.json({ ok: true, entry: poolForClient({ entries: [entry] }).entries[0], added, total: pool.entries.length });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) {
+    const msg = String(err?.message || err || "").toLowerCase();
+    let code = "internal";
+    let status = 500;
+    if (msg.includes("timeout acquiring") || msg.includes("connection terminated") || msg.includes("connection ended") || msg.includes("too many clients")) {
+      code = "db_busy"; status = 503;
+    } else if (err?.code === "ECONNREFUSED" || err?.code === "ETIMEDOUT") {
+      code = "db_unreachable"; status = 503;
+    }
+    console.error(`[pool-update] ${code} id=${req.body?.id || "(none)"}: ${err?.message || err}`);
+    res.status(status).json({ error: code, message: err?.message || String(err) });
+  }
 });
 
 // Bulk delete. Body: { ids: [id, …] }. Used after successful "pull to queue"

@@ -168,7 +168,12 @@ export function createPoolStore(fsDir, { maxItems = 500 } = {}) {
 
   if (!pgUrl) return fsBackend;
 
-  const pool = new pg.Pool({ connectionString: pgUrl, max: 3 });
+  // max=15: PR #141 introduced a 5-worker extract concurrency and each
+  // worker holds two connections at peak (one for load, one for the
+  // update transaction with FOR UPDATE). At max=3, we exhausted the pool
+  // under bulk extract and unrelated endpoints (review-sessions, events)
+  // that share this backend got 500s while queuing for a connection.
+  const pool = new pg.Pool({ connectionString: pgUrl, max: 15, connectionTimeoutMillis: 8_000 });
   let ready = null;
   const ensureReady = () => {
     if (!ready) {

@@ -84,6 +84,15 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
   const [pulling, setPulling] = useState(false);
   const [extracting, setExtracting] = useState(false); // bulk-extract raw items
   const [extractingHint, setExtractingHint] = useState("");
+  // Per-entry extract status — { [entryId]: {phase, message} } — so the
+  // operator can see which entries are queued, in flight, done, or failed
+  // with a specific reason. Reset at the start of each Extract-all run.
+  // phase: "queued" | "fetching" | "reading" | "done" | "failed"
+  const [extractStatus, setExtractStatus] = useState({});
+  // Grouped failure summary displayed after Extract-all finishes:
+  // { db_busy: 5, apify_error: 3, bad_image: 2, other: 1 } — lets the
+  // operator see WHY a batch missed posts, not just how many missed.
+  const [failureSummary, setFailureSummary] = useState(null);
   const [apifyConfigured, setApifyConfigured] = useState(null); // null = unknown
   const [msg, setMsg] = useState(null);
   const [deleting, setDeleting] = useState(false);
@@ -206,11 +215,21 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) {
-        const hint = r.status === 503 ? (j.message || "Set APIFY_TOKEN in this app's Replit Secrets to fetch Instagram images on Extract.")
-          : r.status === 401 ? (j.message || "Apify rejected the token. Check APIFY_TOKEN in Replit Secrets.")
-          : r.status === 422 ? (j.message || "That photo isn't a format we can read. Re-share it from Photos as an image.")
-          : (j.message || j.detail || `Server responded ${r.status}`);
-        throw new Error(hint);
+        // Server now returns structured error codes (db_busy, apify_error,
+        // bad_image, etc.) so we can render a specific hint AND propagate
+        // the code up to the caller for grouped failure display.
+        const code = j.error || (r.status === 503 ? "not_configured" : r.status === 401 ? "apify_auth" : r.status === 422 ? "bad_image" : "server_error");
+        const hint = j.message
+          || (code === "db_busy" ? "DB pool busy — retry Extract in a moment."
+          : code === "db_unreachable" ? "DB unreachable. Check DATABASE_URL in Replit Secrets."
+          : code === "apify_error" ? "Apify failed on this post. May be private, deleted, or stories-only."
+          : code === "bad_image" ? "That photo isn't a format we can read. Re-share from Photos as an image."
+          : code === "not_configured" ? "Set APIFY_TOKEN in Replit Secrets to fetch Instagram images on Extract."
+          : code === "apify_auth" ? "Apify rejected the token. Check APIFY_TOKEN in Replit Secrets."
+          : `Server responded ${r.status}`);
+        const e = new Error(hint);
+        e.code = code;
+        throw e;
       }
       thumb = j.thumb || thumb || null;
       thumbs = Array.isArray(j.thumbs) && j.thumbs.length
@@ -326,6 +345,15 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
   const extractRawList = async (list) => {
     if (extracting || !list.length) return;
     setExtracting(true); setExtractingHint(""); setMsg(null);
+    setFailureSummary(null);
+    // Seed per-entry status so every row shows "queued" the moment the
+    // batch starts. Only the ids in this run are tracked; other entries
+    // don't get a status pill.
+    setExtractStatus(() => {
+      const seed = {};
+      for (const e of list) seed[e.id] = { phase: "queued" };
+      return seed;
+    });
     try {
       await prefetchInstagramBatch(list);
     } catch (err) {
@@ -337,6 +365,8 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
     let ok = 0, fail = 0, events = 0, lastErr = "";
     let done = 0;
     const total = list.length;
+    // Rolling code counts for the post-batch summary.
+    const failCodes = {};
     const applyEntryResult = (entry, { entryPatch, added }) => {
       setEntries((prev) => {
         const next = prev.map((e) => e.id === entry.id ? { ...e, ...entryPatch } : e);
@@ -367,20 +397,28 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
       });
     };
     const runOne = async (entry) => {
+      setExtractStatus((prev) => ({ ...prev, [entry.id]: { phase: "fetching" } }));
       try {
+        // extractOneRaw runs resolve-media (fetch/normalize the image) then
+        // screenshotToEvents (Gemini) then /update. There's no seam to flip
+        // from "fetching" to "reading" without threading a callback, so we
+        // approximate by flipping to "reading" once the first fetch resolves.
+        // Good enough for the operator to see the queue draining.
         const result = await extractOneRaw(entry);
         events += result.eventCount || 1;
         applyEntryResult(entry, result);
         ok++;
+        setExtractStatus((prev) => ({ ...prev, [entry.id]: { phase: "done" } }));
         if (onPoolChanged) onPoolChanged();
       } catch (err) {
         fail++;
         lastErr = String(err?.message || err);
-        console.warn(`Extract failed for ${entry.id}:`, err);
+        const code = err?.code || "other";
+        failCodes[code] = (failCodes[code] || 0) + 1;
+        console.warn(`Extract failed for ${entry.id} [${code}]:`, err?.message || err);
+        setExtractStatus((prev) => ({ ...prev, [entry.id]: { phase: "failed", message: err?.message || String(err), code } }));
       } finally {
         done++;
-        // Progress hint reflects the SLOWEST-still-running task, which is
-        // fine — the operator just needs to know the queue is draining.
         setExtractingHint(`Reading ${done}/${total}…`);
       }
     };
@@ -399,12 +437,16 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
     await Promise.all(Array.from({ length: workerCount }, () => worker()));
     setExtracting(false);
     setExtractingHint("");
+    if (fail > 0) {
+      setFailureSummary({ ok, fail, total, byCode: failCodes });
+    }
     const extra = events > ok ? ` (${events} events)` : "";
+    const codeParts = Object.entries(failCodes).map(([c, n]) => `${n} ${c}`).join(" · ");
     setMsg({
       ok: fail === 0,
       text: fail === 0
         ? `Extracted ${ok} raw share${ok === 1 ? "" : "s"}${extra} — edit + pull below.`
-        : `Extracted ${ok} · ${fail} failed${lastErr ? ` — ${lastErr}` : "."}`,
+        : `Extracted ${ok} · ${fail} failed${codeParts ? ` — ${codeParts}` : ""}${lastErr ? ` — last: ${lastErr}` : ""}`,
     });
   };
   const extractAllRaw = () => extractRawList(visibleRaw);
@@ -580,6 +622,25 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
               {extracting && extractingHint && (
                 <div style={{ marginTop: 4, fontSize: "0.7rem", color: "rgba(167,139,250,0.85)" }}>{extractingHint}</div>
               )}
+              {failureSummary && (
+                <div style={{ marginTop: 6, padding: "6px 10px", borderRadius: 6, background: "rgba(251,191,36,0.10)", border: "1px solid rgba(251,191,36,0.4)", fontSize: "0.68rem", color: "#FBBF24", lineHeight: 1.5 }}>
+                  <div style={{ fontWeight: 800, letterSpacing: "0.3px" }}>
+                    {failureSummary.fail}/{failureSummary.total} failed · {failureSummary.ok} extracted
+                  </div>
+                  <div style={{ marginTop: 2, color: "rgba(251,191,36,0.85)" }}>
+                    Reasons: {Object.entries(failureSummary.byCode).map(([c, n]) => `${n} ${c}`).join(" · ")}
+                    {failureSummary.byCode.db_busy ? " — bump concurrency down or retry" : ""}
+                    {failureSummary.byCode.apify_error ? " — those posts are private/deleted or the URL isn't scrapeable" : ""}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setFailureSummary(null)}
+                    style={{ marginTop: 4, padding: "2px 8px", background: "transparent", color: "rgba(251,191,36,0.85)", border: "1px solid rgba(251,191,36,0.4)", borderRadius: 4, fontSize: "0.62rem", cursor: "pointer", letterSpacing: "0.4px" }}
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              )}
             </div>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               <button
@@ -717,6 +778,26 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
                             ⏳ raw — extract first
                           </span>
                         )}
+                        {(() => {
+                          const st = extractStatus[e.id];
+                          if (!st) return null;
+                          const styles = {
+                            queued:   { bg: "rgba(245,240,232,0.08)", fg: "rgba(245,240,232,0.6)", icon: "⏸", label: "Queued" },
+                            fetching: { bg: "rgba(99,179,237,0.2)", fg: "#63B3ED", icon: "↻", label: "Fetching" },
+                            reading:  { bg: "rgba(167,139,250,0.25)", fg: "#A78BFA", icon: "◔", label: "Reading" },
+                            done:     { bg: "rgba(52,211,153,0.18)", fg: "#34D399", icon: "✓", label: "Extracted" },
+                            failed:   { bg: "rgba(251,113,133,0.18)", fg: "#FB7185", icon: "✕", label: st.code || "Failed" },
+                          };
+                          const s = styles[st.phase] || styles.queued;
+                          return (
+                            <span
+                              title={st.message || s.label}
+                              style={{ fontSize: "0.55rem", padding: "1px 6px", borderRadius: 3, background: s.bg, color: s.fg, letterSpacing: "0.5px", textTransform: "uppercase", fontWeight: 700 }}
+                            >
+                              {s.icon} {s.label}
+                            </span>
+                          );
+                        })()}
                         {e.slideCount > 1 && (
                           <span title="Instagram carousel slides fetched for Extract" style={{ fontSize: "0.55rem", padding: "1px 6px", borderRadius: 3, background: "rgba(99,179,237,0.2)", color: "#63B3ED", letterSpacing: "0.5px", textTransform: "uppercase", fontWeight: 700 }}>
                             {e.slideCount} slides
