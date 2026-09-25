@@ -1446,6 +1446,76 @@ export async function pickTemplate({ apiKey, topic, context, candidates }) {
   return { templateId, reasoning: parsed.reasoning || "", template: match };
 }
 
+// === SCAFFOLDING LABEL SANITIZER ===
+// Post-generation belt-and-suspenders for PR #147's ANTI-LITERALISM prompt
+// rule. Even with the prompt begging the model not to write internal outline
+// labels as visible copy, the occasional "THE MECHANISM" or "THE PARADOX:"
+// still leaks into a headline or kicker field. This regex pass strips those
+// labels from a targeted set of TITLE-shaped fields before the slides
+// reach the UI, so an operator never sees "THE PARADOX" rendered.
+//
+// Applies ONLY to title / label / kicker fields (not body copy — body text
+// legitimately might use the words "paradox" or "friction" in a sentence).
+// Also skips fields that just happen to CONTAIN a beat label as part of a
+// longer phrase — only strips when the field IS the label (or the label +
+// a trailing colon / dash).
+const SCAFFOLDING_LABEL_PATTERN = /^\s*(?:the\s+)?(paradox|friction|mechanism|gate|thesis|beat)\s*[:\-–—]?\s*$/i;
+const SCAFFOLDING_PREFIX_PATTERN = /^\s*(?:the\s+)?(paradox|friction|mechanism|gate|thesis|beat)\s*[:\-–—]\s*/i;
+const TITLE_FIELDS = new Set([
+  "headline", "textTitle", "spotName", "kicker", "ctaKicker", "statLabel",
+  "newsHeadline", "newsKicker", "accentWord", "pressTitle", "pressBadge",
+  "countEvent", "countCta", "spotTime", "spotPrice", "spotCta", "title",
+  "topLine", "featuresTitle",
+]);
+function sanitizeScaffoldingLabels(slides) {
+  if (!Array.isArray(slides)) return slides;
+  let stripped = 0;
+  const cleaned = slides.map((slide) => {
+    if (!slide || typeof slide !== "object") return slide;
+    const next = { ...slide };
+    for (const field of TITLE_FIELDS) {
+      const val = next[field];
+      if (typeof val !== "string" || !val) continue;
+      // Whole-field-is-a-label case: replace with empty string so the
+      // UI falls back to whatever its default rendering is (rather than
+      // showing the scaffolding word as if it were the title).
+      if (SCAFFOLDING_LABEL_PATTERN.test(val)) {
+        next[field] = "";
+        stripped++;
+        continue;
+      }
+      // Prefix case: "The Mechanism: Newark's Portuguese social clubs..."
+      // → "Newark's Portuguese social clubs..."
+      const withoutPrefix = val.replace(SCAFFOLDING_PREFIX_PATTERN, "");
+      if (withoutPrefix !== val) {
+        next[field] = withoutPrefix.trim();
+        stripped++;
+      }
+    }
+    // Also scan features[].headline recursively.
+    if (Array.isArray(next.features)) {
+      next.features = next.features.map((f) => {
+        if (!f || typeof f !== "object" || typeof f.headline !== "string") return f;
+        if (SCAFFOLDING_LABEL_PATTERN.test(f.headline)) {
+          stripped++;
+          return { ...f, headline: "" };
+        }
+        const cleanedHead = f.headline.replace(SCAFFOLDING_PREFIX_PATTERN, "").trim();
+        if (cleanedHead !== f.headline) {
+          stripped++;
+          return { ...f, headline: cleanedHead };
+        }
+        return f;
+      });
+    }
+    return next;
+  });
+  if (stripped && typeof console !== "undefined") {
+    console.warn(`sanitizeScaffoldingLabels: stripped ${stripped} scaffolding-label leak(s) from title fields.`);
+  }
+  return cleaned;
+}
+
 // === RESPONSE SCHEMA (Gemini Structured Outputs) ===
 // Enforces field length caps at the API's token-generation layer, not at
 // the prompt layer. The old FIELD DISCIPLINE rule from PR #147 asked
@@ -1736,10 +1806,9 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   };
   if (!polish) {
     // Even without polish, deterministic CTA stitch runs (drift-removal).
-    // Two paths: (a) willStitchCta = we already dropped it from generation
-    // and now append; (b) legacy path where the CTA was generated but we
-    // still want to overwrite it via stitchKeywordCta.
-    return willStitchCta ? appendStitchedCtaIfNeeded(slides) : stitchKeywordCta(slides, workingSequence, keywordTrigger);
+    // Sanitizer runs too — belt-and-suspenders on scaffolding-label leaks.
+    const sanitized = sanitizeScaffoldingLabels(slides);
+    return willStitchCta ? appendStitchedCtaIfNeeded(sanitized) : stitchKeywordCta(sanitized, workingSequence, keywordTrigger);
   }
   // Deterministic pre-polish dedup: scan adjacent slides for a shared numeric
   // token (a "1 in 5", "$1M", "28.5%", "1979", etc.). If any is repeated,
@@ -1755,7 +1824,11 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   } catch (e) {
     if (typeof console !== "undefined") console.warn("Carousel polish failed, returning draft:", e?.message || e);
   }
-  return willStitchCta ? appendStitchedCtaIfNeeded(slides) : stitchKeywordCta(slides, workingSequence, keywordTrigger);
+  // Scaffolding sanitizer runs LAST (after polish, before CTA stitch) so
+  // any beat-label leaks either the writer or the critic slipped through
+  // get scrubbed before slides reach the UI.
+  const sanitized = sanitizeScaffoldingLabels(slides);
+  return willStitchCta ? appendStitchedCtaIfNeeded(sanitized) : stitchKeywordCta(sanitized, workingSequence, keywordTrigger);
 }
 
 // === NARRATIVE SPINE — the outline step (the missing intermediate) ===
@@ -2066,6 +2139,13 @@ export async function polishCarousel({ apiKey, topic, context, voice, sequence, 
     "  'preserve', 'celebrate', 'showcase', 'highlights the', 'diverse traditions',",
     "  and the whole '-ing verb + abstract noun' pattern. Rewrite to street-level",
     "  cultural dispatch — a moment, a name, a specific detail — not a grant report.",
+    "- KILL sociological fluff — the specific 'academic essayist' register that",
+    "  produces nothing you can verify: 'the unseen hand', 'access dictates who',",
+    "  'dictates who shows up', 'the fabric of the community', 'the very essence of',",
+    "  'at its core', 'speaks to', 'a testament to', 'a reflection of', 'writ large',",
+    "  'the way we gather', 'invisible architecture', 'the geography of'. These are",
+    "  filler that masquerades as insight. REPLACE with a named transit line, a",
+    "  named venue, a named intersection, a specific time, or a specific behavior.",
     "- KILL MFA-workshop purple prose too: 'the sound of silence', 'felt like a ghost",
     "  town', 'now it has a pulse', 'the hum of activity', 'the murmur of conversation',",
     "  'the shared breath of a room', 'a pin drop', 'time stood still', body-metaphor",
@@ -2509,6 +2589,15 @@ function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, tem
       // tiny — force concrete promises and a single standout card.
       extra = `\n\nFEATURES: give 3-5 cards. Each card is ONE concrete, specific promise — name the REAL thing (the actual DJ, the exact activity, the real giveaway/prize, the specific format), never a vague benefit. BAN 'good vibes', 'great music', 'fun for all', 'something for everyone', 'good food'. headline = 2-4 punchy words; sub = one concrete detail (a name, a time, a number). Set featured:true on exactly ONE card — the single biggest draw (the headliner / the giveaway) — and featured:false on the rest. Still give each card an apt emoji in case the icon style is used.`;
     }
+    // SPOTLIGHT PHYSICAL-FOOTPRINT CONTRACT — always applies to spotlight
+    // slots (single or multi), regardless of letter mode override above.
+    // A Spotlight represents a real thing with an address, not a concept.
+    // Without this, the model uses Spotlight for abstractions like
+    // "THE 10:51 PM DEPARTURE" or "THE THIRD PLACE VOID", which is
+    // rendered as a directory-card format wanting an entity name.
+    if (slotType === "spotlight" && !letterMode) {
+      extra += "\n\nSPOTLIGHT CONTRACT — non-negotiable: a Spotlight slot represents a CONCRETE ENTITY with a PHYSICAL FOOTPRINT. Valid Spotlight subjects: a specific venue with an address, a transit station with a stop name, a park with a location, a business with a storefront, an organization with a membership address, a specific piece of infrastructure. INVALID Spotlight subjects: an abstract concept ('The Third Place Void'), a policy or ordinance ('1:3,000 Liquor Cap'), a price ('$1.25M License Cost'), a schedule constraint ('The 10:51 PM Departure'), a demographic pattern, a market trend. spotName MUST be a proper name of a real thing. spotMeta MUST be its physical location (neighborhood, corner, or transit stop). If the Reserved PROOF bullet for this slide is abstract, ELEVATE it to the physical space it manifests in — and if no physical space exists in the context, this slot is the wrong shape for this material and you should carry the beat with concrete descriptive text (still naming a real place, not the abstraction itself).";
+    }
     // Anti-Haiku formatting rule — scoped to text and spotlight, NOT news
     // (news is designed as stacked lines with a bold payoff and needs to
     // stay that way). Prevents the "haiku spacing" leak where the model
@@ -2533,6 +2622,7 @@ function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, tem
     "- ANTI-REGURGITATION: The Editorial POV and Cluster Directive are INVISIBLE creative direction — they steer your tone and framing. DO NOT copy or paste the POV or directive text verbatim into any slide's headline, kicker, title, or body. If a reader sees the exact string of the POV appear on a slide, you failed. Synthesize original prose that EMBODIES the POV's argument instead of quoting it.",
     "- TEMPORAL INTEGRITY: NEVER invent modern revivals, reopenings, comebacks, or 'it's back' claims for historical entities unless the Context bullets EXPLICITLY state the revival. If a venue was demolished, closed, or ended decades ago and no supplied bullet names a modern successor, frame the tension around lasting INFLUENCE, not a fabricated return. A defunct room can shape today's rooms without being 'back'.",
     "- ENTITY ISOLATION: Do NOT blend unrelated cities, decades, or venues into a single slide. When filling a slot, use ONLY the assigned fact for that slot (Reserved PROOF, per BEAT). Slides that mix Newark 1979 with Asbury Park 2024 in the same body copy read as a kitchen-sink montage, not an argument. One slide = one time, one place, one specific — unless the POV explicitly bridges them.",
+    "- FACT-DENSITY MANDATE: every slide MUST name a specific concrete entity from the material — a transit line, a venue, an intersection, a corridor, a specific ordinance number, a named collective, a specific time-of-day, an actual price point. BANNED sociological fluff: 'the unseen hand', 'access dictates who shows up', 'the fabric of the community', 'the very essence of', 'at its core', 'speaks to', 'a testament to', 'invisible architecture', 'the geography of', 'the way we gather'. These read as academic essay filler and mask the absence of specifics. If your instinct is to write one of those phrases, you're missing a concrete anchor — pull one from the assigned bullet or a context bullet marked 'context', or name the physical place / time / rule the material implies.",
     "- FIELD DISCIPLINE: Title / headline / label / kicker fields (headline, textTitle, spotName, kicker, ctaKicker, statLabel, newsHeadline, newsKicker, accentWord, pressTitle, pressBadge, countEvent, countCta, spotTime, spotPrice, spotCta) are SHORT LABELS — one clause, aim under 60 characters. Body fields (textBody, newsBody, subtitle, spotMeta, subLine, statSub, countText, caption, pressLineup) carry the sentences. If a title field reads like body copy — two sentences separated by a period, multiple ideas stacked — you're in the wrong field: move it to the body and shorten the title. Example of failed output: `textTitle: \"Young's Skating Center keeps a hardwood ritual alive. Forget the casino strip.\"` That's two sentences of body prose stuffed into a title slot. Correct: `textTitle: \"THE HARDWOOD RITUAL\"`, `textBody: \"Young's Skating Center keeps Friday nights alive off the casino strip.\"`",
     "- Write in the register of street-level neighborhood critique (anti-hype, no-nonsense local insider). Focus strictly on the input topic/event—do not pivot to unrelated domains (like food/restaurants or party vibes) unless the input specifically describes them.",
     "- BANNED CLICHÉS: Never use 'hidden gem', 'must-visit', 'good vibes', 'scenic view', 'great music', 'experience like no other', 'unforgettable', 'movie', 'can't-miss', 'movie vibes', or 'something for everyone'. If you write these, the editor will reject it.",
