@@ -1927,40 +1927,62 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   // promo stays at 0.95 (energy matters). Polish is still 0.4.
   const fillTemperature = (mode === "story" || mode === "editorial") ? 0.70 : 0.95;
   // Structured Output — enforces field length caps at the token-
-  // generation layer, not at the prompt layer. If Gemini rejects the
-  // schema (e.g. "too many states for serving" on complex sequences),
-  // fall back to no schema so generation isn't blocked. Prompt-level
-  // FIELD DISCIPLINE + post-generation sanitizer still catch the
-  // common failure modes in that path.
+  // generation layer. Two failure modes we defend against:
+  //   (a) Gemini rejects the schema at the HTTP layer with a specific
+  //       "too many states" / "invalid schema" error.
+  //   (b) Gemini accepts the schema but the constrained response comes
+  //       back truncated (max_output_tokens hit, model bailed, or
+  //       thinking-model reasoning ate the budget) → extractJson fails.
+  // Both retry the same prompt WITHOUT the schema so generation isn't
+  // blocked. Prompt-level FIELD DISCIPLINE + post-generation sanitizer
+  // still catch the common failure modes in that path.
+  // maxOutputTokens set explicitly to 8192 so a heavy prompt + schema
+  // constraints don't silently truncate the JSON response.
   const baseConfig = {
     responseMimeType: "application/json",
     temperature: fillTemperature,
+    maxOutputTokens: 8192,
+  };
+  const withSchema = { ...baseConfig, responseSchema: buildFillResponseSchema(workingSequence) };
+  const isSchemaRejection = (err) => {
+    const msg = String(err?.message || err || "");
+    return /too many states/i.test(msg) || /schema.*constraint/i.test(msg) || /invalid schema/i.test(msg);
   };
   let data;
+  let raw;
+  let parsed;
   try {
     data = await geminiGenerate(apiKey, {
       contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: {
-        ...baseConfig,
-        responseSchema: buildFillResponseSchema(workingSequence),
-      },
+      generationConfig: withSchema,
     });
+    raw = extractResponseText(data);
+    if (!raw) throw new Error("Empty response from Gemini");
+    parsed = extractJson(raw);
   } catch (err) {
     const msg = String(err?.message || err || "");
-    if (/too many states/i.test(msg) || /schema.*constraint/i.test(msg) || /invalid schema/i.test(msg)) {
-      if (typeof console !== "undefined") console.warn("Gemini rejected the responseSchema, retrying without it:", msg.slice(0, 200));
+    // Retry without schema if:
+    //   - Gemini rejected the schema (HTTP-layer error), OR
+    //   - We got a response but couldn't parse it (schema likely
+    //     truncated the JSON output). Both paths point at schema.
+    const isParseFailure = /did not return valid JSON|Empty response/i.test(msg);
+    if (isSchemaRejection(err) || isParseFailure) {
+      if (typeof console !== "undefined") {
+        console.warn(`Schema-attached generation failed (${isSchemaRejection(err) ? "schema-rejection" : "parse-failure"}), retrying without schema:`, msg.slice(0, 240));
+        // Log the raw response when we have one — helps future debugging.
+        if (raw) console.warn("Truncated/invalid raw response (first 500 chars):", String(raw).slice(0, 500));
+      }
       data = await geminiGenerate(apiKey, {
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: baseConfig,
       });
+      raw = extractResponseText(data);
+      if (!raw) throw new Error("Empty response from Gemini");
+      parsed = extractJson(raw);
     } else {
       throw err;
     }
   }
-  const raw = extractResponseText(data);
-  if (!raw) throw new Error("Empty response from Gemini");
-
-  const parsed = extractJson(raw);
 
   let slides = Array.isArray(parsed?.slides) ? parsed.slides : [];
   if (slides.length !== workingSequence.length) {
@@ -2084,11 +2106,21 @@ export async function generateNarrativeSpine({ apiKey, topic, context, clusterDi
     // Spine wants editorial judgment (which bullets to VETO, honest slide
     // count, non-obvious beat labels) — 0.3 keeps the outline grounded but
     // not so deterministic that it always picks the first-instinct answer.
-    generationConfig: { responseMimeType: "application/json", temperature: 0.3 },
+    // maxOutputTokens explicit so a long prompt + thinking-model reasoning
+    // doesn't silently truncate the JSON and produce a malformed spine.
+    generationConfig: { responseMimeType: "application/json", temperature: 0.3, maxOutputTokens: 8192 },
   });
   const raw = extractResponseText(data);
   if (!raw) throw new Error("Empty spine response");
-  const parsed = extractJson(raw);
+  let parsed;
+  try {
+    parsed = extractJson(raw);
+  } catch (err) {
+    if (typeof console !== "undefined") {
+      console.warn("Spine JSON parse failed — raw response first 500 chars:", String(raw).slice(0, 500));
+    }
+    throw err;
+  }
   const thesis = String(parsed?.thesis || "").trim();
   const beats = Array.isArray(parsed?.beats) ? parsed.beats.map(b => ({
     label: String(b?.label || "").trim().toUpperCase(),
@@ -2417,32 +2449,46 @@ export async function polishCarousel({ apiKey, topic, context, historicalContext
     `{"slides":[${sequence.map(fillSlotShape).join(",")}]}`,
   ].join("\n");
 
-  // Same schema + fallback as the fill call — if Gemini rejects the
-  // schema, retry without so polish never blocks output.
-  const polishBaseConfig = { responseMimeType: "application/json", temperature: 0.4 };
+  // Same schema + fallback as the fill call — retry without schema when
+  // Gemini rejects it (HTTP layer) OR when the schema-constrained
+  // response comes back truncated / unparseable. maxOutputTokens set
+  // explicitly so polish doesn't silently truncate.
+  const polishBaseConfig = { responseMimeType: "application/json", temperature: 0.4, maxOutputTokens: 8192 };
+  const polishWithSchema = { ...polishBaseConfig, responseSchema: buildFillResponseSchema(sequence) };
+  const isSchemaRejection = (err) => {
+    const msg = String(err?.message || err || "");
+    return /too many states/i.test(msg) || /schema.*constraint/i.test(msg) || /invalid schema/i.test(msg);
+  };
   let data;
+  let raw;
+  let parsed;
   try {
     data = await geminiGenerate(apiKey, {
       contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: {
-        ...polishBaseConfig,
-        responseSchema: buildFillResponseSchema(sequence),
-      },
+      generationConfig: polishWithSchema,
     });
+    raw = extractResponseText(data);
+    if (!raw) throw new Error("Empty response from Gemini");
+    parsed = extractJson(raw);
   } catch (err) {
     const msg = String(err?.message || err || "");
-    if (/too many states/i.test(msg) || /schema.*constraint/i.test(msg) || /invalid schema/i.test(msg)) {
-      if (typeof console !== "undefined") console.warn("Polish rejected responseSchema, retrying without:", msg.slice(0, 200));
+    const isParseFailure = /did not return valid JSON|Empty response/i.test(msg);
+    if (isSchemaRejection(err) || isParseFailure) {
+      if (typeof console !== "undefined") {
+        console.warn(`Polish schema-attached generation failed (${isSchemaRejection(err) ? "schema-rejection" : "parse-failure"}), retrying without schema:`, msg.slice(0, 240));
+        if (raw) console.warn("Truncated/invalid polish raw response (first 500 chars):", String(raw).slice(0, 500));
+      }
       data = await geminiGenerate(apiKey, {
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: polishBaseConfig,
       });
+      raw = extractResponseText(data);
+      if (!raw) throw new Error("Empty response from Gemini");
+      parsed = extractJson(raw);
     } else {
       throw err;
     }
   }
-  const raw = extractResponseText(data);
-  const parsed = extractJson(raw);
   const out = Array.isArray(parsed?.slides) ? parsed.slides : [];
   if (out.length !== sequence.length) throw new Error(`Polish returned ${out.length} slides, expected ${sequence.length}`);
   return out;
