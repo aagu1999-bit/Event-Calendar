@@ -1813,9 +1813,10 @@ export async function generateNarrativeSpine({ apiKey, topic, context, clusterDi
     "  If you have MORE proof-role bullets than available non-cover, non-CTA content slots, DOWNGRADE the excess bullets to 'context' role (not 'proof'). Never leave a proof bullet unassigned.",
     "  If you have FEWER proof bullets than content slots, that's fine — leave the extra slots without proofAssignments and the writer will carry them with framing / context bullets. That's a separate case from dropping a proof.",
     `  - recommendedSlideCount: the honest number of slides this material can support without repeating facts (integer, between 3 and ${slideCount} inclusive). If the operator picked ${slideCount} slides but you only have 3 proof bullets and no additional systemic tension worth writing about, return 4 or 5, NOT ${slideCount}. This is the editorial compression call — better to ship a tight 4-slide carousel than a stretched 7 that paraphrases the same 3 facts. Only return the operator's full count if the material genuinely earns it (rich proof list, distinct beats, complex mechanism).`,
+    "  - causalSynthesis: EXACTLY 2 sentences that model the causal chain the carousel will dramatize. Sentence 1 names the SYSTEMIC RULE, PRESSURE, or CONSTRAINT the material implies — a policy, a zoning cap, a cost, a demographic shift, an ordinance, a market condition. Sentence 2 names how the specific VENUE / OPERATOR / SOLUTION responds to that pressure. Example: 'State decibel caps make big sound rigs a liability in mixed-use neighborhoods. In response, venues like LoFi pivot to low-decibel, high-margin vinyl nights to keep the crowd without breaking the law.' Concrete rule → concrete response. NO abstract musing, NO 'this shows how culture adapts', NO grantwriter register. This is the completed reasoning the writer will execute against — with this in hand, the writer's job is voice + format, not re-derivation. Rewrite it two or three times in your head before returning; make sure sentence 2 is a direct RESPONSE to the pressure named in sentence 1.",
     "",
     'Return ONLY JSON in this exact shape:',
-    '{"thesis":"...","beats":[{"label":"PARADOX","description":"..."},{"label":"FRICTION","description":"..."},{"label":"MECHANISM","description":"..."},{"label":"GATE","description":"..."}],"slideAssignments":["PARADOX","FRICTION","FRICTION","MECHANISM","MECHANISM","GATE"],"bulletRoles":{"first 60 chars of bullet":"proof|context|veto"},"proofAssignments":{"first 60 chars of bullet":3},"recommendedSlideCount":6}',
+    '{"thesis":"...","beats":[{"label":"PARADOX","description":"..."},{"label":"FRICTION","description":"..."},{"label":"MECHANISM","description":"..."},{"label":"GATE","description":"..."}],"slideAssignments":["PARADOX","FRICTION","FRICTION","MECHANISM","MECHANISM","GATE"],"bulletRoles":{"first 60 chars of bullet":"proof|context|veto"},"proofAssignments":{"first 60 chars of bullet":3},"recommendedSlideCount":6,"causalSynthesis":"Systemic-rule sentence. Venue-response sentence."}',
   ];
   const data = await geminiGenerate(apiKey, {
     contents: [{ parts: [{ text: promptLines.join("\n") }] }],
@@ -1845,6 +1846,12 @@ export async function generateNarrativeSpine({ apiKey, topic, context, clusterDi
   if (!Number.isInteger(recommendedSlideCount) || recommendedSlideCount < 3 || recommendedSlideCount > slideCount) {
     recommendedSlideCount = slideCount;
   }
+  // Causal synthesis — the completed causal reasoning the writer executes
+  // against. Soft-required: an empty string is acceptable (spine still
+  // returns, writer degrades gracefully to inferring the argument from
+  // thesis + beats). Length-bound to keep it from being a paragraph:
+  // it's supposed to be 2 sentences, not an essay.
+  const causalSynthesis = String(parsed?.causalSynthesis || "").trim().slice(0, 800);
   if (!thesis || beats.length < 3 || slideAssignments.length !== slideCount) {
     throw new Error("Malformed spine — missing thesis, beats, or slideAssignments");
   }
@@ -1887,7 +1894,7 @@ export async function generateNarrativeSpine({ apiKey, topic, context, clusterDi
   if (dropped.length) {
     throw new Error(`Spine violated Entity Prioritization: ${dropped.length} proof bullet(s) were classified 'proof' but not assigned to any slide — dropped entities: ${dropped.map(b => `"${b}"`).join(", ")}. Every proof MUST land on slides 2+, or be downgraded to 'context'.`);
   }
-  return { thesis, beats, slideAssignments, bulletRoles, proofAssignments, recommendedSlideCount };
+  return { thesis, beats, slideAssignments, bulletRoles, proofAssignments, recommendedSlideCount, causalSynthesis };
 }
 
 // Deterministic CTA stitch — when the operator has set a DM keyword trigger,
@@ -2030,12 +2037,18 @@ export async function polishCarousel({ apiKey, topic, context, voice, sequence, 
     "═════════════════════════════",
     "NARRATIVE SPINE THE DRAFT WAS BUILT AGAINST — enforce arc adherence:",
     `THESIS: ${narrativeSpine.thesis}`,
+    ...(narrativeSpine.causalSynthesis ? [
+      `CAUSAL SYNTHESIS: ${narrativeSpine.causalSynthesis}`,
+    ] : []),
     "BEATS:",
     ...narrativeSpine.beats.map((b, i) => `  ${i + 1}. ${b.label}: ${b.description}`),
     "",
     "If a slide labeled PARADOX contains the MECHANISM's metric, MOVE the metric to the mechanism slide and rewrite paradox as tension only.",
     "If a slide labeled FRICTION states the resolution, rewrite it as the obstacle.",
     "If a slide restates the thesis instead of advancing its beat, rewrite it to do the beat's actual job.",
+    ...(narrativeSpine.causalSynthesis ? [
+      "If any slide contradicts the CAUSAL SYNTHESIS above (states a different rule → response chain, or inverts the causality), REWRITE the slide to align with the synthesis. The synthesis is the ground truth for the argument; slides support it, not the other way around.",
+    ] : []),
     "═════════════════════════════",
     "",
   ] : [];
@@ -2570,6 +2583,11 @@ function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, tem
       "NARRATIVE SPINE — the outline every slide must serve. Do NOT improvise a different arc:",
       "",
       `THESIS: ${narrativeSpine.thesis}`,
+      ...(narrativeSpine.causalSynthesis ? [
+        "",
+        "CAUSAL SYNTHESIS — the completed causal reasoning behind this carousel. This is the argument, already reasoned out. Your job as writer is VOICE + FORMAT, NOT re-derivation. Do NOT rewrite this reasoning; every slide must be consistent with it, dramatizing the specific rule → response chain named here:",
+        `  ${narrativeSpine.causalSynthesis}`,
+      ] : []),
       "",
       "BEATS (in order):",
       ...narrativeSpine.beats.map((b, i) => `  ${i + 1}. ${b.label}: ${b.description}`),
