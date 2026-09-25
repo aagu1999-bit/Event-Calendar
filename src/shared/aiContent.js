@@ -1475,9 +1475,6 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   // got M") is asymmetric: it lets the model return exactly N slides, but
   // when the raw material is thinner than the shape demands, the model
   // resolves the mismatch by paraphrasing 2 facts across 5 extra slots.
-  // Better to refuse than to generate that echo carousel. Skipped for
-  // single-slot regen and for sequences where atomic-content slots are
-  // sparse (e.g. a mostly-photo sequence doesn't need atomic bullets).
   const atomicContentSlots = sequence.filter(t => t === "text" || t === "spotlight" || t === "stat" || t === "news").length;
   const suppliedBullets = parseContextBullets(context || "").length;
   const THIN_MATERIAL_FLOOR = 3;
@@ -1487,6 +1484,37 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
     err.needed = THIN_MATERIAL_FLOOR;
     err.supplied = suppliedBullets;
     throw err;
+  }
+
+  // HARD CAP — deterministic, no LLM involved. Content slots (text /
+  // spotlight / stat / news) MUST NOT exceed the number of supplied
+  // bullets. Rule: "one bullet, one slide; never more content slots than
+  // facts." Non-content slots (cover, cta, photo, features, poster) are
+  // additive on top. This is the fix for the $1.25M echo carousel:
+  // the LLM's soft `recommendedSlideCount` was too generous ("this
+  // material can carry 7 slides") and the model paraphrased to fill.
+  // In code we drop excess content slots from the sequence tail so the
+  // spine + writer only ever see a shape that CAN'T echo.
+  let cappedSequence = sequence.slice();
+  if (suppliedBullets > 0 && atomicContentSlots > suppliedBullets) {
+    const kept = [];
+    let contentSeen = 0;
+    for (const t of sequence) {
+      const isContent = (t === "text" || t === "spotlight" || t === "stat" || t === "news");
+      if (isContent) {
+        if (contentSeen < suppliedBullets) {
+          kept.push(t);
+          contentSeen++;
+        }
+        // else: drop this content slot — we've hit the bullet count cap
+      } else {
+        kept.push(t);
+      }
+    }
+    cappedSequence = kept;
+    if (typeof console !== "undefined") {
+      console.info(`Hard cap: ${suppliedBullets} bullets → capped content slots at ${suppliedBullets}. Sequence ${sequence.length} → ${cappedSequence.length}.`);
+    }
   }
 
   const today = (() => { try { return new Date().toISOString().slice(0, 10); } catch { return null; } })();
@@ -1505,9 +1533,10 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   // after generation anyway. Skip asking the LLM to generate it: saves
   // Gemini tokens, removes all model drift on the ask, and lets the
   // narrative spine focus its outline on the beats that will actually
-  // appear as generated copy.
-  const willStitchCta = !!(keywordTrigger && String(keywordTrigger).trim() && sequence[sequence.length - 1] === "cta");
-  const generationSequence = willStitchCta ? sequence.slice(0, -1) : sequence.slice();
+  // appear as generated copy. Operates on the hard-capped sequence so
+  // the drop is relative to the compressed shape, not the original.
+  const willStitchCta = !!(keywordTrigger && String(keywordTrigger).trim() && cappedSequence[cappedSequence.length - 1] === "cta");
+  const generationSequence = willStitchCta ? cappedSequence.slice(0, -1) : cappedSequence.slice();
 
   let narrativeSpine = null;
   if (spine && generationSequence.length >= 3) {

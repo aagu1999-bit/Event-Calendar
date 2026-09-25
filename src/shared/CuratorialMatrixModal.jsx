@@ -13,6 +13,7 @@ import {
   CONTENT_CLUSTER_LIST,
   resolveClusterKey,
   getClusterDirective,
+  getClusterDefaultPOV,
   COMPASS_TOPICS,
 } from "./matrixCompass.js";
 import { validateMatrix, matrixCompleteness, isMatrixReadyForGeneration } from "./matrixValidation.js";
@@ -360,6 +361,13 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
     if (topic.corridor) patch.corridor = topic.corridor;
     if (topic.suggestedHook) patch.hook_a_side = topic.suggestedHook;
     if (topic.targetEmotion) patch.target_emotion = topic.targetEmotion;
+    // Editable POV pre-fill — same rule as the cluster dropdown: seed a
+    // POV from the topic's cluster if the operator hasn't typed one yet.
+    const currentPOV = String(local.editorial_pov || "").trim();
+    if (clusterKey && !currentPOV) {
+      const seedPOV = getClusterDefaultPOV(clusterKey);
+      if (seedPOV) patch.editorial_pov = seedPOV;
+    }
     if (Array.isArray(topic.demographics) && topic.demographics.length) {
       // Merge (not replace) — keep anything the operator already added.
       const merged = Array.from(new Set([
@@ -645,7 +653,21 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
               <select
                 style={selectStyle}
                 value={resolveClusterKey(local.cluster) || ""}
-                onChange={(e) => applyPatch({ cluster: e.target.value || undefined })}
+                onChange={(e) => {
+                  const newCluster = e.target.value || undefined;
+                  const patch = { cluster: newCluster };
+                  // Editable POV pre-fill — when a cluster is picked and the
+                  // operator hasn't typed a POV yet, seed the Editorial POV
+                  // textarea with the cluster's default thesis from the
+                  // Compass Bank. Editable, so the operator can read, tweak,
+                  // or clear it. Won't overwrite a POV they've already typed.
+                  const currentPOV = String(local.editorial_pov || "").trim();
+                  if (newCluster && !currentPOV) {
+                    const seedPOV = getClusterDefaultPOV(newCluster);
+                    if (seedPOV) patch.editorial_pov = seedPOV;
+                  }
+                  applyPatch(patch);
+                }}
               >
                 <option value="">— pick cluster —</option>
                 {CONTENT_CLUSTER_LIST.map((c) => (
@@ -825,12 +847,45 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
 
           {/* Editorial POV */}
           <div>
-            <div style={groupLabelStyle}><span style={{ width: 3, height: 12, background: orbit, borderRadius: 2, display: "inline-block" }} />Editorial POV · 1–2 sentence thesis</div>
+            <div style={{ ...groupLabelStyle, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ width: 3, height: 12, background: orbit, borderRadius: 2, display: "inline-block" }} />
+                Editorial POV · 1–2 sentence thesis
+              </span>
+              {(() => {
+                const clusterDefault = getClusterDefaultPOV(local.cluster);
+                if (!clusterDefault) return null;
+                const current = String(local.editorial_pov || "").trim();
+                if (current === clusterDefault.trim()) return null; // already the default
+                return (
+                  <button
+                    type="button"
+                    onClick={() => applyPatch({ editorial_pov: clusterDefault })}
+                    title={current ? "Replace your POV with the cluster's default thesis" : "Use the cluster's default thesis as a starting point"}
+                    style={{
+                      background: "transparent",
+                      border: `1px solid ${whisper}`,
+                      color: muted,
+                      borderRadius: 4,
+                      padding: "3px 8px",
+                      fontFamily: "inherit",
+                      fontSize: "0.58rem",
+                      letterSpacing: "0.1em",
+                      textTransform: "uppercase",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                  >
+                    ↺ {current ? "Reset to cluster default" : "Use cluster default"}
+                  </button>
+                );
+              })()}
+            </div>
             <textarea
               style={textareaStyle}
               value={local.editorial_pov || ""}
               onChange={(e) => applyPatch({ editorial_pov: e.target.value })}
-              placeholder="Why does this space / event matter? The curatorial thesis the AI carousel prompt reads as brand-perspective context."
+              placeholder="Why does this space / event matter? The curatorial thesis the AI carousel prompt reads as brand-perspective context. Pick a cluster above and this pre-fills — editable."
               maxLength={LIMITS.POV_MAX + 100}
             />
             <CharCounter current={(local.editorial_pov || "").length} max={LIMITS.POV_MAX} error={errorsByField.editorial_pov} />
