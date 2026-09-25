@@ -1446,6 +1446,108 @@ export async function pickTemplate({ apiKey, topic, context, candidates }) {
   return { templateId, reasoning: parsed.reasoning || "", template: match };
 }
 
+// === RESPONSE SCHEMA (Gemini Structured Outputs) ===
+// Enforces field length caps at the API's token-generation layer, not at
+// the prompt layer. The old FIELD DISCIPLINE rule from PR #147 asked
+// politely; this actually stops the model mid-generation before it can
+// emit two sentences into a headline field. maxLength is enforced on
+// TITLE / KICKER / LABEL fields (short phrases) and BODY fields
+// (sentences) with different caps per shape.
+//
+// Every possible field from every slot type is listed here as an
+// optional string; the model emits only the fields relevant to each
+// slot's `type`. That keeps one schema for the whole slides array
+// (Gemini requires uniform item shape) while still constraining each
+// field's length.
+function buildFillResponseSchema(sequence) {
+  const slideItemSchema = {
+    type: "object",
+    properties: {
+      // Every slide carries a type discriminator.
+      type: { type: "string" },
+      // Cover
+      headline:         { type: "string", maxLength: 60 },
+      subtitle:         { type: "string", maxLength: 200 },
+      accentWord:       { type: "string", maxLength: 25 },
+      // Text
+      textTitle:        { type: "string", maxLength: 60 },
+      textBody:         { type: "string", maxLength: 400 },
+      // Spotlight
+      spotName:         { type: "string", maxLength: 60 },
+      spotMeta:         { type: "string", maxLength: 120 },
+      spotTime:         { type: "string", maxLength: 30 },
+      spotPrice:        { type: "string", maxLength: 30 },
+      spotCta:          { type: "string", maxLength: 40 },
+      // CTA
+      ctaKicker:        { type: "string", maxLength: 30 },
+      ctaDate:          { type: "string", maxLength: 100 },
+      ctaVenue:         { type: "string", maxLength: 220 },
+      ctaUrl:           { type: "string", maxLength: 100 },
+      // Stat
+      statNumber:       { type: "string", maxLength: 30 },
+      statLabel:        { type: "string", maxLength: 60 },
+      statSub:          { type: "string", maxLength: 200 },
+      // News
+      newsKicker:       { type: "string", maxLength: 30 },
+      newsHeadline:     { type: "string", maxLength: 60 },
+      newsBody:         { type: "string", maxLength: 700 },
+      newsBold:         { type: "boolean" },
+      // Photo
+      caption:          { type: "string", maxLength: 400 },
+      captionSecondary: { type: "string", maxLength: 400 },
+      // Countdown
+      countText:        { type: "string", maxLength: 200 },
+      countEvent:       { type: "string", maxLength: 60 },
+      countWhen:        { type: "string", maxLength: 60 },
+      countCta:         { type: "string", maxLength: 60 },
+      // Poster
+      topLine:          { type: "string", maxLength: 60 },
+      hosts:            { type: "string", maxLength: 120 },
+      kicker:           { type: "string", maxLength: 30 },
+      title:            { type: "string", maxLength: 80 },
+      leftList:         { type: "string", maxLength: 200 },
+      rightList:        { type: "string", maxLength: 200 },
+      dressCode:        { type: "string", maxLength: 100 },
+      dateLine:         { type: "string", maxLength: 60 },
+      // Press
+      pressTopMeta:     { type: "array", items: { type: "string", maxLength: 40 } },
+      pressTitle:       { type: "string", maxLength: 80 },
+      pressBadge:       { type: "string", maxLength: 30 },
+      pressLineup:      { type: "string", maxLength: 200 },
+      pressGenres:      { type: "string", maxLength: 120 },
+      pressDateLine:    { type: "string", maxLength: 60 },
+      // Features
+      featuresTitle:    { type: "string", maxLength: 60 },
+      features: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            emoji:    { type: "string", maxLength: 8 },
+            headline: { type: "string", maxLength: 30 },
+            sub:      { type: "string", maxLength: 100 },
+            featured: { type: "boolean" },
+          },
+          required: ["headline"],
+        },
+      },
+    },
+    required: ["type"],
+  };
+  return {
+    type: "object",
+    properties: {
+      slides: {
+        type: "array",
+        items: slideItemSchema,
+        minItems: sequence.length,
+        maxItems: sequence.length,
+      },
+    },
+    required: ["slides"],
+  };
+}
+
 // AI Template Fill — generates content for an ENTIRE carousel template
 // in a single Gemini call. Each slide in the template's sequence gets
 // its own per-slot rule applied, but Gemini sees the whole sequence at
@@ -1599,6 +1701,12 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
     contents: [{ parts: [{ text: prompt }] }],
     generationConfig: {
       responseMimeType: "application/json",
+      // Structured Output — enforces field length caps at the token-
+      // generation layer, not at the prompt layer. The old FIELD
+      // DISCIPLINE rule from PR #147 asked politely; this actually
+      // stops the model from emitting 80+ chars into textTitle. The
+      // model literally can't run past the cap.
+      responseSchema: buildFillResponseSchema(workingSequence),
       temperature: fillTemperature,
     },
   });
@@ -2027,7 +2135,13 @@ export async function polishCarousel({ apiKey, topic, context, voice, sequence, 
 
   const data = await geminiGenerate(apiKey, {
     contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: { responseMimeType: "application/json", temperature: 0.4 },
+    generationConfig: {
+      responseMimeType: "application/json",
+      // Same length caps on polish so the critic can't reintroduce a
+      // long title while "fixing" the draft.
+      responseSchema: buildFillResponseSchema(sequence),
+      temperature: 0.4,
+    },
   });
   const raw = extractResponseText(data);
   const parsed = extractJson(raw);
