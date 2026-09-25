@@ -1529,8 +1529,25 @@ async function runIgPrefetchJob(job) {
         }
         const item = lookupApifyItem(index, target.sourceUrl);
         if (!item) {
+          // Persist an "apifyMissed" marker on the pool row so a subsequent
+          // resolve-media call for this entry SHORT-CIRCUITS with a specific
+          // apify_miss error instead of firing yet another single-URL Apify
+          // actor run for a URL we already know is unscrapeable. This is
+          // what fixes the "20 batched then 96 singles" cost + noise pattern.
+          try {
+            await poolStore.update((cur) => {
+              const idx2 = (cur.entries || []).findIndex((e) => String(e.id) === String(target.id));
+              if (idx2 === -1) return cur;
+              const entries = [...cur.entries];
+              entries[idx2] = { ...entries[idx2], apifyMissed: true, apifyMissedAt: Date.now() };
+              return { entries };
+            });
+          } catch (persistErr) {
+            console.warn("[prefetch] couldn't persist apifyMissed marker:", persistErr?.message || persistErr);
+          }
           job.failed.push({
             id: target.id,
+            code: "apify_miss",
             message: "Apify returned no post — it may be private, deleted, or a stories/share link the scraper can't open.",
           });
           job.done++;
@@ -1673,6 +1690,20 @@ app.post("/api/screenshot-pool/resolve-media", express.json({ limit: "1mb" }), a
       return res.status(422).json({
         error: "missing_image",
         message: "This photo's image bytes are gone from the pool (only a placeholder is left). Re-share it from Photos — Extract can't recover a missing picture.",
+      });
+    }
+
+    // Short-circuit: if the batched prefetch already discovered this IG URL
+    // is unscrapeable, do NOT fire a fresh single-URL Apify actor run for
+    // the same dead post. Return 422 with a specific code so the client
+    // can show a per-row failure pill and skip it in the worker pool.
+    // Marker auto-expires after 24h so a post that goes public later gets
+    // one retry per day.
+    const APIFY_MISS_TTL_MS = 24 * 60 * 60 * 1000;
+    if (ig && existing.apifyMissed && (Date.now() - (existing.apifyMissedAt || 0) < APIFY_MISS_TTL_MS)) {
+      return res.status(422).json({
+        error: "apify_miss",
+        message: "Apify already tried this post and got nothing back — it's likely private, deleted, or a stories/share link. Open the link, save the image to Photos, and re-share from there.",
       });
     }
 

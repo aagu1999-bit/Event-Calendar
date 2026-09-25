@@ -314,20 +314,26 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
       return;
     }
     const deadline = Date.now() + 36 * 60 * 1000;
+    // Return value: the ids Apify already discovered are unscrapeable, so
+    // the outer worker pool can SKIP them entirely (no per-URL Apify runs
+    // for known-dead posts).
+    const failedIds = new Set();
     while (Date.now() < deadline) {
       await new Promise((ok) => setTimeout(ok, 2000));
       const s = await fetch(`/api/screenshot-pool/prefetch-instagram/${encodeURIComponent(j.jobId)}`);
       const st = await s.json().catch(() => ({}));
       if (!s.ok) throw new Error(st.message || "Apify batch expired — retry Extract.");
       if (st.hint) setExtractingHint(st.hint);
-      if (st.status === "done") return;
+      if (Array.isArray(st.failed)) for (const f of st.failed) if (f?.id) failedIds.add(String(f.id));
+      if (st.status === "done") return failedIds;
       if (st.status === "error") {
         if (st.code === "not_configured" || st.code === "auth") throw new Error(st.hint || "Apify is not ready.");
         setExtractingHint(st.hint || "Apify batch missed some posts — finishing one by one…");
-        return;
+        return failedIds;
       }
     }
     setExtractingHint("Apify is still running — continuing Extract with whatever is saved…");
+    return failedIds;
   };
 
   // Bulk-extract raw entries. Extract-all still walks every raw share;
@@ -354,19 +360,39 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
       for (const e of list) seed[e.id] = { phase: "queued" };
       return seed;
     });
+    let prefetchFailedIds = new Set();
     try {
-      await prefetchInstagramBatch(list);
+      const result = await prefetchInstagramBatch(list);
+      if (result instanceof Set) prefetchFailedIds = result;
     } catch (err) {
       setExtracting(false);
       setExtractingHint("");
       setMsg({ ok: false, text: String(err?.message || err) });
       return;
     }
-    let ok = 0, fail = 0, events = 0, lastErr = "";
-    let done = 0;
-    const total = list.length;
-    // Rolling code counts for the post-batch summary.
+    // Pre-mark entries Apify already gave up on — these will NOT enter
+    // the worker pool. Prevents the "20 batched then 96 single Apify
+    // runs" cost pattern for URLs the batched actor already flagged as
+    // unscrapeable (private, deleted, stories-only).
+    let apifyMissedCount = 0;
+    if (prefetchFailedIds.size) {
+      apifyMissedCount = prefetchFailedIds.size;
+      setExtractStatus((prev) => {
+        const next = { ...prev };
+        for (const id of prefetchFailedIds) {
+          next[id] = { phase: "failed", code: "apify_miss", message: "Apify couldn't scrape this post (private / deleted / stories). Re-share from Photos to retry." };
+        }
+        return next;
+      });
+    }
+    // Rolling code counts for the post-batch summary. Seed with apify_miss
+    // from the prefetch so those failures show up in the summary too.
     const failCodes = {};
+    if (apifyMissedCount) failCodes.apify_miss = apifyMissedCount;
+    let ok = 0, fail = apifyMissedCount, events = 0, lastErr = "";
+    let done = apifyMissedCount;
+    const workPool = list.filter((e) => !prefetchFailedIds.has(e.id));
+    const total = list.length;
     const applyEntryResult = (entry, { entryPatch, added }) => {
       setEntries((prev) => {
         const next = prev.map((e) => e.id === entry.id ? { ...e, ...entryPatch } : e);
@@ -425,16 +451,18 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
     // Worker-pool pattern: N workers each pull the next item off a shared
     // index until the list is drained. Preserves order of dispatch but not
     // completion (which is fine — each result patches its own row by id).
+    // Iterates workPool (list minus Apify-missed) so we don't waste a call
+    // per known-dead post.
     let cursor = 0;
     const worker = async () => {
       while (true) {
         const i = cursor++;
-        if (i >= list.length) return;
-        await runOne(list[i]);
+        if (i >= workPool.length) return;
+        await runOne(workPool[i]);
       }
     };
-    const workerCount = Math.min(EXTRACT_CONCURRENCY, list.length);
-    await Promise.all(Array.from({ length: workerCount }, () => worker()));
+    const workerCount = Math.min(EXTRACT_CONCURRENCY, workPool.length);
+    if (workPool.length) await Promise.all(Array.from({ length: workerCount }, () => worker()));
     setExtracting(false);
     setExtractingHint("");
     if (fail > 0) {
