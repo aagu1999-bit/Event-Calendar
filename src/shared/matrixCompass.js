@@ -59,7 +59,7 @@ export const CONTENT_CLUSTERS = {
     key: "STATE_SONIC_HISTORY",
     label: "State & Sonic History",
     directive: "Anchor the narrative in regional musical legacy, historic ballroom culture, early house movements (e.g., Club Zanzibar), and coastal resort boom history.",
-    defaultPOV: "The Jersey Sound was invented here — Club Zanzibar, Newark's ballroom lineage, the Asbury Park boardwalk boom — and today's rooms are still arguing with that history whether they know it or not.",
+    defaultPOV: "Sonic history in New Jersey was authored by the venues that never made the tourism map — the motel ballrooms, waterfront rooms, and unmarked warehouses that lived and died in the margins — and the codes those margins wrote still shape every room built since.",
   },
   POLICY_MECHANICS: {
     key: "POLICY_MECHANICS",
