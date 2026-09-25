@@ -314,7 +314,15 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
   // Bulk-extract raw entries. Extract-all still walks every raw share;
   // Extract-selected only walks the ticked ones (holiday / one-off picks).
   // Instagram links in the list are prefetched in ONE Apify run first;
-  // Gemini + pool save stay per row (and skip rows the operator deleted).
+  // Gemini + pool save then run in a small concurrency pool (5 in flight)
+  // so a 200-entry queue is not 200 serialized Gemini Vision calls. Gemini
+  // free-tier RPM is well above 5/parallel; the pool save endpoint has its
+  // own advisory lock server-side so concurrent updates serialize safely
+  // without wedging. Per-entry progress + error isolation preserved: each
+  // task settles independently, applies its own setEntries/setDrafts patch,
+  // and increments the ok/fail counters. Total wall time drops ~4-5x on
+  // the Gemini piece; the DB piece is unchanged (that's the Tier 2 fix).
+  const EXTRACT_CONCURRENCY = 5;
   const extractRawList = async (list) => {
     if (extracting || !list.length) return;
     setExtracting(true); setExtractingHint(""); setMsg(null);
@@ -327,45 +335,68 @@ export function ScreenshotPoolModal({ open, apiKey = null, weekendDates = null, 
       return;
     }
     let ok = 0, fail = 0, events = 0, lastErr = "";
-    for (const entry of list) {
-      try {
-        const { entryPatch, added, eventCount } = await extractOneRaw(entry);
-        events += eventCount || 1;
-        setEntries((prev) => {
-          const next = prev.map((e) => e.id === entry.id ? { ...e, ...entryPatch } : e);
-          if (!added.length) return next;
-          const idx = next.findIndex((e) => e.id === entry.id);
-          if (idx === -1) return [...next, ...added];
-          return [...next.slice(0, idx + 1), ...added, ...next.slice(idx + 1)];
-        });
-        setDrafts((prev) => {
-          const next = {
-            ...prev,
-            [entry.id]: {
-              event: { ...(entryPatch.event || {}) },
-              include: true,
-              recurring: !!entryPatch.recurring,
-              alsoRegular: !!entryPatch.alsoRegular,
-            },
+    let done = 0;
+    const total = list.length;
+    const applyEntryResult = (entry, { entryPatch, added }) => {
+      setEntries((prev) => {
+        const next = prev.map((e) => e.id === entry.id ? { ...e, ...entryPatch } : e);
+        if (!added.length) return next;
+        const idx = next.findIndex((e) => e.id === entry.id);
+        if (idx === -1) return [...next, ...added];
+        return [...next.slice(0, idx + 1), ...added, ...next.slice(idx + 1)];
+      });
+      setDrafts((prev) => {
+        const next = {
+          ...prev,
+          [entry.id]: {
+            event: { ...(entryPatch.event || {}) },
+            include: true,
+            recurring: !!entryPatch.recurring,
+            alsoRegular: !!entryPatch.alsoRegular,
+          },
+        };
+        for (const sib of added) {
+          next[sib.id] = {
+            event: { ...(sib.event || {}) },
+            include: true,
+            recurring: !!sib.recurring,
+            alsoRegular: !!sib.alsoRegular,
           };
-          for (const sib of added) {
-            next[sib.id] = {
-              event: { ...(sib.event || {}) },
-              include: true,
-              recurring: !!sib.recurring,
-              alsoRegular: !!sib.alsoRegular,
-            };
-          }
-          return next;
-        });
+        }
+        return next;
+      });
+    };
+    const runOne = async (entry) => {
+      try {
+        const result = await extractOneRaw(entry);
+        events += result.eventCount || 1;
+        applyEntryResult(entry, result);
         ok++;
         if (onPoolChanged) onPoolChanged();
       } catch (err) {
         fail++;
         lastErr = String(err?.message || err);
         console.warn(`Extract failed for ${entry.id}:`, err);
+      } finally {
+        done++;
+        // Progress hint reflects the SLOWEST-still-running task, which is
+        // fine — the operator just needs to know the queue is draining.
+        setExtractingHint(`Reading ${done}/${total}…`);
       }
-    }
+    };
+    // Worker-pool pattern: N workers each pull the next item off a shared
+    // index until the list is drained. Preserves order of dispatch but not
+    // completion (which is fine — each result patches its own row by id).
+    let cursor = 0;
+    const worker = async () => {
+      while (true) {
+        const i = cursor++;
+        if (i >= list.length) return;
+        await runOne(list[i]);
+      }
+    };
+    const workerCount = Math.min(EXTRACT_CONCURRENCY, list.length);
+    await Promise.all(Array.from({ length: workerCount }, () => worker()));
     setExtracting(false);
     setExtractingHint("");
     const extra = events > ok ? ` (${events} events)` : "";
