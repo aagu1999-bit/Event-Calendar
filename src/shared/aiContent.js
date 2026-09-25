@@ -1367,17 +1367,29 @@ export async function designSequence({ apiKey, topic, context, mode, targetCount
   let seq = Array.isArray(parsed?.sequence)
     ? parsed.sequence.map(s => String(s).toLowerCase().trim()).filter(s => ARRANGEABLE_SLOTS.includes(s))
     : [];
-  // Guardrails: cover first, cta last, sane length — the render pipeline assumes these.
-  // Cap at the requested count (when pinned) or 10 (auto).
+  // STRUCTURAL ENFORCEMENT — mathematically verify the arranger's output.
+  // Prior versions had partial guards (cover-first, cta-last-or-appended) but
+  // no dedupe on multiple ctas OR covers. The arranger at temp 0.75 could —
+  // and did — return [cover, news, cta, cta, cta, cta]. Now:
+  //   1. Exactly ONE cover at index 0. Strip any duplicates.
+  //   2. Exactly ONE cta at the final index. Strip any duplicates.
+  //   3. Cap length after dedupe.
   const cap = wantCount || 10;
-  seq = ["cover", ...seq.filter(s => s !== "cover")].slice(0, cap);
-  if (seq[seq.length - 1] !== "cta") {
-    // Keep the total at the cap when pinned: replace the last slot with cta
-    // rather than pushing past the requested count.
-    if (wantCount && seq.length >= cap) seq[seq.length - 1] = "cta";
-    else seq.push("cta");
-  }
+  // Strip ALL cta and cover slots from the middle; we'll rebuild the shell.
+  const middle = seq.filter((s, i) => s !== "cover" && s !== "cta");
+  // Reserve 2 slots (cover + cta), fill the middle up to (cap - 2).
+  const middleBudget = Math.max(1, cap - 2);
+  const middleSliced = middle.slice(0, middleBudget);
+  seq = ["cover", ...middleSliced, "cta"];
   if (seq.length < 2) throw new Error("Designed sequence too short");
+  // Post-enforcement assertion — should always hold; belt-and-suspenders log.
+  const coverCount = seq.filter(s => s === "cover").length;
+  const ctaCount = seq.filter(s => s === "cta").length;
+  if (coverCount !== 1 || ctaCount !== 1 || seq[0] !== "cover" || seq[seq.length - 1] !== "cta") {
+    if (typeof console !== "undefined") {
+      console.warn(`Arranger structural check failed post-enforcement: cover=${coverCount} cta=${ctaCount} first=${seq[0]} last=${seq[seq.length - 1]}`);
+    }
+  }
   return { sequence: seq, rationale: (parsed?.rationale || "").trim() };
 }
 
@@ -1514,6 +1526,134 @@ function sanitizeScaffoldingLabels(slides) {
     console.warn(`sanitizeScaffoldingLabels: stripped ${stripped} scaffolding-label leak(s) from title fields.`);
   }
   return cleaned;
+}
+
+// === PHANTOM ENTITY DETECTOR ===
+// Extract Capitalized 2+word proper nouns from each slide's text fields,
+// check against a whitelist built from the context bullets + a small
+// common-NJ allowlist. Anything unmatched attaches as a warning on the
+// slide (never scrubbed — auto-scrub would leave broken sentences).
+// The UI reads slide._warnings and shows a red badge so the operator
+// can REDO the specific slide.
+const COMMON_ENTITY_ALLOWLIST = new Set([
+  // Geographic (broadly used in CGE content)
+  "new jersey", "new york", "nj", "ny", "nyc", "new brunswick",
+  "north jersey", "central jersey", "south jersey", "the shore", "jersey shore",
+  "route 1", "route 22", "route 78", "route 1 corridor",
+  // Transit
+  "path", "njt", "nj transit", "port authority",
+  // Time / day words that might read as proper nouns
+  "friday", "saturday", "sunday", "monday", "tuesday", "wednesday", "thursday",
+  "january", "february", "march", "april", "may", "june", "july", "august",
+  "september", "october", "november", "december",
+  // Brand / operator terms
+  "central group events", "cge", "instagram", "spotify", "eventbrite",
+]);
+function extractProperNouns(text) {
+  if (typeof text !== "string" || !text.trim()) return [];
+  // Match 2+ capitalized words (e.g., "Chamber 43", "Tokyo Listening Room",
+  // "Berry Lane Park"). Single-word proper nouns are too noisy (every
+  // sentence-start capitalization would match).
+  const matches = text.match(/\b[A-Z][a-zA-Z0-9']*(?:\s+(?:[A-Z][a-zA-Z0-9']*|of|the|de|la|le|and|&|at|on|for)){1,4}\b/g) || [];
+  return matches.map(m => m.trim()).filter(m => m.length >= 4);
+}
+function extractAllTextFromSlide(slide) {
+  if (!slide || typeof slide !== "object") return "";
+  const parts = [];
+  for (const v of Object.values(slide)) {
+    if (typeof v === "string") parts.push(v);
+    else if (Array.isArray(v)) {
+      for (const inner of v) {
+        if (typeof inner === "string") parts.push(inner);
+        else if (inner && typeof inner === "object") {
+          for (const iv of Object.values(inner)) if (typeof iv === "string") parts.push(iv);
+        }
+      }
+    }
+  }
+  return parts.join(" \n ");
+}
+function detectPhantomEntities(slides, contextText, historicalText) {
+  if (!Array.isArray(slides) || !slides.length) return slides;
+  // Build whitelist from context bullets + historical bullets + common allowlist.
+  const contextNouns = new Set([
+    ...extractProperNouns(String(contextText || "")).map(n => n.toLowerCase()),
+    ...(Array.isArray(historicalText) ? historicalText : [historicalText])
+      .flatMap(t => extractProperNouns(String(t || "")))
+      .map(n => n.toLowerCase()),
+    ...COMMON_ENTITY_ALLOWLIST,
+  ]);
+  return slides.map((slide, i) => {
+    const slideText = extractAllTextFromSlide(slide);
+    const slideNouns = extractProperNouns(slideText);
+    const phantoms = [];
+    for (const n of slideNouns) {
+      const nLower = n.toLowerCase();
+      // Substring match: if any whitelisted noun contains our slide noun,
+      // or our slide noun contains a whitelisted noun, it's considered a
+      // match (handles "Chamber 43" vs "Chamber 43 on Main St." etc).
+      let matched = false;
+      for (const w of contextNouns) {
+        if (w.includes(nLower) || nLower.includes(w)) { matched = true; break; }
+      }
+      if (!matched) phantoms.push(n);
+    }
+    if (!phantoms.length) return slide;
+    const dedupedPhantoms = Array.from(new Set(phantoms));
+    if (typeof console !== "undefined") {
+      console.warn(`Phantom entity on slide ${i + 1}: ${dedupedPhantoms.map(p => `"${p}"`).join(", ")}`);
+    }
+    const existingWarnings = Array.isArray(slide._warnings) ? slide._warnings : [];
+    return {
+      ...slide,
+      _warnings: [
+        ...existingWarnings,
+        { type: "phantom_entity", entities: dedupedPhantoms, message: `Unverified entity detected: ${dedupedPhantoms.join(", ")}. Not present in the supplied context.` },
+      ],
+    };
+  });
+}
+
+// === ATOMICITY DETECTOR ===
+// Flag single fields that stack multiple discrete facts. Signature: more
+// than two `·` or `|` separators, OR more than one date pattern, OR both
+// an address and a date pattern jammed into one field. The Metuchen +
+// Aug 7 + address + Album Club + Crossroads example maps here.
+const DATE_PATTERN_RE = /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\.?\s+\d{1,2}\b/gi;
+const SLASH_DATE_RE = /\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b/g;
+const ADDRESS_HINT_RE = /\b\d{1,5}\s+[A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)*\s+(?:St|Ave|Blvd|Rd|Ln|Dr|Pkwy|Way|Ct|Pl|Ter)\b\.?/g;
+const FIELDS_TO_CHECK_ATOMICITY = new Set([
+  "spotMeta", "spotCta", "subtitle", "textBody", "statSub", "caption",
+  "captionSecondary", "pressLineup", "pressGenres", "countText",
+]);
+function detectAtomicityViolations(slides) {
+  if (!Array.isArray(slides)) return slides;
+  return slides.map((slide, i) => {
+    if (!slide || typeof slide !== "object") return slide;
+    const violations = [];
+    for (const field of FIELDS_TO_CHECK_ATOMICITY) {
+      const val = slide[field];
+      if (typeof val !== "string" || !val) continue;
+      const sepCount = (val.match(/[·|]/g) || []).length;
+      const dateMatches = (val.match(DATE_PATTERN_RE) || []).length + (val.match(SLASH_DATE_RE) || []).length;
+      const addressMatches = (val.match(ADDRESS_HINT_RE) || []).length;
+      if (sepCount > 2 || dateMatches > 1 || (addressMatches >= 1 && dateMatches >= 1 && sepCount >= 1)) {
+        violations.push({ field, sepCount, dateMatches, addressMatches, sample: val.slice(0, 120) });
+      }
+    }
+    if (!violations.length) return slide;
+    if (typeof console !== "undefined") {
+      console.warn(`Atomicity violation on slide ${i + 1}:`, violations.map(v => `${v.field} (${v.sepCount} separators, ${v.dateMatches} dates)`).join("; "));
+    }
+    const existingWarnings = Array.isArray(slide._warnings) ? slide._warnings : [];
+    return {
+      ...slide,
+      _warnings: [
+        ...existingWarnings,
+        { type: "atomicity_violation", violations, message: `Data-dump detected in ${violations.map(v => v.field).join(", ")} — multiple facts stacked in one field.` },
+      ],
+    };
+  });
 }
 
 // === RESPONSE SCHEMA (Gemini Structured Outputs) ===
@@ -1675,6 +1815,41 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
 
   const today = (() => { try { return new Date().toISOString().slice(0, 10); } catch { return null; } })();
 
+  // TEMPORAL FILTER — split context bullets into current-facts vs
+  // historical-facts (bullets whose dates have already passed relative to
+  // today). Historical bullets get their own labeled block in the writer
+  // prompt with a strict "never treat as active/upcoming" mandate,
+  // instead of silently flowing into the general context where the writer
+  // treated them as calendar drops.
+  const allBullets = parseContextBullets(context || "");
+  const currentBullets = [];
+  const historicalBullets = [];
+  if (today) {
+    for (const b of allBullets) {
+      if (isBulletDatePast(b, today)) historicalBullets.push(b);
+      else currentBullets.push(b);
+    }
+  } else {
+    currentBullets.push(...allBullets);
+  }
+  // Rebuild a filtered context string with only the current bullets +
+  // any non-bullet prose (POV lines etc). The writer will see a
+  // separate historicalContext block via buildTemplatePrompt.
+  let filteredContext = context || "";
+  if (historicalBullets.length) {
+    filteredContext = context
+      .split(/\r?\n/)
+      .filter(line => {
+        const m = line.match(/^\s*(?:[-•*]|\d+[.)])\s+(.+?)\s*$/);
+        if (!m) return true;
+        return !historicalBullets.includes(m[1].trim());
+      })
+      .join("\n");
+    if (typeof console !== "undefined") {
+      console.info(`Temporal filter: ${historicalBullets.length} past-dated bullet(s) routed to historicalContext.`);
+    }
+  }
+
   // Narrative spine pre-pass — the outline step a human editor takes before
   // writing a single slide. Without it the model jumps from raw bullets to
   // formatted JSON in one call, improvising the argument arc on the fly while
@@ -1698,7 +1873,7 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   if (spine && generationSequence.length >= 3) {
     try {
       narrativeSpine = await generateNarrativeSpine({
-        apiKey, topic, context, clusterDirective, clusterLabel, sequence: generationSequence, mode, today, letterMode,
+        apiKey, topic, context: filteredContext, clusterDirective, clusterLabel, sequence: generationSequence, mode, today, letterMode,
       });
     } catch (e) {
       // The spine is an assist, not a blocker — if it fails the pipeline
@@ -1730,7 +1905,7 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
       // and proofAssignments match the sequence Gemini will actually see.
       try {
         workingSpine = await generateNarrativeSpine({
-          apiKey, topic, context, clusterDirective, clusterLabel, sequence: workingSequence, mode, today, letterMode,
+          apiKey, topic, context: filteredContext, clusterDirective, clusterLabel, sequence: workingSequence, mode, today, letterMode,
         });
       } catch (e) {
         // If the re-plan fails, fall back to the compressed sequence with
@@ -1745,7 +1920,7 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
     }
   }
 
-  const prompt = buildTemplatePrompt({ sequence: workingSequence, topic, context, voice, slotPrompts, templateMeta, mode, today, letterMode, clusterDirective, clusterLabel, narrativeSpine: workingSpine });
+  const prompt = buildTemplatePrompt({ sequence: workingSequence, topic, context: filteredContext, historicalContext: historicalBullets, voice, slotPrompts, templateMeta, mode, today, letterMode, clusterDirective, clusterLabel, narrativeSpine: workingSpine });
 
   // Temperature split by register — story/editorial write at 0.70
   // (analytical curator, systemic tension, no purple prose overhang);
@@ -1809,7 +1984,11 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   if (!polish) {
     // Even without polish, deterministic CTA stitch runs (drift-removal).
     // Sanitizer runs too — belt-and-suspenders on scaffolding-label leaks.
-    const sanitized = sanitizeScaffoldingLabels(slides);
+    // Phantom + atomicity detectors run last so warnings attach to
+    // whatever the pipeline finally emits.
+    let sanitized = sanitizeScaffoldingLabels(slides);
+    sanitized = detectPhantomEntities(sanitized, filteredContext, historicalBullets);
+    sanitized = detectAtomicityViolations(sanitized);
     return willStitchCta ? appendStitchedCtaIfNeeded(sanitized) : stitchKeywordCta(sanitized, workingSequence, keywordTrigger);
   }
   // Deterministic pre-polish dedup: scan adjacent slides for a shared numeric
@@ -1821,15 +2000,22 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   // through so the editor checks arc adherence (is slide N still doing the
   // beat the outline assigned it?), not just per-slide polish.
   try {
-    const improved = await polishCarousel({ apiKey, topic, context, voice, sequence: workingSequence, slides, mode, today, letterMode, dedupPreamble, narrativeSpine: workingSpine });
+    const improved = await polishCarousel({ apiKey, topic, context: filteredContext, historicalContext: historicalBullets, voice, sequence: workingSequence, slides, mode, today, letterMode, dedupPreamble, narrativeSpine: workingSpine });
     if (Array.isArray(improved) && improved.length === workingSequence.length) slides = improved;
   } catch (e) {
     if (typeof console !== "undefined") console.warn("Carousel polish failed, returning draft:", e?.message || e);
   }
-  // Scaffolding sanitizer runs LAST (after polish, before CTA stitch) so
-  // any beat-label leaks either the writer or the critic slipped through
-  // get scrubbed before slides reach the UI.
-  const sanitized = sanitizeScaffoldingLabels(slides);
+  // Structural post-processing runs LAST (after polish, before CTA stitch):
+  //   1. Sanitizer strips scaffolding-label leaks in title fields.
+  //   2. Phantom-entity detector attaches _warnings when a proper noun in
+  //      a slide isn't present in the context.
+  //   3. Atomicity detector attaches _warnings when a single field stacks
+  //      multiple discrete facts.
+  // Warnings are attached to slides, not scrubbed — the UI renders them
+  // as red badges so the operator can decide whether to REDO or keep.
+  let sanitized = sanitizeScaffoldingLabels(slides);
+  sanitized = detectPhantomEntities(sanitized, filteredContext, historicalBullets);
+  sanitized = detectAtomicityViolations(sanitized);
   return willStitchCta ? appendStitchedCtaIfNeeded(sanitized) : stitchKeywordCta(sanitized, workingSequence, keywordTrigger);
 }
 
@@ -2091,7 +2277,7 @@ function fillSlotShape(t) {
 // that raises EVERY slide to its quality bar (kill filler, make the cover hook,
 // keep facts honest) while preserving each slide's type, order, and JSON shape.
 // Returns the improved slides; throws on failure so the caller falls back to the draft.
-export async function polishCarousel({ apiKey, topic, context, voice, sequence, slides, mode, today, letterMode = false, dedupPreamble = "", narrativeSpine = null }) {
+export async function polishCarousel({ apiKey, topic, context, historicalContext = [], voice, sequence, slides, mode, today, letterMode = false, dedupPreamble = "", narrativeSpine = null }) {
   if (!apiKey) throw new Error("Missing Gemini API key");
   if (!Array.isArray(slides) || !slides.length) throw new Error("No slides to polish");
 
@@ -2159,6 +2345,9 @@ export async function polishCarousel({ apiKey, topic, context, voice, sequence, 
     "  'revival' AND the Context bullets do NOT explicitly state that revival, DELETE",
     "  the claim. Rewrite the slide around lasting INFLUENCE, not a fabricated return.",
     "  A room that closed in 2007 does not come back because the copy needs a hook.",
+    ...(Array.isArray(historicalContext) && historicalContext.length && today ? [
+      `- PAST-DATE PROMOTION BAN (today is ${today}): the following bullets have dates ALREADY IN THE PAST — ${historicalContext.map(b => `"${b.slice(0, 80)}${b.length > 80 ? "..." : ""}"`).join(", ")}. If any slide promotes these dates as UPCOMING, uses "this weekend" / "tonight" / "RSVP" / "save the date" / "don't miss" for them, or treats them as an active calendar drop, REWRITE the slide to frame the date historically ("back in [month]", "[event] kicked off", "the [date] release marked"). Past-tense verbs. Never render a past date as a promo.`,
+    ] : []),
     "- ANTI-REGURGITATION: If any slide's headline, kicker, textTitle, or body copy",
     "  quotes the Editorial POV or Cluster Directive verbatim (or with only trivial",
     "  edits), REWRITE it to synthesize the same argument in original prose. POV and",
@@ -2497,6 +2686,65 @@ function letterModeBlock() {
   ];
 }
 
+// === TEMPORAL FILTER ===
+// Detect past dates inside a bullet text. Handles the common patterns
+// operators paste in: "Aug 7", "Aug. 23", "August 23", "8/7", "8/7/26".
+// If the date's month+day (assuming CURRENT year) is before `today`, the
+// bullet is classified as historical. Bullets with no date default to
+// current (safe assumption — the writer treats them as evergreen).
+//
+// Deliberately narrow: we're catching visibly dated bullets, not doing
+// full NLP date resolution. Year-less dates default to current year;
+// year-with-past-value is also caught. A "Saturday 8pm" without a
+// month/day stays current — that's fine (evergreen weekly, not past).
+const MONTH_MAP = {
+  jan: 0, january: 0, feb: 1, february: 1, mar: 2, march: 2, apr: 3, april: 3,
+  may: 4, jun: 5, june: 5, jul: 6, july: 6, aug: 7, august: 7,
+  sep: 8, sept: 8, september: 8, oct: 9, october: 9, nov: 10, november: 10,
+  dec: 11, december: 11,
+};
+function isBulletDatePast(bullet, today) {
+  if (!bullet || !today) return false;
+  const now = new Date(today);
+  if (Number.isNaN(now.getTime())) return false;
+  const nowYear = now.getFullYear();
+  const nowMonth = now.getMonth();
+  const nowDay = now.getDate();
+  // Pattern 1: "Aug 7" / "Aug. 23" / "August 23"
+  const monthDayRe = /\b(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\.?\s+(\d{1,2})(?:\s*,?\s*(\d{4}))?\b/gi;
+  let m;
+  while ((m = monthDayRe.exec(bullet)) !== null) {
+    const month = MONTH_MAP[m[1].toLowerCase()];
+    const day = parseInt(m[2], 10);
+    const year = m[3] ? parseInt(m[3], 10) : nowYear;
+    if (year < nowYear) return true;
+    if (year > nowYear) continue;
+    if (month < nowMonth) return true;
+    if (month > nowMonth) continue;
+    if (day < nowDay) return true;
+  }
+  // Pattern 2: "8/7" / "8/7/26" / "8/7/2026" (US month-first)
+  const slashRe = /\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/g;
+  while ((m = slashRe.exec(bullet)) !== null) {
+    const month = parseInt(m[1], 10) - 1;
+    const day = parseInt(m[2], 10);
+    if (month < 0 || month > 11 || day < 1 || day > 31) continue;
+    let year;
+    if (m[3]) {
+      const y = parseInt(m[3], 10);
+      year = y < 100 ? 2000 + y : y;
+    } else {
+      year = nowYear;
+    }
+    if (year < nowYear) return true;
+    if (year > nowYear) continue;
+    if (month < nowMonth) return true;
+    if (month > nowMonth) continue;
+    if (day < nowDay) return true;
+  }
+  return false;
+}
+
 // Parse matrix-shaped context — dashed bullets that each carry one
 // atomic fact — so buildTemplatePrompt can steer the model into a
 // 1:1 bullet→slot mapping instead of concatenating facts.
@@ -2516,7 +2764,7 @@ function parseContextBullets(context) {
   return bullets;
 }
 
-function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, templateMeta, mode, today, letterMode = false, clusterDirective = "", clusterLabel = "", narrativeSpine = null }) {
+function buildTemplatePrompt({ sequence, topic, context, historicalContext = [], voice, slotPrompts, templateMeta, mode, today, letterMode = false, clusterDirective = "", clusterLabel = "", narrativeSpine = null }) {
   const hasVoiceDesc = voice && typeof voice.description === "string" && voice.description.trim();
   const exemplars = Array.isArray(voice?.exemplars) ? voice.exemplars.filter(e => e && e.trim()) : [];
   const hasExemplars = exemplars.length > 0;
@@ -2639,6 +2887,7 @@ function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, tem
     "- TEMPORAL INTEGRITY: NEVER invent modern revivals, reopenings, comebacks, or 'it's back' claims for historical entities unless the Context bullets EXPLICITLY state the revival. If a venue was demolished, closed, or ended decades ago and no supplied bullet names a modern successor, frame the tension around lasting INFLUENCE, not a fabricated return. A defunct room can shape today's rooms without being 'back'.",
     "- ENTITY ISOLATION: Do NOT blend unrelated cities, decades, or venues into a single slide. When filling a slot, use ONLY the assigned fact for that slot (Reserved PROOF, per BEAT). Slides that mix Newark 1979 with Asbury Park 2024 in the same body copy read as a kitchen-sink montage, not an argument. One slide = one time, one place, one specific — unless the POV explicitly bridges them.",
     "- FACT-DENSITY MANDATE: every slide MUST name a specific concrete entity from the material — a transit line, a venue, an intersection, a corridor, a specific ordinance number, a named collective, a specific time-of-day, an actual price point. BANNED sociological fluff: 'the unseen hand', 'access dictates who shows up', 'the fabric of the community', 'the very essence of', 'at its core', 'speaks to', 'a testament to', 'invisible architecture', 'the geography of', 'the way we gather'. These read as academic essay filler and mask the absence of specifics. If your instinct is to write one of those phrases, you're missing a concrete anchor — pull one from the assigned bullet or a context bullet marked 'context', or name the physical place / time / rule the material implies.",
+    "- ATOMICITY MANDATE: EACH FIELD CARRIES ONE ATOMIC UNIT. One venue name in spotName, one address in spotMeta, one date in ctaDate, one time in spotTime. If your instinct is to stack Metuchen + Aug 7 + address + Album Club pitch + Crossroads into a single spotMeta separated by `·` or `|`, you're using the WRONG SLOT TYPE for the material and the field will be flagged as a data-dump. Split into multiple slides, or leave the extras out. Rule of thumb: if a field would contain more than TWO `·` separators, or more than ONE date, or BOTH an address AND a date, it's a violation.",
     "- FIELD DISCIPLINE: Title / headline / label / kicker fields (headline, textTitle, spotName, kicker, ctaKicker, statLabel, newsHeadline, newsKicker, accentWord, pressTitle, pressBadge, countEvent, countCta, spotTime, spotPrice, spotCta) are SHORT LABELS — one clause, aim under 60 characters. Body fields (textBody, newsBody, subtitle, spotMeta, subLine, statSub, countText, caption, pressLineup) carry the sentences. If a title field reads like body copy — two sentences separated by a period, multiple ideas stacked — you're in the wrong field: move it to the body and shorten the title. Example of failed output: `textTitle: \"Young's Skating Center keeps a hardwood ritual alive. Forget the casino strip.\"` That's two sentences of body prose stuffed into a title slot. Correct: `textTitle: \"THE HARDWOOD RITUAL\"`, `textBody: \"Young's Skating Center keeps Friday nights alive off the casino strip.\"`",
     "- Write in the register of street-level neighborhood critique (anti-hype, no-nonsense local insider). Focus strictly on the input topic/event—do not pivot to unrelated domains (like food/restaurants or party vibes) unless the input specifically describes them.",
     "- BANNED CLICHÉS: Never use 'hidden gem', 'must-visit', 'good vibes', 'scenic view', 'great music', 'experience like no other', 'unforgettable', 'movie', 'can't-miss', 'movie vibes', or 'something for everyone'. If you write these, the editor will reject it.",
@@ -2716,6 +2965,28 @@ function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, tem
       context.trim(),
       "",
       "─────────────────────────────",
+      "",
+    ] : []),
+    // HISTORICAL CONTEXT — bullets whose dates are already in the past.
+    // Separated from the primary context so the writer treats them as
+    // legacy/origin material, NOT as active calendar drops. This is the
+    // fix for "publishing an Instagram carousel telling people to attend
+    // an event that happened a month ago."
+    ...(Array.isArray(historicalContext) && historicalContext.length ? [
+      "═════════════════════════════",
+      `HISTORICAL CONTEXT — ${historicalContext.length} bullet${historicalContext.length === 1 ? "" : "s"} whose date${historicalContext.length === 1 ? " is" : "s are"} in the PAST (compared to today, ${today || "the current date"}):`,
+      ...historicalContext.map(b => `- ${b}`),
+      "",
+      "These facts occurred in the past. Use them to establish LEGACY, ORIGIN STORY, or HISTORICAL BACKDROP only.",
+      "STRICTLY BANNED language when referring to these entities:",
+      "  - 'upcoming', 'this weekend', 'this Saturday', 'tonight', 'happening [past date]'",
+      "  - 'RSVP', 'save the date', 'don't miss', 'coming up', 'save this'",
+      "  - Any framing that implies the reader can still attend the event as-scheduled.",
+      "REQUIRED framing when referring to these entities:",
+      "  - 'back in [month]', '[event] kicked off', 'the [date] release marked', 'the room that hosted'",
+      "  - Past-tense verbs. Historical construction. Legacy references.",
+      "If a slide's assigned PROOF is historical, its beat is BACKSTORY, not CALENDAR — treat it as scene-setting for a currently active thing.",
+      "═════════════════════════════",
       "",
     ] : []),
     // RELEVANCE VETO — architectural override to the "Kitchen Sink" heuristic.
