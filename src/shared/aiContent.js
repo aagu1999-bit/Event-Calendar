@@ -1518,98 +1518,82 @@ function sanitizeScaffoldingLabels(slides) {
 
 // === RESPONSE SCHEMA (Gemini Structured Outputs) ===
 // Enforces field length caps at the API's token-generation layer, not at
-// the prompt layer. The old FIELD DISCIPLINE rule from PR #147 asked
-// politely; this actually stops the model mid-generation before it can
-// emit two sentences into a headline field. maxLength is enforced on
-// TITLE / KICKER / LABEL fields (short phrases) and BODY fields
-// (sentences) with different caps per shape.
+// the prompt layer. maxLength stops the model mid-generation before it
+// can emit two sentences into a headline field.
 //
-// Every possible field from every slot type is listed here as an
-// optional string; the model emits only the fields relevant to each
-// slot's `type`. That keeps one schema for the whole slides array
-// (Gemini requires uniform item shape) while still constraining each
-// field's length.
+// PR #148 shipped a schema that enumerated EVERY possible field across
+// every slot type — 40+ fields, each with a maxLength constraint.
+// Gemini's structured-output constraint compiler counts states-per-
+// constraint and rejected the schema with "too many states for serving".
+// Fix: adapt the schema to the CURRENT sequence — only include fields
+// for the slot types that actually appear. A typical carousel touches
+// 4-6 slot types → ~15 fields → well under Gemini's state cap.
+//
+// Falls back to no schema if Gemini rejects even the compact one — see
+// the try/catch in generateTemplateFill.
+const FIELDS_BY_SLOT = {
+  cover:     { headline: 60, subtitle: 200, accentWord: 25 },
+  text:      { textTitle: 60, textBody: 400 },
+  spotlight: { spotName: 60, spotMeta: 120, spotTime: 30, spotPrice: 30, spotCta: 40 },
+  cta:       { ctaKicker: 30, ctaDate: 100, ctaVenue: 220, ctaUrl: 100 },
+  stat:      { statNumber: 30, statLabel: 60, statSub: 200 },
+  news:      { newsKicker: 30, newsHeadline: 60, newsBody: 700 }, // newsBold is boolean, added separately
+  photo:     { caption: 400, captionSecondary: 400 },
+  countdown: { countText: 200, countEvent: 60, countWhen: 60, countCta: 60 },
+  poster:    { topLine: 60, hosts: 120, kicker: 30, title: 80, subtitle: 200, leftList: 200, rightList: 200, dressCode: 100, dateLine: 60 },
+  press:     { pressTitle: 80, pressBadge: 30, pressLineup: 200, pressGenres: 120, pressDateLine: 60 }, // pressTopMeta array added separately
+  features:  { featuresTitle: 60 }, // features array added separately
+};
 function buildFillResponseSchema(sequence) {
-  const slideItemSchema = {
-    type: "object",
-    properties: {
-      // Every slide carries a type discriminator.
-      type: { type: "string" },
-      // Cover
-      headline:         { type: "string", maxLength: 60 },
-      subtitle:         { type: "string", maxLength: 200 },
-      accentWord:       { type: "string", maxLength: 25 },
-      // Text
-      textTitle:        { type: "string", maxLength: 60 },
-      textBody:         { type: "string", maxLength: 400 },
-      // Spotlight
-      spotName:         { type: "string", maxLength: 60 },
-      spotMeta:         { type: "string", maxLength: 120 },
-      spotTime:         { type: "string", maxLength: 30 },
-      spotPrice:        { type: "string", maxLength: 30 },
-      spotCta:          { type: "string", maxLength: 40 },
-      // CTA
-      ctaKicker:        { type: "string", maxLength: 30 },
-      ctaDate:          { type: "string", maxLength: 100 },
-      ctaVenue:         { type: "string", maxLength: 220 },
-      ctaUrl:           { type: "string", maxLength: 100 },
-      // Stat
-      statNumber:       { type: "string", maxLength: 30 },
-      statLabel:        { type: "string", maxLength: 60 },
-      statSub:          { type: "string", maxLength: 200 },
-      // News
-      newsKicker:       { type: "string", maxLength: 30 },
-      newsHeadline:     { type: "string", maxLength: 60 },
-      newsBody:         { type: "string", maxLength: 700 },
-      newsBold:         { type: "boolean" },
-      // Photo
-      caption:          { type: "string", maxLength: 400 },
-      captionSecondary: { type: "string", maxLength: 400 },
-      // Countdown
-      countText:        { type: "string", maxLength: 200 },
-      countEvent:       { type: "string", maxLength: 60 },
-      countWhen:        { type: "string", maxLength: 60 },
-      countCta:         { type: "string", maxLength: 60 },
-      // Poster
-      topLine:          { type: "string", maxLength: 60 },
-      hosts:            { type: "string", maxLength: 120 },
-      kicker:           { type: "string", maxLength: 30 },
-      title:            { type: "string", maxLength: 80 },
-      leftList:         { type: "string", maxLength: 200 },
-      rightList:        { type: "string", maxLength: 200 },
-      dressCode:        { type: "string", maxLength: 100 },
-      dateLine:         { type: "string", maxLength: 60 },
-      // Press
-      pressTopMeta:     { type: "array", items: { type: "string", maxLength: 40 } },
-      pressTitle:       { type: "string", maxLength: 80 },
-      pressBadge:       { type: "string", maxLength: 30 },
-      pressLineup:      { type: "string", maxLength: 200 },
-      pressGenres:      { type: "string", maxLength: 120 },
-      pressDateLine:    { type: "string", maxLength: 60 },
-      // Features
-      featuresTitle:    { type: "string", maxLength: 60 },
-      features: {
-        type: "array",
-        items: {
-          type: "object",
-          properties: {
-            emoji:    { type: "string", maxLength: 8 },
-            headline: { type: "string", maxLength: 30 },
-            sub:      { type: "string", maxLength: 100 },
-            featured: { type: "boolean" },
-          },
-          required: ["headline"],
-        },
-      },
-    },
-    required: ["type"],
+  // Collect the union of fields for the slot types in this sequence only.
+  const slotTypesInSeq = new Set(sequence);
+  const properties = {
+    // Every slide carries a type discriminator.
+    type: { type: "string" },
   };
+  for (const slotType of slotTypesInSeq) {
+    const fields = FIELDS_BY_SLOT[slotType];
+    if (!fields) continue;
+    for (const [field, maxLength] of Object.entries(fields)) {
+      // If two slot types share a field name (e.g. `subtitle` on both
+      // cover and poster), the LARGER maxLength wins so we don't cap
+      // legitimate longer body on the wider one.
+      const existing = properties[field];
+      if (!existing || (existing.maxLength && existing.maxLength < maxLength)) {
+        properties[field] = { type: "string", maxLength };
+      }
+    }
+  }
+  // Slot-specific non-string fields — only include when their slot is present.
+  if (slotTypesInSeq.has("news")) properties.newsBold = { type: "boolean" };
+  if (slotTypesInSeq.has("press")) {
+    properties.pressTopMeta = { type: "array", items: { type: "string", maxLength: 40 } };
+  }
+  if (slotTypesInSeq.has("features")) {
+    properties.features = {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          emoji:    { type: "string", maxLength: 8 },
+          headline: { type: "string", maxLength: 30 },
+          sub:      { type: "string", maxLength: 100 },
+          featured: { type: "boolean" },
+        },
+        required: ["headline"],
+      },
+    };
+  }
   return {
     type: "object",
     properties: {
       slides: {
         type: "array",
-        items: slideItemSchema,
+        items: {
+          type: "object",
+          properties,
+          required: ["type"],
+        },
         minItems: sequence.length,
         maxItems: sequence.length,
       },
@@ -1767,19 +1751,37 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   // (analytical curator, systemic tension, no purple prose overhang);
   // promo stays at 0.95 (energy matters). Polish is still 0.4.
   const fillTemperature = (mode === "story" || mode === "editorial") ? 0.70 : 0.95;
-  const data = await geminiGenerate(apiKey, {
-    contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: {
-      responseMimeType: "application/json",
-      // Structured Output — enforces field length caps at the token-
-      // generation layer, not at the prompt layer. The old FIELD
-      // DISCIPLINE rule from PR #147 asked politely; this actually
-      // stops the model from emitting 80+ chars into textTitle. The
-      // model literally can't run past the cap.
-      responseSchema: buildFillResponseSchema(workingSequence),
-      temperature: fillTemperature,
-    },
-  });
+  // Structured Output — enforces field length caps at the token-
+  // generation layer, not at the prompt layer. If Gemini rejects the
+  // schema (e.g. "too many states for serving" on complex sequences),
+  // fall back to no schema so generation isn't blocked. Prompt-level
+  // FIELD DISCIPLINE + post-generation sanitizer still catch the
+  // common failure modes in that path.
+  const baseConfig = {
+    responseMimeType: "application/json",
+    temperature: fillTemperature,
+  };
+  let data;
+  try {
+    data = await geminiGenerate(apiKey, {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: {
+        ...baseConfig,
+        responseSchema: buildFillResponseSchema(workingSequence),
+      },
+    });
+  } catch (err) {
+    const msg = String(err?.message || err || "");
+    if (/too many states/i.test(msg) || /schema.*constraint/i.test(msg) || /invalid schema/i.test(msg)) {
+      if (typeof console !== "undefined") console.warn("Gemini rejected the responseSchema, retrying without it:", msg.slice(0, 200));
+      data = await geminiGenerate(apiKey, {
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: baseConfig,
+      });
+    } else {
+      throw err;
+    }
+  }
   const raw = extractResponseText(data);
   if (!raw) throw new Error("Empty response from Gemini");
 
@@ -2226,16 +2228,30 @@ export async function polishCarousel({ apiKey, topic, context, voice, sequence, 
     `{"slides":[${sequence.map(fillSlotShape).join(",")}]}`,
   ].join("\n");
 
-  const data = await geminiGenerate(apiKey, {
-    contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: {
-      responseMimeType: "application/json",
-      // Same length caps on polish so the critic can't reintroduce a
-      // long title while "fixing" the draft.
-      responseSchema: buildFillResponseSchema(sequence),
-      temperature: 0.4,
-    },
-  });
+  // Same schema + fallback as the fill call — if Gemini rejects the
+  // schema, retry without so polish never blocks output.
+  const polishBaseConfig = { responseMimeType: "application/json", temperature: 0.4 };
+  let data;
+  try {
+    data = await geminiGenerate(apiKey, {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: {
+        ...polishBaseConfig,
+        responseSchema: buildFillResponseSchema(sequence),
+      },
+    });
+  } catch (err) {
+    const msg = String(err?.message || err || "");
+    if (/too many states/i.test(msg) || /schema.*constraint/i.test(msg) || /invalid schema/i.test(msg)) {
+      if (typeof console !== "undefined") console.warn("Polish rejected responseSchema, retrying without:", msg.slice(0, 200));
+      data = await geminiGenerate(apiKey, {
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: polishBaseConfig,
+      });
+    } else {
+      throw err;
+    }
+  }
   const raw = extractResponseText(data);
   const parsed = extractJson(raw);
   const out = Array.isArray(parsed?.slides) ? parsed.slides : [];
