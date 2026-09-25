@@ -23,51 +23,61 @@ export const CONTENT_CLUSTERS = {
     key: "SUBURBAN_THIRD_PLACE",
     label: "Suburban Third-Place Crisis",
     directive: "Focus on the deficit of walkable social infrastructure, car-dependent commercial strips, strip mall speakeasies, and how suburban spots accidentally become gathering hubs.",
+    defaultPOV: "Suburban New Jersey outsourced gathering to commercial strips and the commute killed spontaneous hangs — what survives is the parking-lot brewery, the strip-mall speakeasy, and the accidental cafe takeover.",
   },
   DIASPORA_INFRASTRUCTURE: {
     key: "DIASPORA_INFRASTRUCTURE",
     label: "Diaspora Infrastructure & Cultural Epicenters",
     directive: "Highlight second-gen identity spaces, immigrant business ecosystems, civic halls, and authentic cultural spaces (Afrobeats, Caribbean, Latin house) outside mainstream commercial circuits.",
+    defaultPOV: "The scenes that carry culture forward in New Jersey were built outside the mainstream circuit — second-gen halls, immigrant business ecosystems, and diaspora residencies that operate on referral rather than press.",
   },
   NIGHTLIFE_DILEMMA: {
     key: "NIGHTLIFE_DILEMMA",
     label: "Nightlife Dilemma & Sound Curation",
     directive: "Dissect the collapse of commercial mega-clubs, bottle service fatigue, early curfews, acoustic audits, and the rise of intimate hi-fi or vinyl listening rooms.",
+    defaultPOV: "The mega-club era is over — what's winning are 150-capacity rooms with real sound systems, hi-fi listening bars, and residencies that treat the crowd as a scene, not a checkout line.",
   },
   DAYTIME_PLAY: {
     key: "DAYTIME_PLAY",
     label: "Daytime Play & Kinetic Wellness",
     directive: "Explore adult recess, field days, run clubs as social hubs, roller rinks, sober socializing, and non-alcohol-centric kinetic community gatherings.",
+    defaultPOV: "Adult recess isn't a joke anymore — run clubs replaced Hinge, roller rinks replaced happy hours, and field days moved the social calendar out of the bar and onto the grass.",
   },
   GATHERING_LOGISTICS: {
     key: "GATHERING_LOGISTICS",
     label: "Economics & Logistics of Gathering",
     directive: "Examine the raw operational math: venue rental splits, food truck coordination, rain contingencies, permit red tape, check-in bottlenecks, and door economics.",
+    defaultPOV: "Every gathering runs on math the audience never sees — venue splits, food-truck routing, weather contingencies, permit red tape, check-in bottlenecks — and the operators who make it look easy are running spreadsheets no one sees.",
   },
   REGIONAL_DEMOGRAPHICS: {
     key: "REGIONAL_DEMOGRAPHICS",
     label: "Regional Demographics & Transit Shifts",
     directive: "Analyze commuter rail habits, reverse-commute patterns, transit village gentrification, suburban brain drain, and geographic identity across NJ corridors.",
+    defaultPOV: "New Jersey's commuter corridors sort culture by transit access — the reverse-commute pattern reshuffles who shows up where, and the identity of a town is now a function of its train stop.",
   },
   STATE_SONIC_HISTORY: {
     key: "STATE_SONIC_HISTORY",
     label: "State & Sonic History",
     directive: "Anchor the narrative in regional musical legacy, historic ballroom culture, early house movements (e.g., Club Zanzibar), and coastal resort boom history.",
+    defaultPOV: "The Jersey Sound was invented here — Club Zanzibar, Newark's ballroom lineage, the Asbury Park boardwalk boom — and today's rooms are still arguing with that history whether they know it or not.",
   },
   POLICY_MECHANICS: {
     key: "POLICY_MECHANICS",
     label: "Policy Mechanics & Municipal Architecture",
     directive: "Break down statutory quotas (like the 1947 1:3,000 NJ liquor license cap), 'home rule' fragmentation across 564 towns, zoning restrictions, and public park permitting.",
+    defaultPOV: "The 1:3,000 liquor cap, home rule fragmentation across 564 municipalities, and layered curfew ordinances are the actual authors of how New Jersey nightlife looks — policy is architecture.",
   },
   DIGITAL_NETWORKS: {
     key: "DIGITAL_NETWORKS",
     label: "Digital Networks & Civic Tech",
     directive: "Explore algorithmic ticketing queues, the death of street flyering, private WhatsApp/Telegram community networks, and automation for independent operators.",
+    defaultPOV: "The street flyer is dead — the private WhatsApp group and the algorithmic ticketing queue replaced it, and independent operators live or die by how well they run those channels.",
   },
   PHILOSOPHY_OF_GATHERING: {
     key: "PHILOSOPHY_OF_GATHERING",
     label: "Philosophy & Behavioral Psychology of Gathering",
     directive: "Ground in sociology: Ray Oldenburg third-place theory, the propinquity effect, collective effervescence, social friction, and the psychological cost of being outside.",
+    defaultPOV: "Ray Oldenburg's third-place theory maps directly onto New Jersey's crisis — home and work are covered; the third place is where identity gets negotiated, and its absence is why so many suburban weekends feel hollow.",
   },
 };
 
@@ -156,6 +166,17 @@ export function getClusterLabel(value) {
   const key = resolveClusterKey(value);
   if (key) return CONTENT_CLUSTERS[key].label;
   return String(value || "");
+}
+
+// Return the cluster's brand-voice default POV — used by
+// eventMatrixToFillSeed as a fallback when the operator leaves the
+// Editorial POV field blank. Gives the Editor pass at least a brand
+// thesis to work from so a matrix without a typed POV doesn't collapse
+// to "no POV, no arc." Empty string when the value doesn't resolve.
+export function getClusterDefaultPOV(value) {
+  const key = resolveClusterKey(value);
+  if (!key) return "";
+  return CONTENT_CLUSTERS[key].defaultPOV || "";
 }
 
 // Seed topics — the operator's curated beat board. Clicking one auto-

@@ -1500,11 +1500,20 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   // the thesis vs. which are candidates for the RELEVANCE VETO. Runs at low
   // temperature for a stable outline; skipped for very short sequences
   // (single-slot regen, 2-slide teasers) and when the caller opts out.
+  // CTA slot drop — when a keyword trigger is set AND the sequence ends
+  // in `cta`, we're going to overwrite that slide with stitchKeywordCta
+  // after generation anyway. Skip asking the LLM to generate it: saves
+  // Gemini tokens, removes all model drift on the ask, and lets the
+  // narrative spine focus its outline on the beats that will actually
+  // appear as generated copy.
+  const willStitchCta = !!(keywordTrigger && String(keywordTrigger).trim() && sequence[sequence.length - 1] === "cta");
+  const generationSequence = willStitchCta ? sequence.slice(0, -1) : sequence.slice();
+
   let narrativeSpine = null;
-  if (spine && sequence.length >= 3) {
+  if (spine && generationSequence.length >= 3) {
     try {
       narrativeSpine = await generateNarrativeSpine({
-        apiKey, topic, context, clusterDirective, clusterLabel, sequence, mode, today, letterMode,
+        apiKey, topic, context, clusterDirective, clusterLabel, sequence: generationSequence, mode, today, letterMode,
       });
     } catch (e) {
       // The spine is an assist, not a blocker — if it fails the pipeline
@@ -1514,16 +1523,49 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
     }
   }
 
-  const prompt = buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, templateMeta, mode, today, letterMode, clusterDirective, clusterLabel, narrativeSpine });
+  // Editorial compression — if the spine's Editor pass thinks fewer slides
+  // are honest for this material than the operator picked, compress the
+  // sequence to that count. Preserves the cover (position 0) and drops
+  // from the tail of the middle so the arc endpoints stay intact.
+  // Compression fires only when spine ran successfully AND the operator's
+  // sequence contains an atomic-content majority (otherwise compressing a
+  // photo-heavy template makes no sense). If spine failed, no compression.
+  let workingSequence = generationSequence;
+  let workingSpine = narrativeSpine;
+  if (narrativeSpine && narrativeSpine.recommendedSlideCount < generationSequence.length) {
+    const atomicSlotsInSeq = generationSequence.filter(t => t === "text" || t === "spotlight" || t === "stat" || t === "news").length;
+    if (atomicSlotsInSeq >= 3) {
+      const targetLen = narrativeSpine.recommendedSlideCount;
+      // Keep slide 1 (cover if present, else the first slot) + first
+      // (targetLen - 1) additional slots. Simple front-truncate — the
+      // outline's slideAssignments already prioritized the strongest
+      // beats early, so a front-truncate honors the outline's ordering.
+      workingSequence = generationSequence.slice(0, targetLen);
+      // Re-plan the spine at the compressed length so slideAssignments
+      // and proofAssignments match the sequence Gemini will actually see.
+      try {
+        workingSpine = await generateNarrativeSpine({
+          apiKey, topic, context, clusterDirective, clusterLabel, sequence: workingSequence, mode, today, letterMode,
+        });
+      } catch (e) {
+        // If the re-plan fails, fall back to the compressed sequence with
+        // the original spine truncated to match — better than aborting.
+        if (typeof console !== "undefined") console.warn("Compressed spine replan failed, truncating original spine:", e?.message || e);
+        workingSpine = {
+          ...narrativeSpine,
+          slideAssignments: narrativeSpine.slideAssignments.slice(0, targetLen),
+        };
+      }
+      if (typeof console !== "undefined") console.info(`Editorial compression: ${generationSequence.length} → ${targetLen} slides (material didn't earn more).`);
+    }
+  }
 
-  // Temperature split by register — the fill call was writing at 0.95
-  // universally, which is right for promo (energy matters) but wrong for
-  // editorial/story where 0.95 reaches into the low-probability token
-  // space where MFA purple prose ("shared breath of a room") lives. The
-  // polish pass at 0.4 can't fully weed what a 0.95 fill plants; drop
-  // fill temperature for the analytical registers so the crop is
-  // cleaner in the first place.
-  const fillTemperature = (mode === "story" || mode === "editorial") ? 0.75 : 0.95;
+  const prompt = buildTemplatePrompt({ sequence: workingSequence, topic, context, voice, slotPrompts, templateMeta, mode, today, letterMode, clusterDirective, clusterLabel, narrativeSpine: workingSpine });
+
+  // Temperature split by register — story/editorial write at 0.70
+  // (analytical curator, systemic tension, no purple prose overhang);
+  // promo stays at 0.95 (energy matters). Polish is still 0.4.
+  const fillTemperature = (mode === "story" || mode === "editorial") ? 0.70 : 0.95;
   const data = await geminiGenerate(apiKey, {
     contents: [{ parts: [{ text: prompt }] }],
     generationConfig: {
@@ -1537,13 +1579,30 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   const parsed = extractJson(raw);
 
   let slides = Array.isArray(parsed?.slides) ? parsed.slides : [];
-  if (slides.length !== sequence.length) {
-    throw new Error(`Expected ${sequence.length} slides, got ${slides.length}`);
+  if (slides.length !== workingSequence.length) {
+    throw new Error(`Expected ${workingSequence.length} slides, got ${slides.length}`);
   }
+  // If we dropped the CTA slot from the generation sequence, restore it now
+  // as the deterministic stitched CTA. This is the "removed from the LLM
+  // loop entirely" path — the model never wrote CTA copy, we append the
+  // canonical ask ourselves.
+  const appendStitchedCtaIfNeeded = (arr) => {
+    if (!willStitchCta) return arr;
+    const trigger = String(keywordTrigger || "").trim().toUpperCase();
+    return [...arr, {
+      type: "cta",
+      ctaKicker: "INSIDER ACCESS",
+      ctaDate: "GET THE UNLISTED\nMAP & DISPATCH",
+      ctaVenue: `Comment "${trigger}" below and we'll DM you the full breakdown + direct ticket access.`,
+      ctaUrl: "centralgroupevents.com",
+    }];
+  };
   if (!polish) {
-    // Even without polish, honor the deterministic CTA stitch — it's about
-    // removing LLM drift on the ask, not about editorial quality.
-    return stitchKeywordCta(slides, sequence, keywordTrigger);
+    // Even without polish, deterministic CTA stitch runs (drift-removal).
+    // Two paths: (a) willStitchCta = we already dropped it from generation
+    // and now append; (b) legacy path where the CTA was generated but we
+    // still want to overwrite it via stitchKeywordCta.
+    return willStitchCta ? appendStitchedCtaIfNeeded(slides) : stitchKeywordCta(slides, workingSequence, keywordTrigger);
   }
   // Deterministic pre-polish dedup: scan adjacent slides for a shared numeric
   // token (a "1 in 5", "$1M", "28.5%", "1979", etc.). If any is repeated,
@@ -1554,12 +1613,12 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   // through so the editor checks arc adherence (is slide N still doing the
   // beat the outline assigned it?), not just per-slide polish.
   try {
-    const improved = await polishCarousel({ apiKey, topic, context, voice, sequence, slides, mode, today, letterMode, dedupPreamble, narrativeSpine });
-    if (Array.isArray(improved) && improved.length === sequence.length) slides = improved;
+    const improved = await polishCarousel({ apiKey, topic, context, voice, sequence: workingSequence, slides, mode, today, letterMode, dedupPreamble, narrativeSpine: workingSpine });
+    if (Array.isArray(improved) && improved.length === workingSequence.length) slides = improved;
   } catch (e) {
     if (typeof console !== "undefined") console.warn("Carousel polish failed, returning draft:", e?.message || e);
   }
-  return stitchKeywordCta(slides, sequence, keywordTrigger);
+  return willStitchCta ? appendStitchedCtaIfNeeded(slides) : stitchKeywordCta(slides, workingSequence, keywordTrigger);
 }
 
 // === NARRATIVE SPINE — the outline step (the missing intermediate) ===
@@ -1606,13 +1665,17 @@ export async function generateNarrativeSpine({ apiKey, topic, context, clusterDi
     "  - slideAssignments: an array of length equal to slide count. Each entry is the beat label (PARADOX/FRICTION/MECHANISM/GATE — or your adapted labels) that this slide serves. Distribute the beats across the slides (typically the last slide is GATE; the beats spread across the middle).",
     "  - bulletRoles: object mapping each context bullet (verbatim, first 60 chars as key) to ONE role: 'proof' (proves the thesis, must be used), 'context' (background, may be used), or 'veto' (breaks the argument's geographic/thematic focus — DISCARD, must NOT appear in any slide). Every context bullet must be classified. Be willing to VETO — a bullet from Hasbrouck Heights in a Somerset County carousel is a veto; a bullet about restaurants in a nightlife carousel is a veto.",
     "  - proofAssignments: object mapping each PROOF bullet (same 60-char key) to the SINGLE slide index (1-based) where that specific fact should land. Every PROOF bullet MUST be assigned to exactly ONE slide — no bullet appears on two slides, no slide gets two PROOFS. If two facts belong on the same beat, pick the stronger one for the primary slide and either assign the second to a different beat or downgrade it to 'context'. This is the deduplication contract — the fill call is not allowed to spread one bullet across multiple slides in different words.",
+    `  - recommendedSlideCount: the honest number of slides this material can support without repeating facts (integer, between 3 and ${slideCount} inclusive). If the operator picked ${slideCount} slides but you only have 3 proof bullets and no additional systemic tension worth writing about, return 4 or 5, NOT ${slideCount}. This is the editorial compression call — better to ship a tight 4-slide carousel than a stretched 7 that paraphrases the same 3 facts. Only return the operator's full count if the material genuinely earns it (rich proof list, distinct beats, complex mechanism).`,
     "",
     'Return ONLY JSON in this exact shape:',
-    '{"thesis":"...","beats":[{"label":"PARADOX","description":"..."},{"label":"FRICTION","description":"..."},{"label":"MECHANISM","description":"..."},{"label":"GATE","description":"..."}],"slideAssignments":["PARADOX","FRICTION","FRICTION","MECHANISM","MECHANISM","GATE"],"bulletRoles":{"first 60 chars of bullet":"proof|context|veto"},"proofAssignments":{"first 60 chars of bullet":3}}',
+    '{"thesis":"...","beats":[{"label":"PARADOX","description":"..."},{"label":"FRICTION","description":"..."},{"label":"MECHANISM","description":"..."},{"label":"GATE","description":"..."}],"slideAssignments":["PARADOX","FRICTION","FRICTION","MECHANISM","MECHANISM","GATE"],"bulletRoles":{"first 60 chars of bullet":"proof|context|veto"},"proofAssignments":{"first 60 chars of bullet":3},"recommendedSlideCount":6}',
   ];
   const data = await geminiGenerate(apiKey, {
     contents: [{ parts: [{ text: promptLines.join("\n") }] }],
-    generationConfig: { responseMimeType: "application/json", temperature: 0.4 },
+    // Spine wants editorial judgment (which bullets to VETO, honest slide
+    // count, non-obvious beat labels) — 0.3 keeps the outline grounded but
+    // not so deterministic that it always picks the first-instinct answer.
+    generationConfig: { responseMimeType: "application/json", temperature: 0.3 },
   });
   const raw = extractResponseText(data);
   if (!raw) throw new Error("Empty spine response");
@@ -1627,6 +1690,14 @@ export async function generateNarrativeSpine({ apiKey, topic, context, clusterDi
     : [];
   const bulletRoles = (parsed?.bulletRoles && typeof parsed.bulletRoles === "object") ? parsed.bulletRoles : {};
   const proofAssignments = (parsed?.proofAssignments && typeof parsed.proofAssignments === "object") ? parsed.proofAssignments : {};
+  // Editorial compression signal — if the outliner thinks fewer slides are
+  // honest for the material, the caller can compress the sequence before
+  // asking the writer to fill it. Clamped to [3, slideCount] so a bad
+  // outline can't request a 1-slide or over-count carousel.
+  let recommendedSlideCount = Number(parsed?.recommendedSlideCount);
+  if (!Number.isInteger(recommendedSlideCount) || recommendedSlideCount < 3 || recommendedSlideCount > slideCount) {
+    recommendedSlideCount = slideCount;
+  }
   if (!thesis || beats.length < 3 || slideAssignments.length !== slideCount) {
     throw new Error("Malformed spine — missing thesis, beats, or slideAssignments");
   }
@@ -1650,7 +1721,7 @@ export async function generateNarrativeSpine({ apiKey, topic, context, clusterDi
     slotToProof[slot] = bulletKey;
     proofToSlot[bulletKey] = slot;
   }
-  return { thesis, beats, slideAssignments, bulletRoles, proofAssignments };
+  return { thesis, beats, slideAssignments, bulletRoles, proofAssignments, recommendedSlideCount };
 }
 
 // Deterministic CTA stitch — when the operator has set a DM keyword trigger,
@@ -2226,6 +2297,14 @@ function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, tem
       // tiny — force concrete promises and a single standout card.
       extra = `\n\nFEATURES: give 3-5 cards. Each card is ONE concrete, specific promise — name the REAL thing (the actual DJ, the exact activity, the real giveaway/prize, the specific format), never a vague benefit. BAN 'good vibes', 'great music', 'fun for all', 'something for everyone', 'good food'. headline = 2-4 punchy words; sub = one concrete detail (a name, a time, a number). Set featured:true on exactly ONE card — the single biggest draw (the headliner / the giveaway) — and featured:false on the rest. Still give each card an apt emoji in case the icon style is used.`;
     }
+    // Anti-Haiku formatting rule — scoped to text and spotlight, NOT news
+    // (news is designed as stacked lines with a bold payoff and needs to
+    // stay that way). Prevents the "haiku spacing" leak where the model
+    // renders textBody as one-sentence-per-line stanzas separated by hard
+    // returns, which reads as a formatting hack, not writing.
+    if ((slotType === "text" || slotType === "spotlight") && !letterMode) {
+      extra += "\n\nANTI-HAIKU FORMATTING: write this slot's body copy as ONE cohesive flowing thought — a paragraph, or one to two connected sentences. NO disjointed single-sentence stanzas, NO hard returns between every sentence, NO stacked-line 'haiku' layout. Hard returns between sentences read as a formatting hack; write it as prose.";
+    }
     return `SLIDE ${idx + 1} (${slotType.toUpperCase()}):\n${beatPrefix}${refPrefix}${rule}${extra}`;
   }).join("\n\n─────────────────────────────\n\n");
 
@@ -2237,6 +2316,7 @@ function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, tem
     "You are generating an ENTIRE editorial Instagram carousel for CGE. The slides will be exported in order — write them as ONE coherent story, not isolated cards.",
     "",
     "QUALITY BAR — applies to EVERY slide, not just the cover:",
+    "- ANTI-LITERALISM: The prompt uses labels like PARADOX, FRICTION, MECHANISM, GATE, and marker lines like '>>> BEAT: X <<<' as INTERNAL SCAFFOLDING for the outline. These are concepts, NOT visible copy. NEVER write these labels as text, headlines, kickers, or body — a cover headline that reads 'THE PARADOX' or a textTitle that reads 'FRICTION' or a kicker that reads 'MECHANISM' is failed output. Same rule for the words 'THESIS' and 'BEAT' — those are outline metadata. Every field you emit should be finished editorial copy that stands on its own.",
     "- Write in the register of street-level neighborhood critique (anti-hype, no-nonsense local insider). Focus strictly on the input topic/event—do not pivot to unrelated domains (like food/restaurants or party vibes) unless the input specifically describes them.",
     "- BANNED CLICHÉS: Never use 'hidden gem', 'must-visit', 'good vibes', 'scenic view', 'great music', 'experience like no other', 'unforgettable', 'movie', 'can't-miss', 'movie vibes', or 'something for everyone'. If you write these, the editor will reject it.",
     "- Be extremely specific about location: name the neighborhood (e.g., Ironbound, Heights, Downtown) or specific cross-streets/landmarks rather than just a generic town name.",
