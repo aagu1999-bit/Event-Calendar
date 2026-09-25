@@ -295,7 +295,10 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
   const handlePush = () => {
     const chosen = slides.filter((_, i) => keptIdx.has(i));
     if (!chosen.length) { setError("Keep at least one slide to push."); return; }
-    onAccept(chosen, pickedTemplate || template);
+    // Strip diagnostic _warnings before pushing — they're for the preview
+    // UI only, not for the carousel render pipeline.
+    const clean = chosen.map(({ _warnings, ...rest }) => rest);
+    onAccept(clean, pickedTemplate || template);
     onClose();
   };
 
@@ -1220,6 +1223,32 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
                         </button>
                       )}
                     </div>
+                    {Array.isArray(slot?._warnings) && slot._warnings.length > 0 && (
+                      <div style={{
+                        marginBottom: 8,
+                        padding: "6px 10px",
+                        background: "rgba(251,113,133,0.10)",
+                        border: "1px solid rgba(251,113,133,0.4)",
+                        borderRadius: 4,
+                        fontSize: "0.68rem",
+                        color: "#FB7185",
+                        lineHeight: 1.4,
+                      }}>
+                        {slot._warnings.map((w, wi) => (
+                          <div key={wi} style={{ display: "flex", alignItems: "flex-start", gap: 6 }}>
+                            <span style={{ flexShrink: 0 }}>⚠️</span>
+                            <span>
+                              <strong style={{ letterSpacing: "0.3px" }}>
+                                {w.type === "phantom_entity" ? "Unverified Entity Detected" : w.type === "atomicity_violation" ? "Data-Dump Detected" : "Warning"}:
+                              </strong>{" "}
+                              {w.message}
+                              {" "}
+                              <em style={{ color: "rgba(251,113,133,0.75)" }}>Consider REDO on this slide.</em>
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     {renderPreview(slot, idx)}
                   </div>
                 );
