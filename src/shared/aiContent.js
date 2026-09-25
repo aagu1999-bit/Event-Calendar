@@ -1693,7 +1693,17 @@ export async function generateNarrativeSpine({ apiKey, topic, context, clusterDi
     "    If the topic genuinely calls for a different arc (e.g. sonic-history: ORIGIN → BREAK → LEGACY → NOW), use those beats instead — but keep the count at 4 and the shape identical.",
     "  - slideAssignments: an array of length equal to slide count. Each entry is the beat label (PARADOX/FRICTION/MECHANISM/GATE — or your adapted labels) that this slide serves. Distribute the beats across the slides (typically the last slide is GATE; the beats spread across the middle).",
     "  - bulletRoles: object mapping each context bullet (verbatim, first 60 chars as key) to ONE role: 'proof' (proves the thesis, must be used), 'context' (background, may be used), or 'veto' (breaks the argument's geographic/thematic focus — DISCARD, must NOT appear in any slide). Every context bullet must be classified. Be willing to VETO — a bullet from Hasbrouck Heights in a Somerset County carousel is a veto; a bullet about restaurants in a nightlife carousel is a veto.",
-    "  - proofAssignments: object mapping each PROOF bullet (same 60-char key) to the SINGLE slide index (1-based) where that specific fact should land. Every PROOF bullet MUST be assigned to exactly ONE slide — no bullet appears on two slides, no slide gets two PROOFS. If two facts belong on the same beat, pick the stronger one for the primary slide and either assign the second to a different beat or downgrade it to 'context'. This is the deduplication contract — the fill call is not allowed to spread one bullet across multiple slides in different words.",
+    "  - proofAssignments: object mapping each PROOF bullet (same 60-char key) to the SINGLE slide index (1-based, 2 or later — see Macro-Cover Mandate) where that specific fact should land. Every PROOF bullet MUST be assigned to exactly ONE slide — no bullet appears on two slides, no slide gets two PROOFS. If two facts belong on the same beat, pick the stronger one for the primary slide and either assign the second to a different beat or downgrade it to 'context'. This is the deduplication contract — the fill call is not allowed to spread one bullet across multiple slides in different words.",
+    "",
+    "MACRO-COVER MANDATE — this rule OVERRIDES any other bullet-assignment instinct:",
+    "  Slide 1 (COVER) is the UMBRELLA. It states the thesis as a hook and opens the loop.",
+    "  Slide 1 MUST NOT appear as a value anywhere in proofAssignments — the cover CANNOT be assigned a specific PROOF bullet, EVER. If you assign a run-club bullet to slide 1, the whole carousel gets anchored on that one venue and the reader expects the rest to be about it. That's narrative whiplash when slide 4 introduces a different venue. Cover = thesis; specifics = slides 2+.",
+    "  Concretely: if there are 3 proof bullets and 3 content slots (slides 2, 3, and 4), each bullet lands on ONE of those three slides. Slide 1 stays a generic umbrella. Slide 5 (or wherever CTA sits) is not a content slot.",
+    "",
+    "ENTITY PRIORITIZATION — the second override:",
+    "  Every bullet classified as 'proof' in bulletRoles MUST have an entry in proofAssignments. A proof bullet with no slide assignment is a DROPPED entity — that's how a Asbury Park bullet ends up in the trash while slide 2 gets a filler summary sentence.",
+    "  If you have MORE proof-role bullets than available non-cover, non-CTA content slots, DOWNGRADE the excess bullets to 'context' role (not 'proof'). Never leave a proof bullet unassigned.",
+    "  If you have FEWER proof bullets than content slots, that's fine — leave the extra slots without proofAssignments and the writer will carry them with framing / context bullets. That's a separate case from dropping a proof.",
     `  - recommendedSlideCount: the honest number of slides this material can support without repeating facts (integer, between 3 and ${slideCount} inclusive). If the operator picked ${slideCount} slides but you only have 3 proof bullets and no additional systemic tension worth writing about, return 4 or 5, NOT ${slideCount}. This is the editorial compression call — better to ship a tight 4-slide carousel than a stretched 7 that paraphrases the same 3 facts. Only return the operator's full count if the material genuinely earns it (rich proof list, distinct beats, complex mechanism).`,
     "",
     'Return ONLY JSON in this exact shape:',
@@ -1741,6 +1751,13 @@ export async function generateNarrativeSpine({ apiKey, topic, context, clusterDi
   for (const [bulletKey, slotRaw] of Object.entries(proofAssignments)) {
     const slot = Number(slotRaw);
     if (!Number.isInteger(slot) || slot < 1 || slot > slideCount) continue;
+    // MACRO-COVER MANDATE ENFORCEMENT — slide 1 is the umbrella. A proof
+    // bullet on the cover anchors the whole carousel on one specific
+    // entity, then the rest of the slides feel like non-sequiturs
+    // (boardwalk run club cover, roller rink slide 4 = narrative whiplash).
+    if (slot === 1) {
+      throw new Error(`Spine violated Macro-Cover Mandate: bullet "${bulletKey}" was assigned to slide 1 (cover). Cover is the umbrella — PROOFs go to slides 2+.`);
+    }
     if (slotToProof[slot]) {
       throw new Error(`Spine PROOF collision: slide ${slot} was assigned two proof bullets ("${slotToProof[slot]}" and "${bulletKey}")`);
     }
@@ -1749,6 +1766,18 @@ export async function generateNarrativeSpine({ apiKey, topic, context, clusterDi
     }
     slotToProof[slot] = bulletKey;
     proofToSlot[bulletKey] = slot;
+  }
+  // ENTITY PRIORITIZATION ENFORCEMENT — every bullet the outliner
+  // classified as 'proof' MUST have landed on a slide. An unassigned
+  // proof is a DROPPED entity: that's how "Asbury Park sober socials"
+  // gets erased while slide 2 fills with generic summary filler.
+  const proofBullets = Object.entries(bulletRoles)
+    .filter(([, r]) => String(r || "").toLowerCase() === "proof")
+    .map(([k]) => k);
+  const assignedBulletKeys = new Set(Object.keys(proofAssignments));
+  const dropped = proofBullets.filter(b => !assignedBulletKeys.has(b));
+  if (dropped.length) {
+    throw new Error(`Spine violated Entity Prioritization: ${dropped.length} proof bullet(s) were classified 'proof' but not assigned to any slide — dropped entities: ${dropped.map(b => `"${b}"`).join(", ")}. Every proof MUST land on slides 2+, or be downgraded to 'context'.`);
   }
   return { thesis, beats, slideAssignments, bulletRoles, proofAssignments, recommendedSlideCount };
 }
@@ -2317,8 +2346,13 @@ function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, tem
     const reservedProof = (narrativeSpine && narrativeSpine.proofAssignments)
       ? Object.entries(narrativeSpine.proofAssignments).find(([, s]) => Number(s) === slideNum)?.[0]
       : null;
+    // Cover slots get the Macro-Cover Mandate directive — umbrella, no
+    // specific-entity anchor. All other slots get the standard beat +
+    // Reserved PROOF (or the no-proof fallback) directive.
     const beatPrefix = beatLabel
-      ? `>>> BEAT: ${beatLabel} — this slide advances ONLY this beat, no other.${reservedProof ? ` Reserved PROOF for this slide: "${reservedProof}..." — this bullet lands HERE and NOWHERE ELSE in the carousel.` : " NO proof bullet is reserved for this slide — do NOT reach for a proof already assigned to another slide; carry the beat with tension, framing, or a specific from context marked 'context' (not 'proof')."} <<<\n`
+      ? (slotType === "cover"
+          ? `>>> BEAT: ${beatLabel} — MACRO-COVER: this slide states the THESIS as an UMBRELLA. Do NOT anchor the cover on any single venue, entity, or specific fact from the context — those specifics land on later slides. If you make the cover about "the run club" or "Club Zanzibar", the reader expects the rest of the carousel to be about THAT one thing, and slides 3-5 will feel like non-sequiturs. Instead, summarize the argument, open a curiosity loop, name the CATEGORY / PATTERN / TENSION (not the instance). <<<\n`
+          : `>>> BEAT: ${beatLabel} — this slide advances ONLY this beat, no other.${reservedProof ? ` Reserved PROOF for this slide: "${reservedProof}..." — this bullet lands HERE and NOWHERE ELSE in the carousel.` : " NO proof bullet is reserved for this slide — do NOT reach for a proof already assigned to another slide; carry the beat with tension, framing, or a specific from context marked 'context' (not 'proof')."} <<<\n`)
       : "";
     if (!rule) {
       return `SLIDE ${idx + 1} (${slotType.toUpperCase()}) — no rule defined; produce reasonable defaults matching brand voice.\n${beatPrefix}${refPrefix}`;
@@ -2372,6 +2406,7 @@ function buildTemplatePrompt({ sequence, topic, context, voice, slotPrompts, tem
     "- ANTI-REGURGITATION: The Editorial POV and Cluster Directive are INVISIBLE creative direction — they steer your tone and framing. DO NOT copy or paste the POV or directive text verbatim into any slide's headline, kicker, title, or body. If a reader sees the exact string of the POV appear on a slide, you failed. Synthesize original prose that EMBODIES the POV's argument instead of quoting it.",
     "- TEMPORAL INTEGRITY: NEVER invent modern revivals, reopenings, comebacks, or 'it's back' claims for historical entities unless the Context bullets EXPLICITLY state the revival. If a venue was demolished, closed, or ended decades ago and no supplied bullet names a modern successor, frame the tension around lasting INFLUENCE, not a fabricated return. A defunct room can shape today's rooms without being 'back'.",
     "- ENTITY ISOLATION: Do NOT blend unrelated cities, decades, or venues into a single slide. When filling a slot, use ONLY the assigned fact for that slot (Reserved PROOF, per BEAT). Slides that mix Newark 1979 with Asbury Park 2024 in the same body copy read as a kitchen-sink montage, not an argument. One slide = one time, one place, one specific — unless the POV explicitly bridges them.",
+    "- FIELD DISCIPLINE: Title / headline / label / kicker fields (headline, textTitle, spotName, kicker, ctaKicker, statLabel, newsHeadline, newsKicker, accentWord, pressTitle, pressBadge, countEvent, countCta, spotTime, spotPrice, spotCta) are SHORT LABELS — one clause, aim under 60 characters. Body fields (textBody, newsBody, subtitle, spotMeta, subLine, statSub, countText, caption, pressLineup) carry the sentences. If a title field reads like body copy — two sentences separated by a period, multiple ideas stacked — you're in the wrong field: move it to the body and shorten the title. Example of failed output: `textTitle: \"Young's Skating Center keeps a hardwood ritual alive. Forget the casino strip.\"` That's two sentences of body prose stuffed into a title slot. Correct: `textTitle: \"THE HARDWOOD RITUAL\"`, `textBody: \"Young's Skating Center keeps Friday nights alive off the casino strip.\"`",
     "- Write in the register of street-level neighborhood critique (anti-hype, no-nonsense local insider). Focus strictly on the input topic/event—do not pivot to unrelated domains (like food/restaurants or party vibes) unless the input specifically describes them.",
     "- BANNED CLICHÉS: Never use 'hidden gem', 'must-visit', 'good vibes', 'scenic view', 'great music', 'experience like no other', 'unforgettable', 'movie', 'can't-miss', 'movie vibes', or 'something for everyone'. If you write these, the editor will reject it.",
     "- Be extremely specific about location: name the neighborhood (e.g., Ironbound, Heights, Downtown) or specific cross-streets/landmarks rather than just a generic town name.",
