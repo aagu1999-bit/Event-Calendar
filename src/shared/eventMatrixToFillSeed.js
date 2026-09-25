@@ -9,7 +9,7 @@
 // point, not a lock.
 
 import { EVENT_TIERS } from "./matrixEnums.js";
-import { getClusterDirective, getClusterLabel } from "./matrixCompass.js";
+import { getClusterDirective, getClusterLabel, getClusterDefaultPOV } from "./matrixCompass.js";
 
 // Register (mode) mapping — matches the state variable `mode` in
 // AiTemplateFillModal. Valid values: "promo", "editorial", "story".
@@ -57,7 +57,12 @@ export function eventMatrixToFillSeed(event) {
   if (!event) return null;
   const m = event.matrix || {};
   const hookA = String(m.hook_a_side || "").trim();
-  const pov = String(m.editorial_pov || "").trim();
+  // POV fallback: when the operator leaves Editorial POV blank, use the
+  // cluster's brand-voice default POV from the Compass Bank so the Editor
+  // pass has at least a thesis to work from. Empty string when the cluster
+  // itself doesn't resolve.
+  const typedPOV = String(m.editorial_pov || "").trim();
+  const pov = typedPOV || getClusterDefaultPOV(m.cluster);
   const bullets = Array.isArray(m.data_points)
     ? m.data_points.map((b) => String(b || "").trim()).filter(Boolean)
     : [];
