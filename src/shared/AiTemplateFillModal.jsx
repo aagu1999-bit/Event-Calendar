@@ -27,7 +27,7 @@ const CONTEXT_SCAFFOLD = [
 //   onClose()
 //   onAccept(slides)   — slides array matching the template's sequence
 
-export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTopic = "", initialContext = "", initialArrange = false, initialRegister = null, initialClusterDirective = "", initialClusterLabel = "", initialKeywordTrigger = null, onClose, onAccept }) {
+export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTopic = "", initialContext = "", initialArrange = false, initialRegister = null, initialClusterDirective = "", initialClusterLabel = "", initialKeywordTrigger = null, initialVoiceParams = null, onClose, onAccept }) {
   const voice = useBrandStore((s) => s.voice);
   const slotPrompts = useBrandStore((s) => s.slotPrompts);
   const addExemplar = useBrandStore((s) => s.addExemplar);
@@ -281,6 +281,9 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
         clusterDirective: initialClusterDirective,
         clusterLabel: initialClusterLabel,
         keywordTrigger: initialKeywordTrigger,
+        // Voice params — Distance × Cadence × Stance. writer's own
+        // directive block, orthogonal to the mode's register.
+        voiceParams: initialVoiceParams,
       });
       setSlides(result);
     } catch (err) {
@@ -349,6 +352,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
         letterMode,
         clusterDirective: initialClusterDirective,
         clusterLabel: initialClusterLabel,
+        voiceParams: initialVoiceParams,
         // Single-slot regen must NOT stitch — the operator is redoing one
         // slide, not asking for the deterministic keyword-CTA replacement.
         keywordTrigger: null,

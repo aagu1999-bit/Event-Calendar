@@ -10,6 +10,11 @@ import {
   LIMITS,
 } from "./matrixEnums.js";
 import {
+  DISTANCE_OPTIONS,
+  CADENCE_OPTIONS,
+  STANCE_OPTIONS,
+} from "./voiceParams.js";
+import {
   CONTENT_CLUSTER_LIST,
   resolveClusterKey,
   getClusterDirective,
@@ -980,6 +985,56 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
               </div>
               <div style={hintStyle}>
                 Multi-select · click a preset to add, ✕ to remove · custom entries persist for next time
+              </div>
+            </div>
+          </div>
+
+          {/* Voice Parameters — Distance × Cadence × Stance
+              (see voiceParams.js). Three orthogonal knobs the writer
+              reads to shape how the piece SOUNDS within the brand
+              voice. All three are optional; unset falls back to the
+              mode's register block alone. */}
+          <div>
+            <div style={groupLabelStyle}>
+              <span style={{ width: 3, height: 12, background: orbit, borderRadius: 2, display: "inline-block" }} />
+              Voice Parameters · How this piece sounds
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
+              <div>
+                <label style={labelStyle}>Distance</label>
+                <select
+                  style={selectStyle}
+                  value={local.voice_distance || ""}
+                  onChange={(e) => applyPatch({ voice_distance: e.target.value || undefined })}
+                >
+                  <option value="">— pick distance —</option>
+                  {DISTANCE_OPTIONS.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
+                </select>
+                <div style={hintStyle}>How close to the reader</div>
+              </div>
+              <div>
+                <label style={labelStyle}>Cadence</label>
+                <select
+                  style={selectStyle}
+                  value={local.voice_cadence || ""}
+                  onChange={(e) => applyPatch({ voice_cadence: e.target.value || undefined })}
+                >
+                  <option value="">— pick cadence —</option>
+                  {CADENCE_OPTIONS.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
+                </select>
+                <div style={hintStyle}>Sentence shape / rhythm</div>
+              </div>
+              <div>
+                <label style={labelStyle}>Stance · optional</label>
+                <select
+                  style={selectStyle}
+                  value={local.voice_stance || ""}
+                  onChange={(e) => applyPatch({ voice_stance: e.target.value || undefined })}
+                >
+                  <option value="">— none —</option>
+                  {STANCE_OPTIONS.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
+                </select>
+                <div style={hintStyle}>Attitude toward the subject</div>
               </div>
             </div>
           </div>
