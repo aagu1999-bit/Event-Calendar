@@ -13,6 +13,8 @@ import {
   DISTANCE_OPTIONS,
   CADENCE_OPTIONS,
   STANCE_OPTIONS,
+  previewVoice,
+  formatVoiceParamsLabel,
 } from "./voiceParams.js";
 import {
   CONTENT_CLUSTER_LIST,
@@ -192,6 +194,16 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
   // the hook_a_side field.
   const [draftingHook, setDraftingHook] = useState(false);
   const [hookError, setHookError] = useState(null);
+
+  // Voice Preview (Gemini Flash-Lite) state — renders one sample
+  // paragraph in the current voice-params combination so the operator
+  // can hear the voice before generating a full carousel. Explicit
+  // click only. Preview text renders inline below the dropdowns; new
+  // clicks replace it. Errors render inline in the same slot.
+  const [previewingVoice, setPreviewingVoice] = useState(false);
+  const [voicePreviewText, setVoicePreviewText] = useState("");
+  const [voicePreviewError, setVoicePreviewError] = useState(null);
+  const [voicePreviewFor, setVoicePreviewFor] = useState(""); // labels which combo the preview shows
   // Snapshot of data_points BEFORE the last research call, so a bad
   // Fuel Research (off-topic bullets) can be discarded in one tap.
   const [preResearchSnapshot, setPreResearchSnapshot] = useState(null);
@@ -234,6 +246,10 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
     setSynthesizing(false);
     setHookError(null);
     setDraftingHook(false);
+    setVoicePreviewText("");
+    setVoicePreviewError(null);
+    setVoicePreviewFor("");
+    setPreviewingVoice(false);
   }, [event?.id]);
 
   const applyPatch = (patch) => {
@@ -442,6 +458,49 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
       setHookError(String(err?.message || err));
     } finally {
       setDraftingHook(false);
+    }
+  };
+
+  // Voice Preview handler — renders one sample paragraph in the
+  // current Distance × Cadence [× Stance] combination so the
+  // operator can hear the voice before generating a full carousel.
+  // Requires both Distance AND Cadence. Stance optional. Uses a
+  // fixed neutral subject so previews across combos compare
+  // like-for-like.
+  const runVoicePreview = async () => {
+    if (previewingVoice) return;
+    setVoicePreviewError(null);
+    const apiKey = resolveGeminiKey();
+    if (!apiKey) {
+      setVoicePreviewError("Paste your Gemini API key in the MediaTool toolbar first.");
+      return;
+    }
+    if (!local.voice_distance || !local.voice_cadence) {
+      setVoicePreviewError("Pick a Distance AND a Cadence first — those are what the preview demonstrates.");
+      return;
+    }
+    setPreviewingVoice(true);
+    try {
+      const paragraph = await previewVoice({
+        apiKey,
+        distance: local.voice_distance,
+        cadence: local.voice_cadence,
+        stance: local.voice_stance,
+      });
+      if (!paragraph) {
+        setVoicePreviewError("Gemini returned an empty preview. Retry.");
+        return;
+      }
+      setVoicePreviewText(paragraph);
+      setVoicePreviewFor(formatVoiceParamsLabel({
+        distance: local.voice_distance,
+        cadence: local.voice_cadence,
+        stance: local.voice_stance,
+      }));
+    } catch (err) {
+      setVoicePreviewError(String(err?.message || err));
+    } finally {
+      setPreviewingVoice(false);
     }
   };
 
@@ -995,9 +1054,49 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
               voice. All three are optional; unset falls back to the
               mode's register block alone. */}
           <div>
-            <div style={groupLabelStyle}>
-              <span style={{ width: 3, height: 12, background: orbit, borderRadius: 2, display: "inline-block" }} />
-              Voice Parameters · How this piece sounds
+            <div style={{ ...groupLabelStyle, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ width: 3, height: 12, background: orbit, borderRadius: 2, display: "inline-block" }} />
+                Voice Parameters · How this piece sounds
+              </span>
+              {/* Voice Preview — renders one sample paragraph in the
+                  current combo. Requires Distance AND Cadence. Same
+                  disabled-with-tooltip pattern as Draft Thesis /
+                  Draft Hook. */}
+              {(() => {
+                const canPreview = !!local.voice_distance && !!local.voice_cadence;
+                const disabled = previewingVoice || !canPreview;
+                const label = previewingVoice
+                  ? "…Previewing"
+                  : voicePreviewText
+                    ? "🎤 New Preview"
+                    : "🎤 Voice Preview";
+                return (
+                  <button
+                    type="button"
+                    onClick={runVoicePreview}
+                    disabled={disabled}
+                    title={canPreview
+                      ? "Hear one sample paragraph in the current Distance × Cadence × Stance combination before generating a full carousel."
+                      : "Pick a Distance AND a Cadence first — those are what the preview demonstrates."}
+                    style={{
+                      background: disabled ? "transparent" : "rgba(167,139,250,0.14)",
+                      border: `1px solid ${disabled ? whisper : orbit}`,
+                      color: disabled ? faint : orbit,
+                      borderRadius: 4,
+                      padding: "3px 10px",
+                      fontFamily: "inherit",
+                      fontSize: "0.58rem",
+                      letterSpacing: "0.1em",
+                      textTransform: "uppercase",
+                      fontWeight: 700,
+                      cursor: disabled ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    {label}
+                  </button>
+                );
+              })()}
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
               <div>
@@ -1037,6 +1136,45 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
                 <div style={hintStyle}>Attitude toward the subject</div>
               </div>
             </div>
+            {/* Voice preview panel — renders the sample paragraph or
+                an error. Whitespace-preserving so Stacked cadence
+                previews (short stacked lines) render as intended. */}
+            {voicePreviewError ? (
+              <div style={{
+                fontSize: "0.66rem",
+                color: warn,
+                marginTop: 10,
+                letterSpacing: "0.02em",
+                lineHeight: 1.5,
+              }}>
+                ⚠️ {voicePreviewError}
+              </div>
+            ) : null}
+            {voicePreviewText ? (
+              <div style={{
+                marginTop: 10,
+                padding: "10px 12px",
+                background: "rgba(167,139,250,0.06)",
+                border: `1px solid rgba(167,139,250,0.28)`,
+                borderRadius: 4,
+                color: cream,
+                fontSize: "0.78rem",
+                lineHeight: 1.55,
+                whiteSpace: "pre-wrap",
+              }}>
+                <div style={{
+                  fontSize: "0.58rem",
+                  letterSpacing: "0.12em",
+                  textTransform: "uppercase",
+                  color: orbit,
+                  fontWeight: 700,
+                  marginBottom: 6,
+                }}>
+                  ◆ Preview{voicePreviewFor ? ` · ${voicePreviewFor}` : ""}
+                </div>
+                {voicePreviewText}
+              </div>
+            ) : null}
           </div>
 
           {/* Hook A */}
