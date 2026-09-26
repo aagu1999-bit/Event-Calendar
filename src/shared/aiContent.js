@@ -2093,6 +2093,18 @@ function buildFillResponseSchema(sequence) {
         minItems: sequence.length,
         maxItems: sequence.length,
       },
+      // POLISH-CRITIC REFUSAL — optional array of 1-based slide
+      // indices the critic has flagged as unrecoverable (voice-flat,
+      // schema-shaped, meta-writing pileup — the kinds of failures
+      // rewriting can't fix without starting over). generateTemplateFill
+      // reads this after polish returns and respawns exactly those
+      // slots with stricter voice constraints. Used only by the polish
+      // call; ignored on the initial writer call, which has no critic
+      // step yet.
+      unrecoverable: {
+        type: "array",
+        items: { type: "integer" },
+      },
     },
     required: ["slides"],
   };
@@ -2288,7 +2300,12 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
     ? currentBullets.filter(b => isBulletDateImminent(b, today, 14))
     : [];
 
-  const prompt = buildTemplatePrompt({ sequence: workingSequence, topic, context: filteredContext, historicalContext: historicalBullets, imminentBullets, voice, slotPrompts, templateMeta, mode, today, letterMode, clusterDirective, clusterLabel, narrativeSpine: workingSpine, voiceParams });
+  // Writer signature is deliberately narrower as of the #2+#4 refactor.
+  // Cluster wording, voice params, and demographic no longer reach the
+  // writer — they were absorbed by the spine (which the writer reads)
+  // or moved to polish (voice params). Imminent bullets still flow in
+  // so the per-slide reserved-proof line can carry a [TIMELY] flag.
+  const prompt = buildTemplatePrompt({ sequence: workingSequence, topic, context: filteredContext, historicalContext: historicalBullets, imminentBullets, voice, slotPrompts, templateMeta, mode, today, letterMode, narrativeSpine: workingSpine });
 
   // Temperature split by register — story/editorial write at 0.70
   // (analytical curator, systemic tension, no purple prose overhang);
@@ -2391,10 +2408,50 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   const dedupPreamble = buildDedupPreamble(slides);
   // Critic pass — raise every slide to its quality bar. The spine is passed
   // through so the editor checks arc adherence (is slide N still doing the
-  // beat the outline assigned it?), not just per-slide polish.
+  // beat the outline assigned it?), not just per-slide polish. As of the
+  // #2 refactor the critic can also REFUSE a slide as unrecoverable, and
+  // the pipeline respawns that slot from scratch instead of shipping a
+  // half-rewritten dead slide.
   try {
-    const improved = await polishCarousel({ apiKey, topic, context: filteredContext, historicalContext: historicalBullets, voice, sequence: workingSequence, slides, mode, today, letterMode, dedupPreamble, narrativeSpine: workingSpine, voiceParams });
-    if (Array.isArray(improved) && improved.length === workingSequence.length) slides = improved;
+    const polishResult = await polishCarousel({ apiKey, topic, context: filteredContext, historicalContext: historicalBullets, voice, sequence: workingSequence, slides, mode, today, letterMode, dedupPreamble, narrativeSpine: workingSpine, voiceParams });
+    const improved = polishResult?.slides;
+    const unrecoverable = polishResult?.unrecoverable || [];
+    if (Array.isArray(improved) && improved.length === workingSequence.length) {
+      slides = improved;
+    }
+    // Respawn any refused slots with stricter voice constraints. Each
+    // is a single-slot generateSlideContent call with the same context
+    // + spine, but at a higher temperature and with an explicit
+    // "the previous draft was refused as voice-flat / meta-writing"
+    // clause layered into the prompt so the retry doesn't reproduce
+    // the same failure. Bounded to at most 3 respawns per generation
+    // so a critic hallucinating "everything is unrecoverable" can't
+    // trigger a runaway loop.
+    for (const oneBased of unrecoverable.slice(0, 3)) {
+      const idx = oneBased - 1;
+      const slotType = workingSequence[idx];
+      if (!slotType || slotType === "cta") continue; // CTA stitched, not respawned
+      try {
+        const respawnCtx = filteredContext + "\n\n[RESPAWN NOTE — the previous draft of this slide was refused by the polish critic as unrecoverable (voice-flat, meta-writing pileup, or structurally wrong for the slot). Write a new draft in cultural-dispatch register only. Do NOT sound like a grant proposal, a sociology paper, or a museum wall label. If the material for this slot is genuinely thin, keep the slide short and specific rather than expanding into abstraction.]";
+        const respawnCandidates = await generateSlideContent({
+          apiKey,
+          slotType,
+          topic,
+          voice,
+          slotPrompts,
+          count: 1,
+          context: respawnCtx,
+          mode,
+        });
+        const respawned = Array.isArray(respawnCandidates) && respawnCandidates[0];
+        if (respawned) {
+          slides = slides.map((s, i) => (i === idx ? { ...respawned, type: slotType } : s));
+          if (typeof console !== "undefined") console.info(`Respawned slide ${oneBased} (${slotType}) after polish refusal.`);
+        }
+      } catch (e) {
+        if (typeof console !== "undefined") console.warn(`Respawn of slide ${oneBased} failed, keeping polish draft: ${e?.message || e}`);
+      }
+    }
   } catch (e) {
     if (typeof console !== "undefined") console.warn("Carousel polish failed, returning draft:", e?.message || e);
   }
@@ -2850,8 +2907,21 @@ export async function polishCarousel({ apiKey, topic, context, historicalContext
     "    what people are actually wearing / drinking / doing. Consistent with the",
     "    cluster + corridor, never a fabricated fact. This is what pulls the copy",
     "    out of civic-report register and into cultural dispatch.",
+    // POLISH-CRITIC REFUSAL — new affordance as of the #2 refactor.
+    // The critic can now flag a slide as UNRECOVERABLE instead of
+    // rewriting it, and the pipeline will respawn that specific slot
+    // from scratch with stricter voice constraints. Use sparingly.
+    "REFUSAL — you have permission to REFUSE a slide when rewriting won't fix it.",
+    "  Refuse when the slide is:",
+    "  - Voice-flat: sounds like a grant proposal, a sociology paper, or a museum wall label, and no word-level rewrite would save it.",
+    "  - Meta-writing pileup: the slide is fundamentally about the piece / the reader / the pattern instead of the subject.",
+    "  - Structurally wrong for its slot type (e.g., a Spotlight whose spotName is an abstract concept instead of a physical entity, and there's no venue in the source to substitute).",
+    "  - Empty of specifics: the slide has no name, no date, no metric, no location — nothing to hold onto — and adding one would be fabrication.",
+    "  When you refuse a slide, leave its object in the slides array AS THE DRAFT WAS (unchanged), and append its 1-based index to the `unrecoverable` array. The pipeline will respawn it from scratch with a stricter voice constraint. Refuse means 'do not attempt' — do not half-rewrite a slide you're refusing.",
+    "  Do NOT abuse this. A slide that just needs a tighter headline is NOT unrecoverable. Refuse only when the whole slide is dead.",
+    "",
     "Return JSON ONLY (no fences, no prose) in this exact shape:",
-    `{"slides":[${sequence.map(fillSlotShape).join(",")}]}`,
+    `{"slides":[${sequence.map(fillSlotShape).join(",")}], "unrecoverable": []}`,
   ].join("\n");
 
   // Same schema + fallback as the fill call — retry without schema when
@@ -2896,7 +2966,19 @@ export async function polishCarousel({ apiKey, topic, context, historicalContext
   }
   const out = Array.isArray(parsed?.slides) ? parsed.slides : [];
   if (out.length !== sequence.length) throw new Error(`Polish returned ${out.length} slides, expected ${sequence.length}`);
-  return out;
+  // Normalize unrecoverable list — 1-based indices, filter to what's
+  // actually in range so a critic hallucinating slide 12 in a 6-slide
+  // carousel doesn't cause a respawn loop crash.
+  const unrecoverableRaw = Array.isArray(parsed?.unrecoverable) ? parsed.unrecoverable : [];
+  const unrecoverable = Array.from(new Set(
+    unrecoverableRaw
+      .map((n) => Number(n))
+      .filter((n) => Number.isInteger(n) && n >= 1 && n <= sequence.length)
+  ));
+  if (unrecoverable.length && typeof console !== "undefined") {
+    console.info(`Polish critic refused ${unrecoverable.length} slide(s): ${unrecoverable.join(", ")}. Respawning with stricter voice constraints.`);
+  }
+  return { slides: out, unrecoverable };
 }
 
 // A per-call variation token so regenerating with the SAME topic/context
@@ -3263,7 +3345,15 @@ function parseContextBullets(context) {
   return bullets;
 }
 
-function buildTemplatePrompt({ sequence, topic, context, historicalContext = [], imminentBullets = [], voice, slotPrompts, templateMeta, mode, today, letterMode = false, clusterDirective = "", clusterLabel = "", narrativeSpine = null, voiceParams = null }) {
+// Writer parameter surface — deliberately narrow as of the #2+#4 refactor.
+// Absorbed upstream (into the spine) or moved downstream (to polish):
+// clusterDirective + clusterLabel (spine absorbs), voiceParams (polish
+// only). Kept: sequence, topic, context, historicalContext,
+// imminentBullets (used per-slide as a [TIMELY] flag on reserved proofs),
+// voice (brand fingerprint), slotPrompts, templateMeta, mode, today,
+// letterMode, narrativeSpine. Every field the writer sees here has a
+// direct impact on how a slide is written. If it doesn't, cut it.
+function buildTemplatePrompt({ sequence, topic, context, historicalContext = [], imminentBullets = [], voice, slotPrompts, templateMeta, mode, today, letterMode = false, narrativeSpine = null }) {
   const hasVoiceDesc = voice && typeof voice.description === "string" && voice.description.trim();
   const exemplars = Array.isArray(voice?.exemplars) ? voice.exemplars.filter(e => e && e.trim()) : [];
   const hasExemplars = exemplars.length > 0;
@@ -3324,13 +3414,22 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
     const reservedProof = (narrativeSpine && narrativeSpine.proofAssignments)
       ? Object.entries(narrativeSpine.proofAssignments).find(([, s]) => Number(s) === slideNum)?.[0]
       : null;
+    // TIMELY per-slide flag — cheap prefix scan against imminentBullets
+    // (matches proofAssignments' first-60-char key). Set when the
+    // reserved proof for this specific slide is one of the imminent
+    // ones. The writer sees the flag exactly where it needs to act.
+    const reservedProofIsTimely = reservedProof && Array.isArray(imminentBullets)
+      && imminentBullets.some((b) => String(b || "").toLowerCase().startsWith(String(reservedProof).toLowerCase()));
+    const timelyClause = reservedProofIsTimely
+      ? ` [TIMELY — this bullet's date falls within 14 days${today ? ` of ${today}` : ""}; this slide MUST name the date AND entity verbatim as written in the reserved proof, no abstract substitutes, no historical framing, no sensory poetry replacement.]`
+      : "";
     // Cover slots get the Macro-Cover Mandate directive — umbrella, no
     // specific-entity anchor. All other slots get the standard beat +
     // Reserved PROOF (or the no-proof fallback) directive.
     const beatPrefix = beatLabel
       ? (slotType === "cover"
           ? `>>> BEAT: ${beatLabel} — MACRO-COVER: this slide states the THESIS as an UMBRELLA. Do NOT anchor the cover on any single venue, entity, or specific fact from the context — those specifics land on later slides. If you make the cover about "the run club" or "Club Zanzibar", the reader expects the rest of the carousel to be about THAT one thing, and slides 3-5 will feel like non-sequiturs. Instead, summarize the argument, open a curiosity loop, name the CATEGORY / PATTERN / TENSION (not the instance). <<<\n`
-          : `>>> BEAT: ${beatLabel} — this slide advances ONLY this beat, no other.${reservedProof ? ` Reserved PROOF for this slide: "${reservedProof}..." — this bullet lands HERE and NOWHERE ELSE in the carousel.` : " NO proof bullet is reserved for this slide — do NOT reach for a proof already assigned to another slide; carry the beat with tension, framing, or a specific from context marked 'context' (not 'proof')."} <<<\n`)
+          : `>>> BEAT: ${beatLabel} — this slide advances ONLY this beat, no other.${reservedProof ? ` Reserved PROOF for this slide: "${reservedProof}..." — this bullet lands HERE and NOWHERE ELSE in the carousel.${timelyClause}` : " NO proof bullet is reserved for this slide — do NOT reach for a proof already assigned to another slide; carry the beat with tension, framing, or a specific from context marked 'context' (not 'proof')."} <<<\n`)
       : "";
     if (!rule) {
       return `SLIDE ${idx + 1} (${slotType.toUpperCase()}) — no rule defined; produce reasonable defaults matching brand voice.\n${doctrinePrefix}${beatPrefix}${refPrefix}`;
@@ -3420,31 +3519,16 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
     ...(sequence.length > 2 ? retentionEngineering(sequence.length) : []),
     ...(letterMode ? letterModeBlock() : []),
     ...registerBlock(mode),
-    // VOICE PARAMETERS — Distance × Cadence × Stance directive. Slots
-    // AFTER the mode's register block so it modulates sentence shape
-    // + stance within the arc register has established. The composer
-    // returns "" when all three knobs are unset, and the spread
-    // collapses cleanly. Kept as its own line-broken chunk so
-    // Gemini reads it as a distinct instruction, not another
-    // register-block subclause.
-    ...(voiceParams ? [composeVoiceParamsDirective(voiceParams)].filter(Boolean) : []),
-    ...(voiceParams && composeVoiceParamsDirective(voiceParams) ? [""] : []),
-    // CLUSTER DIRECTIVE — promoted to its own top-level block AFTER
-    // registerBlock and BEFORE context. This is the architectural override:
-    // the directive is a VOICE + FRAMING constraint on every slide, not a
-    // topic filter buried in a context footnote. Anchored by a visible
-    // separator so Gemini can't miss it.
-    ...(clusterDirective && clusterDirective.trim() ? [
-      "═════════════════════════════",
-      `CLUSTER DIRECTIVE${clusterLabel ? ` — ${clusterLabel}` : ""}:`,
-      clusterDirective.trim(),
-      "",
-      "This directive is a VOICE + FRAMING constraint on EVERY slide, not just a topic filter.",
-      "Do NOT adopt academic, grant-application, or civic-report register even when the source",
-      "bullets below arrive in that register — translate them into street-level cultural dispatch.",
-      "═════════════════════════════",
-      "",
-    ] : []),
+    // WRITER PARAMETER SURFACE — cut deliberately as of the #2+#4
+    // refactor. The writer no longer sees: the cluster LENS text
+    // (spine's causalSynthesis absorbs it), voice params (they run
+    // at the polish stage where voice-level rewrite belongs), the
+    // TIMELY ACTION top-level block (annotated per-slide on the
+    // reserved-proof line instead), or the RELEVANCE VETO block
+    // (spine's proofAssignments already routed bullets). Every
+    // additional instruction here is a token of attention stolen
+    // from voice. If a rule needs to reach the writer, it goes
+    // through the spine.
     // NARRATIVE SPINE — the outline the model must follow. Rendered as its
     // own top-level block above topic + context so the beat map anchors the
     // model's attention before the raw material lands. Each slide gets a
@@ -3483,28 +3567,9 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
       "─────────────────────────────",
       "",
     ] : []),
-    // TIMELY ACTION MANDATE — bullets whose date falls within 14 days
-    // of today (INCLUDING today). Failure mode this fixes: NJPAC has
-    // an event tomorrow, the model turns Slide 4 into abstract poetry
-    // about "echoes of the beats" and never mentions the actual date
-    // or venue. When a bullet is imminent, the writer has NO
-    // permission to replace it with historical musing — the date and
-    // entity must appear verbatim on whichever slide is assigned that
-    // bullet. Runs BEFORE the historical block so the writer sees
-    // "what's actionable RIGHT NOW" before "what's legacy."
-    ...(Array.isArray(imminentBullets) && imminentBullets.length ? [
-      "═════════════════════════════",
-      `TIMELY ACTION BULLETS — ${imminentBullets.length} bullet${imminentBullets.length === 1 ? "" : "s"} contain${imminentBullets.length === 1 ? "s" : ""} a date within 14 days of today (${today || "current date"}). This is tomorrow's plan, not legacy material.`,
-      ...imminentBullets.map(b => `- ${b}`),
-      "",
-      "HARD MANDATE for these bullets:",
-      "  - If any of these bullets is the RESERVED PROOF for a slide, that slide MUST explicitly name BOTH the date AND the entity (venue, event, or operator) EXACTLY as written above. Verbatim date. Verbatim entity.",
-      "  - You are STRICTLY BANNED from replacing an imminent bullet's date + entity with abstract phrasing, sensory poetry, or historical framing. 'The echoes of the beats', 'the spaces we move through', 'a reminder that' are all banned when they replace an actionable upcoming event.",
-      "  - The reader is meant to be able to PLAN their weekend from this carousel. If Slide N gets an imminent bullet and the reader can't extract WHEN and WHERE from Slide N alone, that slide has failed its job.",
-      "  - If the assigned slot type doesn't have a natural date field, use its body/meta field to name the date in plain text: e.g., 'Fri Sep 26 at NJPAC' — never omit it.",
-      "═════════════════════════════",
-      "",
-    ] : []),
+    // TIMELY ACTION now annotated per-slide on the reserved-proof
+    // line (see slotInstructionBlock below), not as a top-level block
+    // — the flag reaches the writer exactly where it needs to act.
     // HISTORICAL CONTEXT — bullets whose dates are already in the past.
     // Separated from the primary context so the writer treats them as
     // legacy/origin material, NOT as active calendar drops. This is the
@@ -3527,35 +3592,10 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
       "═════════════════════════════",
       "",
     ] : []),
-    // RELEVANCE VETO — architectural override to the "Kitchen Sink" heuristic.
-    // The old ATOMIC MAPPING rule instructed the model to consume every bullet
-    // in the context, which is how a Hasbrouck Heights stat ended up in a
-    // Somerset County carousel. The bot was following orders. Now: the model
-    // is explicitly given permission (and required) to DISCARD bullets that
-    // break geographic or argumentative focus. When a narrative spine is
-    // available, the spine's bulletRoles map is the authoritative discard
-    // list.
-    ...(atomicBullets.length ? [
-      "═════════════════════════════",
-      `RELEVANCE VETO — the Context above contains ${atomicBullets.length} bullet${atomicBullets.length === 1 ? "" : "s"}. You are NOT required to use every one.`,
-      "- If a bullet contradicts the primary geographic corridor (e.g. a Hasbrouck Heights bullet in a Somerset-focused carousel), DISCARD IT.",
-      "- If a bullet introduces an unrelated municipality, an off-cluster subject, or breaks the argument's focus, DISCARD IT.",
-      "- If a bullet is macro context (background you don't need to state), DISCARD IT — hold it in your head as framing only.",
-      "- Use ONLY bullets that PROVE THE THESIS. It is BETTER to use 2 bullets that build one argument than to distribute 4 bullets across 6 slides just to consume them all.",
-      "- Do NOT restate the same bullet across multiple slides in different words. One bullet earns one moment, then the argument moves on.",
-      ...(narrativeSpine && narrativeSpine.bulletRoles && Object.keys(narrativeSpine.bulletRoles).length ? (() => {
-        const vetoed = Object.entries(narrativeSpine.bulletRoles).filter(([, r]) => String(r || "").toLowerCase() === "veto").map(([k]) => k);
-        const proof = Object.entries(narrativeSpine.bulletRoles).filter(([, r]) => String(r || "").toLowerCase() === "proof").map(([k]) => k);
-        return [
-          "",
-          "OUTLINE-ASSIGNED BULLET ROLES (authoritative — the outline pass already sorted these):",
-          ...proof.map(k => `  PROOF (use this): ${k}...`),
-          ...vetoed.map(k => `  VETO (do NOT use this — it breaks the arc): ${k}...`),
-        ];
-      })() : []),
-      "═════════════════════════════",
-      "",
-    ] : []),
+    // RELEVANCE VETO cut — spine's proofAssignments already routed
+    // which bullet lands on which slide, and vetoed bullets simply
+    // don't appear in any reserved-proof line. The writer no longer
+    // needs to be told to ignore bullets; the routing did that.
     `Template sequence (${sequence.length} slides): ${sequence.join(" → ")}`,
     "",
     // TOP-LEVEL CTA VALUE-EXCHANGE MANDATE — enforced even if the operator's
