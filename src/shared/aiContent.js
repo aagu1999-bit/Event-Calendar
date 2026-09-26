@@ -1696,6 +1696,108 @@ function detectAtomicityViolations(slides) {
   });
 }
 
+// === GEOGRAPHIC CITY EXTRACTION ===
+// Small canonical set of NJ cities operators commonly write about.
+// Used by the geographic-grouping spine directive and the whiplash
+// detector below. Case-insensitive matching, whole-word boundaries,
+// multi-word cities allowed. Extend this set as the beat map grows.
+const NJ_CITIES = [
+  // Urban / Commuter Core (Essex · Hudson · Union)
+  "Newark", "Jersey City", "Hoboken", "Bayonne", "Union City", "West New York",
+  "Elizabeth", "Kearny", "Weehawken",
+  // Route 1 Central Crossroads (Middlesex · Somerset · Mercer)
+  "New Brunswick", "Princeton", "Trenton", "Somerville", "Perth Amboy",
+  "Edison", "Metuchen", "Rahway", "Highland Park", "South Brunswick",
+  // Transit Village Suburbs (mostly Essex + Union suburbs)
+  "Montclair", "Bloomfield", "Maplewood", "South Orange", "West Orange",
+  "East Orange", "Cranford", "Summit", "Millburn", "Westfield",
+  // Shore / Southern Arteries
+  "Asbury Park", "Long Branch", "Red Bank", "Ocean Grove", "Belmar",
+  "Bradley Beach", "Point Pleasant", "Manasquan", "Ocean City",
+  // South Jersey (Decentralized Borderlands + South)
+  "Camden", "Atlantic City", "Cherry Hill", "Collingswood", "Hammonton",
+];
+// Compile once — startsWith / whole-word regex per city, in a single
+// pass so extractCitiesFromBullet stays O(cities) per bullet.
+const NJ_CITY_MATCHERS = NJ_CITIES.map(name => ({
+  name,
+  re: new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i"),
+}));
+function extractCitiesFromBullet(bullet) {
+  if (typeof bullet !== "string" || !bullet.trim()) return [];
+  const found = new Set();
+  for (const { name, re } of NJ_CITY_MATCHERS) {
+    if (re.test(bullet)) found.add(name);
+  }
+  return [...found];
+}
+// For a slide's scan text, return the SET of cities named in it.
+// Used by detectGeographicWhiplash to compare adjacent slides.
+function extractCitiesFromText(text) {
+  if (typeof text !== "string" || !text.trim()) return [];
+  const found = new Set();
+  for (const { name, re } of NJ_CITY_MATCHERS) {
+    if (re.test(text)) found.add(name);
+  }
+  return [...found];
+}
+
+// === GEOGRAPHIC WHIPLASH DETECTOR ===
+// Flags carousels that ping-pong between cities: Slide 2 = Newark,
+// Slide 3 = Asbury Park, Slide 4 = Newark. Reader gets thrown around
+// the state instead of following a coherent geographic arc.
+//
+// Algorithm:
+//   1. Extract cities named in each slide's scan text (textBody +
+//      spotMeta only — headline/kicker often carry stylized capitals
+//      that don't count as geographic claims).
+//   2. If the sequence of primary cities alternates (A → B → A over
+//      3+ slides), that's whiplash — flag the middle slide.
+//   3. CTA slots skipped by position.
+//
+// Attaches a `geographic_whiplash` warning on the offending slide.
+function detectGeographicWhiplash(slides, sequence = []) {
+  if (!Array.isArray(slides) || slides.length < 3) return slides;
+  // Build a per-slide primary city (the first city found in scan
+  // text, or null). Multiple cities on one slide → still whiplash if
+  // the primary one alternates.
+  const slideCities = slides.map((slide, i) => {
+    const slotType = String(sequence?.[i] || slide?.type || "").toLowerCase();
+    if (slotType === "cta") return null;
+    const scanText = extractPhantomScanText(slide);
+    const cities = extractCitiesFromText(scanText);
+    return cities[0] || null;
+  });
+  // Walk the sequence. Pattern to flag: [i-1] and [i+1] are the same
+  // city, and [i] is a DIFFERENT city, over 3 consecutive slides
+  // where all three have city hits. That's A → B → A, whiplash.
+  return slides.map((slide, i) => {
+    if (i === 0 || i === slides.length - 1) return slide;
+    const prev = slideCities[i - 1];
+    const curr = slideCities[i];
+    const next = slideCities[i + 1];
+    if (!prev || !curr || !next) return slide;
+    if (prev === next && curr !== prev) {
+      const existingWarnings = Array.isArray(slide._warnings) ? slide._warnings : [];
+      if (typeof console !== "undefined") {
+        console.warn(`Geographic whiplash on slide ${i + 1}: ${prev} → ${curr} → ${next}. Consider grouping same-city slides adjacent.`);
+      }
+      return {
+        ...slide,
+        _warnings: [
+          ...existingWarnings,
+          {
+            type: "geographic_whiplash",
+            pattern: `${prev} → ${curr} → ${next}`,
+            message: `Geographic whiplash: slide ${i} is ${prev}, this slide is ${curr}, slide ${i + 2} jumps back to ${prev}. Group same-city slides adjacent — don't teleport the reader across the state.`,
+          },
+        ],
+      };
+    }
+    return slide;
+  });
+}
+
 // === CROSS-CONTAMINATION DETECTOR ===
 // Geographic Whiplash guard. When the spine's proofAssignments map
 // bullet A → slide X, any proper-noun venue named in bullet A must NOT
@@ -2056,7 +2158,19 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
     }
   }
 
-  const prompt = buildTemplatePrompt({ sequence: workingSequence, topic, context: filteredContext, historicalContext: historicalBullets, voice, slotPrompts, templateMeta, mode, today, letterMode, clusterDirective, clusterLabel, narrativeSpine: workingSpine });
+  // TIMELY ACTION detection — surface bullets whose dates fall within
+  // 14 days of today (including today itself) so the writer's prompt
+  // can name them explicitly. The failure mode this fixes: NJPAC has
+  // an event tomorrow; the model turned it into abstract poetry
+  // about "the echoes of the beats". This block gives the writer the
+  // specific bullets that MUST land verbatim (date + venue) if
+  // assigned to a slide, and forbids replacement with historical
+  // musing.
+  const imminentBullets = today
+    ? currentBullets.filter(b => isBulletDateImminent(b, today, 14))
+    : [];
+
+  const prompt = buildTemplatePrompt({ sequence: workingSequence, topic, context: filteredContext, historicalContext: historicalBullets, imminentBullets, voice, slotPrompts, templateMeta, mode, today, letterMode, clusterDirective, clusterLabel, narrativeSpine: workingSpine });
 
   // Temperature split by register — story/editorial write at 0.70
   // (analytical curator, systemic tension, no purple prose overhang);
@@ -2148,6 +2262,7 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
     sanitized = detectPhantomEntities(sanitized, filteredContext, historicalBullets, workingSequence);
     sanitized = detectAtomicityViolations(sanitized);
     sanitized = detectCrossContamination(sanitized, workingSpine, filteredContext, workingSequence);
+    sanitized = detectGeographicWhiplash(sanitized, workingSequence);
     return willStitchCta ? appendStitchedCtaIfNeeded(sanitized) : stitchKeywordCta(sanitized, workingSequence, keywordTrigger);
   }
   // Deterministic pre-polish dedup: scan adjacent slides for a shared numeric
@@ -2176,6 +2291,7 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   sanitized = detectPhantomEntities(sanitized, filteredContext, historicalBullets, workingSequence);
   sanitized = detectAtomicityViolations(sanitized);
   sanitized = detectCrossContamination(sanitized, workingSpine, filteredContext, workingSequence);
+  sanitized = detectGeographicWhiplash(sanitized, workingSequence);
   return willStitchCta ? appendStitchedCtaIfNeeded(sanitized) : stitchKeywordCta(sanitized, workingSequence, keywordTrigger);
 }
 
@@ -2197,6 +2313,32 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
 // obligated to consume every bullet.
 export async function generateNarrativeSpine({ apiKey, topic, context, clusterDirective, clusterLabel, sequence, mode, today, letterMode }) {
   const slideCount = sequence.length;
+
+  // Geographic grouping pre-pass — extract cities from each context
+  // bullet. If 2+ distinct cities appear, we inject a GEOGRAPHIC
+  // CLUSTERING directive into the spine so proofAssignments group
+  // same-city bullets on adjacent slides instead of interleaving
+  // (Newark → Asbury → Newark reader-whiplash). Runs before the
+  // prompt is composed so the directive is contextual, not generic.
+  const bulletList = parseContextBullets(context || "");
+  const cityBuckets = {};
+  for (const b of bulletList) {
+    const cities = extractCitiesFromBullet(b);
+    if (!cities.length) continue;
+    const primary = cities[0];
+    if (!cityBuckets[primary]) cityBuckets[primary] = [];
+    cityBuckets[primary].push(b);
+  }
+  const distinctCityCount = Object.keys(cityBuckets).length;
+  const geographicClusteringBlock = (distinctCityCount >= 2) ? [
+    "GEOGRAPHIC CLUSTERING — MANDATE (this carousel's bullets span multiple cities):",
+    ...Object.entries(cityBuckets).map(([city, bullets]) =>
+      `  - ${city} (${bullets.length}): ${bullets.map(b => `"${b.slice(0, 40)}…"`).join(", ")}`
+    ),
+    "  When you build proofAssignments, group same-city bullets onto ADJACENT slides. Do NOT interleave cities (e.g., slide 2 = Newark, slide 3 = Asbury Park, slide 4 = Newark) — that gives the reader geographic whiplash. Instead: all Newark bullets in a contiguous block, then all Asbury Park bullets in a contiguous block, then GATE. If you must break clustering to serve the beat map, name the reason in your causalSynthesis so the writer knows the geographic jump is intentional.",
+    "",
+  ] : [];
+
   const promptLines = [
     "You are the OUTLINING editor for a CGE Instagram carousel — the step before any copy is written.",
     "Your job is NOT to write slides. Your job is to pin down the argument arc so the writer can't improvise it on the fly.",
@@ -2212,6 +2354,7 @@ export async function generateNarrativeSpine({ apiKey, topic, context, clusterDi
       context.trim(),
       "",
     ] : []),
+    ...geographicClusteringBlock,
     "Return a spine with:",
     '  - thesis: ONE sentence naming the singular tension this carousel exposes. Concrete, not abstract. Not a topic ("Diaspora Infrastructure") but a claim ("Newark\'s Portuguese social clubs quietly do what commercial nightlife charges $60 a table for").',
     "  - beats: an ordered array of 4 beats mapping to slides in this order:",
@@ -2887,6 +3030,54 @@ const MONTH_MAP = {
   sep: 8, sept: 8, september: 8, oct: 9, october: 9, nov: 10, november: 10,
   dec: 11, december: 11,
 };
+// Return true when the bullet contains a date within `windowDays` of
+// `today` (INCLUDING today itself), so the writer knows this is
+// tomorrow's plan, not next month's abstraction. Mirror of
+// isBulletDatePast — same regex, same MONTH_MAP, opposite direction.
+// Only returns true when we actually found a parseable date; bullets
+// with no dates at all fall through as neither past nor imminent.
+function isBulletDateImminent(bullet, today, windowDays = 14) {
+  if (!bullet || !today) return false;
+  const now = new Date(today);
+  if (Number.isNaN(now.getTime())) return false;
+  const nowYear = now.getFullYear();
+  const nowMonth = now.getMonth();
+  const nowDay = now.getDate();
+  const nowMs = Date.UTC(nowYear, nowMonth, nowDay);
+  const windowMs = windowDays * 24 * 60 * 60 * 1000;
+  const check = (year, month, day) => {
+    // Sanity: the parsed date has to be a real one.
+    if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return false;
+    if (month < 0 || month > 11 || day < 1 || day > 31) return false;
+    const targetMs = Date.UTC(year, month, day);
+    const diff = targetMs - nowMs;
+    // Imminent = today or up to windowDays in the future.
+    return diff >= 0 && diff <= windowMs;
+  };
+  const monthDayRe = /\b(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\.?\s+(\d{1,2})(?:\s*,?\s*(\d{4}))?\b/gi;
+  let m;
+  while ((m = monthDayRe.exec(bullet)) !== null) {
+    const month = MONTH_MAP[m[1].toLowerCase()];
+    const day = parseInt(m[2], 10);
+    const year = m[3] ? parseInt(m[3], 10) : nowYear;
+    if (check(year, month, day)) return true;
+  }
+  const slashRe = /\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/g;
+  while ((m = slashRe.exec(bullet)) !== null) {
+    const month = parseInt(m[1], 10) - 1;
+    const day = parseInt(m[2], 10);
+    let year;
+    if (m[3]) {
+      const y = parseInt(m[3], 10);
+      year = y < 100 ? 2000 + y : y;
+    } else {
+      year = nowYear;
+    }
+    if (check(year, month, day)) return true;
+  }
+  return false;
+}
+
 function isBulletDatePast(bullet, today) {
   if (!bullet || !today) return false;
   const now = new Date(today);
@@ -2948,7 +3139,7 @@ function parseContextBullets(context) {
   return bullets;
 }
 
-function buildTemplatePrompt({ sequence, topic, context, historicalContext = [], voice, slotPrompts, templateMeta, mode, today, letterMode = false, clusterDirective = "", clusterLabel = "", narrativeSpine = null }) {
+function buildTemplatePrompt({ sequence, topic, context, historicalContext = [], imminentBullets = [], voice, slotPrompts, templateMeta, mode, today, letterMode = false, clusterDirective = "", clusterLabel = "", narrativeSpine = null }) {
   const hasVoiceDesc = voice && typeof voice.description === "string" && voice.description.trim();
   const exemplars = Array.isArray(voice?.exemplars) ? voice.exemplars.filter(e => e && e.trim()) : [];
   const hasExemplars = exemplars.length > 0;
@@ -3149,6 +3340,28 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
       context.trim(),
       "",
       "─────────────────────────────",
+      "",
+    ] : []),
+    // TIMELY ACTION MANDATE — bullets whose date falls within 14 days
+    // of today (INCLUDING today). Failure mode this fixes: NJPAC has
+    // an event tomorrow, the model turns Slide 4 into abstract poetry
+    // about "echoes of the beats" and never mentions the actual date
+    // or venue. When a bullet is imminent, the writer has NO
+    // permission to replace it with historical musing — the date and
+    // entity must appear verbatim on whichever slide is assigned that
+    // bullet. Runs BEFORE the historical block so the writer sees
+    // "what's actionable RIGHT NOW" before "what's legacy."
+    ...(Array.isArray(imminentBullets) && imminentBullets.length ? [
+      "═════════════════════════════",
+      `TIMELY ACTION BULLETS — ${imminentBullets.length} bullet${imminentBullets.length === 1 ? "" : "s"} contain${imminentBullets.length === 1 ? "s" : ""} a date within 14 days of today (${today || "current date"}). This is tomorrow's plan, not legacy material.`,
+      ...imminentBullets.map(b => `- ${b}`),
+      "",
+      "HARD MANDATE for these bullets:",
+      "  - If any of these bullets is the RESERVED PROOF for a slide, that slide MUST explicitly name BOTH the date AND the entity (venue, event, or operator) EXACTLY as written above. Verbatim date. Verbatim entity.",
+      "  - You are STRICTLY BANNED from replacing an imminent bullet's date + entity with abstract phrasing, sensory poetry, or historical framing. 'The echoes of the beats', 'the spaces we move through', 'a reminder that' are all banned when they replace an actionable upcoming event.",
+      "  - The reader is meant to be able to PLAN their weekend from this carousel. If Slide N gets an imminent bullet and the reader can't extract WHEN and WHERE from Slide N alone, that slide has failed its job.",
+      "  - If the assigned slot type doesn't have a natural date field, use its body/meta field to name the date in plain text: e.g., 'Fri Sep 26 at NJPAC' — never omit it.",
+      "═════════════════════════════",
       "",
     ] : []),
     // HISTORICAL CONTEXT — bullets whose dates are already in the past.
