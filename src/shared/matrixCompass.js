@@ -398,15 +398,15 @@ export async function synthesizeThesis({ apiKey, cluster, corridor, emotion, dem
   return thesis.slice(0, 500);
 }
 
-// ─── DRAFT HOOK SYNTHESIZER ────────────────────────────────────────
-// Instagram-carousel A-side hooks are the operator's most manual
-// field — they have to write a punchy scroll-stopper for every
-// generation. synthesizeHook takes the Editorial POV + Cluster
-// Directive and returns ONE hook sentence using a proven social-media
-// hook framework (Contrarian Take, Real Story, Bold Stat). Client-
-// side Gemini call, same architecture as synthesizeThesis. Explicit
-// button click only.
-export async function synthesizeHook({ apiKey, cluster, pov } = {}) {
+// ─── DRAFT HOOK SYNTHESIZER (Parametric Persona) ─────────────────────
+// Previous version relied on three named frameworks (Contrarian Take,
+// Real Story, Bold Stat), which produced surprisingly similar cadence
+// across cross-sections because the framework choice dominated the
+// tone rather than the picks. The parametric-persona rewrite: the
+// operator's Target Emotion dictates the TONE, and the Target
+// Demographic dictates the VOCABULARY. Same client-side Gemini
+// Flash-Lite call, structured JSON output, explicit-click only.
+export async function synthesizeHook({ apiKey, cluster, pov, emotion, demographics = [] } = {}) {
   if (!apiKey || !String(apiKey).trim()) {
     throw new Error("Missing Gemini API key");
   }
@@ -418,32 +418,26 @@ export async function synthesizeHook({ apiKey, cluster, pov } = {}) {
   if (!cleanPOV) {
     throw new Error("Write or draft an Editorial POV first — the hook is the POV compressed into a scroll-stopper.");
   }
-  const clusterLabel = CONTENT_CLUSTERS[clusterKey].label;
-  const clusterDirective = CONTENT_CLUSTERS[clusterKey].directive;
+  const cleanEmotion = String(emotion || "").trim();
+  const demoList = Array.isArray(demographics)
+    ? demographics.filter((d) => typeof d === "string" && d.trim()).map((d) => d.trim())
+    : [];
 
   const prompt = [
-    "ROLE: You are a social-media editor at a regional culture magazine covering New Jersey. Your job is to write the Instagram-carousel COVER hook — the one sentence that stops the scroll.",
-    "TASK: Compress the supplied Editorial POV into ONE punchy hook sentence using one of the three proven hook frameworks below.",
+    "ROLE: You are a master copywriter for a niche cultural magazine.",
+    "TASK: Write a single, 10-to-15 word hook sentence for an Instagram carousel cover slide.",
     "",
     "THE INPUTS:",
-    `- Content Cluster: ${clusterLabel}`,
-    `- Cluster Analytical Lens: ${clusterDirective}`,
-    `- Editorial POV (the thesis to compress): ${cleanPOV}`,
+    `- The Core Argument: ${cleanPOV}`,
+    `- The Voice/Emotion: ${cleanEmotion || "(not set — use a neutral curious register)"}`,
+    `- The Audience: ${demoList.length ? demoList.join(", ") : "(not set — write for the general reader)"}`,
     "",
-    "HOOK FRAMEWORKS — pick the one that fits the POV best:",
-    "  A. THE CONTRARIAN TAKE — invert what the reader thinks is true.",
-    '     Patterns: "Why X is actually Y", "X isn\'t Z, it\'s W", "Everyone thinks X. They\'re wrong."',
-    "  B. THE REAL STORY — expose the hidden layer under the visible one.",
-    '     Patterns: "The real story behind X", "What X won\'t tell you", "The reason X isn\'t what you think"',
-    "  C. THE BOLD STAT — lead with a specific number or comparison that reframes the topic.",
-    '     Patterns: "X% of Y do Z", "There are only N W in NJ", "1 in K residents actually…"',
-    "",
-    "CONSTRAINTS:",
-    "1. ONE SENTENCE. Under 200 characters. Punchy, opinionated, front-loaded — the strongest word in the first four.",
-    "2. NO META-WRITING. Never refer to the post, the piece, the carousel, the reader, or 'this thread'. State the claim directly.",
-    "3. NO INVENTED PROPER NOUNS. Do not name specific venues, towns, or ordinances the POV didn't already mention. If the POV names a specific town, you may reuse it; otherwise stay structural.",
-    "4. NO GENERIC POSTURING. Ban 'Let's talk about', 'Here's why', 'The truth is'. Every hook should be usable as-is on a slide.",
-    "5. LOWERCASE PROSE (except proper nouns) unless the framework calls for a stat lead. Read like a human posted it, not a headline generator.",
+    "STRICT CONSTRAINTS:",
+    '1. The Emotion dictates the tone: if the emotion is "Skepticism/Irreverence", the hook must be cynical, sharp, or questioning. If the emotion is "Validation/Relatability", it must feel seen and grounded. If it is "Curiosity/Epiphany", pose a specific observation that opens a loop. If "Nostalgia/Yearning", reach for what was lost without sentiment. If "Urgency/Insider Access", write like the door is closing. If "Ambition/Sovereignty", write for the operator, not the audience.',
+    "2. The Audience dictates the vocabulary: speak directly to the audience above. Use their cultural shorthand. Do not sound like a marketer.",
+    '3. No Marketing Tropes: NEVER use phrases like "The real reason", "Here\'s why", "Everything you know is wrong", "Let\'s talk about", "The truth is", "You won\'t believe".',
+    "4. Format: output NOTHING but the single hook sentence — no quotes, no preamble, no framing.",
+    "5. No invented proper nouns: do NOT name specific venues, towns, or ordinances the POV didn't already mention.",
     "",
     'Return ONLY JSON in this exact shape: {"hook": "..."}',
   ].join("\n");
@@ -454,7 +448,7 @@ export async function synthesizeHook({ apiKey, cluster, pov } = {}) {
     contents: [{ parts: [{ text: prompt }] }],
     generationConfig: {
       responseMimeType: "application/json",
-      temperature: 0.8,
+      temperature: 0.85,
       maxOutputTokens: 256,
       responseSchema: {
         type: "object",
@@ -490,8 +484,15 @@ export async function synthesizeHook({ apiKey, cluster, pov } = {}) {
     const trimmed = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
     parsed = JSON.parse(trimmed);
   }
-  const hook = String(parsed?.hook || "").trim();
+  const hook = String(parsed?.hook || "").trim().replace(/^["'“”‘’]+|["'“”‘’]+$/g, "");
   if (!hook) throw new Error("Gemini returned no hook text — retry.");
+  // Word-count guard — the spec says 10-15 words. A one-liner outside
+  // that range violates the parametric contract; log a warning but
+  // still return so the operator can decide whether to redraft.
+  const wordCount = hook.split(/\s+/).filter(Boolean).length;
+  if (typeof console !== "undefined" && (wordCount < 8 || wordCount > 18)) {
+    console.warn(`Hook word count ${wordCount} is outside the 10-15 target — consider redrafting.`);
+  }
   // Hard length cap — hook_a_side is a 220-char field, so match it.
   return hook.slice(0, 220);
 }
