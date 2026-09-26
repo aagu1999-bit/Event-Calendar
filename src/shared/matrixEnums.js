@@ -102,7 +102,7 @@ export const PIPELINE_STATUS_ORDER = ["DRAFT", "READY", "PUBLISHED"];
 export const LIMITS = {
   HOOK_MAX: 220,      // A-side and B-side: fits an IG carousel opener
   POV_MAX: 500,       // curatorial thesis; keeps it thesis, not article
-  BULLET_MAX: 200,    // per-data-point; ensures each slot fits mobile
+  BULLET_MAX: 400,    // per-data-point; matches Perplexity's own 400-char slice so research bullets never arrive over-cap
   BULLETS_MIN: 1,     // at least one data point to mark Ready
   BULLETS_MAX: 5,     // above this and the carousel overloads
   TRIGGER_MAX: 20,    // DM trigger — short and shoutable
