@@ -7691,6 +7691,8 @@ export default function MediaTool() {
         open={!!matrixEventId}
         event={eventsList.find((e) => e.id === matrixEventId) || null}
         onClose={() => setMatrixEventId(null)}
+        apiKey={geminiKey}
+        onAiFillAccept={onAiTemplateAccept}
       />
       <NewsScoutModal
         open={newsScoutOpen}

@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useEventsStore, useCarouselSeedStore } from "../store.js";
+import { AiTemplateFillModal } from "./AiTemplateFillModal.jsx";
 import {
   EVENT_TIERS, EVENT_TIER_ORDER,
   CORRIDORS, LEGACY_CORRIDOR_ALIASES,
@@ -167,7 +168,7 @@ function CharCounter({ current, max, error }) {
   );
 }
 
-export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle }) {
+export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, apiKey = "", onAiFillAccept = null }) {
   const updateEventMatrix = useEventsStore((s) => s.updateEventMatrix);
   const upsertEvent = useEventsStore((s) => s.upsertEvent);
   const syncError = useEventsStore((s) => s.syncError);
@@ -204,6 +205,14 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
   const [voicePreviewText, setVoicePreviewText] = useState("");
   const [voicePreviewError, setVoicePreviewError] = useState(null);
   const [voicePreviewFor, setVoicePreviewFor] = useState(""); // labels which combo the preview shows
+
+  // AI Fill overlay — window collapse. When true, the AI Fill modal
+  // opens ON TOP of this matrix modal (compact mode: 4 controls hidden,
+  // 4 stay visible). Matrix stays visible behind the overlay, non-
+  // interactive while overlay is open. Replaces the old navigate-to-
+  // /media hand-off.
+  const [aiFillOverlayOpen, setAiFillOverlayOpen] = useState(false);
+  const [aiFillOverlaySeed, setAiFillOverlaySeed] = useState(null);
   // Snapshot of data_points BEFORE the last research call, so a bad
   // Fuel Research (off-topic bullets) can be discarded in one tap.
   const [preResearchSnapshot, setPreResearchSnapshot] = useState(null);
@@ -1644,13 +1653,25 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
               onClick={() => {
                 const seed = eventMatrixToFillSeed({ ...event, matrix: local });
                 if (!seed) return;
-                setCarouselSeed(seed);
-                onClose && onClose();
-                navigate("/media");
+                // Window collapse: open the AI Fill modal ON TOP of
+                // this matrix (compact mode) instead of navigating
+                // away. Matrix stays visible behind, non-interactive
+                // while overlay is open. Handoff via /media route
+                // only when no apiKey is passed — that lets legacy
+                // mount points (ReviewQueue) keep working until they
+                // adopt the new pattern.
+                if (apiKey) {
+                  setAiFillOverlaySeed(seed);
+                  setAiFillOverlayOpen(true);
+                } else {
+                  setCarouselSeed(seed);
+                  onClose && onClose();
+                  navigate("/media");
+                }
               }}
               disabled={!isMatrixReadyForGeneration(local)}
               title={isMatrixReadyForGeneration(local)
-                ? "Hand off matrix data to the AI Fill modal on Media"
+                ? (apiKey ? "Open the AI Fill overlay on top of the matrix" : "Hand off matrix data to the AI Fill modal on Media")
                 : "Fill required fields first"}
               style={{
                 padding: "10px 20px",
@@ -1670,6 +1691,34 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
           </div>
         </div>
       </div>
+      {/* AI Fill Overlay — window collapse. Opens compact-mode AI Fill
+          ON TOP of the matrix. Rendered inside the same portal target
+          so it stacks above the matrix's own backdrop. Only mounts
+          when the caller passed an apiKey (i.e. modern mount points);
+          legacy mount points fall through to the /media navigation
+          path above until they adopt the new pattern. */}
+      {aiFillOverlayOpen && aiFillOverlaySeed && apiKey ? (
+        <AiTemplateFillModal
+          open={aiFillOverlayOpen}
+          apiKey={apiKey}
+          compactMode={true}
+          initialTemplateId={aiFillOverlaySeed.templateId}
+          initialTopic={aiFillOverlaySeed.topic}
+          initialContext={aiFillOverlaySeed.context}
+          initialArrange={aiFillOverlaySeed.arrange}
+          initialRegister={aiFillOverlaySeed.register}
+          initialClusterDirective={aiFillOverlaySeed.clusterDirective}
+          initialClusterLabel={aiFillOverlaySeed.clusterLabel}
+          initialKeywordTrigger={aiFillOverlaySeed.keywordTrigger}
+          initialVoiceParams={aiFillOverlaySeed.voiceParams}
+          onClose={() => { setAiFillOverlayOpen(false); setAiFillOverlaySeed(null); }}
+          onAccept={(slides) => {
+            if (typeof onAiFillAccept === "function") onAiFillAccept(slides, event);
+            setAiFillOverlayOpen(false);
+            setAiFillOverlaySeed(null);
+          }}
+        />
+      ) : null}
     </div>,
     document.body
   );

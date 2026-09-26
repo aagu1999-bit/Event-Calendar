@@ -27,7 +27,7 @@ const CONTEXT_SCAFFOLD = [
 //   onClose()
 //   onAccept(slides)   — slides array matching the template's sequence
 
-export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTopic = "", initialContext = "", initialArrange = false, initialRegister = null, initialClusterDirective = "", initialClusterLabel = "", initialKeywordTrigger = null, initialVoiceParams = null, onClose, onAccept }) {
+export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTopic = "", initialContext = "", initialArrange = false, initialRegister = null, initialClusterDirective = "", initialClusterLabel = "", initialKeywordTrigger = null, initialVoiceParams = null, compactMode = false, onClose, onAccept }) {
   const voice = useBrandStore((s) => s.voice);
   const slotPrompts = useBrandStore((s) => s.slotPrompts);
   const addExemplar = useBrandStore((s) => s.addExemplar);
@@ -145,7 +145,10 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
       // seeded open also flips on "AI arranges" so it designs a full carousel.
       if (initialTopic) setTopic(initialTopic);
       if (initialContext) setContext(initialContext);
-      if (initialArrange) setAiArrange(true);
+      // Compact mode = always "AI arranges" (the matrix-driven path).
+      // The Generation Mode picker is hidden in compact mode; forcing
+      // aiArrange here keeps the downstream generation logic wired up.
+      if (initialArrange || compactMode) setAiArrange(true);
       // Seeded register overrides the reset default ("editorial") — used
       // when a caller (Matrix modal's Preview Carousel) already knows
       // which mode fits the record's tier + emotion. Whitelist to the
@@ -747,40 +750,47 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
           Type a topic + context; Gemini writes every slide as one coherent story. Let it pick or arrange the layout, or choose a template. Per-slot rules from <strong>/brand → Slide Content Rules</strong> apply.
         </div>
 
-        <div style={{ fontSize: "0.55rem", letterSpacing: 1.4, textTransform: "uppercase", fontWeight: 700, color: "rgba(245,240,232,0.4)", margin: "0 0 7px" }}>Generation mode</div>
+        {/* Generation Mode picker — hidden in compact mode because the
+            matrix-driven path always uses AI-arrange. Only the from-
+            scratch entry (MediaTool's bare ✨ AI Fill button) shows it. */}
+        {!compactMode && (
+          <>
+            <div style={{ fontSize: "0.55rem", letterSpacing: 1.4, textTransform: "uppercase", fontWeight: 700, color: "rgba(245,240,232,0.4)", margin: "0 0 7px" }}>Generation mode</div>
 
-        {/* Let AI pick toggle — when on, Gemini chooses the best
-            template from built-ins + customs based on topic + context.
-            Two Gemini calls instead of one. */}
-        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.72rem", color: letAiPick ? "#E5BC4F" : "rgba(245,240,232,0.7)", cursor: "pointer", marginBottom: 8, padding: "7px 9px", background: letAiPick ? "rgba(229,188,79,0.08)" : "transparent", border: "1px solid " + (letAiPick ? "rgba(229,188,79,0.35)" : "rgba(245,240,232,0.08)"), borderRadius: 4 }}>
-          <input
-            type="checkbox"
-            checked={letAiPick}
-            onChange={(e) => { setLetAiPick(e.target.checked); if (e.target.checked) { setAiArrange(false); setDotsMode(false); } }}
-          />
-          <span style={{ fontWeight: 700, letterSpacing: 0.5 }}>
-            ✨ Let AI pick the best template
-          </span>
-          <span style={{ marginLeft: "auto", fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: 0.5 }}>
-            picks from {allTemplates.length} templates
-          </span>
-        </label>
+            {/* Let AI pick toggle — when on, Gemini chooses the best
+                template from built-ins + customs based on topic + context.
+                Two Gemini calls instead of one. */}
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.72rem", color: letAiPick ? "#E5BC4F" : "rgba(245,240,232,0.7)", cursor: "pointer", marginBottom: 8, padding: "7px 9px", background: letAiPick ? "rgba(229,188,79,0.08)" : "transparent", border: "1px solid " + (letAiPick ? "rgba(229,188,79,0.35)" : "rgba(245,240,232,0.08)"), borderRadius: 4 }}>
+              <input
+                type="checkbox"
+                checked={letAiPick}
+                onChange={(e) => { setLetAiPick(e.target.checked); if (e.target.checked) { setAiArrange(false); setDotsMode(false); } }}
+              />
+              <span style={{ fontWeight: 700, letterSpacing: 0.5 }}>
+                ✨ Let AI pick the best template
+              </span>
+              <span style={{ marginLeft: "auto", fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: 0.5 }}>
+                picks from {allTemplates.length} templates
+              </span>
+            </label>
 
-        {/* AI arranges — design a bespoke slot sequence for THIS story instead of
-            a fixed template. Supersedes template selection + AI-pick. */}
-        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.72rem", color: aiArrange ? "#E5BC4F" : "rgba(245,240,232,0.7)", cursor: "pointer", marginBottom: 8, padding: "7px 9px", background: aiArrange ? "rgba(229,188,79,0.08)" : "transparent", border: "1px solid " + (aiArrange ? "rgba(229,188,79,0.35)" : "rgba(245,240,232,0.08)"), borderRadius: 4 }}>
-          <input
-            type="checkbox"
-            checked={aiArrange}
-            onChange={(e) => { setAiArrange(e.target.checked); if (e.target.checked) { setLetAiPick(false); setDotsMode(false); } }}
-          />
-          <span style={{ fontWeight: 700, letterSpacing: 0.5 }}>
-            🪄 Let AI arrange the carousel
-          </span>
-          <span style={{ marginLeft: "auto", fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: 0.5 }}>
-            designs a custom sequence
-          </span>
-        </label>
+            {/* AI arranges — design a bespoke slot sequence for THIS story instead of
+                a fixed template. Supersedes template selection + AI-pick. */}
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.72rem", color: aiArrange ? "#E5BC4F" : "rgba(245,240,232,0.7)", cursor: "pointer", marginBottom: 8, padding: "7px 9px", background: aiArrange ? "rgba(229,188,79,0.08)" : "transparent", border: "1px solid " + (aiArrange ? "rgba(229,188,79,0.35)" : "rgba(245,240,232,0.08)"), borderRadius: 4 }}>
+              <input
+                type="checkbox"
+                checked={aiArrange}
+                onChange={(e) => { setAiArrange(e.target.checked); if (e.target.checked) { setLetAiPick(false); setDotsMode(false); } }}
+              />
+              <span style={{ fontWeight: 700, letterSpacing: 0.5 }}>
+                🪄 Let AI arrange the carousel
+              </span>
+              <span style={{ marginLeft: "auto", fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: 0.5 }}>
+                designs a custom sequence
+              </span>
+            </label>
+          </>
+        )}
 
         {/* Slide count — only meaningful when AI arranges the carousel (a fixed
             template is locked to its own length). "Auto" lets Gemini size the
@@ -854,72 +864,77 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
           </div>
         </details>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-          <div>
-            <label style={{ fontSize: "0.65rem", color: "rgba(245,240,232,0.65)", display: "block", marginBottom: 5, letterSpacing: 0.5 }}>
-              Template {aiChoosesLayout && <span style={{ color: "rgba(245,240,232,0.4)", fontStyle: "italic", textTransform: "none", letterSpacing: 0 }}>({dotsMode ? "connect the dots" : aiArrange ? "AI will design" : "AI will pick"})</span>}
-            </label>
-            <select
-              value={templateId}
-              onChange={(e) => setTemplateId(e.target.value)}
-              disabled={aiChoosesLayout}
-              style={{
-                width: "100%",
-                padding: "8px 10px",
-                background: "#111",
-                border: "1px solid rgba(245,240,232,0.08)",
-                borderRadius: 4,
-                color: aiChoosesLayout ? "rgba(245,240,232,0.35)" : "#F5F0E8",
-                fontFamily: "inherit",
-                fontSize: "0.78rem",
-                outline: "none",
-                boxSizing: "border-box",
-                opacity: aiChoosesLayout ? 0.5 : 1,
-                cursor: aiChoosesLayout ? "not-allowed" : "pointer",
-              }}
-            >
-              <optgroup label="Built-in" style={{ color: "#000" }}>
-                {BUILTIN_CAROUSEL_TEMPLATES.map(t => (
-                  <option key={t.id} value={t.id} style={{ color: "#000" }}>{t.name} ({t.sequence.length})</option>
-                ))}
-              </optgroup>
-              {customs.length > 0 && (
-                <optgroup label="Your saved" style={{ color: "#000" }}>
-                  {customs.map(t => (
+        {/* Template dropdown + Topic field — both hidden in compact mode.
+            Template moves into the matrix (or defaults to AI-arranged);
+            Topic is redundant with hook_a_side already in the matrix. */}
+        {!compactMode && (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+            <div>
+              <label style={{ fontSize: "0.65rem", color: "rgba(245,240,232,0.65)", display: "block", marginBottom: 5, letterSpacing: 0.5 }}>
+                Template {aiChoosesLayout && <span style={{ color: "rgba(245,240,232,0.4)", fontStyle: "italic", textTransform: "none", letterSpacing: 0 }}>({dotsMode ? "connect the dots" : aiArrange ? "AI will design" : "AI will pick"})</span>}
+              </label>
+              <select
+                value={templateId}
+                onChange={(e) => setTemplateId(e.target.value)}
+                disabled={aiChoosesLayout}
+                style={{
+                  width: "100%",
+                  padding: "8px 10px",
+                  background: "#111",
+                  border: "1px solid rgba(245,240,232,0.08)",
+                  borderRadius: 4,
+                  color: aiChoosesLayout ? "rgba(245,240,232,0.35)" : "#F5F0E8",
+                  fontFamily: "inherit",
+                  fontSize: "0.78rem",
+                  outline: "none",
+                  boxSizing: "border-box",
+                  opacity: aiChoosesLayout ? 0.5 : 1,
+                  cursor: aiChoosesLayout ? "not-allowed" : "pointer",
+                }}
+              >
+                <optgroup label="Built-in" style={{ color: "#000" }}>
+                  {BUILTIN_CAROUSEL_TEMPLATES.map(t => (
                     <option key={t.id} value={t.id} style={{ color: "#000" }}>{t.name} ({t.sequence.length})</option>
                   ))}
                 </optgroup>
+                {customs.length > 0 && (
+                  <optgroup label="Your saved" style={{ color: "#000" }}>
+                    {customs.map(t => (
+                      <option key={t.id} value={t.id} style={{ color: "#000" }}>{t.name} ({t.sequence.length})</option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
+              {template && !aiChoosesLayout && (
+                <div style={{ marginTop: 4, fontSize: "0.55rem", color: "rgba(245,240,232,0.45)", letterSpacing: 0.5 }}>
+                  {template.sequence.join(" → ")}
+                </div>
               )}
-            </select>
-            {template && !aiChoosesLayout && (
-              <div style={{ marginTop: 4, fontSize: "0.55rem", color: "rgba(245,240,232,0.45)", letterSpacing: 0.5 }}>
-                {template.sequence.join(" → ")}
-              </div>
-            )}
+            </div>
+            <div>
+              <label style={{ fontSize: "0.65rem", color: "rgba(245,240,232,0.65)", display: "block", marginBottom: 5, letterSpacing: 0.5 }}>
+                {dotsMode ? (dotsDiscover ? "Thesis (optional — AI will find one)" : "Thesis / pattern to connect") : "Topic (carousel headline subject)"}
+              </label>
+              <input
+                value={topic}
+                onChange={(e) => setTopic(e.target.value)}
+                placeholder='"Juneteenth 2026 weekend in NJ"'
+                style={{
+                  width: "100%",
+                  padding: "8px 10px",
+                  background: "#111",
+                  border: "1px solid rgba(245,240,232,0.08)",
+                  borderRadius: 4,
+                  color: "#F5F0E8",
+                  fontFamily: "inherit",
+                  fontSize: "0.78rem",
+                  outline: "none",
+                  boxSizing: "border-box",
+                }}
+              />
+            </div>
           </div>
-          <div>
-            <label style={{ fontSize: "0.65rem", color: "rgba(245,240,232,0.65)", display: "block", marginBottom: 5, letterSpacing: 0.5 }}>
-              {dotsMode ? (dotsDiscover ? "Thesis (optional — AI will find one)" : "Thesis / pattern to connect") : "Topic (carousel headline subject)"}
-            </label>
-            <input
-              value={topic}
-              onChange={(e) => setTopic(e.target.value)}
-              placeholder='"Juneteenth 2026 weekend in NJ"'
-              style={{
-                width: "100%",
-                padding: "8px 10px",
-                background: "#111",
-                border: "1px solid rgba(245,240,232,0.08)",
-                borderRadius: 4,
-                color: "#F5F0E8",
-                fontFamily: "inherit",
-                fontSize: "0.78rem",
-                outline: "none",
-                boxSizing: "border-box",
-              }}
-            />
-          </div>
-        </div>
+        )}
 
         <label style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.5)", display: "block", marginBottom: 6, letterSpacing: 1.2, textTransform: "uppercase", fontWeight: 700 }}>
           Register
@@ -957,15 +972,17 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
         {/* Each register surfaces its own optional TECHNIQUE right here — the
             pathway first, then the move that walks it. Story → Manifesto;
             Promo/Editorial → Connect the dots (with an anchor field that pops up
-            only under Promo, turning coverage into problem→solution promo). */}
-        {mode === "story" && (
+            only under Promo, turning coverage into problem→solution promo).
+            All techniques hidden in compact mode — the matrix-driven path
+            uses the mode's default arc without technique overrides. */}
+        {!compactMode && mode === "story" && (
           <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.68rem", color: letterMode ? "#A78BFA" : "rgba(245,240,232,0.7)", cursor: "pointer", marginBottom: 12, padding: "7px 9px", background: letterMode ? "rgba(139,92,246,0.10)" : "rgba(139,92,246,0.04)", border: "1px solid " + (letterMode ? "rgba(139,92,246,0.4)" : "rgba(139,92,246,0.18)"), borderRadius: 4 }}>
             <input type="checkbox" checked={letterMode} onChange={(e) => setLetterMode(e.target.checked)} />
             <span style={{ fontWeight: 700, letterSpacing: 0.5 }}>✉️ As one continuous letter (Manifesto)</span>
             <span style={{ marginLeft: "auto", fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: 0.5 }}>a Story technique · swipe-to-the-end</span>
           </label>
         )}
-        {(mode === "promo" || mode === "editorial") && (
+        {!compactMode && (mode === "promo" || mode === "editorial") && (
           <>
             <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.68rem", color: dotsMode ? "#A78BFA" : "rgba(245,240,232,0.7)", cursor: "pointer", marginBottom: dotsMode ? 0 : 12, padding: "7px 9px", background: dotsMode ? "rgba(139,92,246,0.10)" : "rgba(139,92,246,0.04)", border: "1px solid " + (dotsMode ? "rgba(139,92,246,0.4)" : "rgba(139,92,246,0.18)"), borderRadius: 4 }}>
               <input type="checkbox" checked={dotsMode} onChange={(e) => { setDotsMode(e.target.checked); if (e.target.checked) { setLetAiPick(false); setAiArrange(false); } }} />
