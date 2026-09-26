@@ -72,6 +72,13 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
   const [newsFound, setNewsFound] = useState(null);
   const [pickedTemplate, setPickedTemplate] = useState(null);
   const [pickReasoning, setPickReasoning] = useState("");
+  // Compression event — populated by generateArrangedCarousel when
+  // the spine judged fewer slides were honest for the material than
+  // the arranger initially planned. Renders as a banner above the
+  // preview grid so the operator sees the editorial call the tool
+  // made, instead of a stale rationale describing slides that don't
+  // exist.
+  const [compressionEvent, setCompressionEvent] = useState(null);
   // Per-slide exemplar harvest state. Tracks slide indices the user
   // saved. Cleared on new generation. Only certain slot types yield
   // useful exemplars (cover/text/spotlight/cta) — other types are
@@ -120,6 +127,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
       setBusyLabel("");
       setPickedTemplate(null);
       setPickReasoning("");
+      setCompressionEvent(null);
       setSavedIdx(new Set());
       setMode("editorial");
       setAiArrange(false);
@@ -188,6 +196,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
     setSlides([]);
     setPickedTemplate(null);
     setPickReasoning("");
+    setCompressionEvent(null);
     setNewsFound(null);
     try {
       // Optional web research — a grounded Gemini call looks the event up and
@@ -247,6 +256,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
         const arranged = await generateArrangedCarousel({ apiKey, topic, context: genContext, voice, slotPrompts, mode, targetCount: slideCount === "auto" ? null : parseInt(slideCount, 10), letterMode });
         setPickedTemplate({ id: "ai-arranged", name: "AI-arranged carousel", sequence: arranged.sequence, custom: true });
         setPickReasoning(arranged.rationale);
+        setCompressionEvent(arranged.compressionEvent || null);
         setSlides(arranged.slides);
         return;
       }
@@ -1142,6 +1152,22 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
                 )}
                 <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.45)", marginTop: 4, letterSpacing: 0.5 }}>
                   Sequence: {pickedTemplate.sequence.join(" → ")}
+                </div>
+              </div>
+            )}
+            {/* Editorial compression banner — surfaces when the spine
+                judged fewer slides were honest for the material than
+                the arranger initially planned. Names the call the tool
+                made so the operator isn't confused by a shorter
+                rendered carousel than the rationale describes. */}
+            {compressionEvent && (
+              <div style={{ marginBottom: 12, padding: "8px 12px", background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.32)", borderRadius: 5, display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: "0.9rem" }}>⚡</span>
+                <div style={{ fontSize: "0.68rem", color: "rgba(245,240,232,0.82)", lineHeight: 1.45 }}>
+                  <b style={{ color: "#FBBF24", letterSpacing: 0.4 }}>Compressed {compressionEvent.from} → {compressionEvent.to} slides.</b>{" "}
+                  The spine's editor pass judged the material didn't earn the extra beats and dropped{" "}
+                  <b>{compressionEvent.droppedSlots?.join(", ") || "(unknown)"}</b>{" "}
+                  from the tail. Rerun with a richer bullet corpus if you wanted the full count.
                 </div>
               </div>
             )}
