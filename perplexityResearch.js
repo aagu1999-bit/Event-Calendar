@@ -29,7 +29,7 @@ export function researchRequest({ cluster = "", topic = "", pov = "", existingBu
   if (existingBullets.length) {
     userLines.push("Do NOT repeat these bullets already on the matrix:");
     for (const b of existingBullets.slice(0, 12)) {
-      if (typeof b === "string" && b.trim()) userLines.push(`- ${b.trim().slice(0, 400)}`);
+      if (typeof b === "string" && b.trim()) userLines.push(`- ${b.trim().slice(0, 500)}`);
     }
   }
   if (tier) userLines.push(`Tier: ${tier}.`);
@@ -49,6 +49,19 @@ export function researchRequest({ cluster = "", topic = "", pov = "", existingBu
       // from plagiarizing full paragraphs verbatim. Each bullet must be
       // a raw ingredient (Name / Metric / Location), NOT a mini-essay.
       "OUTPUT FORMAT — STRICT: Return exactly 3–5 distinct bullet points. Each bullet MUST be an 'Atomic Fact' containing at least one of: a specific NAME (venue, collective, operator, ordinance), a specific METRIC or NUMBER (a date, a cap, a capacity, a price), or a specific LOCATION (street, cross-street, neighborhood, transit stop). DO NOT write narrative sentences, DO NOT write transitional filler, DO NOT write context paragraphs. Provide only the raw ingredients — Gemini will do the cooking.",
+      // CAUSAL TAIL — a single trailing clause per bullet is ALLOWED
+      // (not required) that names WHY this fact matters or what it
+      // makes possible. This is the difference between a museum
+      // caption and a bullet the writer can connect: "Club Zanzibar
+      // opened 1979 on Broad Street — 1500 capacity" vs. "Club
+      // Zanzibar opened 1979 on Broad Street — 1500 capacity,
+      // authored the vocal-house template every NJ warehouse room
+      // still borrows from." One clause, max — no rambling. Keep it
+      // grounded in the specific fact, never abstract musing. Bullets
+      // may run up to ~500 chars to make room for it. This is the
+      // only place narrative is permitted; the anchor part of the
+      // bullet still has to lead with a name, metric, or location.
+      "CAUSAL TAIL — permitted (not required): a single trailing clause per bullet naming why the fact matters or what it makes possible, grounded in the specific fact. Bullets may run up to 500 characters to accommodate it. Keep the anchor (name / metric / location) at the FRONT; the causal tail comes AFTER. Never lead with the tail, never write a bullet that is only a tail.",
       "Every fact MUST connect specifically to New Jersey AND the named editorial cluster, which is the primary frame.",
       // MODERN ANCHOR RULE — the fix for "total abandonment of the modern
       // scene." A historical carousel that dead-ends in 1979 reads as
@@ -82,7 +95,7 @@ export function parseResearchResponse(response) {
   let parsed;
   try { parsed = JSON.parse(response.output_text || ""); }
   catch { return { ok: false, code: "bad_response", message: "Perplexity returned invalid structured output. Please retry." }; }
-  if (!Array.isArray(parsed?.bullets) || parsed.bullets.some(b => typeof b !== "string" || !b.trim() || b.length > 400) || parsed.bullets.length > 4) {
+  if (!Array.isArray(parsed?.bullets) || parsed.bullets.some(b => typeof b !== "string" || !b.trim() || b.length > 500) || parsed.bullets.length > 4) {
     return { ok: false, code: "bad_response", message: "Perplexity returned an unexpected research format. Please retry." };
   }
   if (parsed.bullets.length < 2) return { ok: false, code: "empty", message: "Not enough supported NJ-tied facts found for this cluster. Try broadening the angle." };
