@@ -140,3 +140,99 @@ export function formatVoiceParamsLabel({ distance, cadence, stance } = {}) {
   if (s) bits.push(STANCE_OPTIONS.find((o) => o.key === s).label);
   return bits.join(" · ");
 }
+
+// ─── VOICE PREVIEW ────────────────────────────────────────────────
+// Renders one sample paragraph in the current voice-params combination
+// so the operator can hear the voice BEFORE generating a full carousel.
+// Uses a FIXED neutral subject (a Friday night at a small NJ music
+// room) so every preview across every combo can be compared like-for-
+// like — the voice, not the topic, is what's demonstrated.
+//
+// Same client-side Gemini Flash-Lite architecture as synthesizeHook +
+// synthesizeThesis. Requires Distance AND Cadence to be set (Stance
+// optional).
+export async function previewVoice({ apiKey, distance, cadence, stance } = {}) {
+  if (!apiKey || !String(apiKey).trim()) {
+    throw new Error("Missing Gemini API key");
+  }
+  const dKey = resolveDistanceKey(distance);
+  const cKey = resolveCadenceKey(cadence);
+  if (!dKey) {
+    throw new Error("Pick a Distance first — it's the primary voice knob.");
+  }
+  if (!cKey) {
+    throw new Error("Pick a Cadence first — Distance + Cadence together shape the voice.");
+  }
+  const sKey = resolveStanceKey(stance);
+
+  // Fixed subject so preview isolates voice from topic. Kept generic
+  // enough that any Distance × Cadence × Stance combo can write to
+  // it, specific enough that the voice has something to grip.
+  const FIXED_SUBJECT = "a Friday night at a 150-capacity music room somewhere in New Jersey — the crowd, the sound, the door, one thing you notice about the room";
+
+  const prompt = [
+    "ROLE: You are a master cultural writer for a niche New Jersey magazine. Right now you are producing ONE sample paragraph — a preview — so an editor can hear this voice combination before commissioning a full piece.",
+    "TASK: Write a single paragraph (80-120 words) about the SUBJECT below, in the exact voice combination specified.",
+    "",
+    `SUBJECT: ${FIXED_SUBJECT}`,
+    "",
+    "VOICE COMBINATION — follow all applicable specs strictly:",
+    DISTANCE_SPECS[dKey],
+    CADENCE_SPECS[cKey],
+    ...(sKey ? [STANCE_SPECS[sKey]] : []),
+    "",
+    "CONSTRAINTS:",
+    "1. Do NOT name a specific real venue, town, DJ, promoter, or ordinance. This is a preview of VOICE, not reporting — invent no proper nouns beyond generic references ('the corner', 'the room', 'the door').",
+    "2. Do NOT explain the voice or reference the fact that this is a sample. Just write the paragraph.",
+    "3. Length: 80-120 words. One paragraph. If cadence is Stacked, the paragraph can be a block of short stacked lines separated by newlines within one paragraph — still counts as one paragraph.",
+    "4. No marketing tropes, no scaffolding, no register slippage.",
+    "",
+    'Return ONLY JSON in this exact shape: {"preview": "..."}',
+  ].join("\n");
+
+  const MODEL = "gemini-2.5-flash-lite";
+  const URL_BASE = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
+  const requestBody = {
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: {
+      responseMimeType: "application/json",
+      temperature: 0.85,
+      maxOutputTokens: 512,
+      responseSchema: {
+        type: "object",
+        properties: { preview: { type: "string", maxLength: 900 } },
+        required: ["preview"],
+      },
+    },
+  };
+
+  let res;
+  try {
+    res = await fetch(`${URL_BASE}?key=${encodeURIComponent(apiKey)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(requestBody),
+    });
+  } catch (err) {
+    throw new Error(`Network error contacting Gemini: ${err?.message || err}`);
+  }
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    throw new Error(`Gemini ${res.status}: ${errText.slice(0, 200)}`);
+  }
+  const data = await res.json();
+  const parts = data?.candidates?.[0]?.content?.parts || [];
+  const textPart = parts.find((p) => p && !p.thought && typeof p.text === "string") || parts[0];
+  const raw = textPart?.text || "";
+  if (!raw) throw new Error("Gemini returned an empty response.");
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    const trimmed = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+    parsed = JSON.parse(trimmed);
+  }
+  const preview = String(parsed?.preview || "").trim();
+  if (!preview) throw new Error("Gemini returned no preview text — retry.");
+  return preview.slice(0, 900);
+}
