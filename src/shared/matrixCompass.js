@@ -179,6 +179,97 @@ export function getClusterDefaultPOV(value) {
   return CONTENT_CLUSTERS[key].defaultPOV || "";
 }
 
+// ─── Compositional POV fragments ─────────────────────────────────────
+// Each dimension (cluster, corridor, emotion, demographic) contributes
+// a phrase; composePOV stitches them into a two-sentence editorial
+// thesis. This is what makes the POV textarea move when the operator
+// changes Corridor / Emotion / Demographic — not just Cluster.
+//
+// Authoring rule: each fragment reads as CULTURAL DISPATCH, never
+// grant-application or municipal-report register. The whole point is
+// that the composed POV sounds like an editorial writer's opening
+// paragraph, not a form auto-filled from dropdowns.
+
+// Corridor → the geographic anchor phrase for sentence 2. Written so
+// it fits naturally at sentence start: "Along the Shore's Southern
+// Arteries, ..."
+const CORRIDOR_ANCHORS = {
+  "Urban / Commuter Core": "In the Essex / Hudson / Union urban core",
+  "Route 1 Central Crossroads": "Along the Route 1 commuter belt through Middlesex + Somerset",
+  "Transit Village Suburbs": "In the transit-village suburbs whose identity now rides on their train stop",
+  "Shore / Southern Arteries": "Down the Shore's Southern Arteries",
+  "Decentralized Borderlands": "Out in the decentralized borderlands where town lines blur",
+};
+
+// Emotion → the reader-stance modifier that closes the POV. Sets the
+// piece's angle: is this validating what the reader already feels, or
+// naming a pattern they hadn't seen?
+const EMOTION_STANCES = {
+  "Curiosity/Epiphany": "This piece names the pattern the audience has felt but never had a word for.",
+  "Validation/Relatability": "If the reader's own weekends feel like this, they're not imagining it — the shape of it is real.",
+  "Skepticism/Irreverence": "The polished version is a lie; the piece surfaces what actually holds the scene together.",
+  "Nostalgia/Yearning": "The rooms lost weren't accidents, and the rooms replacing them owe those originals everything.",
+  "Urgency/Insider Access": "This is what the operators already know that the audience doesn't — and the window on acting on it is not open forever.",
+  "Ambition/Sovereignty": "For anyone building the next room, this is the operating system.",
+};
+
+// Demographic → short noun phrase that names who the piece is speaking
+// TO. Used to compose the "For X, this hits particular" clause. Keep
+// each entry LOWERCASE and grammatically ready to slot after "for".
+const DEMOGRAPHIC_PHRASES = {
+  "Young Working Professionals": "young working professionals still learning where their weekends actually live",
+  "Diaspora Networks": "diaspora networks operating on referral rather than press",
+  "Corporate-to-Creative Hybrids": "the corporate-to-creative hybrids trying to stitch a second identity outside the office",
+  "Low-Decibel / Alcohol-Conscious": "the low-decibel, alcohol-conscious crowd building the parallel nightlife",
+  "Sonic Purists": "sonic purists who chase rooms with real sound systems",
+  "Kinetic / Adult Play": "the adult-recess crowd putting run clubs and roller rinks back on the social calendar",
+  "Creatives & DJs": "the creatives and DJs authoring the rooms nobody else has built yet",
+};
+
+// Compose a two-sentence editorial POV from the operator's dimension
+// picks. Sentence 1: cluster's defaultPOV (the thesis skeleton).
+// Sentence 2: corridor anchor + demographic wedge + emotion stance.
+// Any missing dimension is elided gracefully — the composed POV still
+// reads if only cluster is set. Returns "" if there's not even a
+// cluster to build on.
+export function composePOV({ cluster, corridor, emotion, demographics } = {}) {
+  const clusterKey = resolveClusterKey(cluster);
+  if (!clusterKey) return "";
+  const thesis = CONTENT_CLUSTERS[clusterKey].defaultPOV || "";
+  if (!thesis) return "";
+
+  const anchor = corridor ? CORRIDOR_ANCHORS[corridor] : "";
+  const stance = emotion ? EMOTION_STANCES[emotion] : "";
+  const demoList = Array.isArray(demographics) ? demographics.filter(Boolean) : [];
+  const demoPhrases = demoList
+    .map((d) => DEMOGRAPHIC_PHRASES[d] || String(d || "").toLowerCase().trim())
+    .filter(Boolean);
+
+  // Compose sentence 2 from whichever pieces are present. Grammar has
+  // to hold up even when one or two dimensions are missing.
+  const s2Parts = [];
+  if (anchor && demoPhrases.length) {
+    s2Parts.push(`${anchor}, that reckoning lands on ${joinDemographics(demoPhrases)}.`);
+  } else if (anchor) {
+    s2Parts.push(`${anchor}, this argument plays out on the ground.`);
+  } else if (demoPhrases.length) {
+    s2Parts.push(`It lands hardest on ${joinDemographics(demoPhrases)}.`);
+  }
+  if (stance) s2Parts.push(stance);
+
+  const s2 = s2Parts.join(" ").trim();
+  return s2 ? `${thesis} ${s2}` : thesis;
+}
+
+// English list join for the demographic phrases in sentence 2.
+// One item → as is. Two → "A and B". Three+ → "A, B, and C".
+function joinDemographics(list) {
+  if (list.length === 0) return "";
+  if (list.length === 1) return list[0];
+  if (list.length === 2) return `${list[0]} and ${list[1]}`;
+  return `${list.slice(0, -1).join(", ")}, and ${list[list.length - 1]}`;
+}
+
 // Seed topics — the operator's curated beat board. Clicking one auto-
 // fills cluster + corridor + hook_a_side + target_emotion +
 // target_demographic on the matrix. Numbers preserve the operator's
