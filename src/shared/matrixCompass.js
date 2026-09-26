@@ -270,6 +270,113 @@ function joinDemographics(list) {
   return `${list.slice(0, -1).join(", ")}, and ${list[list.length - 1]}`;
 }
 
+// ─── DYNAMIC POV SYNTHESIZER ──────────────────────────────────────
+// The deterministic composePOV works but it's structurally the same
+// sentence every time — 10 clusters × 5 corridors etc. is still
+// paste-together text, not writerly synthesis. synthesizeThesis fires
+// a small Gemini Flash call to find the underlying cultural tension
+// between the four picks and return a 1–2 sentence editorial thesis
+// that reads like an executive-editor draft, not a template fill.
+//
+// Client-side: uses the operator's own Gemini key (same one used for
+// the carousel writer), matching the existing app architecture.
+// Structured JSON output enforces the length + shape contract.
+
+// Import inside the function so this file stays free of a hard
+// dependency on the Gemini helper when consumers only need the
+// static clusters + composePOV. Callers pass an apiKey; empty
+// apiKey → throw so the caller can surface a clear error UI.
+export async function synthesizeThesis({ apiKey, cluster, corridor, emotion, demographics = [] } = {}) {
+  if (!apiKey || !String(apiKey).trim()) {
+    throw new Error("Missing Gemini API key");
+  }
+  const clusterKey = resolveClusterKey(cluster);
+  if (!clusterKey) {
+    throw new Error("Pick a Content Cluster first — it anchors the LENS the synthesizer works through.");
+  }
+  const clusterLabel = CONTENT_CLUSTERS[clusterKey].label;
+  const clusterDirective = CONTENT_CLUSTERS[clusterKey].directive;
+  const demoList = Array.isArray(demographics)
+    ? demographics.filter((d) => typeof d === "string" && d.trim()).map((d) => d.trim())
+    : [];
+
+  const prompt = [
+    "ROLE: You are an executive editor at a regional culture magazine covering New Jersey.",
+    "TASK: The operator has picked four combinatorial variables. Synthesize them into a single, cohesive 1–2 sentence Editorial POV.",
+    "",
+    "THE VARIABLES:",
+    `- Content Cluster: ${clusterLabel}`,
+    `- Cluster Analytical Lens: ${clusterDirective}`,
+    `- Corridor (geography): ${corridor || "(not set — write for the whole state)"}`,
+    `- Target Emotion (reader stance): ${emotion || "(not set — default to Curiosity/Epiphany)"}`,
+    `- Target Demographic (audience): ${demoList.length ? demoList.join(", ") : "(not set — write broadly)"}`,
+    "",
+    "CONSTRAINTS:",
+    "1. Do NOT just list the variables. Find the underlying cultural TENSION that connects the specific geography to the specific sociological topic. If no natural tension exists between the picks, name what would have to be true for one to matter, then write from that.",
+    "2. No Proper Nouns: do NOT invent specific venue names, town names, ordinance names, statute years, or era labels the operator did not supply. Keep the thesis structural and geographically agnostic so it applies to the entire named Corridor, not one town within it. If you name a specific NJ policy, it must be one that necessarily applies to the whole Corridor.",
+    "3. No filler, no introductory remarks, no 'this piece argues that…' scaffolding, no grantwriter register.",
+    "4. The demographic is the AUDIENCE — write the thesis so it lands with THEM. It's not the subject of the piece, it's who's reading it.",
+    "5. Length: EXACTLY 1–2 sentences of punchy, opinionated thesis text. Second sentence, when present, extends the tension into a payoff or a wager; it never restates sentence 1.",
+    "",
+    'Return ONLY JSON in this exact shape: {"thesis": "..."}',
+  ].join("\n");
+
+  // Hit the Gemini endpoint directly rather than importing from
+  // gemini.js — that helper's geminiGenerate isn't exported, and
+  // keeping the fetch inline means matrixCompass stays a leaf module
+  // (no cross-file dependency for what is essentially one API call).
+  const MODEL = "gemini-2.5-flash-lite";
+  const URL_BASE = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
+  const requestBody = {
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: {
+      responseMimeType: "application/json",
+      temperature: 0.75,
+      maxOutputTokens: 512,
+      responseSchema: {
+        type: "object",
+        properties: { thesis: { type: "string", maxLength: 500 } },
+        required: ["thesis"],
+      },
+    },
+  };
+
+  let res;
+  try {
+    res = await fetch(`${URL_BASE}?key=${encodeURIComponent(apiKey)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(requestBody),
+    });
+  } catch (err) {
+    throw new Error(`Network error contacting Gemini: ${err?.message || err}`);
+  }
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    throw new Error(`Gemini ${res.status}: ${errText.slice(0, 200)}`);
+  }
+  const data = await res.json();
+  const parts = data?.candidates?.[0]?.content?.parts || [];
+  const textPart = parts.find((p) => p && !p.thought && typeof p.text === "string") || parts[0];
+  const raw = textPart?.text || "";
+  if (!raw) throw new Error("Gemini returned an empty response.");
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    // Fallback: some responses come back with stray whitespace or a
+    // JSON blob wrapped in code fences despite the schema.
+    const trimmed = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+    parsed = JSON.parse(trimmed);
+  }
+  const thesis = String(parsed?.thesis || "").trim();
+  if (!thesis) throw new Error("Gemini returned no thesis text — retry.");
+  // Hard length cap regardless of what the model returned. 500 chars
+  // matches LIMITS.POV_MAX — keeps the field the operator sees fillable
+  // and the downstream editor pass grounded.
+  return thesis.slice(0, 500);
+}
+
 // Seed topics — the operator's curated beat board. Clicking one auto-
 // fills cluster + corridor + hook_a_side + target_emotion +
 // target_demographic on the matrix. Numbers preserve the operator's

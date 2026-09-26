@@ -15,6 +15,7 @@ import {
   getClusterDirective,
   getClusterDefaultPOV,
   composePOV,
+  synthesizeThesis,
   COMPASS_TOPICS,
 } from "./matrixCompass.js";
 import { validateMatrix, matrixCompleteness, isMatrixReadyForGeneration } from "./matrixValidation.js";
@@ -171,6 +172,13 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
   const [researching, setResearching] = useState(false);
   const [researchError, setResearchError] = useState(null);
   const [citations, setCitations] = useState([]);
+
+  // Draft Thesis (Gemini Flash-Lite) state — synthesizes the four
+  // matrix dimensions into a real editorial thesis instead of the
+  // deterministic fragment paste. Runs on explicit click only, never
+  // auto-fires. Errors render inline near the POV textarea.
+  const [synthesizing, setSynthesizing] = useState(false);
+  const [synthError, setSynthError] = useState(null);
   // Snapshot of data_points BEFORE the last research call, so a bad
   // Fuel Research (off-topic bullets) can be discarded in one tap.
   const [preResearchSnapshot, setPreResearchSnapshot] = useState(null);
@@ -209,6 +217,8 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
     setDemographicInput("");
     setAddingDemographic(false);
     setCompassOpen(false);
+    setSynthError(null);
+    setSynthesizing(false);
   }, [event?.id]);
 
   const applyPatch = (patch) => {
@@ -320,6 +330,61 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
     setPreResearchSnapshot(null);
     setCitations([]);
     setResearchError(null);
+  };
+
+  // Resolve the Gemini API key the same way MediaTool + ReviewQueue do:
+  // env var first (for local dev), then localStorage. Kept inline so
+  // this modal doesn't require a new plumbing prop from its two
+  // mount sites (MediaTool + ReviewQueue). Empty string when neither
+  // is set — the Draft Thesis button surfaces a clear error in that
+  // case rather than firing.
+  const resolveGeminiKey = () => {
+    let envKey = "";
+    try { envKey = (import.meta.env.VITE_GEMINI_API_KEY || "").trim(); } catch { /* SSR / no import.meta */ }
+    if (envKey) return envKey;
+    try { return localStorage.getItem("cge_gemini_key") || ""; } catch { return ""; }
+  };
+
+  // Draft Thesis handler — fires Gemini Flash-Lite to synthesize the
+  // four matrix dimensions into a real editorial POV. Explicit-click
+  // only. Overwrites whatever's in the field (button IS the "replace
+  // what I have" gesture) and updates lastAutoPOVRef so the
+  // deterministic composer's freeze rule stays intact — if the
+  // operator then edits the synthesized POV, subsequent dropdown
+  // changes won't overwrite it.
+  const draftThesis = async () => {
+    if (synthesizing) return;
+    setSynthError(null);
+    const apiKey = resolveGeminiKey();
+    if (!apiKey) {
+      setSynthError("Paste your Gemini API key in the MediaTool toolbar first.");
+      return;
+    }
+    const clusterKey = resolveClusterKey(local.cluster);
+    if (!clusterKey) {
+      setSynthError("Pick a Content Cluster first — it anchors the LENS the synthesizer works through.");
+      return;
+    }
+    setSynthesizing(true);
+    try {
+      const thesis = await synthesizeThesis({
+        apiKey,
+        cluster: local.cluster,
+        corridor: local.corridor,
+        emotion: local.target_emotion,
+        demographics: selectedDemographics,
+      });
+      if (!thesis) {
+        setSynthError("Gemini returned an empty thesis. Retry.");
+        return;
+      }
+      lastAutoPOVRef.current = thesis;
+      applyPatch({ editorial_pov: thesis });
+    } catch (err) {
+      setSynthError(String(err?.message || err));
+    } finally {
+      setSynthesizing(false);
+    }
   };
 
   // Demographic chip helpers. Demographics are stored as an array on
@@ -902,44 +967,42 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
                 <span style={{ width: 3, height: 12, background: orbit, borderRadius: 2, display: "inline-block" }} />
                 Editorial POV · 1–2 sentence thesis
               </span>
+              {/* Draft Thesis — sends the four matrix dimensions to
+                  Gemini Flash-Lite for a real editorial synthesis.
+                  Disabled without a cluster (no LENS = no anchor).
+                  Shown always so the operator can regenerate when
+                  the current thesis feels forced or off-tone. */}
               {(() => {
-                // "Compose from picks" — regenerates the POV from
-                // whatever cluster + corridor + emotion + demographics
-                // are currently selected. Shows when a composed POV is
-                // possible AND it differs from what's in the textarea
-                // (so we don't ask the operator to click a no-op).
-                const composed = composePOV({
-                  cluster: local.cluster,
-                  corridor: local.corridor,
-                  emotion: local.target_emotion,
-                  demographics: selectedDemographics,
-                });
-                if (!composed) return null;
-                const current = String(local.editorial_pov || "").trim();
-                if (current === composed.trim()) return null;
+                const clusterKey = resolveClusterKey(local.cluster);
+                const disabled = synthesizing || !clusterKey;
+                const label = synthesizing
+                  ? "…Synthesizing"
+                  : String(local.editorial_pov || "").trim()
+                    ? "✨ Redraft Thesis"
+                    : "✨ Draft Thesis";
                 return (
                   <button
                     type="button"
-                    onClick={() => {
-                      lastAutoPOVRef.current = composed;
-                      applyPatch({ editorial_pov: composed });
-                    }}
-                    title={current ? "Replace your POV with one composed from the current cluster + corridor + emotion + demographics" : "Compose an editorial POV from the current picks"}
+                    onClick={draftThesis}
+                    disabled={disabled}
+                    title={clusterKey
+                      ? "Fire a Gemini Flash-Lite call to synthesize a cohesive editorial thesis from the current cluster + corridor + emotion + demographics"
+                      : "Pick a Content Cluster first — it anchors the LENS the synthesizer works through."}
                     style={{
-                      background: "transparent",
-                      border: `1px solid ${whisper}`,
-                      color: muted,
+                      background: disabled ? "transparent" : "rgba(167,139,250,0.14)",
+                      border: `1px solid ${disabled ? whisper : orbit}`,
+                      color: disabled ? faint : orbit,
                       borderRadius: 4,
-                      padding: "3px 8px",
+                      padding: "3px 10px",
                       fontFamily: "inherit",
                       fontSize: "0.58rem",
                       letterSpacing: "0.1em",
                       textTransform: "uppercase",
                       fontWeight: 700,
-                      cursor: "pointer",
+                      cursor: disabled ? "not-allowed" : "pointer",
                     }}
                   >
-                    ↺ {current ? "Recompose from picks" : "Compose from picks"}
+                    {label}
                   </button>
                 );
               })()}
@@ -952,6 +1015,17 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
               maxLength={LIMITS.POV_MAX + 100}
             />
             <CharCounter current={(local.editorial_pov || "").length} max={LIMITS.POV_MAX} error={errorsByField.editorial_pov} />
+            {synthError ? (
+              <div style={{
+                fontSize: "0.66rem",
+                color: warn,
+                marginTop: 4,
+                letterSpacing: "0.02em",
+                lineHeight: 1.5,
+              }}>
+                ⚠️ {synthError}
+              </div>
+            ) : null}
           </div>
 
           {/* Data Points */}
