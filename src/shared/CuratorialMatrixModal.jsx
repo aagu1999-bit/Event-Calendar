@@ -16,6 +16,7 @@ import {
   getClusterDefaultPOV,
   composePOV,
   synthesizeThesis,
+  synthesizeHook,
   COMPASS_TOPICS,
 } from "./matrixCompass.js";
 import { validateMatrix, matrixCompleteness, isMatrixReadyForGeneration } from "./matrixValidation.js";
@@ -179,6 +180,13 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
   // auto-fires. Errors render inline near the POV textarea.
   const [synthesizing, setSynthesizing] = useState(false);
   const [synthError, setSynthError] = useState(null);
+
+  // Draft Hook (Gemini Flash-Lite) state — writes the Instagram-cover
+  // A-side hook from Editorial POV + Cluster LENS using proven
+  // hook frameworks. Explicit click only; errors render inline near
+  // the hook_a_side field.
+  const [draftingHook, setDraftingHook] = useState(false);
+  const [hookError, setHookError] = useState(null);
   // Snapshot of data_points BEFORE the last research call, so a bad
   // Fuel Research (off-topic bullets) can be discarded in one tap.
   const [preResearchSnapshot, setPreResearchSnapshot] = useState(null);
@@ -219,6 +227,8 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
     setCompassOpen(false);
     setSynthError(null);
     setSynthesizing(false);
+    setHookError(null);
+    setDraftingHook(false);
   }, [event?.id]);
 
   const applyPatch = (patch) => {
@@ -384,6 +394,47 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
       setSynthError(String(err?.message || err));
     } finally {
       setSynthesizing(false);
+    }
+  };
+
+  // Draft Hook handler — compresses the current Editorial POV +
+  // Cluster LENS into a scroll-stopping cover hook using proven
+  // social-media hook frameworks. Requires both a cluster AND a POV;
+  // surfaces clear errors when either is missing so the operator
+  // knows exactly what to fill in first.
+  const draftHook = async () => {
+    if (draftingHook) return;
+    setHookError(null);
+    const apiKey = resolveGeminiKey();
+    if (!apiKey) {
+      setHookError("Paste your Gemini API key in the MediaTool toolbar first.");
+      return;
+    }
+    const clusterKey = resolveClusterKey(local.cluster);
+    if (!clusterKey) {
+      setHookError("Pick a Content Cluster first — the LENS anchors the hook synthesis.");
+      return;
+    }
+    if (!String(local.editorial_pov || "").trim()) {
+      setHookError("Draft or write an Editorial POV first — the hook is the POV compressed into a scroll-stopper.");
+      return;
+    }
+    setDraftingHook(true);
+    try {
+      const hook = await synthesizeHook({
+        apiKey,
+        cluster: local.cluster,
+        pov: local.editorial_pov,
+      });
+      if (!hook) {
+        setHookError("Gemini returned an empty hook. Retry.");
+        return;
+      }
+      applyPatch({ hook_a_side: hook });
+    } catch (err) {
+      setHookError(String(err?.message || err));
+    } finally {
+      setDraftingHook(false);
     }
   };
 
@@ -933,7 +984,55 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
 
           {/* Hook A */}
           <div>
-            <div style={groupLabelStyle}><span style={{ width: 3, height: 12, background: anchor, borderRadius: 2, display: "inline-block" }} />Hook A-side · Primary Carousel Opener</div>
+            <div style={{ ...groupLabelStyle, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ width: 3, height: 12, background: anchor, borderRadius: 2, display: "inline-block" }} />
+                Hook A-side · Primary Carousel Opener
+              </span>
+              {/* Draft Hook — fires Gemini Flash-Lite to compress the
+                  current POV into a scroll-stopping hook using proven
+                  frameworks (Contrarian Take / Real Story / Bold Stat).
+                  Disabled without both a cluster AND a POV. */}
+              {(() => {
+                const clusterKey = resolveClusterKey(local.cluster);
+                const hasPOV = !!String(local.editorial_pov || "").trim();
+                const disabled = draftingHook || !clusterKey || !hasPOV;
+                const label = draftingHook
+                  ? "…Drafting"
+                  : String(local.hook_a_side || "").trim()
+                    ? "✨ Redraft Hook"
+                    : "✨ Draft Hook";
+                return (
+                  <button
+                    type="button"
+                    onClick={draftHook}
+                    disabled={disabled}
+                    title={
+                      !clusterKey
+                        ? "Pick a Content Cluster first — the LENS anchors the hook synthesis."
+                        : !hasPOV
+                          ? "Draft or write an Editorial POV first — the hook is the POV compressed into a scroll-stopper."
+                          : "Compress the current POV into a scroll-stopping cover hook using proven social-media hook frameworks."
+                    }
+                    style={{
+                      background: disabled ? "transparent" : "rgba(229,188,79,0.14)",
+                      border: `1px solid ${disabled ? whisper : anchor}`,
+                      color: disabled ? faint : anchor,
+                      borderRadius: 4,
+                      padding: "3px 10px",
+                      fontFamily: "inherit",
+                      fontSize: "0.58rem",
+                      letterSpacing: "0.1em",
+                      textTransform: "uppercase",
+                      fontWeight: 700,
+                      cursor: disabled ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    {label}
+                  </button>
+                );
+              })()}
+            </div>
             <textarea
               style={textareaStyle}
               value={local.hook_a_side || ""}
@@ -945,6 +1044,17 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
             {errorsByField.hook_a_side && (
               <div style={{ fontSize: "0.68rem", color: warn }}>⚠ {errorsByField.hook_a_side}</div>
             )}
+            {hookError ? (
+              <div style={{
+                fontSize: "0.66rem",
+                color: warn,
+                marginTop: 4,
+                letterSpacing: "0.02em",
+                lineHeight: 1.5,
+              }}>
+                ⚠️ {hookError}
+              </div>
+            ) : null}
           </div>
 
           {/* Hook B */}
