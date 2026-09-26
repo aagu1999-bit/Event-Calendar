@@ -6,7 +6,7 @@ export function isPerplexityConfigured() {
   return !!process.env.PERPLEXITY_API_KEY?.trim();
 }
 
-export function researchRequest({ cluster = "", topic = "", pov = "", existingBullets = [], tier = "", corridor = "" } = {}) {
+export function researchRequest({ cluster = "", topic = "", pov = "", existingBullets = [], tier = "", corridor = "", demographics = [] } = {}) {
   // Compass injection: the cluster's ANALYTICAL LENS (its directive) is
   // the whole point of the Compass architecture. Without it Sonar returns
   // dry academic bullets ("language-access infrastructure", "worker centers")
@@ -19,10 +19,19 @@ export function researchRequest({ cluster = "", topic = "", pov = "", existingBu
   const clusterDirective = getClusterDirective(cluster);
   const workingTitle = String(topic || "").trim();
   const povLine = String(pov || "").trim();
+  // Normalize demographics to a clean list, then a comma-joined string
+  // for prompt injection. This becomes the "who this is FOR" constraint
+  // Sonar uses to filter facts — a venue that doesn't serve the target
+  // audience is not a valid research return.
+  const demoList = Array.isArray(demographics)
+    ? demographics.filter((d) => typeof d === "string" && d.trim()).map((d) => d.trim())
+    : [];
+  const demoLine = demoList.length ? demoList.join(", ") : "";
   const userLines = [
     `Topic: ${workingTitle || "(none)"}.`,
     `Corridor: ${String(corridor || "").trim() || "(none)"}.`,
     `Editorial Cluster: ${clusterLabel || "(none)"}.`,
+    `Target Audience (who these venues must serve): ${demoLine || "(none specified — infer from cluster)"}.`,
     `Brand thesis: ${povLine || "N/A"}.`,
   ];
   if (clusterDirective) userLines.push(`Analytical lens: ${clusterDirective}`);
@@ -45,6 +54,28 @@ export function researchRequest({ cluster = "", topic = "", pov = "", existingBu
       "Return verifiable facts regarding the user's query, but strip away all municipal jargon, bureaucratic phrasing, and formal report language.",
       "Translate zoning, policy, or transit facts into street-level realities and tangible spaces — the venue where the rule applies, the corner it collides with, the crowd it shapes.",
       "MANDATORY TRANSLATION LAYER: Do not return dry, grant-funded non-profit statistics (e.g., 'language-access infrastructure', 'worker centers') unless directly anchored to a physical social space with a name.",
+      // LENS + AUDIENCE INJECTION — the two dimensions that keep the
+      // research anchored on cultural infrastructure instead of drifting
+      // into B2B real-estate / civic-metric register. LENS narrows the
+      // research angle; AUDIENCE narrows who each returned venue must
+      // actually serve. Both get their real values from the user
+      // payload above; the system prompt just fixes the contract.
+      "PRIMARY RESEARCH LENS: Every fact you return must pass through the Analytical lens supplied in the user payload. A fact that would fit the lens for a different topic is not a valid return for THIS one.",
+      "TARGET AUDIENCE FILTER: Every venue, collective, party, or piece of infrastructure you return must plausibly serve the Target Audience supplied in the user payload. A room whose actual demographic doesn't overlap with that audience is not a valid research return, even if it's in the right corridor and cluster.",
+      // ANTI-REAL-ESTATE BAN — the specific class of hallucination the
+      // last run produced ("143-unit building", affordable-housing
+      // ratios, square-footage specs). These are property portfolios,
+      // not social infrastructure. Sonar's default web-search grounding
+      // pulls them because they're easier to source than actual
+      // gathering data — we forbid them at the system-prompt layer.
+      "BANNED DATA — REAL ESTATE: Do not return residential leasing data, apartment unit counts, affordable-housing ratios, developer names, or building square-footage specs unless the user's Topic explicitly asks about housing policy. We research social infrastructure (venues, collectives, ordinances that shape gathering), not real-estate portfolios. If your best-available fact for a corridor is a '143-unit mixed-use building,' skip that fact — return an empty bullets array before you return housing data.",
+      // THIRD-PLACE MANDATE — the positive constraint that completes
+      // the pair with BANNED DATA. Every transit / policy / demographic
+      // topic MUST anchor to a specific physical Third Place currently
+      // operating on the ground. Prevents the return from collapsing to
+      // pure abstraction ("this neighborhood is gentrifying") when
+      // there's no venue named.
+      "THIRD-PLACE MANDATE: For every transit hub, neighborhood, ordinance, or demographic shift you research, you MUST return at least one specific 'Third Place' currently operating there and serving the Target Audience — a named cafe, listening bar, brewery, record shop, dance studio, run club, community garden, or pedestrian plaza. If you cannot name at least one current, verifiable Third Place, that entire topic is not viable — return an empty bullets array rather than a policy-only, venue-less payload.",
       // ATOMIC OUTPUT CONSTRAINT — the specific format that stops Gemini
       // from plagiarizing full paragraphs verbatim. Each bullet must be
       // a raw ingredient (Name / Metric / Location), NOT a mini-essay.

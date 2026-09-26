@@ -281,6 +281,12 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
           existingBullets: bullets,
           tier: local.event_tier || "",
           corridor: local.corridor || "",
+          // Demographics get injected into Perplexity's system prompt
+          // so the target audience becomes a research constraint, not
+          // an afterthought applied at write time. This is what stops
+          // Sonar from returning B2B real-estate metrics for a matrix
+          // whose actual audience is Young Working Professionals.
+          demographics: selectedDemographics,
         }),
       });
       const j = await r.json().catch(() => ({}));
