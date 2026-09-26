@@ -63,9 +63,9 @@ export const SLOT_DOCTRINE = {
 
   spotlight: {
     readerJob:
-      "Give the reader ONE specific place they could actually go, or thing they could do. A card they'd add to their weekend list.",
+      "Give the reader ONE specific place they could actually go, or thing they could do. A card they'd add to their weekend list because they know what they'd DO there, not just where it is.",
     successCriteria:
-      "Reader could screenshot this slide and open Maps or their calendar. Name + where + when/price = a real, actionable thing.",
+      "Reader could screenshot this slide and open Maps or their calendar. Name + where + when/price + a reason to stay = a real, actionable thing.",
     inputRequirements: {
       // Must have EITHER a location signal OR a time/price signal in
       // the source material. Both is ideal.
@@ -78,6 +78,11 @@ export const SLOT_DOCTRINE = {
       "Abstract concept as spotName: 'THE INVISIBLE ARCHITECTURE', 'THE HIDDEN MATH'.",
       "spotMeta used as description ('a full-day festival celebrating community') instead of location ('207 Main St., Whitesboro').",
       "A pattern, rule, or systemic claim substituted for a physical place.",
+      // Phone-book / directory mode — the failure the operator flagged
+      // on the Bleu Coffee + bwè kafe slides. Address + directions
+      // with no atmospheric or behavioral texture. A Spotlight has to
+      // tell the reader why to STAY, not just where to GO.
+      "Location-only Spotlight: address + directions with no atmospheric or behavioral texture. If the slide answers WHERE and nothing else — no reason to stay, no scene detail, no editorial hook — the reader has no reason to add it to their list. Add ONE concrete texture: the crowd at 4pm, the bar staff's habit, the sound at that hour, a specific reason a regular keeps coming back. Never a fabricated fact; anchor it in what the source supports.",
     ],
   },
 
@@ -101,16 +106,24 @@ export const SLOT_DOCTRINE = {
 
   text: {
     readerJob:
-      "Deliver the systemic argument in one beat. Make the reader feel the pattern is real.",
+      "Deliver the systemic argument in one beat. Make the reader feel the pattern is real — AND give the pattern a name if it doesn't already have one. Cultural criticism names patterns; that's the writer's job, not scaffolding.",
     successCriteria:
-      "Reader nods. Recognizes something they'd felt but hadn't put words to.",
+      "Reader nods. Recognizes something they'd felt but hadn't put words to, and now has a word for it.",
     inputRequirements: {
       needs: ["causalChain"],
       description:
         "The causal chain (rule → response) from the spine's causalSynthesis; the specific mechanism the argument depends on.",
     },
     antiPatterns: [
-      "Meta-writing: 'This is the pattern you've felt but never had a word for', 'This is how events happen', 'This piece names…', 'This is the invisible architecture of…'. Any self-reference to the piece/post/carousel/reader.",
+      // The distinction that took me too long to draw: banned meta-
+      // writing is SELF-REFERENCE TO THE ARTICLE (the piece, the post,
+      // the carousel, the write-up). Pattern-naming — claims ABOUT
+      // THE WORLD — is what cultural criticism DOES and must survive.
+      "SELF-REFERENCE to the article: 'This piece names…', 'This post shows…', 'This carousel argues…', 'The reader will find…'. Any sentence that treats the article as an object being written about is meta-writing. BANNED.",
+      // But pattern-naming — 'The suburban third-place void is what happens
+      // when your only weekend option is a strip mall' — is NOT meta-writing.
+      // It's a claim about the world. Encouraged, not banned.
+      "The specific overused phrase 'you've felt but never had a word for' — this is the tired social-media-carousel tell that got called out. Coin your OWN naming of the pattern instead.",
       "POV restated verbatim.",
       "Manifesto pileup — 5+ short sentences banging the same point.",
       "LENS-vocabulary showing through in the copy: 'spreadsheet', 'math', 'logistics', 'infrastructure' belong in the model's reasoning, not the delivery.",
@@ -180,10 +193,16 @@ export const SLOT_ANTIPATTERN_TOKENS = {
     { field: "statLabel", re: /^(cost|amount|number|price|value|total)$/i, message: "Generic statLabel — name what the number is measuring." },
   ],
   text: [
-    // The meta-writing ban — same pattern set as the anti-meta
-    // guardrail on the POV synthesizer, now extended to text bodies.
+    // Self-reference to the article — the actual meta-writing ban.
+    // Catches "this piece", "this post", "this carousel", etc. Does
+    // NOT catch "this is the pattern of…" because pattern-naming
+    // (claims about the world) is what cultural criticism DOES and
+    // must survive.
     { field: "textBody", re: /\bthis\s+(piece|post|carousel|article|thread|slide|write[-\s]?up)\b/i, message: "Meta-writing — refers to the piece itself." },
-    { field: "textBody", re: /\bthis\s+is\s+(the|how|what|why)\s+(pattern|events?|community|the (invisible|hidden))/i, message: "POV meta-restatement — describes the piece instead of writing it." },
+    // The specific overused phrase the operator flagged as tired
+    // social-media-carousel scaffolding. Narrow catch, not a broad
+    // "any pattern-naming" ban.
+    { field: "textBody", re: /\byou'?ve\s+felt\s+(it\s+)?but\s+never\s+had\s+a\s+word\s+for\b/i, message: "Overused 'name the pattern' cliché — coin your own." },
     { field: "textBody", re: /\bthe\s+(reader|audience)\s+(has|have|feels?|felt|will)/i, message: "Meta-writing — refers to the reader instead of speaking to them." },
     // LENS vocabulary bleeding into delivery copy.
     { field: "textBody", re: /\b(spreadsheet|logistics|infrastructure)\b/i, message: "LENS vocabulary in delivery copy — these words belong in the model's reasoning, not the slide." },

@@ -1473,7 +1473,34 @@ export async function generateArrangedCarousel({ apiKey, topic, context, voice, 
     apiKey, sequence: design.sequence, topic, context, voice, slotPrompts,
     templateMeta: { name: "AI-arranged carousel", keyMove: design.rationale }, mode, letterMode,
   });
-  return { slides, sequence: design.sequence, rationale: design.rationale };
+  // Compression honesty: if the writer pipeline compressed the sequence
+  // (spine's recommendedSlideCount fired), the rendered slides array is
+  // SHORTER than the arranger's original plan. Detect passively and
+  // expose the event so the UI can name it instead of showing a stale
+  // pre-compression rationale. This fixes the "sequence says 7, we
+  // rendered 5" phantom-slot honesty bug.
+  const renderedLen = Array.isArray(slides) ? slides.length : 0;
+  const originalLen = Array.isArray(design.sequence) ? design.sequence.length : 0;
+  const compressionEvent = (renderedLen > 0 && originalLen > renderedLen) ? {
+    from: originalLen,
+    to: renderedLen,
+    reason: "spine.recommendedSlideCount",
+    droppedSlots: design.sequence.slice(renderedLen),
+  } : null;
+  // Return the ACTUAL rendered sequence, not the arranger's original,
+  // so downstream consumers (preview grid, rationale display) match
+  // the slides they're rendering. originalSequence is preserved so the
+  // banner can name what was cut.
+  const renderedSequence = compressionEvent
+    ? design.sequence.slice(0, renderedLen)
+    : design.sequence;
+  return {
+    slides,
+    sequence: renderedSequence,
+    originalSequence: design.sequence,
+    rationale: design.rationale,
+    compressionEvent,
+  };
 }
 
 export async function pickTemplate({ apiKey, topic, context, candidates }) {
@@ -1819,6 +1846,51 @@ function detectSlotDoctrineViolations(slides, sequence = []) {
 // Used by the geographic-grouping spine directive and the whiplash
 // detector below. Case-insensitive matching, whole-word boundaries,
 // multi-word cities allowed. Extend this set as the beat map grows.
+// === VENUE TYPE TAGGER ===
+// Lightweight regex tagger for the spine's Typology Diversity rule.
+// Maps a bullet's text to a venue-type label so the spine can enforce
+// spread across types before doubling. The failure this fixes: three
+// bullets covering brewery + cafe + cafe get proof-assigned as
+// cafe + cafe, dropping the brewery entirely and collapsing the
+// day-to-night ecosystem the POV promised.
+//
+// Order matters — first match wins. More specific patterns go first
+// (kafe/café before restaurant, brewery before bar).
+const VENUE_TYPE_PATTERNS = [
+  { type: "brewery", re: /\b(brewery|brewing|taproom|beer garden)\b/i },
+  { type: "cafe", re: /\b(cafe|café|coffee|kafe|espresso|roastery|roaster)\b/i },
+  { type: "lounge", re: /\b(lounge|speakeasy|cocktail bar|listening bar|night ?club|dive bar)\b/i },
+  { type: "bar", re: /\b(bar|pub|tavern|beer hall|wine bar)\b/i },
+  { type: "restaurant", re: /\b(restaurant|kitchen|diner|eatery|bistro|osteria|trattoria)\b/i },
+  { type: "hall", re: /\b(hall|ballroom|theater|theatre|auditorium|amphitheater|amphitheatre|arena|opera)\b/i },
+  { type: "park", re: /\b(park|garden|commons|plaza|square|greenway|waterfront|boardwalk|beach)\b/i },
+  { type: "venue", re: /\b(venue|club|room|space|studio|warehouse|loft)\b/i },
+  { type: "market", re: /\b(market|farmer'?s market|food hall|marketplace|bazaar)\b/i },
+  { type: "transit", re: /\b(station|stop|junction|terminal|light rail|subway)\b/i },
+  { type: "shop", re: /\b(shop|store|boutique|record shop|bookstore|bookshop|barber)\b/i },
+  { type: "religious", re: /\b(church|synagogue|mosque|temple|masjid|gurudwara)\b/i },
+];
+function tagBulletVenueType(bullet) {
+  if (typeof bullet !== "string" || !bullet.trim()) return "generic";
+  for (const { type, re } of VENUE_TYPE_PATTERNS) {
+    if (re.test(bullet)) return type;
+  }
+  return "generic";
+}
+// Return { typeCounts: {brewery: 1, cafe: 2, ...}, taggedBullets: [{bullet, type}, ...] }
+// for a corpus of bullets. Used by the spine prompt to enforce
+// typology diversity when proof bullets span distinct venue types.
+function analyzeBulletTypology(bullets) {
+  const typeCounts = {};
+  const taggedBullets = [];
+  for (const b of bullets) {
+    const type = tagBulletVenueType(b);
+    typeCounts[type] = (typeCounts[type] || 0) + 1;
+    taggedBullets.push({ bullet: b, type });
+  }
+  return { typeCounts, taggedBullets };
+}
+
 const NJ_CITIES = [
   // Urban / Commuter Core (Essex · Hudson · Union)
   "Newark", "Jersey City", "Hoboken", "Bayonne", "Union City", "West New York",
@@ -1835,6 +1907,36 @@ const NJ_CITIES = [
   // South Jersey (Decentralized Borderlands + South)
   "Camden", "Atlantic City", "Cherry Hill", "Collingswood", "Hammonton",
 ];
+
+// Which corridor group each city belongs to. Used by the transition
+// detector to flag cross-corridor jumps between adjacent content
+// slides that don't have a bridge slide between them (a news/text
+// slide with no city that lets the reader move between corridors
+// without teleporting).
+const NJ_CITY_CORRIDOR = {
+  // Urban / Commuter Core
+  "Newark": "urban-core", "Jersey City": "urban-core", "Hoboken": "urban-core",
+  "Bayonne": "urban-core", "Union City": "urban-core", "West New York": "urban-core",
+  "Elizabeth": "urban-core", "Kearny": "urban-core", "Weehawken": "urban-core",
+  // Route 1 Central Crossroads
+  "New Brunswick": "route-1", "Princeton": "route-1", "Trenton": "route-1",
+  "Somerville": "route-1", "Perth Amboy": "route-1", "Edison": "route-1",
+  "Metuchen": "route-1", "Rahway": "route-1", "Highland Park": "route-1",
+  "South Brunswick": "route-1",
+  // Transit Village Suburbs
+  "Montclair": "transit-suburbs", "Bloomfield": "transit-suburbs",
+  "Maplewood": "transit-suburbs", "South Orange": "transit-suburbs",
+  "West Orange": "transit-suburbs", "East Orange": "transit-suburbs",
+  "Cranford": "transit-suburbs", "Summit": "transit-suburbs",
+  "Millburn": "transit-suburbs", "Westfield": "transit-suburbs",
+  // Shore
+  "Asbury Park": "shore", "Long Branch": "shore", "Red Bank": "shore",
+  "Ocean Grove": "shore", "Belmar": "shore", "Bradley Beach": "shore",
+  "Point Pleasant": "shore", "Manasquan": "shore", "Ocean City": "shore",
+  // South
+  "Camden": "south", "Atlantic City": "south", "Cherry Hill": "south",
+  "Collingswood": "south", "Hammonton": "south",
+};
 // Compile once — startsWith / whole-word regex per city, in a single
 // pass so extractCitiesFromBullet stays O(cities) per bullet.
 const NJ_CITY_MATCHERS = NJ_CITIES.map(name => ({
@@ -1875,7 +1977,7 @@ function extractCitiesFromText(text) {
 //
 // Attaches a `geographic_whiplash` warning on the offending slide.
 function detectGeographicWhiplash(slides, sequence = []) {
-  if (!Array.isArray(slides) || slides.length < 3) return slides;
+  if (!Array.isArray(slides) || slides.length < 2) return slides;
   // Build a per-slide primary city (the first city found in scan
   // text, or null). Multiple cities on one slide → still whiplash if
   // the primary one alternates.
@@ -1886,33 +1988,65 @@ function detectGeographicWhiplash(slides, sequence = []) {
     const cities = extractCitiesFromText(scanText);
     return cities[0] || null;
   });
-  // Walk the sequence. Pattern to flag: [i-1] and [i+1] are the same
-  // city, and [i] is a DIFFERENT city, over 3 consecutive slides
-  // where all three have city hits. That's A → B → A, whiplash.
+  // Per-slide slot type — used to decide whether a slide can act as a
+  // BRIDGE (news/text with no city named counts as a corridor bridge).
+  const slotTypes = slides.map((slide, i) => String(sequence?.[i] || slide?.type || "").toLowerCase());
   return slides.map((slide, i) => {
-    if (i === 0 || i === slides.length - 1) return slide;
-    const prev = slideCities[i - 1];
-    const curr = slideCities[i];
-    const next = slideCities[i + 1];
-    if (!prev || !curr || !next) return slide;
-    if (prev === next && curr !== prev) {
-      const existingWarnings = Array.isArray(slide._warnings) ? slide._warnings : [];
-      if (typeof console !== "undefined") {
-        console.warn(`Geographic whiplash on slide ${i + 1}: ${prev} → ${curr} → ${next}. Consider grouping same-city slides adjacent.`);
+    const existingWarnings = Array.isArray(slide._warnings) ? slide._warnings : [];
+    const warnings = [];
+
+    // Pattern 1 — ping-pong A → B → A across 3 consecutive slides.
+    if (i > 0 && i < slides.length - 1) {
+      const prev = slideCities[i - 1];
+      const curr = slideCities[i];
+      const next = slideCities[i + 1];
+      if (prev && curr && next && prev === next && curr !== prev) {
+        warnings.push({
+          type: "geographic_whiplash",
+          pattern: `${prev} → ${curr} → ${next}`,
+          message: `Geographic whiplash: slide ${i} is ${prev}, this slide is ${curr}, slide ${i + 2} jumps back to ${prev}. Group same-city slides adjacent — don't teleport the reader across the state.`,
+        });
       }
-      return {
-        ...slide,
-        _warnings: [
-          ...existingWarnings,
-          {
-            type: "geographic_whiplash",
-            pattern: `${prev} → ${curr} → ${next}`,
-            message: `Geographic whiplash: slide ${i} is ${prev}, this slide is ${curr}, slide ${i + 2} jumps back to ${prev}. Group same-city slides adjacent — don't teleport the reader across the state.`,
-          },
-        ],
-      };
     }
-    return slide;
+
+    // Pattern 2 — one-way cross-corridor jump without a bridge.
+    // Fires on the SECOND of two adjacent content slides whose cities
+    // sit in different corridor groups (urban-core / route-1 /
+    // transit-suburbs / shore / south) and there's no bridge slide
+    // (news/text with no city) between them. This is the Montclair →
+    // Hoboken failure the operator flagged.
+    if (i > 0) {
+      const prev = slideCities[i - 1];
+      const curr = slideCities[i];
+      if (prev && curr && prev !== curr) {
+        const prevGroup = NJ_CITY_CORRIDOR[prev];
+        const currGroup = NJ_CITY_CORRIDOR[curr];
+        if (prevGroup && currGroup && prevGroup !== currGroup) {
+          // Only flag if BOTH slides are content slots (not the cover
+          // opening or a stitched CTA), and there's no bridge slide.
+          // A bridge would be a news/text slot inserted between them,
+          // but since these are adjacent by index there's no room for
+          // one — the whole point of the flag is to suggest adding one.
+          const prevType = slotTypes[i - 1];
+          const currType = slotTypes[i];
+          const isContentPair = ["spotlight", "text", "stat", "features"].includes(prevType)
+            && ["spotlight", "text", "stat", "features"].includes(currType);
+          if (isContentPair) {
+            warnings.push({
+              type: "geographic_transition",
+              pattern: `${prev} (${prevGroup}) → ${curr} (${currGroup})`,
+              message: `Cross-corridor jump: slide ${i} is ${prev} (${prevGroup}), this slide is ${curr} (${currGroup}). Consider inserting a news/text bridge slide between them so the reader isn't teleported across corridors without transitional cue.`,
+            });
+          }
+        }
+      }
+    }
+
+    if (!warnings.length) return slide;
+    if (typeof console !== "undefined") {
+      for (const w of warnings) console.warn(`Slide ${i + 1}: ${w.message}`);
+    }
+    return { ...slide, _warnings: [...existingWarnings, ...warnings] };
   });
 }
 
@@ -2516,6 +2650,22 @@ export async function generateNarrativeSpine({ apiKey, topic, context, clusterDi
     "",
   ] : [];
 
+  // TYPOLOGY DIVERSITY — when proof bullets span distinct venue types
+  // (cafe / brewery / lounge / park / etc.), the spine must assign
+  // one from each type before doubling on a type. Fixes the failure
+  // where a brewery + 2 cafes gets proof-assigned as 2 cafes, dropping
+  // the brewery and collapsing the day-to-night ecosystem promise.
+  const { typeCounts: bulletTypeCounts, taggedBullets: bulletsByType } = analyzeBulletTypology(bulletList);
+  const distinctTypeCount = Object.keys(bulletTypeCounts).filter((t) => t !== "generic").length;
+  const typologyDiversityBlock = (distinctTypeCount >= 2) ? [
+    "TYPOLOGY DIVERSITY — MANDATE (this carousel's bullets span multiple venue types):",
+    ...Object.entries(bulletTypeCounts)
+      .filter(([t]) => t !== "generic")
+      .map(([type, count]) => `  - ${type} (${count}): ${bulletsByType.filter((tb) => tb.type === type).map((tb) => `"${tb.bullet.slice(0, 40)}…"`).join(", ")}`),
+    "  When you build proofAssignments, spread across venue types before doubling on any one type. A carousel whose POV promises an ECOSYSTEM (e.g. 'the parking-lot brewery, the strip-mall speakeasy, and the accidental cafe takeover') is BROKEN when its proof slots are all cafes — you have collapsed the ecosystem the POV promised. Rule: pick ONE bullet per venue type first, then only double up on a type if you have unused slots AND every distinct type is already covered. If typology forces you to demote a beat-preferred bullet, name it in causalSynthesis so the writer knows the ecosystem coverage is intentional and beat-adherence took second priority.",
+    "",
+  ] : [];
+
   const promptLines = [
     "You are the OUTLINING editor for a CGE Instagram carousel — the step before any copy is written.",
     "Your job is NOT to write slides. Your job is to pin down the argument arc so the writer can't improvise it on the fly.",
@@ -2532,6 +2682,7 @@ export async function generateNarrativeSpine({ apiKey, topic, context, clusterDi
       "",
     ] : []),
     ...geographicClusteringBlock,
+    ...typologyDiversityBlock,
     "Return a spine with:",
     '  - thesis: ONE sentence naming the singular tension this carousel exposes. Concrete, not abstract. Not a topic ("Diaspora Infrastructure") but a claim ("Newark\'s Portuguese social clubs quietly do what commercial nightlife charges $60 a table for").',
     "  - beats: an ordered array of 4 beats mapping to slides in this order:",
