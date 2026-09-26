@@ -425,6 +425,8 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
         apiKey,
         cluster: local.cluster,
         pov: local.editorial_pov,
+        emotion: local.target_emotion,
+        demographics: selectedDemographics,
       });
       if (!hook) {
         setHookError("Gemini returned an empty hook. Retry.");
