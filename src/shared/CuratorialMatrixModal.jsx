@@ -235,9 +235,6 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
     return m;
   }, [readyValidation]);
 
-  // Keep every hook above this guard so opening/closing preserves hook order.
-  if (!open || !event) return null;
-
   // Handlers
   const setTier = (key) => {
     applyPatch({ event_tier: key });
@@ -356,6 +353,7 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
 
   const demographicsKey = selectedDemographics.join("|");
   useEffect(() => {
+    if (!open || !event) return;
     const nextAuto = composePOV({
       cluster: local.cluster,
       corridor: local.corridor,
@@ -376,6 +374,11 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
     // effect must fire on dimension changes, not on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [local.cluster, local.corridor, local.target_emotion, demographicsKey]);
+
+  // Keep the modal hidden without skipping hooks; it remains mounted so
+  // editing state survives close/reopen while the hook order stays stable.
+  if (!open || !event) return null;
+
   const toggleDemographic = (value) => {
     const clean = String(value || "").trim();
     if (!clean) return;
