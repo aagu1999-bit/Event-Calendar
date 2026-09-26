@@ -17,6 +17,12 @@
 
 import { SLOT_META, SLOT_OUTPUT_SHAPES } from "../store.js";
 import { extractJson, extractResponseText } from "./aiJson.js";
+import {
+  SLOT_DOCTRINE,
+  SLOT_ANTIPATTERN_TOKENS,
+  formatSlotDoctrineForPrompt,
+  slotCanBeSupported,
+} from "./slotDoctrine.js";
 
 const MODEL = "gemini-2.5-flash-lite";
 const URL_BASE = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
@@ -1238,9 +1244,69 @@ export async function generateRankedCovers({ apiKey, topic, voice, slotPrompts, 
 // feeds generateTemplateFill like any other sequence, so it also gets the critic pass.
 const ARRANGEABLE_SLOTS = ["cover", "text", "news", "spotlight", "stat", "features", "countdown", "cta", "photo", "poster", "press"];
 
+// Probe the source context for the capability signals each slot type
+// in the Slot Doctrine requires. Returns a bag of booleans the
+// arranger passes into designSequence and forwards to slotCanBeSupported.
+// Kept in aiContent.js (not slotDoctrine.js) because it depends on
+// parseContextBullets, extractCitiesFromBullet, and other in-file
+// helpers — the doctrine module stays a leaf.
+function probeSourceCapabilities(context) {
+  const bullets = parseContextBullets(context || "");
+  const joined = bullets.join(" ");
+  // physicalVenue: any bullet names a NJ city (proxy for "a real
+  // place is described here"). Rough but effective — venues in
+  // bullets almost always sit inside one of the canonical cities.
+  const physicalVenue = bullets.some((b) => extractCitiesFromBullet(b).length > 0)
+    || /\b\d{1,5}\s+[A-Z][a-zA-Z]+\s+(?:St|Ave|Blvd|Rd|Ln|Dr|Pkwy|Way|Ct|Pl|Ter|Street|Avenue|Boulevard|Road|Lane|Drive|Parkway)\b\.?/.test(joined);
+  // actionableDetail: any bullet contains a date, a time, or a price.
+  const actionableDetail = /\$\s*\d[\d,]*(?:\.\d+)?/.test(joined)
+    || /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+\d{1,2}\b/i.test(joined)
+    || /\b\d{1,2}\s*(?:a|p)\.?m\.?\b/i.test(joined)
+    || /\b\d{1,2}:\d{2}\b/.test(joined)
+    || /\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b/.test(joined);
+  // specificNumber: any bullet contains a numeric fact (price,
+  // percentage, count with a unit, or bare 2+ digit integer near a
+  // meaningful word).
+  const specificNumber = /\$\s*\d[\d,]*(?:\.\d+)?/.test(joined)
+    || /\b\d+(?:\.\d+)?\s*%/.test(joined)
+    || /\b\d{2,}\s*(?:vendors|venues|clubs|acts|artists|residents|people|attendees|capacity|seats|units|licenses)\b/i.test(joined)
+    || /\b1\s*in\s*\d/i.test(joined);
+  // framingContext: at least one bullet exists at all (news needs
+  // context material to frame from).
+  const framingContext = bullets.length >= 1;
+  // causalChain: the arranger doesn't know yet whether the spine will
+  // produce causalSynthesis — treat as available when there are 2+
+  // bullets to relate. The spine step downstream will still produce it.
+  const causalChain = bullets.length >= 2;
+  return { physicalVenue, actionableDetail, specificNumber, framingContext, causalChain };
+}
+
+// Format the capability probe for the arranger prompt. Names which
+// slot types the source material can currently support, so Gemini
+// doesn't pick a Spotlight when there's no venue to spotlight.
+function formatCapabilityBlockForArranger(capabilities) {
+  const lines = ["SOURCE CAPABILITY PROBE — what the bullets actually support:"];
+  const supportedSlots = [];
+  const unsupportedSlots = [];
+  for (const slotType of Object.keys(SLOT_DOCTRINE)) {
+    if (slotCanBeSupported(slotType, capabilities)) supportedSlots.push(slotType);
+    else unsupportedSlots.push(slotType);
+  }
+  lines.push(`  - Slot types the source CAN support: ${supportedSlots.join(", ") || "(none)"}`);
+  if (unsupportedSlots.length) {
+    lines.push(`  - Slot types the source CANNOT currently support (do NOT pick these): ${unsupportedSlots.join(", ")}`);
+    for (const s of unsupportedSlots) {
+      lines.push(`      ${s}: ${SLOT_DOCTRINE[s].inputRequirements.description}`);
+    }
+  }
+  return lines.join("\n");
+}
+
 export async function designSequence({ apiKey, topic, context, mode, targetCount = null, letterMode = false }) {
   if (!apiKey) throw new Error("Missing Gemini API key");
   if ((!topic || !topic.trim()) && (!context || !context.trim())) throw new Error("Add a topic or event details first");
+  const capabilities = probeSourceCapabilities(context);
+  const capabilityBlock = formatCapabilityBlockForArranger(capabilities);
 
   // targetCount: when the user pins a slide count, aim for exactly that (3..12);
   // otherwise let the AI size the arc to the story (up to 10).
@@ -1313,6 +1379,12 @@ export async function designSequence({ apiKey, topic, context, mode, targetCount
       "soft closing cta. AVOID rigid multi-cta directories, features grids, and stat/countdown blocks —",
       "they shatter the one-continuous-letter voice. 4-6 slides is usually right.",
     ] : []),
+    "",
+    // Slot Doctrine capability gate — tell the arranger which slot
+    // types the source material can actually deliver on. Prevents the
+    // "Spotlight when there are no venues to spotlight" pathology.
+    // See slotDoctrine.js for the requirement contracts.
+    capabilityBlock,
     "",
     "Available slide types (use ONLY these) — pick each for the FEELING it creates:",
     "- cover: the hook. ALWAYS slide 1. Its job is to stop the scroll and open a loop.",
@@ -1691,6 +1763,51 @@ function detectAtomicityViolations(slides) {
       _warnings: [
         ...existingWarnings,
         { type: "atomicity_violation", violations, message: `Data-dump detected in ${violations.map(v => v.field).join(", ")} — multiple facts stacked in one field.` },
+      ],
+    };
+  });
+}
+
+// === SLOT DOCTRINE VIOLATION DETECTOR ===
+// Reads SLOT_ANTIPATTERN_TOKENS from slotDoctrine.js and flags any
+// returned slide whose field content matches a banned pattern for its
+// slot type. Attaches a `slot_doctrine_violation` warning per hit so
+// the UI renders the same red badge treatment as the other detectors.
+//
+// This is the belt-and-suspenders side of the doctrine — the writer
+// prompt now shows the reader-job spec on every slot, so most
+// violations should be pre-empted. This detector catches the ones
+// that slip through.
+function detectSlotDoctrineViolations(slides, sequence = []) {
+  if (!Array.isArray(slides) || !slides.length) return slides;
+  return slides.map((slide, i) => {
+    const slotType = String(sequence?.[i] || slide?.type || "").toLowerCase();
+    if (!slotType) return slide;
+    const patterns = SLOT_ANTIPATTERN_TOKENS[slotType];
+    if (!patterns || !patterns.length) return slide;
+    const violations = [];
+    for (const p of patterns) {
+      const val = slide?.[p.field];
+      if (typeof val !== "string" || !val) continue;
+      if (p.re.test(val)) {
+        violations.push({ field: p.field, message: p.message, sample: val.slice(0, 120) });
+      }
+    }
+    if (!violations.length) return slide;
+    if (typeof console !== "undefined") {
+      console.warn(`Slot doctrine violation on slide ${i + 1} (${slotType}):`, violations.map(v => `${v.field}: ${v.message}`).join("; "));
+    }
+    const existingWarnings = Array.isArray(slide._warnings) ? slide._warnings : [];
+    return {
+      ...slide,
+      _warnings: [
+        ...existingWarnings,
+        {
+          type: "slot_doctrine_violation",
+          slotType,
+          violations,
+          message: `Slot doctrine violation on ${slotType}: ${violations.map(v => v.message).join(" · ")}`,
+        },
       ],
     };
   });
@@ -2263,6 +2380,7 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
     sanitized = detectAtomicityViolations(sanitized);
     sanitized = detectCrossContamination(sanitized, workingSpine, filteredContext, workingSequence);
     sanitized = detectGeographicWhiplash(sanitized, workingSequence);
+    sanitized = detectSlotDoctrineViolations(sanitized, workingSequence);
     return willStitchCta ? appendStitchedCtaIfNeeded(sanitized) : stitchKeywordCta(sanitized, workingSequence, keywordTrigger);
   }
   // Deterministic pre-polish dedup: scan adjacent slides for a shared numeric
@@ -2292,6 +2410,7 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   sanitized = detectAtomicityViolations(sanitized);
   sanitized = detectCrossContamination(sanitized, workingSpine, filteredContext, workingSequence);
   sanitized = detectGeographicWhiplash(sanitized, workingSequence);
+  sanitized = detectSlotDoctrineViolations(sanitized, workingSequence);
   return willStitchCta ? appendStitchedCtaIfNeeded(sanitized) : stitchKeywordCta(sanitized, workingSequence, keywordTrigger);
 }
 
@@ -3180,6 +3299,14 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
     const rule = slotPrompts?.[slotType];
     const refBlock = formatSlotReferenceBlock(slotType);
     const refPrefix = refBlock.length ? refBlock.join("\n") + "\n" : "";
+    // SLOT PURPOSE DOCTRINE — quote the reader-job spec at the top of
+    // each per-slot instruction so the writer is writing FOR a reader
+    // outcome ("what the reader walks away with"), not just filling
+    // JSON fields. The doctrine lives in slotDoctrine.js; only slots
+    // registered there get the block, so unknown / legacy slot types
+    // fall through cleanly.
+    const doctrinePrompt = formatSlotDoctrineForPrompt(slotType);
+    const doctrinePrefix = doctrinePrompt ? `${doctrinePrompt}\n` : "";
     // Per-slide beat + proof prefix from the narrative spine — reminds the
     // model AT the slot instruction site (where recency bias is strongest)
     // which beat this slide serves AND which single proof bullet (if any)
@@ -3201,7 +3328,7 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
           : `>>> BEAT: ${beatLabel} — this slide advances ONLY this beat, no other.${reservedProof ? ` Reserved PROOF for this slide: "${reservedProof}..." — this bullet lands HERE and NOWHERE ELSE in the carousel.` : " NO proof bullet is reserved for this slide — do NOT reach for a proof already assigned to another slide; carry the beat with tension, framing, or a specific from context marked 'context' (not 'proof')."} <<<\n`)
       : "";
     if (!rule) {
-      return `SLIDE ${idx + 1} (${slotType.toUpperCase()}) — no rule defined; produce reasonable defaults matching brand voice.\n${beatPrefix}${refPrefix}`;
+      return `SLIDE ${idx + 1} (${slotType.toUpperCase()}) — no rule defined; produce reasonable defaults matching brand voice.\n${doctrinePrefix}${beatPrefix}${refPrefix}`;
     }
     let extra = "";
     if (letterMode) {
@@ -3245,7 +3372,7 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
     if ((slotType === "text" || slotType === "spotlight") && !letterMode) {
       extra += "\n\nANTI-HAIKU FORMATTING: write this slot's body copy as ONE cohesive flowing thought — a paragraph, or one to two connected sentences. NO disjointed single-sentence stanzas, NO hard returns between every sentence, NO stacked-line 'haiku' layout. Hard returns between sentences read as a formatting hack; write it as prose.";
     }
-    return `SLIDE ${idx + 1} (${slotType.toUpperCase()}):\n${beatPrefix}${refPrefix}${rule}${extra}`;
+    return `SLIDE ${idx + 1} (${slotType.toUpperCase()}):\n${doctrinePrefix}${beatPrefix}${refPrefix}${rule}${extra}`;
   }).join("\n\n─────────────────────────────\n\n");
 
   const purposeBlock = formatTemplatePurposeBlock(templateMeta);
