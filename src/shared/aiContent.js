@@ -1696,6 +1696,102 @@ function detectAtomicityViolations(slides) {
   });
 }
 
+// === CROSS-CONTAMINATION DETECTOR ===
+// Geographic Whiplash guard. When the spine's proofAssignments map
+// bullet A → slide X, any proper-noun venue named in bullet A must NOT
+// appear in the text body of slide Y (which was assigned bullet B).
+// Prevents "Newark venues bleeding into Asbury Park slides" — the
+// specific failure mode the operator called Cross-Contamination.
+//
+// Algorithm:
+//   1. For each proof-assigned bullet, extract its proper-noun entities
+//      (using the same regex + all-caps + first-word-of-sentence
+//      filters as the phantom detector, so the two never disagree).
+//   2. For each slide, look up which bullet SHOULD have contaminated it
+//      (the one proofAssignments maps to this slide index).
+//   3. If any OTHER bullet's proper nouns appear in this slide's
+//      scan text (textBody + spotMeta), attach a warning naming which
+//      bullet leaked into which slide.
+//
+// Attached warnings — the UI reads slide._warnings and renders the
+// same red badge treatment as phantom-entity + atomicity findings.
+function detectCrossContamination(slides, narrativeSpine, contextText, sequence = []) {
+  if (!Array.isArray(slides) || !slides.length) return slides;
+  if (!narrativeSpine || !narrativeSpine.proofAssignments) return slides;
+  const proofAssignments = narrativeSpine.proofAssignments || {};
+  const bulletKeys = Object.keys(proofAssignments).filter(k => k && typeof k === "string");
+  if (!bulletKeys.length) return slides;
+
+  // Build the source bullet text corpus so we can map each key back
+  // to its full bullet text (proofAssignment keys are the first 60
+  // chars of the bullet — we match by prefix).
+  const contextBullets = parseContextBullets(String(contextText || ""));
+  const bulletByKey = {};
+  for (const key of bulletKeys) {
+    const keyLower = key.toLowerCase();
+    const match = contextBullets.find(b => String(b).toLowerCase().startsWith(keyLower));
+    bulletByKey[key] = match || key; // fall back to the key itself if no match
+  }
+  // Extract each bullet's proper nouns once, up front.
+  const nounsByKey = {};
+  for (const key of bulletKeys) {
+    nounsByKey[key] = extractProperNouns(bulletByKey[key]).map(n => n.toLowerCase());
+  }
+  // Invert proofAssignments: for a given slide index, which bullet key
+  // is its assigned proof? Slide numbers in proofAssignments are 1-based.
+  const bulletByAssignedSlide = {};
+  for (const [bkey, slotRaw] of Object.entries(proofAssignments)) {
+    const slot = Number(slotRaw);
+    if (Number.isInteger(slot) && slot >= 1 && slot <= slides.length) {
+      bulletByAssignedSlide[slot] = bkey;
+    }
+  }
+  return slides.map((slide, i) => {
+    // CTA slots don't carry proof bullets — skip.
+    const slotType = String(sequence?.[i] || slide?.type || "").toLowerCase();
+    if (slotType === "cta") return slide;
+    const slideText = extractPhantomScanText(slide).toLowerCase();
+    if (!slideText) return slide;
+    const assignedBulletKey = bulletByAssignedSlide[i + 1] || null;
+    const contaminations = [];
+    for (const key of bulletKeys) {
+      if (key === assignedBulletKey) continue;
+      const nouns = nounsByKey[key] || [];
+      for (const noun of nouns) {
+        if (noun.length < 4) continue;
+        if (slideText.includes(noun)) {
+          contaminations.push({ leakedFrom: bulletByKey[key].slice(0, 80), entity: noun });
+        }
+      }
+    }
+    if (!contaminations.length) return slide;
+    // De-dupe on entity string so the same leaked noun only flags once
+    // per slide.
+    const dedup = [];
+    const seen = new Set();
+    for (const c of contaminations) {
+      if (seen.has(c.entity)) continue;
+      seen.add(c.entity);
+      dedup.push(c);
+    }
+    if (typeof console !== "undefined") {
+      console.warn(`Cross-contamination on slide ${i + 1}:`, dedup.map(c => `"${c.entity}" leaked from bullet "${c.leakedFrom.slice(0, 40)}…"`).join("; "));
+    }
+    const existingWarnings = Array.isArray(slide._warnings) ? slide._warnings : [];
+    return {
+      ...slide,
+      _warnings: [
+        ...existingWarnings,
+        {
+          type: "cross_contamination",
+          contaminations: dedup,
+          message: `Cross-Contamination Detected: ${dedup.map(c => `"${c.entity}"`).join(", ")} appears here but was assigned to a different slide. Rewrite or REDO to keep 1:1 bullet routing.`,
+        },
+      ],
+    };
+  });
+}
+
 // === RESPONSE SCHEMA (Gemini Structured Outputs) ===
 // Enforces field length caps at the API's token-generation layer, not at
 // the prompt layer. maxLength stops the model mid-generation before it
@@ -2051,6 +2147,7 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
     let sanitized = sanitizeScaffoldingLabels(slides);
     sanitized = detectPhantomEntities(sanitized, filteredContext, historicalBullets, workingSequence);
     sanitized = detectAtomicityViolations(sanitized);
+    sanitized = detectCrossContamination(sanitized, workingSpine, filteredContext, workingSequence);
     return willStitchCta ? appendStitchedCtaIfNeeded(sanitized) : stitchKeywordCta(sanitized, workingSequence, keywordTrigger);
   }
   // Deterministic pre-polish dedup: scan adjacent slides for a shared numeric
@@ -2078,6 +2175,7 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   let sanitized = sanitizeScaffoldingLabels(slides);
   sanitized = detectPhantomEntities(sanitized, filteredContext, historicalBullets, workingSequence);
   sanitized = detectAtomicityViolations(sanitized);
+  sanitized = detectCrossContamination(sanitized, workingSpine, filteredContext, workingSequence);
   return willStitchCta ? appendStitchedCtaIfNeeded(sanitized) : stitchKeywordCta(sanitized, workingSequence, keywordTrigger);
 }
 

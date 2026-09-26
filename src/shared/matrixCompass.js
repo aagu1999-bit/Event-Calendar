@@ -168,6 +168,21 @@ export function getClusterLabel(value) {
   return String(value || "");
 }
 
+// Clusters whose analytical lens is predominantly historical or
+// policy-anchored — the research for these tends to drift into
+// museum-copy / dry-history register unless Sonar is forced to
+// anchor at least one bullet in a currently-operating venue or
+// operator. Perplexity's system prompt reads this set to decide
+// whether to append the TEMPORAL BALANCE mandate.
+export const HISTORICAL_CLUSTERS = new Set([
+  "STATE_SONIC_HISTORY",
+  "POLICY_MECHANICS",
+]);
+export function isHistoricalCluster(value) {
+  const key = resolveClusterKey(value);
+  return key ? HISTORICAL_CLUSTERS.has(key) : false;
+}
+
 // Return the cluster's brand-voice default POV — used by
 // eventMatrixToFillSeed as a fallback when the operator leaves the
 // Editorial POV field blank. Gives the Editor pass at least a brand
@@ -317,6 +332,12 @@ export async function synthesizeThesis({ apiKey, cluster, corridor, emotion, dem
     "3. No filler, no introductory remarks, no 'this piece argues that…' scaffolding, no grantwriter register.",
     "4. The demographic is the AUDIENCE — write the thesis so it lands with THEM. It's not the subject of the piece, it's who's reading it.",
     "5. Length: EXACTLY 1–2 sentences of punchy, opinionated thesis text. Second sentence, when present, extends the tension into a payoff or a wager; it never restates sentence 1.",
+    // ANTI-META-WRITING — the synthesizer was leaking its own task
+    // description into the output ("This piece validates…", "This
+    // post explores…"). The POV is a THESIS ABOUT THE WORLD, not
+    // metadata about the article that quotes it. Ban all self-
+    // reference outright.
+    "6. NO META-WRITING: You are strictly banned from referring to the content, the carousel, the piece, the post, the article, or the reader. Never use phrases like 'This piece explores', 'This post shows', 'This validates', 'The reader learns', or any variant. State the cultural thesis as an objective, standalone fact — as if you were writing the pull-quote a magazine sets in 48pt, not the editor's memo that explains it.",
     "",
     'Return ONLY JSON in this exact shape: {"thesis": "..."}',
   ].join("\n");
@@ -375,6 +396,104 @@ export async function synthesizeThesis({ apiKey, cluster, corridor, emotion, dem
   // matches LIMITS.POV_MAX — keeps the field the operator sees fillable
   // and the downstream editor pass grounded.
   return thesis.slice(0, 500);
+}
+
+// ─── DRAFT HOOK SYNTHESIZER ────────────────────────────────────────
+// Instagram-carousel A-side hooks are the operator's most manual
+// field — they have to write a punchy scroll-stopper for every
+// generation. synthesizeHook takes the Editorial POV + Cluster
+// Directive and returns ONE hook sentence using a proven social-media
+// hook framework (Contrarian Take, Real Story, Bold Stat). Client-
+// side Gemini call, same architecture as synthesizeThesis. Explicit
+// button click only.
+export async function synthesizeHook({ apiKey, cluster, pov } = {}) {
+  if (!apiKey || !String(apiKey).trim()) {
+    throw new Error("Missing Gemini API key");
+  }
+  const clusterKey = resolveClusterKey(cluster);
+  if (!clusterKey) {
+    throw new Error("Pick a Content Cluster first — the LENS anchors the hook synthesis.");
+  }
+  const cleanPOV = String(pov || "").trim();
+  if (!cleanPOV) {
+    throw new Error("Write or draft an Editorial POV first — the hook is the POV compressed into a scroll-stopper.");
+  }
+  const clusterLabel = CONTENT_CLUSTERS[clusterKey].label;
+  const clusterDirective = CONTENT_CLUSTERS[clusterKey].directive;
+
+  const prompt = [
+    "ROLE: You are a social-media editor at a regional culture magazine covering New Jersey. Your job is to write the Instagram-carousel COVER hook — the one sentence that stops the scroll.",
+    "TASK: Compress the supplied Editorial POV into ONE punchy hook sentence using one of the three proven hook frameworks below.",
+    "",
+    "THE INPUTS:",
+    `- Content Cluster: ${clusterLabel}`,
+    `- Cluster Analytical Lens: ${clusterDirective}`,
+    `- Editorial POV (the thesis to compress): ${cleanPOV}`,
+    "",
+    "HOOK FRAMEWORKS — pick the one that fits the POV best:",
+    "  A. THE CONTRARIAN TAKE — invert what the reader thinks is true.",
+    '     Patterns: "Why X is actually Y", "X isn\'t Z, it\'s W", "Everyone thinks X. They\'re wrong."',
+    "  B. THE REAL STORY — expose the hidden layer under the visible one.",
+    '     Patterns: "The real story behind X", "What X won\'t tell you", "The reason X isn\'t what you think"',
+    "  C. THE BOLD STAT — lead with a specific number or comparison that reframes the topic.",
+    '     Patterns: "X% of Y do Z", "There are only N W in NJ", "1 in K residents actually…"',
+    "",
+    "CONSTRAINTS:",
+    "1. ONE SENTENCE. Under 200 characters. Punchy, opinionated, front-loaded — the strongest word in the first four.",
+    "2. NO META-WRITING. Never refer to the post, the piece, the carousel, the reader, or 'this thread'. State the claim directly.",
+    "3. NO INVENTED PROPER NOUNS. Do not name specific venues, towns, or ordinances the POV didn't already mention. If the POV names a specific town, you may reuse it; otherwise stay structural.",
+    "4. NO GENERIC POSTURING. Ban 'Let's talk about', 'Here's why', 'The truth is'. Every hook should be usable as-is on a slide.",
+    "5. LOWERCASE PROSE (except proper nouns) unless the framework calls for a stat lead. Read like a human posted it, not a headline generator.",
+    "",
+    'Return ONLY JSON in this exact shape: {"hook": "..."}',
+  ].join("\n");
+
+  const MODEL = "gemini-2.5-flash-lite";
+  const URL_BASE = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
+  const requestBody = {
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: {
+      responseMimeType: "application/json",
+      temperature: 0.8,
+      maxOutputTokens: 256,
+      responseSchema: {
+        type: "object",
+        properties: { hook: { type: "string", maxLength: 220 } },
+        required: ["hook"],
+      },
+    },
+  };
+
+  let res;
+  try {
+    res = await fetch(`${URL_BASE}?key=${encodeURIComponent(apiKey)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(requestBody),
+    });
+  } catch (err) {
+    throw new Error(`Network error contacting Gemini: ${err?.message || err}`);
+  }
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    throw new Error(`Gemini ${res.status}: ${errText.slice(0, 200)}`);
+  }
+  const data = await res.json();
+  const parts = data?.candidates?.[0]?.content?.parts || [];
+  const textPart = parts.find((p) => p && !p.thought && typeof p.text === "string") || parts[0];
+  const raw = textPart?.text || "";
+  if (!raw) throw new Error("Gemini returned an empty response.");
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    const trimmed = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+    parsed = JSON.parse(trimmed);
+  }
+  const hook = String(parsed?.hook || "").trim();
+  if (!hook) throw new Error("Gemini returned no hook text — retry.");
+  // Hard length cap — hook_a_side is a 220-char field, so match it.
+  return hook.slice(0, 220);
 }
 
 // Seed topics — the operator's curated beat board. Clicking one auto-
