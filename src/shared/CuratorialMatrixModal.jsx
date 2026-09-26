@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useEventsStore, useCarouselSeedStore } from "../store.js";
@@ -14,6 +14,7 @@ import {
   resolveClusterKey,
   getClusterDirective,
   getClusterDefaultPOV,
+  composePOV,
   COMPASS_TOPICS,
 } from "./matrixCompass.js";
 import { validateMatrix, matrixCompleteness, isMatrixReadyForGeneration } from "./matrixValidation.js";
@@ -323,6 +324,58 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
   // comma-string values transparently.
   const selectedDemographics = normalizeDemographic(local.target_demographic);
   const setDemographics = (arr) => applyPatch({ target_demographic: arr });
+
+  // ─── Compositional POV pre-fill ───────────────────────────────────
+  // The Editorial POV textarea should feel alive: it moves as the
+  // operator changes cluster, corridor, emotion, or demographic —
+  // because each dimension carries a fragment of the thesis and the
+  // whole point of the matrix is that the combination is the pick.
+  //
+  // Contract: we ONLY auto-fill when the current POV is either empty
+  // or matches a POV WE last auto-filled. The moment the operator
+  // types anything of their own, we freeze — never overwrite a real
+  // editorial POV with a machine-composed one.
+  //
+  // Legacy compat: on mount, treat a stored POV that equals the old
+  // cluster-only default (getClusterDefaultPOV) as an auto-fill too,
+  // so records seeded by the previous code start recomposing when the
+  // operator wiggles Corridor/Emotion/Demographic.
+  const lastAutoPOVRef = useRef(null);
+  const initialPOV = String(local.editorial_pov || "").trim();
+  // If lastAutoPOVRef hasn't been seeded yet this event, seed it from
+  // legacy cluster-default so an old auto-fill counts as "ours".
+  if (lastAutoPOVRef.current === null) {
+    const legacyDefault = getClusterDefaultPOV(local.cluster);
+    lastAutoPOVRef.current = (legacyDefault && legacyDefault === initialPOV) ? initialPOV : "";
+  }
+  // Reset the ref when the caller swaps to a different event —
+  // otherwise Event A's typed POV could look like Event B's auto POV.
+  useEffect(() => {
+    lastAutoPOVRef.current = null;
+  }, [event?.id]);
+
+  const demographicsKey = selectedDemographics.join("|");
+  useEffect(() => {
+    const nextAuto = composePOV({
+      cluster: local.cluster,
+      corridor: local.corridor,
+      emotion: local.target_emotion,
+      demographics: selectedDemographics,
+    });
+    if (!nextAuto) return;
+    const currentPOV = String(local.editorial_pov || "").trim();
+    // Overwrite only if the current POV is empty OR the operator
+    // hasn't touched what we last put there. Otherwise freeze.
+    const isSafeToOverwrite = !currentPOV || currentPOV === (lastAutoPOVRef.current || "");
+    if (!isSafeToOverwrite) return;
+    if (nextAuto === currentPOV) return; // no-op, already applied
+    lastAutoPOVRef.current = nextAuto;
+    applyPatch({ editorial_pov: nextAuto });
+    // applyPatch is stable enough here — it reads updateEventMatrix from
+    // a Zustand selector. Intentionally not listing it in deps: the
+    // effect must fire on dimension changes, not on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [local.cluster, local.corridor, local.target_emotion, demographicsKey]);
   const toggleDemographic = (value) => {
     const clean = String(value || "").trim();
     if (!clean) return;
@@ -361,13 +414,9 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
     if (topic.corridor) patch.corridor = topic.corridor;
     if (topic.suggestedHook) patch.hook_a_side = topic.suggestedHook;
     if (topic.targetEmotion) patch.target_emotion = topic.targetEmotion;
-    // Editable POV pre-fill — same rule as the cluster dropdown: seed a
-    // POV from the topic's cluster if the operator hasn't typed one yet.
-    const currentPOV = String(local.editorial_pov || "").trim();
-    if (clusterKey && !currentPOV) {
-      const seedPOV = getClusterDefaultPOV(clusterKey);
-      if (seedPOV) patch.editorial_pov = seedPOV;
-    }
+    // POV pre-fill is handled by the compositional-POV effect further
+    // below — it fires when cluster/corridor/emotion/demographic land.
+    // Nothing to seed here.
     if (Array.isArray(topic.demographics) && topic.demographics.length) {
       // Merge (not replace) — keep anything the operator already added.
       const merged = Array.from(new Set([
@@ -654,19 +703,11 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
                 style={selectStyle}
                 value={resolveClusterKey(local.cluster) || ""}
                 onChange={(e) => {
-                  const newCluster = e.target.value || undefined;
-                  const patch = { cluster: newCluster };
-                  // Editable POV pre-fill — when a cluster is picked and the
-                  // operator hasn't typed a POV yet, seed the Editorial POV
-                  // textarea with the cluster's default thesis from the
-                  // Compass Bank. Editable, so the operator can read, tweak,
-                  // or clear it. Won't overwrite a POV they've already typed.
-                  const currentPOV = String(local.editorial_pov || "").trim();
-                  if (newCluster && !currentPOV) {
-                    const seedPOV = getClusterDefaultPOV(newCluster);
-                    if (seedPOV) patch.editorial_pov = seedPOV;
-                  }
-                  applyPatch(patch);
+                  // POV pre-fill is handled by the compositional-POV
+                  // effect above — it re-composes whenever cluster,
+                  // corridor, emotion, or demographic changes, so
+                  // there is nothing to seed here beyond the cluster.
+                  applyPatch({ cluster: e.target.value || undefined });
                 }}
               >
                 <option value="">— pick cluster —</option>
@@ -853,15 +894,28 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
                 Editorial POV · 1–2 sentence thesis
               </span>
               {(() => {
-                const clusterDefault = getClusterDefaultPOV(local.cluster);
-                if (!clusterDefault) return null;
+                // "Compose from picks" — regenerates the POV from
+                // whatever cluster + corridor + emotion + demographics
+                // are currently selected. Shows when a composed POV is
+                // possible AND it differs from what's in the textarea
+                // (so we don't ask the operator to click a no-op).
+                const composed = composePOV({
+                  cluster: local.cluster,
+                  corridor: local.corridor,
+                  emotion: local.target_emotion,
+                  demographics: selectedDemographics,
+                });
+                if (!composed) return null;
                 const current = String(local.editorial_pov || "").trim();
-                if (current === clusterDefault.trim()) return null; // already the default
+                if (current === composed.trim()) return null;
                 return (
                   <button
                     type="button"
-                    onClick={() => applyPatch({ editorial_pov: clusterDefault })}
-                    title={current ? "Replace your POV with the cluster's default thesis" : "Use the cluster's default thesis as a starting point"}
+                    onClick={() => {
+                      lastAutoPOVRef.current = composed;
+                      applyPatch({ editorial_pov: composed });
+                    }}
+                    title={current ? "Replace your POV with one composed from the current cluster + corridor + emotion + demographics" : "Compose an editorial POV from the current picks"}
                     style={{
                       background: "transparent",
                       border: `1px solid ${whisper}`,
@@ -876,7 +930,7 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle })
                       cursor: "pointer",
                     }}
                   >
-                    ↺ {current ? "Reset to cluster default" : "Use cluster default"}
+                    ↺ {current ? "Recompose from picks" : "Compose from picks"}
                   </button>
                 );
               })()}
