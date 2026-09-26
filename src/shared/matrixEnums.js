@@ -123,4 +123,10 @@ export const MATRIX_FIELDS = [
   "data_points",
   "keyword_trigger",
   "pipeline_status",
+  // Voice params — Distance × Cadence × Stance (see voiceParams.js).
+  // Stored as canonical enum keys; empty string / undefined = unset,
+  // writer falls back to mode's register block alone.
+  "voice_distance",
+  "voice_cadence",
+  "voice_stance",
 ];

@@ -113,5 +113,15 @@ export function eventMatrixToFillSeed(event) {
     // that produces limp "link in bio" fallbacks when the trigger is
     // orphaned from the prompt.
     keywordTrigger: String(m.keyword_trigger || "").trim() || null,
+    // Voice parameters — Distance × Cadence × Stance. Passed to the
+    // writer as its own directive block so the mode's register block
+    // stays about ARC and these govern SENTENCE SHAPE + STANCE.
+    // Empty strings when unset; the composer treats them as
+    // "don't inject" and the writer falls back to mode alone.
+    voiceParams: {
+      distance: String(m.voice_distance || "").trim() || null,
+      cadence: String(m.voice_cadence || "").trim() || null,
+      stance: String(m.voice_stance || "").trim() || null,
+    },
   };
 }

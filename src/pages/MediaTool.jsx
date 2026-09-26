@@ -7683,6 +7683,7 @@ export default function MediaTool() {
         initialClusterDirective={aiFillSeed.clusterDirective}
         initialClusterLabel={aiFillSeed.clusterLabel}
         initialKeywordTrigger={aiFillSeed.keywordTrigger}
+        initialVoiceParams={aiFillSeed.voiceParams}
         onClose={() => setAiFillOpen(false)}
         onAccept={onAiTemplateAccept}
       />

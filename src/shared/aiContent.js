@@ -23,6 +23,7 @@ import {
   formatSlotDoctrineForPrompt,
   slotCanBeSupported,
 } from "./slotDoctrine.js";
+import { composeVoiceParamsDirective } from "./voiceParams.js";
 
 const MODEL = "gemini-2.5-flash-lite";
 const URL_BASE = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
@@ -2116,7 +2117,7 @@ function buildFillResponseSchema(sequence) {
 //
 // Output: { slides: [{ type, ...slot-fields }, ...] }
 
-export async function generateTemplateFill({ apiKey, sequence, topic, context, voice, slotPrompts, templateMeta, mode, polish = true, letterMode = false, clusterDirective = "", clusterLabel = "", keywordTrigger = null, spine = true }) {
+export async function generateTemplateFill({ apiKey, sequence, topic, context, voice, slotPrompts, templateMeta, mode, polish = true, letterMode = false, clusterDirective = "", clusterLabel = "", keywordTrigger = null, spine = true, voiceParams = null }) {
   if (!apiKey) throw new Error("Missing Gemini API key");
   if (!Array.isArray(sequence) || !sequence.length) throw new Error("Missing template sequence");
   if ((!topic || !topic.trim()) && (!context || !context.trim())) throw new Error("Add a topic or event details first");
@@ -2287,7 +2288,7 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
     ? currentBullets.filter(b => isBulletDateImminent(b, today, 14))
     : [];
 
-  const prompt = buildTemplatePrompt({ sequence: workingSequence, topic, context: filteredContext, historicalContext: historicalBullets, imminentBullets, voice, slotPrompts, templateMeta, mode, today, letterMode, clusterDirective, clusterLabel, narrativeSpine: workingSpine });
+  const prompt = buildTemplatePrompt({ sequence: workingSequence, topic, context: filteredContext, historicalContext: historicalBullets, imminentBullets, voice, slotPrompts, templateMeta, mode, today, letterMode, clusterDirective, clusterLabel, narrativeSpine: workingSpine, voiceParams });
 
   // Temperature split by register — story/editorial write at 0.70
   // (analytical curator, systemic tension, no purple prose overhang);
@@ -2392,7 +2393,7 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   // through so the editor checks arc adherence (is slide N still doing the
   // beat the outline assigned it?), not just per-slide polish.
   try {
-    const improved = await polishCarousel({ apiKey, topic, context: filteredContext, historicalContext: historicalBullets, voice, sequence: workingSequence, slides, mode, today, letterMode, dedupPreamble, narrativeSpine: workingSpine });
+    const improved = await polishCarousel({ apiKey, topic, context: filteredContext, historicalContext: historicalBullets, voice, sequence: workingSequence, slides, mode, today, letterMode, dedupPreamble, narrativeSpine: workingSpine, voiceParams });
     if (Array.isArray(improved) && improved.length === workingSequence.length) slides = improved;
   } catch (e) {
     if (typeof console !== "undefined") console.warn("Carousel polish failed, returning draft:", e?.message || e);
@@ -2709,7 +2710,7 @@ function fillSlotShape(t) {
 // that raises EVERY slide to its quality bar (kill filler, make the cover hook,
 // keep facts honest) while preserving each slide's type, order, and JSON shape.
 // Returns the improved slides; throws on failure so the caller falls back to the draft.
-export async function polishCarousel({ apiKey, topic, context, historicalContext = [], voice, sequence, slides, mode, today, letterMode = false, dedupPreamble = "", narrativeSpine = null }) {
+export async function polishCarousel({ apiKey, topic, context, historicalContext = [], voice, sequence, slides, mode, today, letterMode = false, dedupPreamble = "", narrativeSpine = null, voiceParams = null }) {
   if (!apiKey) throw new Error("Missing Gemini API key");
   if (!Array.isArray(slides) || !slides.length) throw new Error("No slides to polish");
 
@@ -2825,6 +2826,10 @@ export async function polishCarousel({ apiKey, topic, context, historicalContext
         : ["- REGISTER: EDITORIAL — restrained newsroom confidence. Inform, don't sell."]),
     voiceLine,
     "",
+    // Voice params — Distance × Cadence × Stance. Enforced by the
+    // polish critic too, so it can catch a slide that drifted to a
+    // different distance / cadence than the writer was told to use.
+    ...(voiceParams ? [composeVoiceParamsDirective(voiceParams), ""].filter(Boolean) : []),
     ...spineBlock,
     ...(context && context.trim() ? ["Event facts (do NOT invent beyond these):", context.trim(), ""] : []),
     `Topic: ${topic?.trim() || "(unspecified)"}`,
@@ -3258,7 +3263,7 @@ function parseContextBullets(context) {
   return bullets;
 }
 
-function buildTemplatePrompt({ sequence, topic, context, historicalContext = [], imminentBullets = [], voice, slotPrompts, templateMeta, mode, today, letterMode = false, clusterDirective = "", clusterLabel = "", narrativeSpine = null }) {
+function buildTemplatePrompt({ sequence, topic, context, historicalContext = [], imminentBullets = [], voice, slotPrompts, templateMeta, mode, today, letterMode = false, clusterDirective = "", clusterLabel = "", narrativeSpine = null, voiceParams = null }) {
   const hasVoiceDesc = voice && typeof voice.description === "string" && voice.description.trim();
   const exemplars = Array.isArray(voice?.exemplars) ? voice.exemplars.filter(e => e && e.trim()) : [];
   const hasExemplars = exemplars.length > 0;
@@ -3415,6 +3420,15 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
     ...(sequence.length > 2 ? retentionEngineering(sequence.length) : []),
     ...(letterMode ? letterModeBlock() : []),
     ...registerBlock(mode),
+    // VOICE PARAMETERS — Distance × Cadence × Stance directive. Slots
+    // AFTER the mode's register block so it modulates sentence shape
+    // + stance within the arc register has established. The composer
+    // returns "" when all three knobs are unset, and the spread
+    // collapses cleanly. Kept as its own line-broken chunk so
+    // Gemini reads it as a distinct instruction, not another
+    // register-block subclause.
+    ...(voiceParams ? [composeVoiceParamsDirective(voiceParams)].filter(Boolean) : []),
+    ...(voiceParams && composeVoiceParamsDirective(voiceParams) ? [""] : []),
     // CLUSTER DIRECTIVE — promoted to its own top-level block AFTER
     // registerBlock and BEFORE context. This is the architectural override:
     // the directive is a VOICE + FRAMING constraint on every slide, not a
