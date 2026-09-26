@@ -1549,31 +1549,66 @@ const COMMON_ENTITY_ALLOWLIST = new Set([
   // Brand / operator terms
   "central group events", "cge", "instagram", "spotify", "eventbrite",
 ]);
+// Extract proper nouns from prose text. Three refinements over the naive
+// pass:
+//   1. Split on sentence + line boundaries FIRST, so a matched run can
+//      never span a period, "!", "?", or newline. This fixes the
+//      "THE HIGH BRIDGE SHIFT Seven" false positive where a kicker's
+//      trailing word merged with the next sentence's opening word.
+//   2. Reject 100%-uppercase runs. LLMs writing a fake venue produce
+//      "Tokyo Listening Room" (Title Case), never "TOKYO LISTENING ROOM"
+//      — an all-caps run is stylistic formatting, not a hallucinated
+//      entity. This is the biggest false-positive killer.
+//   3. Within each sentence, ignore the first word: sentence-initial
+//      capitalization is grammar, not proper-noun signal ("Seven" at
+//      the start of a sentence looked like an entity under the old rule).
 function extractProperNouns(text) {
   if (typeof text !== "string" || !text.trim()) return [];
-  // Match 2+ capitalized words (e.g., "Chamber 43", "Tokyo Listening Room",
-  // "Berry Lane Park"). Single-word proper nouns are too noisy (every
-  // sentence-start capitalization would match).
-  const matches = text.match(/\b[A-Z][a-zA-Z0-9']*(?:\s+(?:[A-Z][a-zA-Z0-9']*|of|the|de|la|le|and|&|at|on|for)){1,4}\b/g) || [];
-  return matches.map(m => m.trim()).filter(m => m.length >= 4);
-}
-function extractAllTextFromSlide(slide) {
-  if (!slide || typeof slide !== "object") return "";
-  const parts = [];
-  for (const v of Object.values(slide)) {
-    if (typeof v === "string") parts.push(v);
-    else if (Array.isArray(v)) {
-      for (const inner of v) {
-        if (typeof inner === "string") parts.push(inner);
-        else if (inner && typeof inner === "object") {
-          for (const iv of Object.values(inner)) if (typeof iv === "string") parts.push(iv);
-        }
-      }
+  // Split on sentence terminators (. ! ?) AND newlines so a run can't
+  // cross either boundary. Keep the split cheap — this runs per slide.
+  const segments = text.split(/[.!?\n\r]+/);
+  const runRe = /\b[A-Z][a-zA-Z0-9']*(?:\s+(?:[A-Z][a-zA-Z0-9']*|of|the|de|la|le|and|&|at|on|for)){1,4}\b/g;
+  const out = [];
+  for (const rawSeg of segments) {
+    const seg = rawSeg.trim();
+    if (!seg) continue;
+    // Drop the FIRST word of the segment before matching — a
+    // capitalized sentence-opener is grammar, not entity signal.
+    // We strip it by advancing past the first whitespace, so the
+    // remaining span still contains any true multi-word entity.
+    const firstWs = seg.search(/\s/);
+    const trimmedSeg = firstWs === -1 ? "" : seg.slice(firstWs + 1);
+    if (!trimmedSeg) continue;
+    const matches = trimmedSeg.match(runRe) || [];
+    for (const m of matches) {
+      const clean = m.trim();
+      if (clean.length < 4) continue;
+      // 100%-uppercase run → stylistic (KICKER, THE HIGH BRIDGE SHIFT).
+      // Anything with even one lowercase letter is a real proper-noun
+      // candidate ("Tokyo Listening Room").
+      if (clean === clean.toUpperCase()) continue;
+      out.push(clean);
     }
   }
-  return parts.join(" \n ");
+  return out;
 }
-function detectPhantomEntities(slides, contextText, historicalText) {
+// Only scan the prose fields where a hallucinated venue would actually
+// hide. Headline + kicker rely on capitalization + all-caps for
+// stylistic impact and were the source of the "TOKYO SESSIONS" style
+// false positives. Everything else is either data (dates, prices),
+// scaffolding (labels, section headers), or CTA text — none of which
+// carries the kind of proper-noun claim the operator needs to vet.
+const PHANTOM_SCAN_FIELDS = ["textBody", "spotMeta"];
+function extractPhantomScanText(slide) {
+  if (!slide || typeof slide !== "object") return "";
+  const parts = [];
+  for (const field of PHANTOM_SCAN_FIELDS) {
+    const v = slide[field];
+    if (typeof v === "string" && v) parts.push(v);
+  }
+  return parts.join("\n");
+}
+function detectPhantomEntities(slides, contextText, historicalText, sequence = []) {
   if (!Array.isArray(slides) || !slides.length) return slides;
   // Build whitelist from context bullets + historical bullets + common allowlist.
   const contextNouns = new Set([
@@ -1584,7 +1619,12 @@ function detectPhantomEntities(slides, contextText, historicalText) {
     ...COMMON_ENTITY_ALLOWLIST,
   ]);
   return slides.map((slide, i) => {
-    const slideText = extractAllTextFromSlide(slide);
+    // Skip CTA slots entirely — they're stitched from the keyword
+    // trigger or a fixed template, not free prose, so any proper-noun
+    // appearance is intentional.
+    const slotType = String(sequence?.[i] || slide?.type || "").toLowerCase();
+    if (slotType === "cta") return slide;
+    const slideText = extractPhantomScanText(slide);
     const slideNouns = extractProperNouns(slideText);
     const phantoms = [];
     for (const n of slideNouns) {
@@ -2009,7 +2049,7 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
     // Phantom + atomicity detectors run last so warnings attach to
     // whatever the pipeline finally emits.
     let sanitized = sanitizeScaffoldingLabels(slides);
-    sanitized = detectPhantomEntities(sanitized, filteredContext, historicalBullets);
+    sanitized = detectPhantomEntities(sanitized, filteredContext, historicalBullets, workingSequence);
     sanitized = detectAtomicityViolations(sanitized);
     return willStitchCta ? appendStitchedCtaIfNeeded(sanitized) : stitchKeywordCta(sanitized, workingSequence, keywordTrigger);
   }
@@ -2036,7 +2076,7 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   // Warnings are attached to slides, not scrubbed — the UI renders them
   // as red badges so the operator can decide whether to REDO or keep.
   let sanitized = sanitizeScaffoldingLabels(slides);
-  sanitized = detectPhantomEntities(sanitized, filteredContext, historicalBullets);
+  sanitized = detectPhantomEntities(sanitized, filteredContext, historicalBullets, workingSequence);
   sanitized = detectAtomicityViolations(sanitized);
   return willStitchCta ? appendStitchedCtaIfNeeded(sanitized) : stitchKeywordCta(sanitized, workingSequence, keywordTrigger);
 }
