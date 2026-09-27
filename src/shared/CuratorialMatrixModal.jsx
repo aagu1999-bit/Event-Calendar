@@ -23,6 +23,7 @@ import {
   CONTENT_CLUSTER_LIST,
   resolveClusterKey,
   getClusterDirective,
+  resolveEditorialLens,
   getClusterDefaultPOV,
   getVoicePreviewSubject,
   composePOV,
@@ -419,8 +420,9 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
       corridor: local.corridor,
       emotion: local.target_emotion,
       demographics: [...selectedDemographics].sort(),
+      editorial_lens: local.editorial_lens || "",
     }) !== stringifyInputs(thesisSnapshot);
-  }, [thesisSnapshot, local.cluster, local.corridor, local.target_emotion, selectedDemographics]);
+  }, [thesisSnapshot, local.cluster, local.corridor, local.target_emotion, selectedDemographics, local.editorial_lens]);
 
   const hookStale = useMemo(() => {
     if (!hookSnapshot) return false;
@@ -429,8 +431,9 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
       pov: local.editorial_pov,
       emotion: local.target_emotion,
       demographics: [...selectedDemographics].sort(),
+      editorial_lens: local.editorial_lens || "",
     }) !== stringifyInputs(hookSnapshot);
-  }, [hookSnapshot, local.cluster, local.editorial_pov, local.target_emotion, selectedDemographics]);
+  }, [hookSnapshot, local.cluster, local.editorial_pov, local.target_emotion, selectedDemographics, local.editorial_lens]);
 
   const researchStale = useMemo(() => {
     if (!researchSnapshot) return false;
@@ -668,6 +671,7 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
         corridor: local.corridor,
         emotion: local.target_emotion,
         demographics: selectedDemographics,
+        editorialLens: local.editorial_lens,
       });
       if (!thesis) {
         setSynthError("Gemini returned an empty thesis. Retry.");
@@ -683,6 +687,7 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
         corridor: local.corridor,
         emotion: local.target_emotion,
         demographics: [...selectedDemographics].sort(),
+        editorial_lens: local.editorial_lens || "",
       });
     } catch (err) {
       setSynthError(String(err?.message || err));
@@ -721,6 +726,7 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
         pov: local.editorial_pov,
         emotion: local.target_emotion,
         demographics: selectedDemographics,
+        editorialLens: local.editorial_lens,
       });
       if (!hook) {
         setHookError("Gemini returned an empty hook. Retry.");
@@ -732,6 +738,7 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
         pov: local.editorial_pov,
         emotion: local.target_emotion,
         demographics: [...selectedDemographics].sort(),
+        editorial_lens: local.editorial_lens || "",
       });
     } catch (err) {
       setHookError(String(err?.message || err));
@@ -765,13 +772,18 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
     }
     setCheckingCoherence(true);
     try {
+      // Pass the RESOLVED cluster directive (base + operator narrowing
+      // combined) so the coherence critic evaluates the argument against
+      // the whole lens, not just the cluster's base directive. Without
+      // this, typing a narrowing into LENS did nothing at check time.
+      const resolvedLens = resolveEditorialLens({ cluster: local.cluster, override: local.editorial_lens });
       const result = await checkArgumentCoherence({
         apiKey,
         hook: cleanHook,
         pov: cleanPOV,
         anchors: cleanAnchors,
         cluster: local.cluster,
-        clusterDirective: getClusterDirective(local.cluster),
+        clusterDirective: resolvedLens.combined || resolvedLens.base,
       });
       if (!result) {
         setCoherenceError("Coherence check returned no verdict — Gemini may be rate-limited. Retry.");
@@ -1249,11 +1261,14 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
               </div>
               <div style={{ marginTop: 8, fontFamily: "'JetBrains Mono', monospace", fontSize: "0.62rem", lineHeight: 1.75 }}>
                 <div><b style={{ color: cream }}>Cluster</b> · Corridor · Emotion · Demographic  <span style={{ color: faint }}>→ (click ✨ Reframe LENS)</span>  <b style={{ color: "#A78BFA" }}>editorial_lens (narrowing)</b></div>
-                <div><b style={{ color: cream }}>Cluster</b> · Corridor · Emotion · Demographic  <span style={{ color: faint }}>→ (click ✨ Draft Thesis)</span>  <b style={{ color: "#A78BFA" }}>editorial_pov</b></div>
-                <div><b style={{ color: cream }}>Cluster</b> · POV · Emotion · Demographic  <span style={{ color: faint }}>→ (click ✨ Draft Hook)</span>  <b style={{ color: "#A78BFA" }}>hook_a_side</b></div>
-                <div><b style={{ color: cream }}>Cluster</b> · Corridor · POV · Hook · Tier · LENS · Demographic  <span style={{ color: faint }}>→ (click 🔮 Fuel Research)</span>  <b style={{ color: "#A78BFA" }}>data_points (anchors)</b></div>
+                <div><b style={{ color: cream }}>Cluster</b> · Corridor · Emotion · Demographic · <b style={{ color: "#A78BFA" }}>LENS narrowing</b>  <span style={{ color: faint }}>→ (click ✨ Draft Thesis)</span>  <b style={{ color: "#A78BFA" }}>editorial_pov</b></div>
+                <div><b style={{ color: cream }}>Cluster</b> · POV · Emotion · Demographic · <b style={{ color: "#A78BFA" }}>LENS narrowing</b>  <span style={{ color: faint }}>→ (click ✨ Draft Hook)</span>  <b style={{ color: "#A78BFA" }}>hook_a_side</b></div>
+                <div><b style={{ color: cream }}>Cluster</b> · Corridor · POV · Hook · Tier · <b style={{ color: "#A78BFA" }}>LENS</b> · Demographic  <span style={{ color: faint }}>→ (click 🔮 Fuel Research)</span>  <b style={{ color: "#A78BFA" }}>data_points (anchors)</b></div>
                 <div><b style={{ color: cream }}>Distance</b> · Cadence · Stance · Cluster  <span style={{ color: faint }}>→ (click 🎙 New Preview)</span>  <b style={{ color: "#A78BFA" }}>voice preview (not stored)</b></div>
-                <div><b style={{ color: cream }}>Hook</b> · POV · Anchors · Cluster  <span style={{ color: faint }}>→ (click 🔎 Check argument)</span>  <b style={{ color: "#A78BFA" }}>coherence verdict</b></div>
+                <div><b style={{ color: cream }}>Hook</b> · POV · Anchors · Cluster + <b style={{ color: "#A78BFA" }}>LENS narrowing</b>  <span style={{ color: faint }}>→ (click 🔎 Check argument)</span>  <b style={{ color: "#A78BFA" }}>coherence verdict</b></div>
+              </div>
+              <div style={{ marginTop: 8, fontSize: "0.6rem", color: "#63B3ED", fontWeight: 700, letterSpacing: "0.06em" }}>
+                LENS narrowing now feeds every downstream synth — it directly shapes POV, Hook, Anchors, Coherence check, and the final carousel writer.
               </div>
               <div style={{ marginTop: 10, color: faint, fontStyle: "italic" }}>
                 Values you TYPE (Hook, POV, LENS narrowing, anchors) never trigger synth automatically — the button is always the trigger. That's by design so a stray edit doesn't overwrite a carefully-crafted downstream field. Downstream reads UPSTREAM: LENS/POV/Hook all read the same Cluster+Emotion+Demographic; Fuel Research reads everything above it; Coherence Check reads everything.
@@ -1419,6 +1434,17 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
                     </div>
                   ) : null}
                   {renderStalenessChip("LENS narrowing", lensSnapshot, lensStale, "cluster · corridor · emotion · demographic")}
+                  {String(local.editorial_lens || "").trim() && (
+                    <div style={{
+                      fontSize: "0.6rem",
+                      marginTop: 4,
+                      color: "#63B3ED",
+                      letterSpacing: "0.03em",
+                      lineHeight: 1.5,
+                    }}>
+                      ◆ This narrowing feeds → Draft Thesis, Draft Hook, Fuel Research, Coherence Check, and the carousel writer. Re-run any downstream synth to pick up your edits.
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div style={hintStyle}>Editorial axis · locks the AI's analytical lens for research + carousel copy</div>
@@ -1804,7 +1830,7 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
                 {hookClash.level === "conflict" ? "⚠ " : "◇ "}Hook ↔ Voice {hookClash.level}: {hookClash.note}
               </div>
             ) : null}
-            {renderStalenessChip("Hook A-side", hookSnapshot, hookStale, "cluster · POV · emotion · demographic")}
+            {renderStalenessChip("Hook A-side", hookSnapshot, hookStale, "cluster · POV · emotion · demographic · LENS narrowing")}
           </div>
 
           {/* Hook B */}
@@ -1886,7 +1912,7 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
                 ⚠️ {synthError}
               </div>
             ) : null}
-            {renderStalenessChip("Editorial POV", thesisSnapshot, thesisStale, "cluster · corridor · emotion · demographic")}
+            {renderStalenessChip("Editorial POV", thesisSnapshot, thesisStale, "cluster · corridor · emotion · demographic · LENS narrowing")}
           </div>
 
           {/* Research Anchors (internal field: data_points) */}
