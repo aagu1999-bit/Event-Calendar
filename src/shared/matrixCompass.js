@@ -352,7 +352,7 @@ function joinDemographics(list) {
 // dependency on the Gemini helper when consumers only need the
 // static clusters + composePOV. Callers pass an apiKey; empty
 // apiKey → throw so the caller can surface a clear error UI.
-export async function synthesizeThesis({ apiKey, cluster, corridor, emotion, demographics = [] } = {}) {
+export async function synthesizeThesis({ apiKey, cluster, corridor, emotion, demographics = [], editorialLens = "" } = {}) {
   if (!apiKey || !String(apiKey).trim()) {
     throw new Error("Missing Gemini API key");
   }
@@ -362,6 +362,7 @@ export async function synthesizeThesis({ apiKey, cluster, corridor, emotion, dem
   }
   const clusterLabel = CONTENT_CLUSTERS[clusterKey].label;
   const clusterDirective = CONTENT_CLUSTERS[clusterKey].directive;
+  const cleanLens = String(editorialLens || "").trim();
   const demoList = Array.isArray(demographics)
     ? demographics.filter((d) => typeof d === "string" && d.trim()).map((d) => d.trim())
     : [];
@@ -372,7 +373,8 @@ export async function synthesizeThesis({ apiKey, cluster, corridor, emotion, dem
     "",
     "THE VARIABLES:",
     `- Content Cluster: ${clusterLabel}`,
-    `- Cluster Analytical Lens: ${clusterDirective}`,
+    `- Cluster Analytical Lens (base): ${clusterDirective}`,
+    ...(cleanLens ? [`- LENS Narrowing (operator's per-piece override — LAYERS UNDER the base; the thesis MUST honor BOTH the base lens AND this narrowing): ${cleanLens}`] : []),
     `- Corridor (geography): ${corridor || "(not set — write for the whole state)"}`,
     `- Target Emotion (reader stance): ${emotion || "(not set — default to Curiosity/Epiphany)"}`,
     `- Target Demographic (audience): ${demoList.length ? demoList.join(", ") : "(not set — write broadly)"}`,
@@ -568,7 +570,7 @@ export function resolveEditorialLens({ cluster, override } = {}) {
 // operator's Target Emotion dictates the TONE, and the Target
 // Demographic dictates the VOCABULARY. Same client-side Gemini
 // Flash-Lite call, structured JSON output, explicit-click only.
-export async function synthesizeHook({ apiKey, cluster, pov, emotion, demographics = [] } = {}) {
+export async function synthesizeHook({ apiKey, cluster, pov, emotion, demographics = [], editorialLens = "" } = {}) {
   if (!apiKey || !String(apiKey).trim()) {
     throw new Error("Missing Gemini API key");
   }
@@ -581,6 +583,7 @@ export async function synthesizeHook({ apiKey, cluster, pov, emotion, demographi
     throw new Error("Write or draft an Editorial POV first — the hook is the POV compressed into a scroll-stopper.");
   }
   const cleanEmotion = String(emotion || "").trim();
+  const cleanLens = String(editorialLens || "").trim();
   const demoList = Array.isArray(demographics)
     ? demographics.filter((d) => typeof d === "string" && d.trim()).map((d) => d.trim())
     : [];
@@ -591,6 +594,7 @@ export async function synthesizeHook({ apiKey, cluster, pov, emotion, demographi
     "",
     "THE INPUTS:",
     `- The Core Argument: ${cleanPOV}`,
+    ...(cleanLens ? [`- LENS Narrowing (operator's per-piece framing that anchors the hook to a specific angle beyond the POV): ${cleanLens}`] : []),
     `- The Voice/Emotion: ${cleanEmotion || "(not set — use a neutral curious register)"}`,
     `- The Audience: ${demoList.length ? demoList.join(", ") : "(not set — write for the general reader)"}`,
     "",
@@ -599,7 +603,7 @@ export async function synthesizeHook({ apiKey, cluster, pov, emotion, demographi
     "2. The Audience dictates the vocabulary: speak directly to the audience above. Use their cultural shorthand. Do not sound like a marketer.",
     '3. No Marketing Tropes: NEVER use phrases like "The real reason", "Here\'s why", "Everything you know is wrong", "Let\'s talk about", "The truth is", "You won\'t believe".',
     "4. Format: output NOTHING but the single hook sentence — no quotes, no preamble, no framing.",
-    "5. No invented proper nouns: do NOT name specific venues, towns, or ordinances the POV didn't already mention.",
+    "5. No invented proper nouns: do NOT name specific venues, towns, or ordinances the POV or LENS narrowing didn't already mention.",
     "",
     'Return ONLY JSON in this exact shape: {"hook": "..."}',
   ].join("\n");
