@@ -174,7 +174,12 @@ function CharCounter({ current, max, error }) {
   );
 }
 
-export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, apiKey = "", onAiFillAccept = null }) {
+export function CuratorialMatrixModal(props) {
+  if (!props.open || !props.event) return null;
+  return <CuratorialMatrixModalContent {...props} />;
+}
+
+function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, apiKey = "", onAiFillAccept = null }) {
   const updateEventMatrix = useEventsStore((s) => s.updateEventMatrix);
   const upsertEvent = useEventsStore((s) => s.upsertEvent);
   const syncError = useEventsStore((s) => s.syncError);
@@ -258,6 +263,11 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
   // Track which matrix inputs the last coherence check was run on —
   // if any of them change, the result is stale and we mark it so.
   const [coherenceCheckedAt, setCoherenceCheckedAt] = useState(null);
+  // Declare the matrix before any derived hooks read it. The coherence
+  // check below runs during render, so `local` and `bullets` must already
+  // be initialized here.
+  const [local, setLocal] = useState(() => ({ ...(event?.matrix || {}) }));
+  const bullets = Array.isArray(local.data_points) ? local.data_points : [];
   const coherenceIsStale = useMemo(() => {
     if (!coherenceResult || !coherenceCheckedAt) return false;
     const sig = `${local.hook_a_side || ""}|${local.editorial_pov || ""}|${bullets.join("|")}`;
@@ -315,7 +325,6 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
   // change to the store on blur/select rather than every keystroke, and
   // sync back if the store's matrix changes from underneath us (e.g.
   // another device edits it).
-  const [local, setLocal] = useState(() => ({ ...(event?.matrix || {}) }));
   useEffect(() => {
     setLocal({ ...(event?.matrix || {}) });
     setResearchError(null);
@@ -349,7 +358,6 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
   const tier = local.event_tier || null;
   const isFeature = tier === "FEATURE";
   const status = local.pipeline_status || PIPELINE_STATUS.DRAFT.key;
-  const bullets = Array.isArray(local.data_points) ? local.data_points : [];
 
   const completeness = useMemo(() => matrixCompleteness(local), [local]);
   const readyValidation = useMemo(
@@ -951,10 +959,6 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
     // effect must fire on dimension changes, not on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [local.cluster, local.corridor, local.target_emotion, demographicsKey]);
-
-  // Keep the modal hidden without skipping hooks; it remains mounted so
-  // editing state survives close/reopen while the hook order stays stable.
-  if (!open || !event) return null;
 
   const toggleDemographic = (value) => {
     const clean = String(value || "").trim();
