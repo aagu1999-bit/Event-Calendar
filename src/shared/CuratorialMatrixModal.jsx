@@ -24,6 +24,7 @@ import {
   resolveClusterKey,
   getClusterDirective,
   getClusterDefaultPOV,
+  getVoicePreviewSubject,
   composePOV,
   synthesizeThesis,
   synthesizeHook,
@@ -184,6 +185,14 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
   const [researching, setResearching] = useState(false);
   const [researchError, setResearchError] = useState(null);
   const [citations, setCitations] = useState([]);
+  // Two-phase research status — set from the last successful Fuel Research
+  // call. phase is "verified" (Phase 2 approved these bullets) or
+  // "hypothesis-only" (Phase 2 failed, these are unverified Phase 1
+  // candidates). droppedCount is how many Phase 1 candidates Phase 2
+  // rejected. Rendered as a small status line above the citations strip.
+  const [researchPhase, setResearchPhase] = useState(null);
+  const [researchDroppedCount, setResearchDroppedCount] = useState(0);
+  const [researchVerificationError, setResearchVerificationError] = useState(null);
 
   // Draft Thesis (Gemini Flash-Lite) state — synthesizes the four
   // matrix dimensions into a real editorial thesis instead of the
@@ -404,6 +413,9 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
       const merged = [...bullets, ...incoming].slice(0, LIMITS.BULLETS_MAX);
       applyPatch({ data_points: merged });
       setCitations(Array.isArray(j.citations) ? j.citations.slice(0, 8) : []);
+      setResearchPhase(typeof j.phase === "string" ? j.phase : null);
+      setResearchDroppedCount(typeof j.droppedCount === "number" ? j.droppedCount : 0);
+      setResearchVerificationError(typeof j.verificationError === "string" ? j.verificationError : null);
     } catch (err) {
       setResearchError(String(err?.message || err));
     } finally {
@@ -421,6 +433,9 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
     setPreResearchSnapshot(null);
     setCitations([]);
     setResearchError(null);
+    setResearchPhase(null);
+    setResearchDroppedCount(0);
+    setResearchVerificationError(null);
   };
 
   // Resolve the Gemini API key the same way MediaTool + ReviewQueue do:
@@ -584,6 +599,12 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
         distance: local.voice_distance,
         cadence: local.voice_cadence,
         stance: local.voice_stance,
+        // Cluster-driven subject: the preview grips on THIS piece's
+        // terrain (a hi-fi listening room for Nightlife, a council
+        // chamber for Policy, a strip-mall coffee shop for Suburban
+        // Third-Place) instead of always demoing a generic music
+        // room. Falls back inside previewVoice when cluster is unset.
+        subject: getVoicePreviewSubject(local.cluster),
       });
       if (!paragraph) {
         setVoicePreviewError("Gemini returned an empty preview. Retry.");
@@ -1683,6 +1704,33 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
                 color: warn,
               }}>
                 ⚠ Fuel Research: {researchError}
+              </div>
+            )}
+            {researchPhase && (
+              <div style={{
+                marginTop: 8,
+                padding: "6px 10px",
+                background: researchPhase === "verified"
+                  ? "rgba(52,211,153,0.06)"
+                  : "rgba(251,191,36,0.06)",
+                border: `1px solid ${researchPhase === "verified" ? "rgba(52,211,153,0.28)" : "rgba(251,191,36,0.28)"}`,
+                borderRadius: 6,
+                fontSize: "0.62rem",
+                color: researchPhase === "verified" ? ready : warn,
+                letterSpacing: "0.06em",
+                lineHeight: 1.55,
+              }}>
+                {researchPhase === "verified" ? (
+                  <>◆ Fact-checked · Phase 2 verified {citations.length ? "these anchors against sources" : "the candidates"}
+                    {researchDroppedCount > 0
+                      ? ` · dropped ${researchDroppedCount} Phase 1 candidate${researchDroppedCount === 1 ? "" : "s"} that couldn't be sourced`
+                      : ""}</>
+                ) : (
+                  <>⚠ Unverified · Phase 2 (fact-check) failed — these are Phase 1 candidates only
+                    {researchVerificationError
+                      ? ` · reason: ${researchVerificationError.slice(0, 160)}`
+                      : ""}</>
+                )}
               </div>
             )}
             {citations.length > 0 && (

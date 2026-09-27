@@ -292,14 +292,23 @@ export function formatVoiceParamsLabel({ distance, cadence, stance } = {}) {
 // ─── VOICE PREVIEW ────────────────────────────────────────────────
 // Renders one sample paragraph in the current voice-params combination
 // so the operator can hear the voice BEFORE generating a full carousel.
-// Uses a FIXED neutral subject (a Friday night at a small NJ music
-// room) so every preview across every combo can be compared like-for-
-// like — the voice, not the topic, is what's demonstrated.
+//
+// SUBJECT SELECTION: the caller passes an optional `subject` string —
+// typically resolved from the current cluster via
+// matrixCompass.getVoicePreviewSubject(cluster) — so the preview
+// shows how the voice will sound on the piece's actual terrain
+// (a hi-fi listening room for NIGHTLIFE_DILEMMA, a council chamber
+// for POLICY_MECHANICS, a strip-mall coffee shop for
+// SUBURBAN_THIRD_PLACE…). When no subject is passed, falls back to
+// a generic 150-cap music room so the preview still works from the
+// standalone Voice Params panel with nothing else set. The subject
+// is still anonymous (no proper nouns, no real venues) — the voice
+// remains what's demonstrated, but it grips on real cluster material.
 //
 // Same client-side Gemini Flash-Lite architecture as synthesizeHook +
 // synthesizeThesis. Requires Distance AND Cadence to be set (Stance
 // optional).
-export async function previewVoice({ apiKey, distance, cadence, stance } = {}) {
+export async function previewVoice({ apiKey, distance, cadence, stance, subject } = {}) {
   if (!apiKey || !String(apiKey).trim()) {
     throw new Error("Missing Gemini API key");
   }
@@ -313,10 +322,12 @@ export async function previewVoice({ apiKey, distance, cadence, stance } = {}) {
   }
   const sKey = resolveStanceKey(stance);
 
-  // Fixed subject so preview isolates voice from topic. Kept generic
-  // enough that any Distance × Cadence × Stance combo can write to
-  // it, specific enough that the voice has something to grip.
-  const FIXED_SUBJECT = "a Friday night at a 150-capacity music room somewhere in New Jersey — the crowd, the sound, the door, one thing you notice about the room";
+  // Generic fallback subject — used only when the caller didn't
+  // resolve one from the current cluster. Kept scoped to a specific-
+  // enough scene that any Distance × Cadence × Stance combo has
+  // something to grip.
+  const GENERIC_FALLBACK_SUBJECT = "a Friday night at a 150-capacity music room somewhere in New Jersey — the crowd, the sound, the door, one thing you notice about the room";
+  const FIXED_SUBJECT = (subject && String(subject).trim()) || GENERIC_FALLBACK_SUBJECT;
 
   const prompt = [
     "ROLE: You are a master cultural writer for a niche New Jersey magazine. Right now you are producing ONE sample paragraph — a preview — so an editor can hear this voice combination before commissioning a full piece.",

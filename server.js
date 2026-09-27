@@ -809,11 +809,24 @@ app.post("/api/matrix/research", express.json({ limit: "128kb" }), async (req, r
       lensOverride: typeof lensOverride === "string" ? lensOverride.slice(0, 800) : "",
     });
     if (!result.ok) {
-      const statusByCode = { not_configured: 501, no_seed: 400, auth: 401, rate_limit: 429, upstream: 502, bad_response: 502, empty: 422, timeout: 504, network: 502 };
+      const statusByCode = { not_configured: 501, no_seed: 400, auth: 401, rate_limit: 429, upstream: 502, bad_response: 502, empty: 422, verification_dropped_all: 422, timeout: 504, network: 502 };
       if (result.code === "rate_limit") res.set("Retry-After", result.retryAfter);
       return res.status(statusByCode[result.code] || 500).json({ error: result.code, message: result.message });
     }
-    res.json({ ok: true, bullets: result.bullets, citations: result.citations, model: result.model });
+    // phase: "verified" when Phase 2 (fact-check) succeeded; "hypothesis-only"
+    // when Phase 2 failed and we fell back to Phase 1 candidates (unverified).
+    // droppedCount: how many Phase 1 candidates Phase 2 rejected.
+    // verificationError: reason Phase 2 didn't run (only when phase is
+    // "hypothesis-only").
+    res.json({
+      ok: true,
+      bullets: result.bullets,
+      citations: result.citations,
+      model: result.model,
+      phase: result.phase,
+      droppedCount: result.droppedCount,
+      verificationError: result.verificationError,
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
