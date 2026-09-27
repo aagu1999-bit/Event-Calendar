@@ -268,6 +268,9 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
   // be initialized here.
   const [local, setLocal] = useState(() => ({ ...(event?.matrix || {}) }));
   const bullets = Array.isArray(local.data_points) ? local.data_points : [];
+  // Demographics are stored on the matrix as an array; normalize legacy
+  // comma-string values before staleness memos read the selection.
+  const selectedDemographics = normalizeDemographic(local.target_demographic);
   const coherenceIsStale = useMemo(() => {
     if (!coherenceResult || !coherenceCheckedAt) return false;
     const sig = `${local.hook_a_side || ""}|${local.editorial_pov || ""}|${bullets.join("|")}`;
@@ -901,10 +904,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
     }
   };
 
-  // Demographic chip helpers. Demographics are stored as an array on
-  // matrix.target_demographic; normalizeDemographic() handles legacy
-  // comma-string values transparently.
-  const selectedDemographics = normalizeDemographic(local.target_demographic);
+  // Demographic chip helpers.
   const setDemographics = (arr) => applyPatch({ target_demographic: arr });
 
   // ─── Compositional POV pre-fill ───────────────────────────────────
