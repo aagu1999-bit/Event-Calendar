@@ -659,6 +659,134 @@ export async function synthesizeHook({ apiKey, cluster, pov, emotion, demographi
   return hook.slice(0, 220);
 }
 
+// ─── ARGUMENT COHERENCE CHECK ──────────────────────────────────
+// Adversarial pre-generation check. Reads the matrix as-is (hook,
+// POV, anchors) and returns whether the anchors can genuinely SUPPORT
+// the argument the hook + POV set up. Catches the failure mode the
+// operator flagged: "slides 2 and 3 metaphors need insightful
+// explanation — if the AI can't put the pieces together, that needs
+// to be flagged before the carousel is generated."
+//
+// The check is CRITIC-role, not generator-role — same discipline as
+// polishCarousel's refuse mechanism. It answers ONE question: given
+// this hook, this POV, and these anchors, does the argument stand?
+//
+// Returns { verdict, reason, gaps }:
+//   verdict: "coherent" | "thin" | "mismatched"
+//     - coherent = the anchors carry the argument; generation will succeed
+//     - thin = the anchors are on-topic but too few / too shallow to
+//       carry the argument through 5+ slides without paraphrasing
+//     - mismatched = the anchors don't support (or contradict) the
+//       hook's specific claim; generation will produce a bait-and-switch
+//   reason: one-sentence explanation of the verdict
+//   gaps: array of specific missing pieces (each 60-120 chars)
+//     for "thin" and "mismatched" verdicts; empty for "coherent"
+//
+// Bounded to one Flash-Lite call so the check is cheap enough to
+// run automatically. Failure returns null; caller treats null as
+// "check unavailable, proceed" — the check is a warning, not a gate.
+export async function checkArgumentCoherence({ apiKey, hook, pov, anchors = [], cluster, clusterDirective } = {}) {
+  if (!apiKey || !String(apiKey).trim()) return null;
+  const cleanHook = String(hook || "").trim();
+  const cleanPOV = String(pov || "").trim();
+  const cleanAnchors = Array.isArray(anchors)
+    ? anchors.map((a) => String(a || "").trim()).filter(Boolean)
+    : [];
+  // The check requires all three inputs — thesis, hook, and anchors —
+  // to have anything to critique. Missing any means the matrix isn't
+  // ready for the coherence question yet.
+  if (!cleanHook || !cleanPOV || cleanAnchors.length < 2) return null;
+
+  const clusterKey = resolveClusterKey(cluster);
+  const clusterLine = clusterKey ? CONTENT_CLUSTERS[clusterKey].label : "";
+  const directiveLine = clusterDirective || (clusterKey ? CONTENT_CLUSTERS[clusterKey].directive : "") || "";
+
+  const prompt = [
+    "ROLE: You are a critical newsroom editor reading a proposed carousel outline BEFORE any slide is written.",
+    "TASK: Answer ONE question — can these anchors support this argument?",
+    "",
+    "You are NOT proposing better anchors, NOT rewriting the hook, NOT generating slides. You are answering: given what is on the desk, does the argument stand?",
+    "",
+    "THE ARGUMENT:",
+    `  Hook (slide 1 promise): ${cleanHook}`,
+    `  POV (thesis): ${cleanPOV}`,
+    ...(clusterLine ? [`  Editorial cluster: ${clusterLine}`] : []),
+    ...(directiveLine ? [`  Cluster lens: ${directiveLine}`] : []),
+    "",
+    "THE ANCHORS (raw facts the writer will build slides from):",
+    ...cleanAnchors.map((a, i) => `  ${i + 1}. ${a.slice(0, 400)}`),
+    "",
+    "VERDICTS (pick ONE):",
+    '  "coherent" — the anchors carry the argument. Different entities, different angles, each proving part of the thesis. Generation will succeed.',
+    '  "thin" — the anchors are on-topic but too few or too shallow. The writer will have to paraphrase the same fact across slides 2-4 to fill the count, or write metaphors it can\'t ground. Fixable by adding 1-2 more distinct anchors OR compressing to fewer slides.',
+    '  "mismatched" — the anchors don\'t actually support the hook\'s specific claim (or one anchor contradicts another). Generation will produce a bait-and-switch — the cover promises one thing, the middle slides deliver another. Fixable by revising the hook OR swapping anchors.',
+    "",
+    "For 'thin' and 'mismatched': also return 1-3 specific GAPS — each a short (60-120 char) sentence naming what's missing or what's off. Concrete, not vague. Example: 'No anchor names a currently-operating venue — every specific is either historical or a policy metric.' NOT: 'anchors are weak.'",
+    "For 'coherent': return an empty gaps array.",
+    "",
+    "Be adversarial. It is better to flag a thin matrix and let the operator strengthen it than to green-light and produce a shaky carousel.",
+    "",
+    'Return ONLY JSON in this exact shape: {"verdict":"coherent|thin|mismatched","reason":"one sentence","gaps":["...","..."]}',
+  ].join("\n");
+
+  const MODEL = "gemini-2.5-flash-lite";
+  const URL_BASE = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
+  const requestBody = {
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: {
+      responseMimeType: "application/json",
+      temperature: 0.3, // Critic — low temp, deterministic verdict
+      maxOutputTokens: 512,
+      responseSchema: {
+        type: "object",
+        properties: {
+          verdict: { type: "string", enum: ["coherent", "thin", "mismatched"] },
+          reason: { type: "string", maxLength: 400 },
+          gaps: { type: "array", items: { type: "string", maxLength: 220 }, maxItems: 4 },
+        },
+        required: ["verdict", "reason"],
+      },
+    },
+  };
+
+  let res;
+  try {
+    res = await fetch(`${URL_BASE}?key=${encodeURIComponent(apiKey)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(requestBody),
+    });
+  } catch (err) {
+    if (typeof console !== "undefined") console.warn("Coherence check network error:", err?.message || err);
+    return null;
+  }
+  if (!res.ok) {
+    if (typeof console !== "undefined") console.warn(`Coherence check HTTP ${res.status}`);
+    return null;
+  }
+  let data;
+  try { data = await res.json(); } catch { return null; }
+  const parts = data?.candidates?.[0]?.content?.parts || [];
+  const textPart = parts.find((p) => p && !p.thought && typeof p.text === "string") || parts[0];
+  const raw = textPart?.text || "";
+  if (!raw) return null;
+  let parsed;
+  try { parsed = JSON.parse(raw); }
+  catch {
+    const trimmed = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+    try { parsed = JSON.parse(trimmed); } catch { return null; }
+  }
+  const verdict = ["coherent", "thin", "mismatched"].includes(parsed?.verdict) ? parsed.verdict : null;
+  if (!verdict) return null;
+  return {
+    verdict,
+    reason: String(parsed.reason || "").trim().slice(0, 400),
+    gaps: Array.isArray(parsed.gaps)
+      ? parsed.gaps.map((g) => String(g || "").trim()).filter(Boolean).slice(0, 4)
+      : [],
+  };
+}
+
 // Seed topics — the operator's curated beat board. Clicking one auto-
 // fills cluster + corridor + hook_a_side + target_emotion +
 // target_demographic on the matrix. Numbers preserve the operator's

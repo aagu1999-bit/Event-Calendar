@@ -864,51 +864,62 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
         )}
 
 
-        <details style={{ marginBottom: 12, border: "1px solid rgba(245,240,232,0.08)", borderRadius: 6, background: "rgba(245,240,232,0.015)" }}>
-          <summary style={{ padding: "8px 10px", cursor: "pointer", fontSize: "0.55rem", letterSpacing: 1.4, textTransform: "uppercase", fontWeight: 700, color: "rgba(245,240,232,0.5)", listStyle: "none", display: "flex", alignItems: "center", gap: 8 }}>
-            <span>▸ Enrich &amp; voice</span>
-            <span style={{ marginLeft: "auto", fontSize: "0.55rem", color: enrichCount ? "#63B3ED" : "rgba(245,240,232,0.3)", letterSpacing: 0.5, textTransform: "none", fontWeight: 700 }}>{enrichCount ? `${enrichCount} on` : "web lookup"}</span>
-          </summary>
-          <div style={{ padding: "2px 10px 6px" }}>
+        {/* Enrich & voice drawer — HIDDEN in compact mode. Matrix-driven
+            flow uses Perplexity Fuel Research (structured atomic facts,
+            adversarially verified, entity-overlap checked) as its source
+            of web research. Look-up + News-lookup here are unstructured
+            Gemini prose that appends to the writer's context, bypassing
+            the fact-integrity contract — showing them alongside the
+            matrix flow was creating a leak the operator flagged. In the
+            standalone AI Fill path (no matrix), the drawer still shows
+            because there's no Fuel Research alternative available. */}
+        {!compactMode && (
+          <details style={{ marginBottom: 12, border: "1px solid rgba(245,240,232,0.08)", borderRadius: 6, background: "rgba(245,240,232,0.015)" }}>
+            <summary style={{ padding: "8px 10px", cursor: "pointer", fontSize: "0.55rem", letterSpacing: 1.4, textTransform: "uppercase", fontWeight: 700, color: "rgba(245,240,232,0.5)", listStyle: "none", display: "flex", alignItems: "center", gap: 8 }}>
+              <span>▸ Enrich &amp; voice</span>
+              <span style={{ marginLeft: "auto", fontSize: "0.55rem", color: enrichCount ? "#63B3ED" : "rgba(245,240,232,0.3)", letterSpacing: 0.5, textTransform: "none", fontWeight: 700 }}>{enrichCount ? `${enrichCount} on` : "web lookup"}</span>
+            </summary>
+            <div style={{ padding: "2px 10px 6px" }}>
 
-        {/* Web research — a grounded Gemini call looks the event up (Google
-            Search) and feeds the background into generation, so it's not a
-            black box that only knows what you typed. Opt-in: one extra call
-            and it uses grounding quota. Stacks with pick/arrange/template. */}
-        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.72rem", color: researchOn ? "#63B3ED" : "rgba(245,240,232,0.7)", cursor: "pointer", marginBottom: 8, padding: "7px 9px", background: researchOn ? "rgba(99,179,237,0.08)" : "transparent", border: "1px solid " + (researchOn ? "rgba(99,179,237,0.35)" : "rgba(245,240,232,0.08)"), borderRadius: 4 }}>
-          <input
-            type="checkbox"
-            checked={researchOn}
-            onChange={(e) => setResearchOn(e.target.checked)}
-          />
-          <span style={{ fontWeight: 700, letterSpacing: 0.5 }}>
-            🔎 Look up this event (background)
-          </span>
-          <span style={{ marginLeft: "auto", fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: 0.5 }}>
-            facts about an event you already named
-          </span>
-        </label>
+              {/* Web research — a grounded Gemini call looks the event up (Google
+                  Search) and feeds the background into generation, so it's not a
+                  black box that only knows what you typed. Opt-in: one extra call
+                  and it uses grounding quota. Stacks with pick/arrange/template. */}
+              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.72rem", color: researchOn ? "#63B3ED" : "rgba(245,240,232,0.7)", cursor: "pointer", marginBottom: 8, padding: "7px 9px", background: researchOn ? "rgba(99,179,237,0.08)" : "transparent", border: "1px solid " + (researchOn ? "rgba(99,179,237,0.35)" : "rgba(245,240,232,0.08)"), borderRadius: 4 }}>
+                <input
+                  type="checkbox"
+                  checked={researchOn}
+                  onChange={(e) => setResearchOn(e.target.checked)}
+                />
+                <span style={{ fontWeight: 700, letterSpacing: 0.5 }}>
+                  🔎 Look up this event (background)
+                </span>
+                <span style={{ marginLeft: "auto", fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: 0.5 }}>
+                  facts about an event you already named
+                </span>
+              </label>
 
-        {/* Timely news lookup — recent + upcoming happenings for this topic/area.
-            Distinct from Research (evergreen background): this pulls dated,
-            current items so you can spin a same-week "what's happening" post.
-            Great paired with "AI arranges" for a from-scratch timely carousel. */}
-        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.72rem", color: newsOn ? "#63B3ED" : "rgba(245,240,232,0.7)", cursor: "pointer", marginBottom: 8, padding: "7px 9px", background: newsOn ? "rgba(99,179,237,0.08)" : "transparent", border: "1px solid " + (newsOn ? "rgba(99,179,237,0.35)" : "rgba(245,240,232,0.08)"), borderRadius: 4 }}>
-          <input
-            type="checkbox"
-            checked={newsOn}
-            onChange={(e) => setNewsOn(e.target.checked)}
-          />
-          <span style={{ fontWeight: 700, letterSpacing: 0.5 }}>
-            📰 Find what's happening now (discover)
-          </span>
-          <span style={{ marginLeft: "auto", fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: 0.5 }}>
-            timely, dated items to build around
-          </span>
-        </label>
+              {/* Timely news lookup — recent + upcoming happenings for this topic/area.
+                  Distinct from Research (evergreen background): this pulls dated,
+                  current items so you can spin a same-week "what's happening" post.
+                  Great paired with "AI arranges" for a from-scratch timely carousel. */}
+              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.72rem", color: newsOn ? "#63B3ED" : "rgba(245,240,232,0.7)", cursor: "pointer", marginBottom: 8, padding: "7px 9px", background: newsOn ? "rgba(99,179,237,0.08)" : "transparent", border: "1px solid " + (newsOn ? "rgba(99,179,237,0.35)" : "rgba(245,240,232,0.08)"), borderRadius: 4 }}>
+                <input
+                  type="checkbox"
+                  checked={newsOn}
+                  onChange={(e) => setNewsOn(e.target.checked)}
+                />
+                <span style={{ fontWeight: 700, letterSpacing: 0.5 }}>
+                  📰 Find what's happening now (discover)
+                </span>
+                <span style={{ marginLeft: "auto", fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: 0.5 }}>
+                  timely, dated items to build around
+                </span>
+              </label>
 
-          </div>
-        </details>
+            </div>
+          </details>
+        )}
 
         {/* Template dropdown + Topic field — both hidden in compact mode.
             Template moves into the matrix (or defaults to AI-arranged);
@@ -1158,7 +1169,7 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
               {/* NODE PLAN — every stage the writer will pass through */}
               <div style={{ marginBottom: 8 }}>
                 <div style={{ fontSize: "0.55rem", letterSpacing: 1.2, textTransform: "uppercase", fontWeight: 700, color: "rgba(99,179,237,0.7)", marginBottom: 3 }}>Nodes that will run</div>
-                <div>0 · <b style={{ color: "#F5F0E8" }}>Research</b> — matrix Research Anchors ({(initialContext.match(/^- /gm) || []).length} bullets){researchOn || newsOn ? ` + this window will ADD ${researchOn && newsOn ? "Look-up + News-lookup" : researchOn ? "Look-up" : "News-lookup"} Gemini calls` : ""}</div>
+                <div>0 · <b style={{ color: "#F5F0E8" }}>Research</b> — matrix Research Anchors ({(initialContext.match(/^- /gm) || []).length} bullets); Look-up / News-lookup toggles hidden in compact mode (Fuel Research on the matrix side is the structured, entity-checked source)</div>
                 <div>1 · <b style={{ color: "#F5F0E8" }}>Spine (outline)</b> — mode auto-inferred from slot mix (3+ spotlights → SHOWCASE, else INSIGHT)</div>
                 <div>2 · <b style={{ color: "#F5F0E8" }}>Structure writer</b> — cluster="{initialClusterLabel || "(none)"}", keyword="{initialKeywordTrigger || "(none)"}", evergreen={initialIsEvergreen ? "ON" : "off"}</div>
                 <div>3 · <b style={{ color: "#F5F0E8" }}>Voice pass (Node 2)</b> — {(initialVoiceParams && (initialVoiceParams.distance || initialVoiceParams.cadence || initialVoiceParams.stance)) || (voice && voice.description && voice.description.trim()) ? "WILL RUN (voice inputs present)" : "SKIP (no voice inputs → no-op)"}</div>
