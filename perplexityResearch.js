@@ -1,12 +1,12 @@
 // Server-only Agent API adapter for the existing Matrix Fuel Research UI.
 import Perplexity from "@perplexity-ai/perplexity_ai";
-import { getClusterDirective, getClusterLabel, isHistoricalCluster } from "./src/shared/matrixCompass.js";
+import { getClusterDirective, getClusterLabel, isHistoricalCluster, resolveEditorialLens } from "./src/shared/matrixCompass.js";
 
 export function isPerplexityConfigured() {
   return !!process.env.PERPLEXITY_API_KEY?.trim();
 }
 
-export function researchRequest({ cluster = "", topic = "", pov = "", existingBullets = [], tier = "", corridor = "", demographics = [] } = {}) {
+export function researchRequest({ cluster = "", topic = "", pov = "", existingBullets = [], tier = "", corridor = "", demographics = [], lensOverride = "" } = {}) {
   // Compass injection: the cluster's ANALYTICAL LENS (its directive) is
   // the whole point of the Compass architecture. Without it Sonar returns
   // dry academic bullets ("language-access infrastructure", "worker centers")
@@ -16,7 +16,12 @@ export function researchRequest({ cluster = "", topic = "", pov = "", existingBu
   // commercial zoning realities — the material a cultural dispatch actually
   // needs.
   const clusterLabel = getClusterLabel(cluster) || String(cluster || "").trim();
-  const clusterDirective = getClusterDirective(cluster);
+  // Resolved LENS: base cluster directive (canonical) + optional
+  // per-matrix narrowing (layered under, doesn't replace). When
+  // lensOverride is empty, resolved equals the base.
+  const resolvedLens = resolveEditorialLens({ cluster, override: lensOverride });
+  const clusterDirective = resolvedLens.base;
+  const narrowingClause = resolvedLens.override;
   const workingTitle = String(topic || "").trim();
   const povLine = String(pov || "").trim();
   // Normalize demographics to a clean list, then a comma-joined string
@@ -34,7 +39,8 @@ export function researchRequest({ cluster = "", topic = "", pov = "", existingBu
     `Target Audience (who these venues must serve): ${demoLine || "(none specified — infer from cluster)"}.`,
     `Brand thesis: ${povLine || "N/A"}.`,
   ];
-  if (clusterDirective) userLines.push(`Analytical lens: ${clusterDirective}`);
+  if (clusterDirective) userLines.push(`Analytical lens (base — cluster identity): ${clusterDirective}`);
+  if (narrowingClause) userLines.push(`Analytical lens NARROWING (operator override for THIS piece — narrows the base to a specific angle, does NOT replace it; every fact must satisfy BOTH clauses): ${narrowingClause}`);
   if (existingBullets.length) {
     userLines.push("Do NOT repeat these bullets already on the matrix:");
     for (const b of existingBullets.slice(0, 12)) {

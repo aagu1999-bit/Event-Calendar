@@ -398,6 +398,117 @@ export async function synthesizeThesis({ apiKey, cluster, corridor, emotion, dem
   return thesis.slice(0, 500);
 }
 
+// ─── REFRAME LENS SYNTHESIZER ────────────────────────────────────
+// The cluster's base directive is hardcoded (an anchor per cluster).
+// This synthesizer produces a NARROWING lens — a per-matrix angle
+// grounded in the operator's current Corridor × Emotion × Demographic
+// picks — that layers ON TOP of the base directive, not replacing it.
+// Downstream prompts inject both: base for cluster identity, narrowing
+// for this-piece specificity.
+//
+// Same client-side Gemini Flash-Lite architecture as synthesizeThesis
+// and synthesizeHook. Explicit button click only.
+export async function synthesizeLensReframe({ apiKey, cluster, corridor, emotion, demographics = [] } = {}) {
+  if (!apiKey || !String(apiKey).trim()) {
+    throw new Error("Missing Gemini API key");
+  }
+  const clusterKey = resolveClusterKey(cluster);
+  if (!clusterKey) {
+    throw new Error("Pick a Content Cluster first — the base LENS is what the reframe narrows.");
+  }
+  const clusterLabel = CONTENT_CLUSTERS[clusterKey].label;
+  const baseDirective = CONTENT_CLUSTERS[clusterKey].directive;
+  const demoList = Array.isArray(demographics)
+    ? demographics.filter((d) => typeof d === "string" && d.trim()).map((d) => d.trim())
+    : [];
+
+  const prompt = [
+    "ROLE: You are a senior editor at a regional culture magazine covering New Jersey. Your job is NOT to replace the cluster's editorial identity — that's the base directive below. Your job is to NARROW the base directive through the operator's current picks so this specific piece has a specific angle within the cluster.",
+    "TASK: Write a 1-3 sentence reframed LENS that reads as a specific angle inside the base cluster directive, calibrated to the Corridor + Emotion + Demographic below. Do NOT rewrite the cluster's identity; do NOT drift into a different cluster's territory. Narrow, don't replace.",
+    "",
+    "BASE DIRECTIVE (this stays the anchor — don't contradict it):",
+    `  Cluster: ${clusterLabel}`,
+    `  Directive: ${baseDirective}`,
+    "",
+    "OPERATOR'S CURRENT PICKS (what to narrow through):",
+    `  Corridor: ${corridor || "(not set — write for the whole state)"}`,
+    `  Target Emotion: ${emotion || "(not set — default to Curiosity/Epiphany)"}`,
+    `  Target Demographic: ${demoList.length ? demoList.join(", ") : "(not set — write broadly)"}`,
+    "",
+    "CONSTRAINTS:",
+    "1. NARROW, DO NOT REPLACE. The base directive is the cluster's editorial identity. Your reframe is a specific angle inside that identity. If your reframe reads like a different cluster's directive (e.g., Nightlife Dilemma reframed to sound like Regional Demographics), you've overreached. Stay inside the cluster.",
+    "2. GROUND IN THE CORRIDOR + AUDIENCE. The reframe should name what SPECIFICALLY matters about this cluster for this corridor's readers of this demographic. Example: Policy Mechanics through Urban / Commuter Core + Young Working Professionals + Ambition might narrow the base directive from liquor licenses toward rent-cap ordinances, transit-funding formulas, and workforce-housing policy — still Policy Mechanics, but the SPECIFIC policies these readers actually care about.",
+    "3. NO META-WRITING. Do not refer to the piece, the carousel, or the reader. State the narrowing as an editorial angle, not as memo scaffolding.",
+    "4. NO INVENTED SPECIFICS. Do not name specific ordinances, statutes, venues, or towns the base directive didn't already mention. Stay at the level of CATEGORIES (rent ordinances, transit formulas, permit thresholds) — the writer will source the specifics.",
+    "5. LENGTH: 1 to 3 sentences. Reads as an angle, not a paragraph.",
+    "",
+    'Return ONLY JSON in this exact shape: {"reframe": "..."}',
+  ].join("\n");
+
+  const MODEL = "gemini-2.5-flash-lite";
+  const URL_BASE = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
+  const requestBody = {
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: {
+      responseMimeType: "application/json",
+      temperature: 0.7,
+      maxOutputTokens: 512,
+      responseSchema: {
+        type: "object",
+        properties: { reframe: { type: "string", maxLength: 800 } },
+        required: ["reframe"],
+      },
+    },
+  };
+
+  let res;
+  try {
+    res = await fetch(`${URL_BASE}?key=${encodeURIComponent(apiKey)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(requestBody),
+    });
+  } catch (err) {
+    throw new Error(`Network error contacting Gemini: ${err?.message || err}`);
+  }
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    throw new Error(`Gemini ${res.status}: ${errText.slice(0, 200)}`);
+  }
+  const data = await res.json();
+  const parts = data?.candidates?.[0]?.content?.parts || [];
+  const textPart = parts.find((p) => p && !p.thought && typeof p.text === "string") || parts[0];
+  const raw = textPart?.text || "";
+  if (!raw) throw new Error("Gemini returned an empty response.");
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    const trimmed = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+    parsed = JSON.parse(trimmed);
+  }
+  const reframe = String(parsed?.reframe || "").trim();
+  if (!reframe) throw new Error("Gemini returned no reframe text — retry.");
+  return reframe.slice(0, 800);
+}
+
+// Compose the resolved LENS block for downstream prompts. When the
+// operator has typed or generated an editorial_lens override, layer
+// it as narrowing under the base directive (both remain visible).
+// When empty, return just the base. Callers use this instead of
+// getClusterDirective when they need the full resolved LENS.
+export function resolveEditorialLens({ cluster, override } = {}) {
+  const baseDirective = getClusterDirective(cluster);
+  const clean = String(override || "").trim();
+  if (!baseDirective) return { base: "", override: "", combined: clean };
+  if (!clean) return { base: baseDirective, override: "", combined: baseDirective };
+  return {
+    base: baseDirective,
+    override: clean,
+    combined: `${baseDirective}\n\nOPERATOR NARROWING — this piece narrows the cluster's frame through the current Corridor + Emotion + Demographic picks: ${clean}`,
+  };
+}
+
 // ─── DRAFT HOOK SYNTHESIZER (Parametric Persona) ─────────────────────
 // Previous version relied on three named frameworks (Contrarian Take,
 // Real Story, Bold Stat), which produced surprisingly similar cadence

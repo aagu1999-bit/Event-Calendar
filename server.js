@@ -795,7 +795,7 @@ app.get("/api/matrix/perplexity-status", (_req, res) => {
 
 app.post("/api/matrix/research", express.json({ limit: "128kb" }), async (req, res) => {
   try {
-    const { cluster, topic, pov, existingBullets, tier, corridor, demographics } = req.body || {};
+    const { cluster, topic, pov, existingBullets, tier, corridor, demographics, lensOverride } = req.body || {};
     const result = await perplexityResearch.fuelResearchViaPerplexity({
       cluster: typeof cluster === "string" ? cluster : "",
       topic: typeof topic === "string" ? topic : "",
@@ -806,6 +806,7 @@ app.post("/api/matrix/research", express.json({ limit: "128kb" }), async (req, r
       demographics: Array.isArray(demographics)
         ? demographics.filter((d) => typeof d === "string" && d.trim()).slice(0, 8)
         : [],
+      lensOverride: typeof lensOverride === "string" ? lensOverride.slice(0, 800) : "",
     });
     if (!result.ok) {
       const statusByCode = { not_configured: 501, no_seed: 400, auth: 401, rate_limit: 429, upstream: 502, bad_response: 502, empty: 422, timeout: 504, network: 502 };

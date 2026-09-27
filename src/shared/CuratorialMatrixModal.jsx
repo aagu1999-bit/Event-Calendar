@@ -25,6 +25,7 @@ import {
   composePOV,
   synthesizeThesis,
   synthesizeHook,
+  synthesizeLensReframe,
   COMPASS_TOPICS,
 } from "./matrixCompass.js";
 import { validateMatrix, matrixCompleteness, isMatrixReadyForGeneration } from "./matrixValidation.js";
@@ -213,6 +214,13 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
   // /media hand-off.
   const [aiFillOverlayOpen, setAiFillOverlayOpen] = useState(false);
   const [aiFillOverlaySeed, setAiFillOverlaySeed] = useState(null);
+
+  // Reframe LENS (Gemini Flash-Lite) state — layers a per-matrix
+  // narrowing over the cluster's base directive. Explicit click only.
+  // The reframed text lands in matrix.editorial_lens (editable
+  // textarea); the base directive stays canonical in matrixCompass.js.
+  const [reframingLens, setReframingLens] = useState(false);
+  const [lensReframeError, setLensReframeError] = useState(null);
   // Snapshot of data_points BEFORE the last research call, so a bad
   // Fuel Research (off-topic bullets) can be discarded in one tap.
   const [preResearchSnapshot, setPreResearchSnapshot] = useState(null);
@@ -255,6 +263,8 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
     setSynthesizing(false);
     setHookError(null);
     setDraftingHook(false);
+    setLensReframeError(null);
+    setReframingLens(false);
     setVoicePreviewText("");
     setVoicePreviewError(null);
     setVoicePreviewFor("");
@@ -337,6 +347,10 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
           // Sonar from returning B2B real-estate metrics for a matrix
           // whose actual audience is Young Working Professionals.
           demographics: selectedDemographics,
+          // LENS override — the per-matrix narrowing that layers under
+          // the base cluster directive. Empty = server uses the base
+          // alone (backwards-compat).
+          lensOverride: local.editorial_lens || "",
         }),
       });
       const j = await r.json().catch(() => ({}));
@@ -467,6 +481,44 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
       setHookError(String(err?.message || err));
     } finally {
       setDraftingHook(false);
+    }
+  };
+
+  // Reframe LENS handler — Gemini narrows the base cluster directive
+  // through the operator's current picks and drops the result into
+  // matrix.editorial_lens. The base directive stays canonical; this
+  // just LAYERS a narrowing on top. Editable inline after fill.
+  const reframeLens = async () => {
+    if (reframingLens) return;
+    setLensReframeError(null);
+    const apiKey = resolveGeminiKey();
+    if (!apiKey) {
+      setLensReframeError("Paste your Gemini API key in the MediaTool toolbar first.");
+      return;
+    }
+    const clusterKey = resolveClusterKey(local.cluster);
+    if (!clusterKey) {
+      setLensReframeError("Pick a Content Cluster first — the base LENS is what the reframe narrows.");
+      return;
+    }
+    setReframingLens(true);
+    try {
+      const reframe = await synthesizeLensReframe({
+        apiKey,
+        cluster: local.cluster,
+        corridor: local.corridor,
+        emotion: local.target_emotion,
+        demographics: selectedDemographics,
+      });
+      if (!reframe) {
+        setLensReframeError("Gemini returned an empty reframe. Retry.");
+        return;
+      }
+      applyPatch({ editorial_lens: reframe });
+    } catch (err) {
+      setLensReframeError(String(err?.message || err));
+    } finally {
+      setReframingLens(false);
     }
   };
 
@@ -916,9 +968,94 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
                 ))}
               </select>
               {getClusterDirective(local.cluster) ? (
-                <div style={{ ...hintStyle, color: muted, fontStyle: "italic", lineHeight: 1.55 }}>
-                  <span style={{ color: orbit, fontStyle: "normal", fontWeight: 700, letterSpacing: "0.06em" }}>◆ LENS</span>{" "}
-                  {getClusterDirective(local.cluster)}
+                <div style={{ marginTop: 8 }}>
+                  {/* Base directive — hardcoded per cluster, canonical
+                      anchor for cluster identity. Always visible so the
+                      operator sees what the cluster is "about" before
+                      layering an override. */}
+                  <div style={{ ...hintStyle, color: muted, fontStyle: "italic", lineHeight: 1.55, marginBottom: 8 }}>
+                    <span style={{ color: orbit, fontStyle: "normal", fontWeight: 700, letterSpacing: "0.06em" }}>◆ LENS</span>{" "}
+                    {getClusterDirective(local.cluster)}
+                  </div>
+                  {/* Operator override textarea + Reframe/Reset buttons.
+                      Empty = base directive alone reaches Perplexity +
+                      Gemini. Populated = layers as a narrowing under
+                      the base (both remain in prompts). Editable
+                      free-text; freeze-rule respected via applyPatch. */}
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 4 }}>
+                    <label style={{ ...labelStyle, marginBottom: 0 }}>
+                      Narrowing · optional
+                    </label>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      {(() => {
+                        const clusterKey = resolveClusterKey(local.cluster);
+                        const disabled = reframingLens || !clusterKey;
+                        return (
+                          <button
+                            type="button"
+                            onClick={reframeLens}
+                            disabled={disabled}
+                            title={clusterKey
+                              ? "Fire a Gemini Flash-Lite call to reframe the LENS through the current Corridor + Emotion + Demographic. Layers as a narrowing under the base — base stays canonical."
+                              : "Pick a Content Cluster first — the base LENS is what the reframe narrows."}
+                            style={{
+                              background: disabled ? "transparent" : "rgba(167,139,250,0.14)",
+                              border: `1px solid ${disabled ? whisper : orbit}`,
+                              color: disabled ? faint : orbit,
+                              borderRadius: 4,
+                              padding: "3px 10px",
+                              fontFamily: "inherit",
+                              fontSize: "0.58rem",
+                              letterSpacing: "0.1em",
+                              textTransform: "uppercase",
+                              fontWeight: 700,
+                              cursor: disabled ? "not-allowed" : "pointer",
+                            }}
+                          >
+                            {reframingLens ? "…Reframing" : String(local.editorial_lens || "").trim() ? "✨ Rereframe" : "✨ Reframe LENS"}
+                          </button>
+                        );
+                      })()}
+                      {String(local.editorial_lens || "").trim() ? (
+                        <button
+                          type="button"
+                          onClick={() => applyPatch({ editorial_lens: undefined })}
+                          title="Clear the narrowing — base cluster directive alone reaches downstream prompts."
+                          style={{
+                            background: "transparent",
+                            border: `1px solid ${whisper}`,
+                            color: muted,
+                            borderRadius: 4,
+                            padding: "3px 10px",
+                            fontFamily: "inherit",
+                            fontSize: "0.58rem",
+                            letterSpacing: "0.1em",
+                            textTransform: "uppercase",
+                            fontWeight: 700,
+                            cursor: "pointer",
+                          }}
+                        >↺ Reset</button>
+                      ) : null}
+                    </div>
+                  </div>
+                  <textarea
+                    style={{ ...textareaStyle, minHeight: 56, fontSize: "0.78rem" }}
+                    value={local.editorial_lens || ""}
+                    onChange={(e) => applyPatch({ editorial_lens: e.target.value })}
+                    placeholder="Optional. Narrow the base LENS through the specific angle this piece needs — a policy category, a corridor-specific pressure, a demographic-relevant framing. Empty = base directive alone. Never rewrites the base; layers under it."
+                    maxLength={800}
+                  />
+                  {lensReframeError ? (
+                    <div style={{
+                      fontSize: "0.66rem",
+                      color: warn,
+                      marginTop: 4,
+                      letterSpacing: "0.02em",
+                      lineHeight: 1.5,
+                    }}>
+                      ⚠️ {lensReframeError}
+                    </div>
+                  ) : null}
                 </div>
               ) : (
                 <div style={hintStyle}>Editorial axis · locks the AI's analytical lens for research + carousel copy</div>
