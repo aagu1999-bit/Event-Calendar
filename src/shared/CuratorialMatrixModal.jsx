@@ -17,6 +17,7 @@ import {
   previewVoice,
   formatVoiceParamsLabel,
   getVoiceCompatWarning,
+  detectHookVoiceClash,
 } from "./voiceParams.js";
 import {
   CONTENT_CLUSTER_LIST,
@@ -178,7 +179,7 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
   const navigate = useNavigate();
 
   // Fuel Research (Perplexity) state — one research call at a time,
-  // errors and citations render inline in the Data Points group so the
+  // errors and citations render inline in the Research Anchors group so the
   // operator can vet sources before adding.
   const [researching, setResearching] = useState(false);
   const [researchError, setResearchError] = useState(null);
@@ -295,6 +296,41 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
     for (const e of readyValidation.errors) m[e.field] = e.message;
     return m;
   }, [readyValidation]);
+
+  // Hook × Voice tone-clash warning — soft check that fires when the hook
+  // asks for one linguistic register (hype / poetic / question / intimate)
+  // and the voice params ask for another. Pure heuristic — no LLM. Fires
+  // BEFORE generation so the operator adjusts either the hook or the
+  // voice combo, not after.
+  const hookClash = useMemo(() => detectHookVoiceClash({
+    hook: local.hook_a_side,
+    cadence: local.voice_cadence,
+    stance: local.voice_stance,
+    distance: local.voice_distance,
+  }), [local.hook_a_side, local.voice_cadence, local.voice_stance, local.voice_distance]);
+
+  // Keyword-trigger semantic warning — soft check that fires when the DM
+  // trigger word looks disconnected from the piece's topic. Rationale: the
+  // trigger appears on the CTA slide ("Comment 'X' below") and must FEEL
+  // like it belongs to the story or the reader hesitates to type it.
+  //
+  // Pure derived value — no network. Heuristic: the trigger is "connected"
+  // when it appears as a substring of the topic corpus (hook + event name)
+  // OR shares a 4+ character token with it. Otherwise, warn softly.
+  const triggerWarning = useMemo(() => {
+    const trigger = String(local.keyword_trigger || "").trim().toUpperCase();
+    if (!trigger || trigger.length < 3) return null;
+    const corpus = [local.hook_a_side, event?.name, local.editorial_pov]
+      .filter(Boolean)
+      .map((s) => String(s).toUpperCase())
+      .join(" ");
+    if (!corpus) return null;
+    if (corpus.includes(trigger)) return null;
+    const tokens = corpus.match(/[A-Z]{4,}/g) || [];
+    const overlap = tokens.some((t) => t === trigger || t.includes(trigger) || trigger.includes(t));
+    if (overlap) return null;
+    return `“${trigger}” doesn't echo the topic — the CTA reads “Comment ‘${trigger}’ below” and readers hesitate to type words that feel disconnected. Consider one that lifts a core word from the hook or event name.`;
+  }, [local.keyword_trigger, local.hook_a_side, local.editorial_pov, event?.name]);
 
   // Handlers
   const setTier = (key) => {
@@ -1427,6 +1463,21 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
                 ⚠️ {hookError}
               </div>
             ) : null}
+            {hookClash ? (
+              <div style={{
+                fontSize: "0.66rem",
+                color: hookClash.level === "conflict" ? warn : muted,
+                marginTop: 6,
+                padding: "8px 10px",
+                background: hookClash.level === "conflict" ? warnBg : "rgba(245,240,232,0.05)",
+                border: `1px solid ${hookClash.level === "conflict" ? "rgba(251,191,36,0.32)" : whisper}`,
+                borderRadius: 6,
+                letterSpacing: "0.01em",
+                lineHeight: 1.55,
+              }}>
+                {hookClash.level === "conflict" ? "⚠ " : "◇ "}Hook ↔ Voice {hookClash.level}: {hookClash.note}
+              </div>
+            ) : null}
           </div>
 
           {/* Hook B */}
@@ -1510,12 +1561,12 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
             ) : null}
           </div>
 
-          {/* Data Points */}
+          {/* Research Anchors (internal field: data_points) */}
           <div>
             <div style={{ ...groupLabelStyle, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
               <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <span style={{ width: 3, height: 12, background: orbit, borderRadius: 2, display: "inline-block" }} />
-                Data Points · {LIMITS.BULLETS_MIN}–{LIMITS.BULLETS_MAX} atomic bullets
+                Research Anchors · {LIMITS.BULLETS_MIN}–{LIMITS.BULLETS_MAX} atomic facts
               </span>
               <button
                 type="button"
@@ -1524,7 +1575,7 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
                 title={
                   researching ? "Researching…"
                   : !local.cluster ? "Pick a cluster first — Perplexity needs an editorial frame"
-                  : "Ask Perplexity for 3–4 verified factual bullets"
+                  : "Ask Perplexity for 3–4 verified factual anchors"
                 }
                 style={{
                   background: researching ? "rgba(167,139,250,0.06)" : "rgba(167,139,250,0.14)",
@@ -1549,28 +1600,51 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
                 const over = (b || "").length > LIMITS.BULLET_MAX;
                 return (
                   <div key={i} style={{
-                    display: "flex", alignItems: "center", gap: 8,
+                    display: "flex", alignItems: "flex-start", gap: 8,
                     background: "#0e0e10",
                     border: `1px solid ${over ? warn : whisper}`,
                     borderRadius: 6,
                     padding: "8px 12px",
                   }}>
-                    <span style={{ width: 5, height: 5, borderRadius: "50%", background: orbit, flexShrink: 0 }} />
-                    <input
-                      type="text"
+                    <span style={{ width: 5, height: 5, borderRadius: "50%", background: orbit, flexShrink: 0, marginTop: 8 }} />
+                    <textarea
                       value={b || ""}
                       onChange={(e) => setBullet(i, e.target.value)}
-                      style={{ flex: 1, background: "transparent", border: "none", color: cream, fontFamily: "inherit", fontSize: "0.82rem", outline: "none" }}
-                      placeholder="One atomic fact — transit, capacity, price, vibe, historical note"
+                      onInput={(e) => {
+                        const el = e.currentTarget;
+                        el.style.height = "auto";
+                        el.style.height = `${el.scrollHeight}px`;
+                      }}
+                      ref={(el) => {
+                        if (el) {
+                          el.style.height = "auto";
+                          el.style.height = `${el.scrollHeight}px`;
+                        }
+                      }}
+                      rows={1}
+                      style={{
+                        flex: 1,
+                        background: "transparent",
+                        border: "none",
+                        color: cream,
+                        fontFamily: "inherit",
+                        fontSize: "0.82rem",
+                        outline: "none",
+                        resize: "none",
+                        lineHeight: 1.55,
+                        padding: 0,
+                        overflow: "hidden",
+                      }}
+                      placeholder="One atomic fact — transit, capacity, price, vibe, historical note. Long anchors welcome (autocomplete wraps to a full paragraph)."
                     />
-                    <span style={{ fontSize: "0.6rem", color: over ? warn : faint, fontVariantNumeric: "tabular-nums" }}>
+                    <span style={{ fontSize: "0.6rem", color: over ? warn : faint, fontVariantNumeric: "tabular-nums", marginTop: 4, flexShrink: 0 }}>
                       {(b || "").length}/{LIMITS.BULLET_MAX}
                     </span>
                     <button
                       type="button"
                       onClick={() => removeBullet(i)}
-                      style={{ background: "transparent", border: "none", color: faint, cursor: "pointer", padding: "2px 6px", borderRadius: 3, fontSize: "0.8rem" }}
-                      aria-label="Remove data point"
+                      style={{ background: "transparent", border: "none", color: faint, cursor: "pointer", padding: "2px 6px", borderRadius: 3, fontSize: "0.8rem", marginTop: 2, flexShrink: 0 }}
+                      aria-label="Remove research anchor"
                     >×</button>
                   </div>
                 );
@@ -1592,7 +1666,7 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
                     textTransform: "uppercase",
                     fontWeight: 700,
                   }}
-                >+ Add data point</button>
+                >+ Add research anchor</button>
               )}
             </div>
             {errorsByField.data_points && (
@@ -1728,6 +1802,17 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
                 />
               </div>
               <div style={hintStyle}>DM this word → ManyChat sends event details</div>
+              {triggerWarning && (
+                <div style={{
+                  fontSize: "0.66rem",
+                  color: warn,
+                  marginTop: 6,
+                  lineHeight: 1.5,
+                  letterSpacing: "0.01em",
+                }}>
+                  ⚠ {triggerWarning}
+                </div>
+              )}
             </div>
 
             <div>

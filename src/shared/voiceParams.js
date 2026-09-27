@@ -183,6 +183,98 @@ export function getVoiceCompatWarning({ emotion, stance } = {}) {
   return entry || { level: "natural", note: "" };
 }
 
+// ─── HOOK ↔ VOICE CLASH DETECTOR ──────────────────────────────────
+// The hook is the first thing a reader sees on slide 1; the voice params
+// govern how the rest of the piece sounds. When those two ask for
+// structurally different registers, one caves — either the writer
+// smooths the hook down to fit the voice (killing slide 1's punch), or
+// the writer stretches the voice up to match the hook (blurring the
+// fingerprint across the rest of the carousel). Neither is a good ship.
+//
+// Pure heuristic — no LLM. Looks at cheap linguistic signals in the
+// hook and pairs them against the (cadence, stance, distance) combo.
+//
+// Returns { level, note } where level is "conflict" | "tension" | null.
+// null means no clash detected (or missing inputs — nothing to warn about).
+//
+// Signals (all case-insensitive; substring-safe):
+//   HYPE      — !, all-caps runs, "insane", "unmissable", "MUST", "BEST",
+//               "epic", emoji clusters. Hook is shouting.
+//   POETIC    — "whispers", "sings", "echoes", "sighs", "murmurs",
+//               "haunts", "glows", "breathes". Hook is lyrical.
+//   QUESTION  — starts with what/why/how/who/have/did/are, or ends in "?".
+//               Hook opens with a rhetorical beat that needs air to land.
+//   INTIMATE  — "you and I", "we", "our", "me too", first-person plural /
+//               second-person address. Hook is a letter opener.
+export function detectHookVoiceClash({ hook, cadence, stance, distance } = {}) {
+  const text = String(hook || "").trim();
+  if (!text || text.length < 6) return null;
+  const cKey = resolveCadenceKey(cadence);
+  const sKey = resolveStanceKey(stance);
+  const dKey = resolveDistanceKey(distance);
+  if (!cKey && !sKey && !dKey) return null;
+
+  const lower = text.toLowerCase();
+  const hasBangs = /!{1,}/.test(text);
+  const hasAllCapsRun = /\b[A-Z]{4,}\b/.test(text);
+  const hasHypeWords = /\b(insane|unmissable|must|best|epic|iconic|legendary|unreal|crazy|wild|obsessed)\b/i.test(text);
+  const hasEmoji = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(text);
+  const isHype = hasBangs || hasAllCapsRun || hasHypeWords || hasEmoji;
+
+  const hasPoeticVerbs = /\b(whispers?|sings?|echoes?|sighs?|murmurs?|haunts?|glows?|breathes?|hums?|drifts?)\b/i.test(text);
+  const isPoetic = hasPoeticVerbs;
+
+  const startsWithQ = /^(what|why|how|who|when|have|has|did|do|does|are|is|will|would|could|should|can)\b/i.test(lower);
+  const endsWithQ = /\?\s*$/.test(text);
+  const isQuestion = startsWithQ || endsWithQ;
+
+  const hasIntimateMarkers = /\b(you and i|we're|our|us,|me too|you know|between us|the two of us)\b/i.test(lower);
+  const startsIntimate = /^(you|we|our|my|dear)\b/i.test(lower);
+  const isIntimate = hasIntimateMarkers || startsIntimate;
+
+  // 1. Hype hook × DEADPAN or SARDONIC stance — hook shouts, voice mutters.
+  if (isHype && (sKey === "DEADPAN" || sKey === "SARDONIC")) {
+    return {
+      level: "conflict",
+      note: `Hook reads as HYPE (exclamations, all-caps, or hype words), but Stance is ${sKey}. Deadpan and Sardonic strip enthusiasm by design — the writer will smooth the hook down to fit, killing slide 1's punch. Consider softening the hook's punctuation and vocabulary, or switching Stance to WARM / AWED / PROPHETIC.`,
+    };
+  }
+
+  // 2. Hype hook × DEEP-first-person distance — ad-copy shout inside a letter.
+  if (isHype && dKey === "DEEP_FIRST_PERSON") {
+    return {
+      level: "conflict",
+      note: `Hook reads as HYPE, but Distance is Deep First-Person (letter voice). A letter that opens with an ad-copy shout breaks the intimacy contract on slide 1. Consider rewriting the hook as a confession or observation, or switching Distance to OMNISCIENT / OBSERVER.`,
+    };
+  }
+
+  // 3. Poetic/lyrical hook × PUNCH cadence — poetry needs beats, punch strips beats.
+  if (isPoetic && cKey === "PUNCH") {
+    return {
+      level: "conflict",
+      note: `Hook uses lyrical verbs ("whispers", "sings", "echoes"…), but Cadence is PUNCH (short-short-short). Poetic language needs the beat that PUNCH deliberately removes. Consider switching Cadence to FLOWING or MIXED, or rewriting the hook with harder verbs.`,
+    };
+  }
+
+  // 4. Question hook × PUNCH cadence — question needs a beat to land.
+  if (isQuestion && cKey === "PUNCH") {
+    return {
+      level: "tension",
+      note: `Hook is a question, but Cadence is PUNCH. Questions land on the pause after them; PUNCH removes that pause. Usable, but the question often reads as declaration when the writer executes on PUNCH. Consider MIXED cadence for the question-then-answer rhythm.`,
+    };
+  }
+
+  // 5. Intimate hook × OMNISCIENT distance — first-person opener, third-person voice.
+  if (isIntimate && dKey === "OMNISCIENT") {
+    return {
+      level: "conflict",
+      note: `Hook opens intimately ("you", "we", "our"…), but Distance is Omniscient. The reader is addressed personally on slide 1 and then never again — the voice recedes into third-person for the rest of the carousel. Consider Deep First-Person or Observer for Distance, or rewriting the hook as an observation.`,
+    };
+  }
+
+  return null;
+}
+
 // A short one-liner for logging + status pills in the UI, so the
 // operator can see at a glance which voice params landed on this
 // carousel. Never used in prompt scaffolding.
