@@ -127,6 +127,62 @@ export function composeVoiceParamsDirective({ distance, cadence, stance } = {}) 
   return [...header, ...parts, ...footer].join("\n");
 }
 
+// ─── EMOTION × STANCE COMPATIBILITY MATRIX ───────────────────────
+// Some Emotion + Voice Stance pairs fight each other. Urgency + Warm
+// asks the writer to bridge "act before the window closes" with
+// reflective patience — usually produces awkward prose. This matrix
+// gives the modal a soft warning to show BEFORE generation so the
+// operator can adjust (or knowingly proceed). Not a gate — same
+// pattern as the compression banner: inform, don't block.
+//
+// Levels:
+//   "natural" — the pair works together, no warning
+//   "tension" — usable, but tricky; the writer has to work harder
+//   "conflict" — pair fights structurally; recommend swapping one
+//
+// Only the tension/conflict pairs are listed. Everything unlisted
+// defaults to "natural" so authoring stays lean.
+const EMOTION_STANCE_TENSIONS = {
+  // Urgency wants pressure; Warm wants patience — hardest combo.
+  "Urgency/Insider Access": {
+    "WARM": { level: "conflict", note: "Urgency wants pressure ('window closing'); Warm wants patience and care. The writer has to bridge doomsday-urgency with reflective warmth — usually produces awkward prose. Consider Deadpan or Awed for Urgency, or swap Emotion to Curiosity/Epiphany for Warm." },
+    "PROPHETIC": { level: "tension", note: "Both push future-tense pressure — can compound into hectoring. Watch for the copy becoming a warning label." },
+  },
+  // Nostalgia wants tenderness; Sardonic wants an eyebrow raise.
+  "Nostalgia/Yearning": {
+    "SARDONIC": { level: "conflict", note: "Nostalgia's tenderness reads as sincerity; Sardonic's raised eyebrow undercuts sincerity by design. The writer usually flattens one to accommodate the other. Consider Warm or Awed for Nostalgia." },
+    "DEADPAN": { level: "tension", note: "Deadpan can land nostalgia dryly, but risks reading as detached from what should feel felt." },
+  },
+  // Validation lands warmest; Sardonic undercuts it.
+  "Validation/Relatability": {
+    "SARDONIC": { level: "conflict", note: "Validation makes the reader feel seen; Sardonic implies the writer sees through them. Fights structurally. Consider Warm or Deadpan." },
+  },
+  // Skepticism wants distance; Awed wants closeness.
+  "Skepticism/Irreverence": {
+    "AWED": { level: "conflict", note: "Skepticism holds the subject at arm's length; Awed pulls close. The writer has to negotiate between them and usually picks one. Consider Sardonic or Deadpan for Skepticism." },
+    "WARM": { level: "tension", note: "Warm skepticism is possible ('roasting with love') but rare; usually reads as either warm OR skeptical, not both." },
+  },
+  // Curiosity wants openness; Sardonic wants a foregone conclusion.
+  "Curiosity/Epiphany": {
+    "SARDONIC": { level: "tension", note: "Curiosity is open; Sardonic implies you've already decided. Can work when the sardonic note is the epiphany itself, but usually flattens the discovery beat." },
+  },
+  // Ambition wants forward drive; Deadpan wants no drive.
+  "Ambition/Sovereignty": {
+    "DEADPAN": { level: "tension", note: "Ambition wants forward drive; Deadpan strips drive by design. Usable for cool-headed operator writing, but the ambition beat often ends up muted." },
+  },
+};
+
+// Return { level, note } for the given (emotion, stance) pair, or
+// { level: "natural", note: "" } when the pair isn't in the tension
+// matrix. Modal renders a soft warning when level !== "natural".
+export function getVoiceCompatWarning({ emotion, stance } = {}) {
+  const sKey = resolveStanceKey(stance);
+  const e = String(emotion || "").trim();
+  if (!sKey || !e) return { level: "natural", note: "" };
+  const entry = EMOTION_STANCE_TENSIONS[e]?.[sKey];
+  return entry || { level: "natural", note: "" };
+}
+
 // A short one-liner for logging + status pills in the UI, so the
 // operator can see at a glance which voice params landed on this
 // carousel. Never used in prompt scaffolding.

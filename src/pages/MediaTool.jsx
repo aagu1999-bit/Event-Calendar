@@ -7684,6 +7684,8 @@ export default function MediaTool() {
         initialClusterLabel={aiFillSeed.clusterLabel}
         initialKeywordTrigger={aiFillSeed.keywordTrigger}
         initialVoiceParams={aiFillSeed.voiceParams}
+        initialBehavioralTags={aiFillSeed.behavioralTags}
+        initialIsEvergreen={aiFillSeed.isEvergreen}
         onClose={() => setAiFillOpen(false)}
         onAccept={onAiTemplateAccept}
       />

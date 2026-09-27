@@ -1908,34 +1908,67 @@ const NJ_CITIES = [
   "Camden", "Atlantic City", "Cherry Hill", "Collingswood", "Hammonton",
 ];
 
-// Which corridor group each city belongs to. Used by the transition
-// detector to flag cross-corridor jumps between adjacent content
-// slides that don't have a bridge slide between them (a news/text
-// slide with no city that lets the reader move between corridors
-// without teleporting).
+// Which corridor group(s) each city belongs to. Fuzzy — most NJ towns
+// legitimately fit multiple corridors (Newark has train stations AND
+// is the urban core; Princeton is Route 1 AND a walkable transit-
+// village town; Metuchen sits on Route 1 AND has a station operators
+// treat as transit-village). The transition detector reads these as
+// SETS and only flags a cross-corridor jump when TWO adjacent cities
+// have ZERO overlap in their tag sets. That way Metuchen→Princeton
+// (both share route-1 + transit-suburbs) doesn't false-fire, but
+// Newark→Asbury Park (urban-core only vs shore only) still does.
 const NJ_CITY_CORRIDOR = {
-  // Urban / Commuter Core
-  "Newark": "urban-core", "Jersey City": "urban-core", "Hoboken": "urban-core",
-  "Bayonne": "urban-core", "Union City": "urban-core", "West New York": "urban-core",
-  "Elizabeth": "urban-core", "Kearny": "urban-core", "Weehawken": "urban-core",
-  // Route 1 Central Crossroads
-  "New Brunswick": "route-1", "Princeton": "route-1", "Trenton": "route-1",
-  "Somerville": "route-1", "Perth Amboy": "route-1", "Edison": "route-1",
-  "Metuchen": "route-1", "Rahway": "route-1", "Highland Park": "route-1",
-  "South Brunswick": "route-1",
-  // Transit Village Suburbs
-  "Montclair": "transit-suburbs", "Bloomfield": "transit-suburbs",
-  "Maplewood": "transit-suburbs", "South Orange": "transit-suburbs",
-  "West Orange": "transit-suburbs", "East Orange": "transit-suburbs",
-  "Cranford": "transit-suburbs", "Summit": "transit-suburbs",
-  "Millburn": "transit-suburbs", "Westfield": "transit-suburbs",
+  // Urban / Commuter Core — several also legit as transit-suburbs
+  // because their PATH/rail stops carry the same commuter-village feel.
+  "Newark": ["urban-core", "transit-suburbs"],
+  "Jersey City": ["urban-core", "transit-suburbs"],
+  "Hoboken": ["urban-core", "transit-suburbs"],
+  "Bayonne": ["urban-core"],
+  "Union City": ["urban-core"],
+  "West New York": ["urban-core"],
+  "Elizabeth": ["urban-core", "transit-suburbs"],
+  "Kearny": ["urban-core"],
+  "Weehawken": ["urban-core"],
+  // Route 1 Central Crossroads — the walkable ones also legit as
+  // transit-suburbs (Princeton, Metuchen, New Brunswick, Highland Park).
+  "New Brunswick": ["route-1", "transit-suburbs"],
+  "Princeton": ["route-1", "transit-suburbs"],
+  "Trenton": ["route-1"],
+  "Somerville": ["route-1", "transit-suburbs"],
+  "Perth Amboy": ["route-1"],
+  "Edison": ["route-1"],
+  "Metuchen": ["route-1", "transit-suburbs"],
+  "Rahway": ["route-1", "transit-suburbs"],
+  "Highland Park": ["route-1", "transit-suburbs"],
+  "South Brunswick": ["route-1"],
+  // Transit Village Suburbs (Essex/Union spine) — most legit as urban-
+  // adjacent too because they run on Newark/NYC commutes.
+  "Montclair": ["transit-suburbs"],
+  "Bloomfield": ["transit-suburbs"],
+  "Maplewood": ["transit-suburbs"],
+  "South Orange": ["transit-suburbs"],
+  "West Orange": ["transit-suburbs"],
+  "East Orange": ["transit-suburbs", "urban-core"],
+  "Cranford": ["transit-suburbs"],
+  "Summit": ["transit-suburbs"],
+  "Millburn": ["transit-suburbs"],
+  "Westfield": ["transit-suburbs"],
   // Shore
-  "Asbury Park": "shore", "Long Branch": "shore", "Red Bank": "shore",
-  "Ocean Grove": "shore", "Belmar": "shore", "Bradley Beach": "shore",
-  "Point Pleasant": "shore", "Manasquan": "shore", "Ocean City": "shore",
+  "Asbury Park": ["shore"],
+  "Long Branch": ["shore"],
+  "Red Bank": ["shore"],
+  "Ocean Grove": ["shore"],
+  "Belmar": ["shore"],
+  "Bradley Beach": ["shore"],
+  "Point Pleasant": ["shore"],
+  "Manasquan": ["shore"],
+  "Ocean City": ["shore"],
   // South
-  "Camden": "south", "Atlantic City": "south", "Cherry Hill": "south",
-  "Collingswood": "south", "Hammonton": "south",
+  "Camden": ["south", "urban-core"],
+  "Atlantic City": ["south", "shore"],
+  "Cherry Hill": ["south"],
+  "Collingswood": ["south"],
+  "Hammonton": ["south"],
 };
 // Compile once — startsWith / whole-word regex per city, in a single
 // pass so extractCitiesFromBullet stays O(cities) per bullet.
@@ -2019,24 +2052,26 @@ function detectGeographicWhiplash(slides, sequence = []) {
       const prev = slideCities[i - 1];
       const curr = slideCities[i];
       if (prev && curr && prev !== curr) {
-        const prevGroup = NJ_CITY_CORRIDOR[prev];
-        const currGroup = NJ_CITY_CORRIDOR[curr];
-        if (prevGroup && currGroup && prevGroup !== currGroup) {
-          // Only flag if BOTH slides are content slots (not the cover
-          // opening or a stitched CTA), and there's no bridge slide.
-          // A bridge would be a news/text slot inserted between them,
-          // but since these are adjacent by index there's no room for
-          // one — the whole point of the flag is to suggest adding one.
-          const prevType = slotTypes[i - 1];
-          const currType = slotTypes[i];
-          const isContentPair = ["spotlight", "text", "stat", "features"].includes(prevType)
-            && ["spotlight", "text", "stat", "features"].includes(currType);
-          if (isContentPair) {
-            warnings.push({
-              type: "geographic_transition",
-              pattern: `${prev} (${prevGroup}) → ${curr} (${currGroup})`,
-              message: `Cross-corridor jump: slide ${i} is ${prev} (${prevGroup}), this slide is ${curr} (${currGroup}). Consider inserting a news/text bridge slide between them so the reader isn't teleported across corridors without transitional cue.`,
-            });
+        const prevGroups = NJ_CITY_CORRIDOR[prev];
+        const currGroups = NJ_CITY_CORRIDOR[curr];
+        // Fuzzy check — cities can legitimately belong to multiple
+        // corridor groups. Only flag when the TWO cities share ZERO
+        // groups in common (a true corridor jump), not when they
+        // happen to have different PRIMARY tags but share a secondary.
+        if (Array.isArray(prevGroups) && Array.isArray(currGroups) && prevGroups.length && currGroups.length) {
+          const overlap = prevGroups.some((g) => currGroups.includes(g));
+          if (!overlap) {
+            const prevType = slotTypes[i - 1];
+            const currType = slotTypes[i];
+            const isContentPair = ["spotlight", "text", "stat", "features"].includes(prevType)
+              && ["spotlight", "text", "stat", "features"].includes(currType);
+            if (isContentPair) {
+              warnings.push({
+                type: "geographic_transition",
+                pattern: `${prev} (${prevGroups.join("+")}) → ${curr} (${currGroups.join("+")})`,
+                message: `Cross-corridor jump: slide ${i} is ${prev} (${prevGroups.join("/")}), this slide is ${curr} (${currGroups.join("/")}). Zero corridor overlap. Consider inserting a news/text bridge slide between them so the reader isn't teleported across corridors without transitional cue.`,
+              });
+            }
           }
         }
       }
@@ -2263,7 +2298,7 @@ function buildFillResponseSchema(sequence) {
 //
 // Output: { slides: [{ type, ...slot-fields }, ...] }
 
-export async function generateTemplateFill({ apiKey, sequence, topic, context, voice, slotPrompts, templateMeta, mode, polish = true, letterMode = false, clusterDirective = "", clusterLabel = "", keywordTrigger = null, spine = true, voiceParams = null }) {
+export async function generateTemplateFill({ apiKey, sequence, topic, context, voice, slotPrompts, templateMeta, mode, polish = true, letterMode = false, clusterDirective = "", clusterLabel = "", keywordTrigger = null, spine = true, voiceParams = null, behavioralTags = null, isEvergreen = false }) {
   if (!apiKey) throw new Error("Missing Gemini API key");
   if (!Array.isArray(sequence) || !sequence.length) throw new Error("Missing template sequence");
   if ((!topic || !topic.trim()) && (!context || !context.trim())) throw new Error("Add a topic or event details first");
@@ -2439,7 +2474,24 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   // writer — they were absorbed by the spine (which the writer reads)
   // or moved to polish (voice params). Imminent bullets still flow in
   // so the per-slide reserved-proof line can carry a [TIMELY] flag.
-  const prompt = buildTemplatePrompt({ sequence: workingSequence, topic, context: filteredContext, historicalContext: historicalBullets, imminentBullets, voice, slotPrompts, templateMeta, mode, today, letterMode, narrativeSpine: workingSpine });
+  // Feature-tier evergreen guard: when isEvergreen is true (tier ===
+  // FEATURE from the seed), suppress both TIMELY ACTION and
+  // HISTORICAL CONTEXT downstream. Feature carousels are dateless by
+  // definition — imminent OR past dates get filtered from the bullets
+  // reaching the writer.
+  const evergreenFilteredHistorical = isEvergreen ? [] : historicalBullets;
+  const evergreenFilteredImminent = isEvergreen ? [] : imminentBullets;
+  const prompt = buildTemplatePrompt({
+    sequence: workingSequence,
+    topic,
+    context: filteredContext,
+    historicalContext: evergreenFilteredHistorical,
+    imminentBullets: evergreenFilteredImminent,
+    voice, slotPrompts, templateMeta, mode, today, letterMode,
+    narrativeSpine: workingSpine,
+    behavioralTags,
+    isEvergreen,
+  });
 
   // Temperature split by register — story/editorial write at 0.70
   // (analytical curator, systemic tension, no purple prose overhang);
@@ -3504,7 +3556,7 @@ function parseContextBullets(context) {
 // voice (brand fingerprint), slotPrompts, templateMeta, mode, today,
 // letterMode, narrativeSpine. Every field the writer sees here has a
 // direct impact on how a slide is written. If it doesn't, cut it.
-function buildTemplatePrompt({ sequence, topic, context, historicalContext = [], imminentBullets = [], voice, slotPrompts, templateMeta, mode, today, letterMode = false, narrativeSpine = null }) {
+function buildTemplatePrompt({ sequence, topic, context, historicalContext = [], imminentBullets = [], voice, slotPrompts, templateMeta, mode, today, letterMode = false, narrativeSpine = null, behavioralTags = null, isEvergreen = false }) {
   const hasVoiceDesc = voice && typeof voice.description === "string" && voice.description.trim();
   const exemplars = Array.isArray(voice?.exemplars) ? voice.exemplars.filter(e => e && e.trim()) : [];
   const hasExemplars = exemplars.length > 0;
@@ -3670,6 +3722,41 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
     ...(sequence.length > 2 ? retentionEngineering(sequence.length) : []),
     ...(letterMode ? letterModeBlock() : []),
     ...registerBlock(mode),
+    // BEHAVIORAL TAGS — the operator's dimension picks (Emotion,
+    // Demographic, Cluster label) are BEHAVIORAL CONSTRAINTS for the
+    // writer, not vocabulary the reader is meant to see. This block
+    // names them explicitly and forbids literal quotation, preventing
+    // the "Tag the young working professionals" or "for diaspora
+    // networks and corporate-to-creative hybrids" leakage into
+    // shipped copy.
+    ...(behavioralTags && (behavioralTags.emotion || (behavioralTags.demographics && behavioralTags.demographics.length) || behavioralTags.clusterLabel) ? [
+      "═════════════════════════════",
+      "BEHAVIORAL TAGS — these define who this piece is FOR and what emotional register to write in. They are INSTRUCTIONS to you, not vocabulary to reuse.",
+      ...(behavioralTags.emotion ? [`  Target Emotion (write in this register): ${behavioralTags.emotion}`] : []),
+      ...(behavioralTags.demographics && behavioralTags.demographics.length ? [`  Target Demographic (audience mental model): ${behavioralTags.demographics.join(", ")}`] : []),
+      ...(behavioralTags.clusterLabel ? [`  Content Cluster (editorial identity): ${behavioralTags.clusterLabel}`] : []),
+      "",
+      "STRICTLY BANNED: quoting any of these labels verbatim in the shipped copy. Do NOT write phrases like 'Tag the [demographic]', 'For [demographic] and [demographic]', 'For diaspora networks and corporate-to-creative hybrids', or any variant that names the audience as if the reader is a demographic bucket. Do NOT paste the cluster label into a slide title. Do NOT name the emotion ('urgency', 'nostalgia') as vocabulary — the emotion is HOW you write, not WHAT you write. If you find yourself typing any of these tags into a slide, you've broken the rule.",
+      "═════════════════════════════",
+      "",
+    ] : []),
+    // FEATURE-TIER EVERGREEN GUARD — when isEvergreen (tier === FEATURE),
+    // the whole carousel is a dateless editorial piece. Ban all
+    // promotional and calendar language explicitly. This is stronger
+    // than the mode's register block alone.
+    ...(isEvergreen ? [
+      "═════════════════════════════",
+      "EVERGREEN MANDATE — this carousel is a FEATURE piece (tier === FEATURE): editorial coverage, no calendar attached. Every slide must be dateless in intent.",
+      "  STRICTLY BANNED across every slide:",
+      "  - Specific dates ('September 19', 'Sept 26', 'Friday the 27th') anywhere in copy",
+      "  - Future-tense promo language ('come out', 'save the date', 'RSVP', 'don't miss', 'this weekend', 'tonight', 'coming up')",
+      "  - Calendar drops ('happening [date]', 'on [day]')",
+      "  - Countdown framing ('T-minus', 'in [N] days')",
+      "  REQUIRED framing instead: durable present tense that describes what THESE PLACES / PATTERNS ARE, not when to catch them. 'Live Love Skate Academy runs open skate on Fridays' (durable present) is fine. 'Live Love Skate Academy runs open skate this Friday' is banned.",
+      "  If a slot type would normally carry a date field (ctaDate, spotTime), fill it with the DURABLE HOURS pattern ('Fridays 7-8:30 PM', 'Weekends from 8 AM') — never a specific calendar date.",
+      "═════════════════════════════",
+      "",
+    ] : []),
     // WRITER PARAMETER SURFACE — cut deliberately as of the #2+#4
     // refactor. The writer no longer sees: the cluster LENS text
     // (spine's causalSynthesis absorbs it), voice params (they run

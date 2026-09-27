@@ -16,6 +16,7 @@ import {
   STANCE_OPTIONS,
   previewVoice,
   formatVoiceParamsLabel,
+  getVoiceCompatWarning,
 } from "./voiceParams.js";
 import {
   CONTENT_CLUSTER_LIST,
@@ -1282,6 +1283,36 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
                 <div style={hintStyle}>Attitude toward the subject</div>
               </div>
             </div>
+            {/* Emotion × Stance compatibility warning — soft yellow
+                notice when the picked emotion and stance fight each
+                other (see EMOTION_STANCE_TENSIONS in voiceParams.js).
+                Doesn't block generation; just calibrates expectation. */}
+            {(() => {
+              const compat = getVoiceCompatWarning({ emotion: local.target_emotion, stance: local.voice_stance });
+              if (compat.level === "natural") return null;
+              const color = compat.level === "conflict" ? warn : anchor;
+              const bgTint = compat.level === "conflict" ? "rgba(251,191,36,0.08)" : "rgba(229,188,79,0.06)";
+              return (
+                <div style={{
+                  marginTop: 10,
+                  padding: "8px 12px",
+                  background: bgTint,
+                  border: `1px solid ${color}42`,
+                  borderRadius: 4,
+                  display: "flex",
+                  gap: 8,
+                  alignItems: "flex-start",
+                }}>
+                  <span style={{ fontSize: "0.9rem", lineHeight: 1 }}>⚠️</span>
+                  <div style={{ fontSize: "0.68rem", color: "rgba(245,240,232,0.82)", lineHeight: 1.5 }}>
+                    <b style={{ color, letterSpacing: "0.06em", textTransform: "uppercase", fontSize: "0.6rem", fontWeight: 700 }}>
+                      {compat.level === "conflict" ? "Voice conflict" : "Voice tension"}
+                    </b>
+                    {" "}— {compat.note}
+                  </div>
+                </div>
+              );
+            })()}
             {/* Voice preview panel — renders the sample paragraph or
                 an error. Whitespace-preserving so Stacked cadence
                 previews (short stacked lines) render as intended. */}
@@ -1848,6 +1879,8 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
           initialClusterLabel={aiFillOverlaySeed.clusterLabel}
           initialKeywordTrigger={aiFillOverlaySeed.keywordTrigger}
           initialVoiceParams={aiFillOverlaySeed.voiceParams}
+          initialBehavioralTags={aiFillOverlaySeed.behavioralTags}
+          initialIsEvergreen={aiFillOverlaySeed.isEvergreen}
           onClose={() => { setAiFillOverlayOpen(false); setAiFillOverlaySeed(null); }}
           onAccept={(slides) => {
             if (typeof onAiFillAccept === "function") onAiFillAccept(slides, event);
