@@ -1143,6 +1143,59 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
           }}
         />
 
+        {/* PIPELINE PLAN — visible in compactMode (matrix-driven flow).
+            Shows the operator exactly what will run when they Generate:
+            which nodes fire, what the matrix contributes, what this
+            modal's controls (slide count, enrich toggles) add on top,
+            and any conflicts. Answers "what conflicts / complements /
+            adds / takes away between the two windows." */}
+        {compactMode && (
+          <details open style={{ marginBottom: 12, border: "1px solid rgba(99,179,237,0.25)", borderRadius: 5, background: "rgba(99,179,237,0.04)" }}>
+            <summary style={{ padding: "8px 10px", cursor: "pointer", fontSize: "0.58rem", letterSpacing: 1.5, textTransform: "uppercase", fontWeight: 700, color: "#63B3ED", listStyle: "none" }}>
+              ▸ Pipeline plan · what will run when you click Generate
+            </summary>
+            <div style={{ padding: "4px 12px 10px", fontSize: "0.66rem", lineHeight: 1.65, color: "rgba(245,240,232,0.75)" }}>
+              {/* NODE PLAN — every stage the writer will pass through */}
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ fontSize: "0.55rem", letterSpacing: 1.2, textTransform: "uppercase", fontWeight: 700, color: "rgba(99,179,237,0.7)", marginBottom: 3 }}>Nodes that will run</div>
+                <div>0 · <b style={{ color: "#F5F0E8" }}>Research</b> — matrix Research Anchors ({(initialContext.match(/^- /gm) || []).length} bullets){researchOn || newsOn ? ` + this window will ADD ${researchOn && newsOn ? "Look-up + News-lookup" : researchOn ? "Look-up" : "News-lookup"} Gemini calls` : ""}</div>
+                <div>1 · <b style={{ color: "#F5F0E8" }}>Spine (outline)</b> — mode auto-inferred from slot mix (3+ spotlights → SHOWCASE, else INSIGHT)</div>
+                <div>2 · <b style={{ color: "#F5F0E8" }}>Structure writer</b> — cluster="{initialClusterLabel || "(none)"}", keyword="{initialKeywordTrigger || "(none)"}", evergreen={initialIsEvergreen ? "ON" : "off"}</div>
+                <div>3 · <b style={{ color: "#F5F0E8" }}>Voice pass (Node 2)</b> — {(initialVoiceParams && (initialVoiceParams.distance || initialVoiceParams.cadence || initialVoiceParams.stance)) || (voice && voice.description && voice.description.trim()) ? "WILL RUN (voice inputs present)" : "SKIP (no voice inputs → no-op)"}</div>
+                <div>4 · <b style={{ color: "#F5F0E8" }}>Polish critic</b> — WILL RUN (whole-carousel rewrite pass)</div>
+                <div>5 · <b style={{ color: "#F5F0E8" }}>CTA stitch</b> — {initialKeywordTrigger ? `deterministic ("Comment '${initialKeywordTrigger}' below…")` : "LLM-written CTA (no keyword trigger set)"}</div>
+              </div>
+              {/* MATRIX INPUTS — what the first window contributed */}
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ fontSize: "0.55rem", letterSpacing: 1.2, textTransform: "uppercase", fontWeight: 700, color: "rgba(99,179,237,0.7)", marginBottom: 3 }}>Matrix inputs (from first window)</div>
+                <div>Voice params: {initialVoiceParams && (initialVoiceParams.distance || initialVoiceParams.cadence || initialVoiceParams.stance)
+                  ? `${initialVoiceParams.distance || "—"} · ${initialVoiceParams.cadence || "—"} · ${initialVoiceParams.stance || "—"}`
+                  : <span style={{ color: "rgba(245,240,232,0.4)" }}>(unset — mode's default register will carry voice)</span>}</div>
+                <div>Behavioral tags: {initialBehavioralTags && (initialBehavioralTags.emotion || (initialBehavioralTags.demographics && initialBehavioralTags.demographics.length))
+                  ? `${initialBehavioralTags.emotion || "—"}${initialBehavioralTags.demographics && initialBehavioralTags.demographics.length ? ` · ${initialBehavioralTags.demographics.join(", ")}` : ""}`
+                  : <span style={{ color: "rgba(245,240,232,0.4)" }}>(unset)</span>}</div>
+                <div>Feedback memory: {initialRejectedDrafts.length} rejected · {initialApprovedDrafts.length} approved
+                  {initialRejectedDrafts.length ? ` · writer will avoid: "${(initialRejectedDrafts[initialRejectedDrafts.length - 1]?.reason || "").slice(0, 80)}"` : ""}</div>
+                <div>Cluster directive: {initialClusterDirective ? "loaded (writer will treat as voice/framing block)" : <span style={{ color: "rgba(245,240,232,0.4)" }}>(none)</span>}</div>
+              </div>
+              {/* CONFLICTS + OVERRIDES — where this window changes something */}
+              <div style={{ marginBottom: 4 }}>
+                <div style={{ fontSize: "0.55rem", letterSpacing: 1.2, textTransform: "uppercase", fontWeight: 700, color: "rgba(99,179,237,0.7)", marginBottom: 3 }}>What THIS window adds / overrides</div>
+                <div>Slide count: <b style={{ color: "#F5F0E8" }}>{slideCount}</b> {slideCount === "auto" ? "— spine picks the honest count from the material" : `— pinning ${slideCount} slides (spine may compress if the material can't earn all of them)`}</div>
+                <div>Enrich lookups: {researchOn || newsOn
+                  ? <span style={{ color: "#FBBF24" }}>ADDS extra Gemini calls whose bullets get concatenated into Research Anchors — may duplicate matrix anchors</span>
+                  : <span style={{ color: "rgba(245,240,232,0.4)" }}>off (recommended when Research Anchors are already populated)</span>}</div>
+                <div>Context textarea: shows the matrix seed. Edits here go to the writer prompt only — they do NOT update the matrix. Regenerate from the matrix to reset.</div>
+                {!compactMode ? null : (
+                  <div style={{ marginTop: 4, fontSize: "0.6rem", color: "rgba(245,240,232,0.45)", fontStyle: "italic" }}>
+                    Hidden in compact mode: Let AI pick template · Template dropdown · Topic field · Letter mode · Connect the dots · Anchor field. Matrix-driven flow uses AI-arrange by default.
+                  </div>
+                )}
+              </div>
+            </div>
+          </details>
+        )}
+
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
           <button
             onClick={handleGenerate}

@@ -826,6 +826,10 @@ app.post("/api/matrix/research", express.json({ limit: "128kb" }), async (req, r
       phase: result.phase,
       droppedCount: result.droppedCount,
       verificationError: result.verificationError,
+      // Entity overlap warnings — each entry names an entity that appears
+      // in 2+ bullets so the operator sees the collapsed-carousel risk
+      // and can cull duplicates before shipping.
+      overlaps: result.overlaps || [],
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

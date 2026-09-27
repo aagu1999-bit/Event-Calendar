@@ -88,6 +88,7 @@ export function researchHypothesisRequest(input = {}) {
     "BANNED DATA — REAL ESTATE: Do not return residential leasing data, apartment unit counts, affordable-housing ratios, developer names, or building square-footage specs unless the user's Topic explicitly asks about housing policy. We research social infrastructure (venues, collectives, ordinances that shape gathering), not real-estate portfolios. If your best-available candidate is a '143-unit mixed-use building,' skip it — return fewer candidates before you return housing data.",
     "THIRD-PLACE MANDATE: For every transit hub, neighborhood, ordinance, or demographic shift you research, you MUST return at least one specific 'Third Place' currently operating there and serving the Target Audience — a named cafe, listening bar, brewery, record shop, dance studio, run club, community garden, or pedestrian plaza. If you cannot name at least one current, verifiable Third Place, that entire topic is not viable — return an empty bullets array rather than a policy-only, venue-less payload.",
     "OUTPUT FORMAT — STRICT: Return 4–6 distinct candidate bullets. Each candidate MUST be an 'Atomic Fact' containing at least one of: a specific NAME (venue, collective, operator, ordinance), a specific METRIC or NUMBER (a date, a cap, a capacity, a price), or a specific LOCATION (street, cross-street, neighborhood, transit stop). DO NOT write narrative sentences, DO NOT write transitional filler, DO NOT write context paragraphs. Provide only the raw ingredients — Phase 2 will fact-check them; Gemini will do the cooking.",
+    "ENTITY DIVERSITY — MANDATE: 'Distinct' means DIFFERENT PRIMARY ENTITIES, not different angles on the same entity. Do NOT return 3 candidates all about Village Brewing (its hours, its address, its parking) and call them distinct — a carousel built from that is 3 slides on 1 venue, which reads as one point. Each of your 4–6 candidates MUST anchor on a DIFFERENT primary venue / operator / organization / ordinance. If you can only find 2 distinct entities that pass the lens, return 2 candidates — better than 5 candidates that collapse to 2 entities.",
     "CAUSAL TAIL — permitted (not required): a single trailing clause per candidate naming why the fact matters or what it makes possible, grounded in the specific fact. Candidates may run up to 500 characters to accommodate it. Keep the anchor (name / metric / location) at the FRONT; the causal tail comes AFTER. Never lead with the tail, never write a candidate that is only a tail.",
     "Every candidate MUST connect specifically to New Jersey AND the named editorial cluster, which is the primary frame.",
     "MODERN ANCHOR: If the material is historical (references events, venues, or eras more than 10 years old), you MUST include at least one candidate naming a currently active venue, party, residency, collective, or piece of infrastructure where this lineage operates today. Never return a candidate payload that lives entirely in the past.",
@@ -122,6 +123,7 @@ export function researchVerificationRequest({ candidates = [], ...input } = {}) 
     "For approved candidates: you MAY tighten the wording with the specific citation you found (e.g., 'opened 1979' → 'opened February 1979 per the operator's own account'). You MAY NOT add new claims not present in the original candidate.",
     "OUTPUT: Return ONLY the candidates you verified. Better to return 2 verified bullets than 5 that include unverified ones. If ALL candidates failed verification, return an empty bullets array — do not backfill with new material.",
     "BANNED SUBSTITUTIONS: Do NOT swap a candidate you couldn't verify for a different fact you happened to find. Verification is per-candidate — if you couldn't find sources for the specific Third Place named, that candidate is out. Bring back a new one only if the operator runs Fuel Research again.",
+    "ENTITY DIVERSITY — MANDATE: Look across the candidates you are verifying. If TWO OR MORE candidates share the same primary named entity (same venue, same operator, same organization — e.g. two candidates that are both about Village Brewing at 34 W. Main St., one covering its address and one its hours), that's a collapsed carousel — three slides on the same venue read as one point, not three. Keep AT MOST ONE candidate per primary named entity, choose the one with the strongest verifying source, and DROP the rest. It is better to return 2 verified bullets about 2 different venues than 4 verified bullets about the same venue with different angles.",
     "PRIMARY LENS + AUDIENCE (unchanged from Phase 1): Every verified bullet must still pass the Analytical Lens and Target Audience filters from the user payload. A candidate that would fit the lens for a different topic remains invalid, even if you verified its anchor.",
     "BANNED DATA — REAL ESTATE (unchanged from Phase 1): Even if you can verify a residential leasing / unit-count / developer / square-footage fact, it is out unless the user's Topic explicitly asks about housing policy.",
     ...(historicalOverride ? [
@@ -149,6 +151,63 @@ export function researchVerificationRequest({ candidates = [], ...input } = {}) 
 // to the hypothesis-only prompt so behavior is defined for legacy callers.
 export function researchRequest(input = {}) {
   return researchHypothesisRequest(input);
+}
+
+// ─── ENTITY OVERLAP DETECTOR ────────────────────────────────────
+// Detects when a research payload's bullets share the same primary
+// named entity (a venue, operator, or place appearing in 2+ bullets).
+// The failure mode this catches: Perplexity returns 4 "distinct atomic
+// facts" that are all about Village Brewing — its opening hours, its
+// address, its parking, its downstairs room. Editorially those collapse
+// to ONE point, and the writer routes them onto 4 slides that all say
+// the same thing about the same place.
+//
+// Heuristic: extract 2-5-word title-case proper-noun phrases from each
+// bullet, dedupe within bullet, then check for entities that appear in
+// 2+ bullets. Common false positives (New Jersey, Central Jersey,
+// Downtown Somerville — geographic containers that legitimately
+// repeat across bullets in the same corridor) are filtered out.
+//
+// Returns an array of { entity, bulletIndices } — empty when there's
+// no problematic overlap.
+const GEOGRAPHIC_STOPWORDS = new Set([
+  "new jersey", "central jersey", "north jersey", "south jersey",
+  "downtown somerville", "downtown newark", "downtown asbury park",
+  "asbury park", "jersey city", "atlantic city", "long branch",
+  "asbury boardwalk", "the boardwalk",
+]);
+export function detectEntityOverlap(bullets = []) {
+  if (!Array.isArray(bullets) || bullets.length < 2) return [];
+  const entityToIndices = {};
+  bullets.forEach((raw, i) => {
+    const text = String(raw || "");
+    // Match 2-5 consecutive Title-Case words (a proper noun phrase).
+    // Allows an internal &, of, at, on, the (lowercased connectors).
+    const matches = text.match(/\b[A-Z][a-z0-9]+(?:\s+(?:[A-Z][a-z0-9]+|of|at|on|the|and|&)){1,4}\b/g) || [];
+    const inThisBullet = new Set();
+    for (const m of matches) {
+      const norm = m.toLowerCase().trim();
+      // Skip pure geographic containers — they aren't the "entity" of a bullet.
+      if (GEOGRAPHIC_STOPWORDS.has(norm)) continue;
+      // Skip very short (single-word) matches after normalization.
+      if (norm.split(/\s+/).length < 2) continue;
+      inThisBullet.add(norm);
+    }
+    for (const e of inThisBullet) {
+      if (!entityToIndices[e]) entityToIndices[e] = [];
+      entityToIndices[e].push(i);
+    }
+  });
+  const overlaps = [];
+  for (const [entity, indices] of Object.entries(entityToIndices)) {
+    if (indices.length >= 2) {
+      overlaps.push({ entity, bulletIndices: indices });
+    }
+  }
+  // Sort by severity (most-shared entity first) so the UI can lead with
+  // the worst offender.
+  overlaps.sort((a, b) => b.bulletIndices.length - a.bulletIndices.length);
+  return overlaps;
 }
 
 // Parse a single Perplexity response into the shared bullet/citation
@@ -181,7 +240,13 @@ function parsePerplexityResponse(response, { minBullets = 2, maxBullets = 4 } = 
     }
   }
   if (!urls.size) return { ok: false, code: "empty", message: "Research returned no verifiable source links. Please retry before using these facts." };
-  return { ok: true, bullets: parsed.bullets.map(b => b.trim()), citations: [...urls].slice(0, 8), model: response.model || "preset:low" };
+  const cleanedBullets = parsed.bullets.map(b => b.trim());
+  // Entity-overlap detection — surfaces bullets that share the same
+  // primary named entity so the operator can cull before shipping,
+  // rather than discovering it downstream when the carousel writer
+  // routes 3 slides onto the same venue.
+  const overlaps = detectEntityOverlap(cleanedBullets);
+  return { ok: true, bullets: cleanedBullets, citations: [...urls].slice(0, 8), model: response.model || "preset:low", overlaps };
 }
 
 // Retained for backward compat with any importer. Phase 1's parser.
@@ -225,6 +290,11 @@ export async function fuelResearchViaPerplexity(input = {}) {
           model: phase2Parsed.model,
           phase: "verified",
           droppedCount: Math.max(0, phase1Parsed.bullets.length - phase2Parsed.bullets.length),
+          // Entity overlap on the VERIFIED payload — surfaces when the
+          // prompt-level diversity mandate failed and Phase 2 still let
+          // 2+ bullets share a venue. Operator sees a warning under
+          // Research Anchors and can cull.
+          overlaps: phase2Parsed.overlaps || [],
         };
       }
       // Phase 2 came back empty — verification dropped all candidates.
@@ -241,6 +311,7 @@ export async function fuelResearchViaPerplexity(input = {}) {
         ...phase1Parsed,
         phase: "hypothesis-only",
         verificationError: phase2Parsed.message,
+        overlaps: phase1Parsed.overlaps || [],
       };
     } catch (verifyErr) {
       // Phase 2 threw — network/timeout/etc. Fall back to Phase 1
@@ -249,6 +320,7 @@ export async function fuelResearchViaPerplexity(input = {}) {
         ...phase1Parsed,
         phase: "hypothesis-only",
         verificationError: verifyErr?.message || "Verification pass failed.",
+        overlaps: phase1Parsed.overlaps || [],
       };
     }
   } catch (err) {
