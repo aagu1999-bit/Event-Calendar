@@ -115,6 +115,10 @@ export const MATRIX_FIELDS = [
   "event_tier",
   "corridor",
   "cluster",
+  // Per-matrix LENS override. Empty = use the cluster's base directive
+  // alone; populated = layer as a narrowing clause under the base.
+  // Editable inline; freeze-rule respected same as editorial_pov.
+  "editorial_lens",
   "target_emotion",
   "target_demographic",
   "hook_a_side",

@@ -9,7 +9,7 @@
 // point, not a lock.
 
 import { EVENT_TIERS } from "./matrixEnums.js";
-import { getClusterDirective, getClusterLabel, getClusterDefaultPOV } from "./matrixCompass.js";
+import { getClusterDirective, getClusterLabel, getClusterDefaultPOV, resolveEditorialLens } from "./matrixCompass.js";
 
 // Register (mode) mapping — matches the state variable `mode` in
 // AiTemplateFillModal. Valid values: "promo", "editorial", "story".
@@ -85,7 +85,17 @@ export function eventMatrixToFillSeed(event) {
   // so it reads as a voice/framing constraint rather than one line
   // buried under academic research bullets. We surface it as its own
   // seed field instead.
-  const clusterDirective = getClusterDirective(m.cluster);
+  // Resolved LENS: base cluster directive + optional per-matrix
+  // narrowing (matrix.editorial_lens). Base stays canonical; the
+  // narrowing layers on top with a labeled clause.
+  const { base: clusterDirectiveBase, override: lensOverride, combined: clusterDirective } = resolveEditorialLens({
+    cluster: m.cluster,
+    override: m.editorial_lens,
+  });
+  // clusterDirectiveBase is preserved as a distinct seed field so
+  // downstream consumers (Perplexity, spine) can quote the base
+  // separately from the narrowing when useful.
+  void clusterDirectiveBase; void lensOverride;
   const clusterLabel = m.cluster ? (getClusterLabel(m.cluster) || m.cluster) : "";
   const contextLines = [];
   if (pov) contextLines.push(`POV: ${pov}`);
