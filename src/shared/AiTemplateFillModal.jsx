@@ -27,7 +27,7 @@ const CONTEXT_SCAFFOLD = [
 //   onClose()
 //   onAccept(slides)   — slides array matching the template's sequence
 
-export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTopic = "", initialContext = "", initialArrange = false, initialRegister = null, initialClusterDirective = "", initialClusterLabel = "", initialKeywordTrigger = null, initialVoiceParams = null, compactMode = false, onClose, onAccept }) {
+export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTopic = "", initialContext = "", initialArrange = false, initialRegister = null, initialClusterDirective = "", initialClusterLabel = "", initialKeywordTrigger = null, initialVoiceParams = null, initialBehavioralTags = null, initialIsEvergreen = false, compactMode = false, onClose, onAccept }) {
   const voice = useBrandStore((s) => s.voice);
   const slotPrompts = useBrandStore((s) => s.slotPrompts);
   const addExemplar = useBrandStore((s) => s.addExemplar);
@@ -297,6 +297,11 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
         // Voice params — Distance × Cadence × Stance. writer's own
         // directive block, orthogonal to the mode's register.
         voiceParams: initialVoiceParams,
+        // Behavioral tags — labels the writer must NOT quote literally.
+        behavioralTags: initialBehavioralTags,
+        // Evergreen flag — suppresses TIMELY + HISTORICAL blocks
+        // and enforces the EVERGREEN MANDATE when tier is FEATURE.
+        isEvergreen: initialIsEvergreen,
       });
       setSlides(result);
     } catch (err) {
@@ -366,6 +371,8 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
         clusterDirective: initialClusterDirective,
         clusterLabel: initialClusterLabel,
         voiceParams: initialVoiceParams,
+        behavioralTags: initialBehavioralTags,
+        isEvergreen: initialIsEvergreen,
         // Single-slot regen must NOT stitch — the operator is redoing one
         // slide, not asking for the deterministic keyword-CTA replacement.
         keywordTrigger: null,

@@ -8,7 +8,7 @@
 // they can flip it inside the fill modal itself — the seed is a starting
 // point, not a lock.
 
-import { EVENT_TIERS } from "./matrixEnums.js";
+import { EVENT_TIERS, DEMOGRAPHIC_PRESETS, LEGACY_DEMOGRAPHIC_ALIASES } from "./matrixEnums.js";
 import { getClusterDirective, getClusterLabel, getClusterDefaultPOV, resolveEditorialLens } from "./matrixCompass.js";
 
 // Register (mode) mapping — matches the state variable `mode` in
@@ -133,5 +133,27 @@ export function eventMatrixToFillSeed(event) {
       cadence: String(m.voice_cadence || "").trim() || null,
       stance: String(m.voice_stance || "").trim() || null,
     },
+    // Behavioral tags — the operator's dimension picks, forwarded to
+    // the writer as BEHAVIORAL CONSTRAINTS (not vocabulary). The
+    // buildTemplatePrompt reader-facing block names them and forbids
+    // literal quotation in the shipped copy.
+    behavioralTags: {
+      emotion: String(m.target_emotion || "").trim() || "",
+      demographics: Array.isArray(m.target_demographic)
+        ? m.target_demographic.filter(Boolean).map((d) => LEGACY_DEMOGRAPHIC_ALIASES[d] || d)
+        : (typeof m.target_demographic === "string" && m.target_demographic.trim()
+          ? m.target_demographic.split(",").map((d) => d.trim()).filter(Boolean)
+          : []),
+      clusterLabel,
+    },
+    // Feature-tier evergreen flag — when true, downstream
+    // buildTemplatePrompt suppresses TIMELY ACTION + HISTORICAL
+    // CONTEXT blocks and injects an EVERGREEN MANDATE that bans
+    // specific dates and future-tense promo language across every
+    // slide. Feature carousels are dateless by definition.
+    isEvergreen: m.event_tier === EVENT_TIERS.FEATURE.key,
   };
 }
+// Reference DEMOGRAPHIC_PRESETS to keep the import for future use
+// (typed narrowing on unknown demographics) without unused-var warns.
+void DEMOGRAPHIC_PRESETS;
