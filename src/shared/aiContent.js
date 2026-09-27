@@ -2298,7 +2298,7 @@ function buildFillResponseSchema(sequence) {
 //
 // Output: { slides: [{ type, ...slot-fields }, ...] }
 
-export async function generateTemplateFill({ apiKey, sequence, topic, context, voice, slotPrompts, templateMeta, mode, polish = true, letterMode = false, clusterDirective = "", clusterLabel = "", keywordTrigger = null, spine = true, voiceParams = null, behavioralTags = null, isEvergreen = false }) {
+export async function generateTemplateFill({ apiKey, sequence, topic, context, voice, slotPrompts, templateMeta, mode, polish = true, letterMode = false, clusterDirective = "", clusterLabel = "", keywordTrigger = null, spine = true, voiceParams = null, behavioralTags = null, isEvergreen = false, rejectedDrafts = [], approvedDrafts = [] }) {
   if (!apiKey) throw new Error("Missing Gemini API key");
   if (!Array.isArray(sequence) || !sequence.length) throw new Error("Missing template sequence");
   if ((!topic || !topic.trim()) && (!context || !context.trim())) throw new Error("Add a topic or event details first");
@@ -2491,6 +2491,8 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
     narrativeSpine: workingSpine,
     behavioralTags,
     isEvergreen,
+    rejectedDrafts,
+    approvedDrafts,
   });
 
   // Temperature split by register — story/editorial write at 0.70
@@ -3752,7 +3754,7 @@ function parseContextBullets(context) {
 // voice (brand fingerprint), slotPrompts, templateMeta, mode, today,
 // letterMode, narrativeSpine. Every field the writer sees here has a
 // direct impact on how a slide is written. If it doesn't, cut it.
-function buildTemplatePrompt({ sequence, topic, context, historicalContext = [], imminentBullets = [], voice, slotPrompts, templateMeta, mode, today, letterMode = false, narrativeSpine = null, behavioralTags = null, isEvergreen = false }) {
+function buildTemplatePrompt({ sequence, topic, context, historicalContext = [], imminentBullets = [], voice, slotPrompts, templateMeta, mode, today, letterMode = false, narrativeSpine = null, behavioralTags = null, isEvergreen = false, rejectedDrafts = [], approvedDrafts = [] }) {
   const hasVoiceDesc = voice && typeof voice.description === "string" && voice.description.trim();
   const exemplars = Array.isArray(voice?.exemplars) ? voice.exemplars.filter(e => e && e.trim()) : [];
   const hasExemplars = exemplars.length > 0;
@@ -3898,6 +3900,52 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
     "",
     "NODE 1 — STRUCTURE PASS: your primary job here is STRUCTURE, FACTS, and ROUTING under schema pressure. The BRAND VOICE FINGERPRINT block above is signal, not a straitjacket — a downstream Node 2 (Voice Pass) will rewrite text-string field values to lock voice cadence, stance, and distance without touching JSON shape, facts, or routing. So: hit the schema, honor the beat + reserved proof for each slide, keep facts atomic, and don't strain to satisfy voice at the cost of a starved slot. If a slot's material is thin, keep it short and specific rather than padding — Node 2 can only rewrite what you route correctly, it cannot rescue empty structure or misrouted facts.",
     "",
+    // FEEDBACK MEMORY — operator's Reject / Approve history for THIS matrix.
+    // Rejections come with a reason ("wall of text on cover", "slide 3 empty",
+    // "voice drifted grantwriter") so the writer can specifically avoid the
+    // named failure mode. Approvals hold the quality bar without a reason.
+    // Injected near the TOP so recency bias amplifies it — this is
+    // per-matrix training signal from the human editor, not decoration.
+    ...(Array.isArray(rejectedDrafts) && rejectedDrafts.length ? [
+      "═════════════════════════════",
+      "FEEDBACK MEMORY — REJECTED DRAFTS OF THIS MATRIX",
+      "═════════════════════════════",
+      `The operator rejected ${rejectedDrafts.length} previous draft${rejectedDrafts.length === 1 ? "" : "s"} of this matrix. DO NOT reproduce the named failure modes.`,
+      "",
+      ...rejectedDrafts.slice(-3).map((r, i) => {
+        const reason = String(r?.reason || "(no reason recorded)").trim();
+        const digestLines = Array.isArray(r?.digest)
+          ? r.digest.slice(0, 8).map((d) => `    Slide ${d?.idx ?? "?"} (${d?.type ?? "unknown"}): ${String(d?.digest || "").slice(0, 80)}`)
+          : [];
+        return [
+          `Rejected draft ${i + 1} — REASON: ${reason}`,
+          ...digestLines,
+        ].join("\n");
+      }),
+      "",
+      "The reasons above are the OPERATOR's exact complaint. Fix each named failure mode in this new draft — a wall-of-text complaint means shorter, punchier copy on that slide; an empty-slide complaint means the routing for that slot needs to land a real fact; a voice-drift complaint means avoiding the flagged register (grantwriter / marketer / museum copy).",
+      "═════════════════════════════",
+      "",
+    ] : []),
+    ...(Array.isArray(approvedDrafts) && approvedDrafts.length ? [
+      "═════════════════════════════",
+      "FEEDBACK MEMORY — APPROVED DRAFTS OF THIS MATRIX",
+      "═════════════════════════════",
+      `The operator approved ${approvedDrafts.length} previous draft${approvedDrafts.length === 1 ? "" : "s"} of this matrix. Hold at least this quality bar — study the digest to match the SHAPE (how much per slide, which fields carry which weight, how facts are compressed) even though this is a fresh draft.`,
+      "",
+      ...approvedDrafts.slice(-2).map((a, i) => {
+        const digestLines = Array.isArray(a?.digest)
+          ? a.digest.slice(0, 8).map((d) => `    Slide ${d?.idx ?? "?"} (${d?.type ?? "unknown"}): ${String(d?.digest || "").slice(0, 80)}`)
+          : [];
+        return [
+          `Approved draft ${i + 1}:`,
+          ...digestLines,
+        ].join("\n");
+      }),
+      "",
+      "═════════════════════════════",
+      "",
+    ] : []),
     "QUALITY BAR — applies to EVERY slide, not just the cover:",
     "- ANTI-LITERALISM: The prompt uses labels like PARADOX, FRICTION, MECHANISM, GATE, and marker lines like '>>> BEAT: X <<<' as INTERNAL SCAFFOLDING for the outline. These are concepts, NOT visible copy. NEVER write these labels as text, headlines, kickers, or body — a cover headline that reads 'THE PARADOX' or a textTitle that reads 'FRICTION' or a kicker that reads 'MECHANISM' is failed output. Same rule for the words 'THESIS' and 'BEAT' — those are outline metadata. Every field you emit should be finished editorial copy that stands on its own.",
     "- DATA SYNTHESIS (not transcription): The Context bullets are RAW EVIDENCE, not a script. You must WEAVE these facts naturally into the narrative argument defined by the Editorial POV. Do NOT copy or paste a bullet verbatim into a slide slot. Do NOT paraphrase a bullet as its own slide-length sentence. Subordinate the facts to the story — a bullet like 'Club Zanzibar, 1979, Lincoln Motel Newark' becomes 'the Newark motel ballroom that rewrote the Jersey Sound in '79', not a repeat of the raw bullet. The bullets are ingredients; you're cooking.",
