@@ -2574,6 +2574,20 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
       ctaUrl: "centralgroupevents.com",
     }];
   };
+  // NODE 2 — VOICE PASS. Runs whether or not polish is on. Node 1 (the
+  // writer above) built structure + facts + routing under schema pressure;
+  // Node 2 rewrites text-string field values in-place to match the voice
+  // fingerprint / voice params / behavioral tags without touching JSON
+  // shape, facts, or routing. Failure keeps Node 1's slides — voice is
+  // enrichment, structure is load-bearing.
+  try {
+    const voiceResult = await generateVoicePass({ apiKey, slides, sequence: workingSequence, voice, voiceParams, mode, letterMode, behavioralTags });
+    if (voiceResult?.changed && Array.isArray(voiceResult.slides) && voiceResult.slides.length === workingSequence.length) {
+      slides = voiceResult.slides;
+    }
+  } catch (e) {
+    if (typeof console !== "undefined") console.warn("Node 2 voice pass failed, keeping Node 1 draft:", e?.message || e);
+  }
   if (!polish) {
     // Even without polish, deterministic CTA stitch runs (drift-removal).
     // Sanitizer runs too — belt-and-suspenders on scaffolding-label leaks.
@@ -2961,6 +2975,133 @@ function fillSlotShape(t) {
   if (t === "press")     return '{"type":"press","pressTopMeta":["...","...","...","..."],"pressTitle":"...","pressBadge":"...","pressLineup":"...","pressGenres":"...","pressDateLine":"..."}';
   if (t === "features")  return '{"type":"features","featuresTitle":"...","features":[{"emoji":"...","headline":"...","sub":"...","featured":false}]}';
   return `{"type":"${t}"}`;
+}
+
+// === NODE 2 · VOICE PASS ===
+// The second pass in the decoupled architecture. Node 1 (the writer)
+// fills the JSON structure with FACTS + correct bullet routing. Node
+// 2 takes those slides and rewrites ONLY the text-field values to
+// match the voice combination. Never touches JSON shape, never adds
+// or drops facts, never re-routes bullets. Single job = voice.
+//
+// This is the fix for the wall-of-text-on-slide-2 / empty-slide-3
+// failure mode: when the writer had to do structure AND voice in one
+// call, it starved slots to satisfy voice on others. Split the jobs,
+// each pass gets to concentrate.
+//
+// Falls back gracefully — if Node 2 returns a mangled schema or
+// fails outright, generateTemplateFill keeps Node 1's slides. Voice
+// pass is enrichment; structure is the load-bearing pass.
+export async function generateVoicePass({ apiKey, slides, sequence, voice, voiceParams = null, mode, letterMode = false, behavioralTags = null }) {
+  if (!apiKey) throw new Error("Missing Gemini API key");
+  if (!Array.isArray(slides) || !slides.length) throw new Error("No slides to voice-pass");
+
+  const hasVoiceDesc = voice && typeof voice.description === "string" && voice.description.trim();
+  const exemplars = Array.isArray(voice?.exemplars) ? voice.exemplars.filter((e) => e && e.trim()) : [];
+  const voiceDirective = composeVoiceParamsDirective(voiceParams);
+
+  // Skip Node 2 entirely when there's nothing voice-shaped to do —
+  // no fingerprint, no voice params, no override. The Node 1 output
+  // is already the best we've got. Signal by returning the input
+  // slides unchanged so the caller can proceed without special
+  // handling.
+  if (!hasVoiceDesc && !exemplars.length && !voiceDirective) {
+    return { slides, changed: false, reason: "no-voice-inputs" };
+  }
+
+  const draft = slides.map((s, i) => `SLIDE ${i + 1} (${s?.type || sequence[i]}):\n${JSON.stringify(s)}`).join("\n\n");
+
+  const prompt = [
+    "═════════════════════════════",
+    "NODE 2 — VOICE PASS",
+    "═════════════════════════════",
+    "",
+    "You are the VOICE editor. A prior Node 1 (Structure Pass) has already:",
+    "  - Filled every slide's JSON with the correct facts",
+    "  - Routed each proof bullet to its correct slide",
+    "  - Hit the schema constraints (field names, types, maxLengths)",
+    "",
+    "Your job is EXCLUSIVELY to rewrite text-field values so the copy sounds like the voice combination below. You have ONE job: voice.",
+    "",
+    "STRICT RULES:",
+    "  1. Preserve JSON shape EXACTLY. Same slide count. Same slot types. Same field names per slide. Same non-string field types (booleans, arrays, numbers). Never add fields, never drop fields.",
+    "  2. Preserve FACTS EXACTLY. Every venue name, address, price, date, hour, capacity, number, proper noun MUST remain identical to the Node 1 draft. You are rewriting the WORDING around them, not the facts.",
+    "  3. Preserve routing. Each slide's subject stays the same — do not swap a Live Love Skate spotlight into a Fleet Feet spotlight.",
+    "  4. Rewrite text-string field values IN PLACE. Change how the copy sounds, not what it says.",
+    "  5. Do NOT add new facts, invent details, or extrapolate. If Node 1 didn't have a number, Node 2 doesn't add one.",
+    "  6. Do NOT re-route bullets to different slides. Whatever slide 3 was about, it stays about.",
+    "",
+    ...(hasVoiceDesc ? [
+      "BRAND VOICE FINGERPRINT (the enduring brand voice):",
+      voice.description.trim(),
+      "",
+    ] : []),
+    ...(exemplars.length ? [
+      `Past captions in this voice (${exemplars.length} examples — study cadence, sentence length, what gets named vs implied, then imitate at the sentence level):`,
+      "",
+      ...exemplars.map((e, i) => `=== Example ${i + 1} ===\n${e.trim()}`),
+      "",
+    ] : []),
+    ...(voiceDirective ? [voiceDirective, ""] : []),
+    ...(behavioralTags && (behavioralTags.emotion || (behavioralTags.demographics && behavioralTags.demographics.length)) ? [
+      "BEHAVIORAL TAGS — these are HOW the piece should feel, not vocabulary to quote:",
+      ...(behavioralTags.emotion ? [`  Target Emotion (write in this register): ${behavioralTags.emotion}`] : []),
+      ...(behavioralTags.demographics && behavioralTags.demographics.length ? [`  Target Demographic (audience mental model): ${behavioralTags.demographics.join(", ")}`] : []),
+      "  BANNED: quoting any of these labels verbatim in the shipped copy. Do NOT write 'Tag the [demographic]' or paste labels as vocabulary. The tags are HOW you write, not WHAT you write.",
+      "",
+    ] : []),
+    ...(letterMode ? [
+      "LETTER MODE: the carousel is one continuous letter. Voice pass carries the letter's voice across every slide — each rewrite hands off to the next slide's beat.",
+      "",
+    ] : []),
+    "DRAFT FROM NODE 1 — rewrite each slide's text-field values in voice:",
+    "",
+    draft,
+    "",
+    "Return JSON ONLY (no fences, no prose) in this exact shape (same slide count, same slot types, same field names as the draft above):",
+    `{"slides":[${sequence.map(fillSlotShape).join(",")}]}`,
+  ].join("\n");
+
+  const voicePassTemperature = (mode === "story" || mode === "editorial") ? 0.72 : 0.85;
+  const voiceBaseConfig = { responseMimeType: "application/json", temperature: voicePassTemperature, maxOutputTokens: 8192 };
+  const voiceWithSchema = { ...voiceBaseConfig, responseSchema: buildFillResponseSchema(sequence) };
+  const isSchemaRejection = (err) => {
+    const msg = String(err?.message || err || "");
+    return /too many states/i.test(msg) || /schema.*constraint/i.test(msg) || /invalid schema/i.test(msg);
+  };
+  let data;
+  let raw;
+  let parsed;
+  try {
+    data = await geminiGenerate(apiKey, {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: voiceWithSchema,
+    });
+    raw = extractResponseText(data);
+    if (!raw) throw new Error("Empty response from Gemini");
+    parsed = extractJson(raw);
+  } catch (err) {
+    const msg = String(err?.message || err || "");
+    const isParseFailure = /did not return valid JSON|Empty response/i.test(msg);
+    if (isSchemaRejection(err) || isParseFailure) {
+      if (typeof console !== "undefined") {
+        console.warn(`Voice pass schema-attached generation failed (${isSchemaRejection(err) ? "schema-rejection" : "parse-failure"}), retrying without schema:`, msg.slice(0, 240));
+        if (raw) console.warn("Truncated/invalid voice pass raw response (first 500 chars):", String(raw).slice(0, 500));
+      }
+      data = await geminiGenerate(apiKey, {
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: voiceBaseConfig,
+      });
+      raw = extractResponseText(data);
+      if (!raw) throw new Error("Empty response from Gemini");
+      parsed = extractJson(raw);
+    } else {
+      throw err;
+    }
+  }
+  const out = Array.isArray(parsed?.slides) ? parsed.slides : [];
+  if (out.length !== sequence.length) throw new Error(`Voice pass returned ${out.length} slides, expected ${sequence.length}`);
+  return { slides: out, changed: true, reason: "voice-rewritten" };
 }
 
 // === CAROUSEL CRITIC (whole-carousel polish) ===
@@ -3688,6 +3829,8 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
     ...voiceBlock,
     ...purposeBlock,
     "You are generating an ENTIRE editorial Instagram carousel for CGE. The slides will be exported in order — write them as ONE coherent story, not isolated cards.",
+    "",
+    "NODE 1 — STRUCTURE PASS: your primary job here is STRUCTURE, FACTS, and ROUTING under schema pressure. The BRAND VOICE FINGERPRINT block above is signal, not a straitjacket — a downstream Node 2 (Voice Pass) will rewrite text-string field values to lock voice cadence, stance, and distance without touching JSON shape, facts, or routing. So: hit the schema, honor the beat + reserved proof for each slide, keep facts atomic, and don't strain to satisfy voice at the cost of a starved slot. If a slot's material is thin, keep it short and specific rather than padding — Node 2 can only rewrite what you route correctly, it cannot rescue empty structure or misrouted facts.",
     "",
     "QUALITY BAR — applies to EVERY slide, not just the cover:",
     "- ANTI-LITERALISM: The prompt uses labels like PARADOX, FRICTION, MECHANISM, GATE, and marker lines like '>>> BEAT: X <<<' as INTERNAL SCAFFOLDING for the outline. These are concepts, NOT visible copy. NEVER write these labels as text, headlines, kickers, or body — a cover headline that reads 'THE PARADOX' or a textTitle that reads 'FRICTION' or a kicker that reads 'MECHANISM' is failed output. Same rule for the words 'THESIS' and 'BEAT' — those are outline metadata. Every field you emit should be finished editorial copy that stands on its own.",
