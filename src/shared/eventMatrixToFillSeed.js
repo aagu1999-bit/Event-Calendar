@@ -3,6 +3,43 @@
 // anywhere (Matrix modal's "Preview Carousel" button, MediaTool's own
 // entry points, tests, future JSON exports).
 //
+// FEEDBACK MEMORY (Reject / Approve bank):
+// Each matrix carries two capped feedback logs — matrix.rejected_drafts
+// and matrix.approved_drafts — populated when the operator taps the
+// Reject or Approve buttons on a generated preview. Rather than storing
+// full slides (JSONB bloat), we store a compact digest per slide (type +
+// 60-char preview of the main text field) plus a reason for rejections.
+// summarizeSlidesForFeedback below produces the digest; it lives here
+// because both the modal (writing) and buildTemplatePrompt (reading)
+// need the same shape.
+
+// Compact one-line-per-slide summary for feedback storage. Digest goal:
+// enough shape for the writer to recognize "don't reproduce this failure"
+// or "hold this bar", without shipping full JSON payloads across every
+// subsequent generation.
+export function summarizeSlidesForFeedback(slides) {
+  if (!Array.isArray(slides)) return [];
+  return slides.map((s, i) => {
+    if (!s || typeof s !== "object") return { idx: i + 1, type: "unknown", digest: "" };
+    const type = String(s.type || "unknown");
+    // Field priority: pick the most visible / distinctive text field per slot type.
+    const fieldByType = {
+      cover: s.headline || s.subtitle,
+      news: s.newsHeadline || s.newsBody,
+      spotlight: s.spotName || s.spotMeta,
+      stat: s.statNumber ? `${s.statNumber} ${s.statLabel || ""}`.trim() : s.statSub,
+      text: s.textTitle || s.textBody,
+      cta: s.ctaDate || s.ctaVenue,
+      features: Array.isArray(s.features) && s.features.length
+        ? s.features.map((f) => f?.headline || "").filter(Boolean).slice(0, 2).join(" · ")
+        : "",
+    };
+    const raw = String(fieldByType[type] || s.headline || s.textTitle || s.spotName || "").trim();
+    const digest = raw.length > 60 ? `${raw.slice(0, 60)}…` : raw;
+    return { idx: i + 1, type, digest };
+  });
+}
+//
 // The mapping is intentionally deterministic so operators can predict
 // what a Preview Carousel click will do. If they want a different register
 // they can flip it inside the fill modal itself — the seed is a starting
@@ -152,6 +189,13 @@ export function eventMatrixToFillSeed(event) {
     // specific dates and future-tense promo language across every
     // slide. Feature carousels are dateless by definition.
     isEvergreen: m.event_tier === EVENT_TIERS.FEATURE.key,
+    // FEEDBACK MEMORY — carries previous Reject / Approve entries
+    // for THIS matrix so the writer prompt can inject "don't
+    // reproduce these failures" and "hold this bar" blocks. Each
+    // entry is { at, reason?, digest: [{idx, type, digest}, ...] }.
+    // Empty arrays when the matrix has no history.
+    rejectedDrafts: Array.isArray(m.rejected_drafts) ? m.rejected_drafts.slice(-3) : [],
+    approvedDrafts: Array.isArray(m.approved_drafts) ? m.approved_drafts.slice(-3) : [],
   };
 }
 // Reference DEMOGRAPHIC_PRESETS to keep the import for future use

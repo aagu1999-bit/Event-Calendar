@@ -2014,11 +2014,31 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
           initialVoiceParams={aiFillOverlaySeed.voiceParams}
           initialBehavioralTags={aiFillOverlaySeed.behavioralTags}
           initialIsEvergreen={aiFillOverlaySeed.isEvergreen}
+          initialRejectedDrafts={aiFillOverlaySeed.rejectedDrafts || []}
+          initialApprovedDrafts={aiFillOverlaySeed.approvedDrafts || []}
           onClose={() => { setAiFillOverlayOpen(false); setAiFillOverlaySeed(null); }}
           onAccept={(slides) => {
             if (typeof onAiFillAccept === "function") onAiFillAccept(slides, event);
             setAiFillOverlayOpen(false);
             setAiFillOverlaySeed(null);
+          }}
+          onSaveFeedback={(kind, entry) => {
+            // Persist to matrix.rejected_drafts / approved_drafts.
+            // Cap at 3 each, FIFO. Updates flow through the store's
+            // updateEventMatrix action which persists to the server
+            // via the existing upsertEvent path.
+            const currentMatrix = event?.matrix || {};
+            const patch = {};
+            if (kind === "reject") {
+              const prior = Array.isArray(currentMatrix.rejected_drafts) ? currentMatrix.rejected_drafts : [];
+              patch.rejected_drafts = [...prior, entry].slice(-3);
+            } else if (kind === "approve") {
+              const prior = Array.isArray(currentMatrix.approved_drafts) ? currentMatrix.approved_drafts : [];
+              patch.approved_drafts = [...prior, entry].slice(-3);
+            }
+            if (Object.keys(patch).length && event?.id != null && typeof updateEventMatrix === "function") {
+              updateEventMatrix(event.id, patch);
+            }
           }}
         />
       ) : null}

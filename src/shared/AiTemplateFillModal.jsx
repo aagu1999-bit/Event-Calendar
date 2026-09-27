@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useBrandStore, useCarouselTemplatesStore, BUILTIN_CAROUSEL_TEMPLATES } from "../store";
 import { generateTemplateFill, pickTemplate, generateArrangedCarousel, researchEvent, researchNews, connectDots, dotsPlanToSlides, readFlyer } from "./aiContent.js";
+import { summarizeSlidesForFeedback } from "./eventMatrixToFillSeed.js";
 
 // Scaffold that primes the Context box with the ingredients a strong hook
 // (esp. an open loop) needs: the TWIST is the curiosity gap, PROOF + WHAT
@@ -27,7 +28,7 @@ const CONTEXT_SCAFFOLD = [
 //   onClose()
 //   onAccept(slides)   — slides array matching the template's sequence
 
-export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTopic = "", initialContext = "", initialArrange = false, initialRegister = null, initialClusterDirective = "", initialClusterLabel = "", initialKeywordTrigger = null, initialVoiceParams = null, initialBehavioralTags = null, initialIsEvergreen = false, compactMode = false, onClose, onAccept }) {
+export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTopic = "", initialContext = "", initialArrange = false, initialRegister = null, initialClusterDirective = "", initialClusterLabel = "", initialKeywordTrigger = null, initialVoiceParams = null, initialBehavioralTags = null, initialIsEvergreen = false, initialRejectedDrafts = [], initialApprovedDrafts = [], compactMode = false, onClose, onAccept, onSaveFeedback = null }) {
   const voice = useBrandStore((s) => s.voice);
   const slotPrompts = useBrandStore((s) => s.slotPrompts);
   const addExemplar = useBrandStore((s) => s.addExemplar);
@@ -302,6 +303,11 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
         // Evergreen flag — suppresses TIMELY + HISTORICAL blocks
         // and enforces the EVERGREEN MANDATE when tier is FEATURE.
         isEvergreen: initialIsEvergreen,
+        // Feedback memory — previous Reject / Approve entries for
+        // THIS matrix. buildTemplatePrompt injects them as
+        // don't-reproduce and hold-the-bar blocks.
+        rejectedDrafts: initialRejectedDrafts,
+        approvedDrafts: initialApprovedDrafts,
       });
       setSlides(result);
     } catch (err) {
@@ -321,6 +327,39 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
     const clean = chosen.map(({ _warnings, ...rest }) => rest);
     onAccept(clean, pickedTemplate || template);
     onClose();
+  };
+
+  // ─── FEEDBACK MEMORY: Reject + Approve ──────────────────────
+  // Reject: capture a 1-line reason, save a compact digest of the whole
+  // draft to matrix.rejected_drafts, close modal. Approve: save digest to
+  // matrix.approved_drafts, then push as normal. Both write via the
+  // onSaveFeedback callback wired at the mount site (matrix modal has
+  // the eventId and updateEventMatrix in scope).
+  const [rejectPromptOpen, setRejectPromptOpen] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
+  const [feedbackSaved, setFeedbackSaved] = useState(null); // "rejected" | "approved" | null
+
+  const handleReject = () => {
+    if (!Array.isArray(slides) || !slides.length) return;
+    if (typeof onSaveFeedback !== "function") return;
+    const reason = rejectReason.trim() || "(no reason given)";
+    const digest = summarizeSlidesForFeedback(slides);
+    onSaveFeedback("reject", { at: new Date().toISOString(), reason, digest });
+    setFeedbackSaved("rejected");
+    setRejectPromptOpen(false);
+    setRejectReason("");
+    // Close after a moment so the operator sees the acknowledgement.
+    setTimeout(() => onClose(), 600);
+  };
+
+  const handleApprove = () => {
+    if (!Array.isArray(slides) || !slides.length) return;
+    if (typeof onSaveFeedback === "function") {
+      const digest = summarizeSlidesForFeedback(slides);
+      onSaveFeedback("approve", { at: new Date().toISOString(), digest });
+    }
+    // Approve = save + push. Fall through to the normal push flow.
+    handlePush();
   };
 
   // Re-roll a SINGLE slot, keeping every other slide as-is. Reuses the
@@ -1309,23 +1348,137 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
               })}
             </div>
 
-            <button
-              onClick={handlePush}
-              style={{
-                width: "100%",
-                padding: "12px 18px",
-                background: "#34D399",
-                color: "#000",
-                border: "none",
-                borderRadius: 4,
-                fontSize: "0.78rem",
-                fontWeight: 800,
-                letterSpacing: 1.2,
-                textTransform: "uppercase",
-                cursor: "pointer",
-                fontFamily: "'Syne',sans-serif",
-              }}
-            >→ Push {keptIdx.size} of {slides.length} slides to carousel</button>
+            {/* Feedback memory acknowledgement banner — shows after Reject */}
+            {feedbackSaved === "rejected" && (
+              <div style={{
+                marginBottom: 10, padding: "9px 12px",
+                background: "rgba(251,113,133,0.08)",
+                border: "1px solid rgba(251,113,133,0.32)",
+                borderRadius: 5,
+                fontSize: "0.72rem",
+                color: "#FB7185",
+                letterSpacing: 0.3,
+                lineHeight: 1.4,
+              }}>
+                ✓ Rejection saved to matrix memory. The next generation for this event will avoid the failure mode.
+              </div>
+            )}
+            {/* Reject reason prompt — inline; renders in place of the button row */}
+            {rejectPromptOpen ? (
+              <div style={{
+                marginBottom: 10, padding: "10px 12px",
+                background: "rgba(251,113,133,0.06)",
+                border: "1px solid rgba(251,113,133,0.32)",
+                borderRadius: 5,
+              }}>
+                <label style={{
+                  fontSize: "0.55rem",
+                  letterSpacing: 1.4,
+                  textTransform: "uppercase",
+                  fontWeight: 700,
+                  color: "#FB7185",
+                  display: "block",
+                  marginBottom: 6,
+                }}>
+                  Why reject? (1 line — helps the writer avoid this next time)
+                </label>
+                <textarea
+                  value={rejectReason}
+                  onChange={(e) => setRejectReason(e.target.value)}
+                  rows={2}
+                  autoFocus
+                  placeholder='e.g. "wall of text on cover — needs a real hook", "slide 3 was empty", "voice drifted grantwriter"'
+                  style={{
+                    width: "100%", padding: "8px 10px",
+                    background: "#111",
+                    border: "1px solid rgba(251,113,133,0.25)",
+                    borderRadius: 4,
+                    color: "#F5F0E8",
+                    fontFamily: "inherit",
+                    fontSize: "0.75rem",
+                    outline: "none",
+                    boxSizing: "border-box",
+                    resize: "vertical",
+                    marginBottom: 8,
+                  }}
+                />
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    onClick={handleReject}
+                    style={{
+                      flex: 1,
+                      padding: "8px 12px",
+                      background: "#FB7185",
+                      color: "#000",
+                      border: "none",
+                      borderRadius: 4,
+                      fontSize: "0.68rem",
+                      fontWeight: 800,
+                      letterSpacing: 1.2,
+                      textTransform: "uppercase",
+                      cursor: "pointer",
+                      fontFamily: "'Syne',sans-serif",
+                    }}
+                  >Save rejection</button>
+                  <button
+                    onClick={() => { setRejectPromptOpen(false); setRejectReason(""); }}
+                    style={{
+                      padding: "8px 14px",
+                      background: "transparent",
+                      color: "rgba(245,240,232,0.6)",
+                      border: "1px solid rgba(245,240,232,0.15)",
+                      borderRadius: 4,
+                      fontSize: "0.68rem",
+                      fontWeight: 700,
+                      letterSpacing: 1,
+                      textTransform: "uppercase",
+                      cursor: "pointer",
+                      fontFamily: "'Syne',sans-serif",
+                    }}
+                  >Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: "flex", gap: 8 }}>
+                {typeof onSaveFeedback === "function" && (
+                  <button
+                    onClick={() => setRejectPromptOpen(true)}
+                    title="Save this draft as a rejection with a reason — feeds into the writer's next attempt on this matrix"
+                    style={{
+                      padding: "12px 14px",
+                      background: "transparent",
+                      color: "#FB7185",
+                      border: "1px solid rgba(251,113,133,0.4)",
+                      borderRadius: 4,
+                      fontSize: "0.68rem",
+                      fontWeight: 800,
+                      letterSpacing: 1,
+                      textTransform: "uppercase",
+                      cursor: "pointer",
+                      fontFamily: "'Syne',sans-serif",
+                      whiteSpace: "nowrap",
+                    }}
+                  >👎 Reject &amp; learn</button>
+                )}
+                <button
+                  onClick={typeof onSaveFeedback === "function" ? handleApprove : handlePush}
+                  style={{
+                    flex: 1,
+                    padding: "12px 18px",
+                    background: "#34D399",
+                    color: "#000",
+                    border: "none",
+                    borderRadius: 4,
+                    fontSize: "0.78rem",
+                    fontWeight: 800,
+                    letterSpacing: 1.2,
+                    textTransform: "uppercase",
+                    cursor: "pointer",
+                    fontFamily: "'Syne',sans-serif",
+                  }}
+                >{typeof onSaveFeedback === "function" ? "👍 " : ""}→ Push {keptIdx.size} of {slides.length} slides to carousel</button>
+              </div>
+            )}
           </>
         )}
       </div>
