@@ -2688,8 +2688,34 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
 // bullets by role (proves the thesis / macro context / veto candidate) so
 // the fill call gets an authoritative discard list instead of feeling
 // obligated to consume every bullet.
+// Spine mode inference — detects whether this carousel wants an
+// INSIGHT arc (one argument escalating across slides — PARADOX →
+// FRICTION → MECHANISM → GATE) or a SHOWCASE directory (multiple
+// peer entities carrying equal editorial weight — OVERTURE →
+// SPOTLIGHT × N → CODA). The trigger is the slot sequence itself:
+// a template with 3+ spotlight slots is a showcase by construction
+// (Feature Drop, Editorial Roundup, city guide), and forcing it
+// through a four-beat argument makes each spotlight read as a
+// different phase of one thesis instead of a peer entry.
+//
+// The distinction was previously implicit — the spine always used
+// the INSIGHT beat map regardless of template, and the writer's
+// per-slot spotlight instructions carried the "each covers a
+// distinct entity" contract. That worked for the writer but the
+// spine's proofAssignments still felt argument-shaped ("this proof
+// escalates the argument"), which fought showcase templates at the
+// outline layer.
+//
+// Explicit here → downstream can also render the mode as a badge if
+// useful, and the spine's prompt is properly matched to the shape.
+export function inferSpineMode(sequence = []) {
+  const spotlightCount = sequence.filter((t) => t === "spotlight").length;
+  return spotlightCount >= 3 ? "showcase" : "insight";
+}
+
 export async function generateNarrativeSpine({ apiKey, topic, context, clusterDirective, clusterLabel, sequence, mode, today, letterMode }) {
   const slideCount = sequence.length;
+  const spineMode = inferSpineMode(sequence);
 
   // Geographic grouping pre-pass — extract cities from each context
   // bullet. If 2+ distinct cities appear, we inject a GEOGRAPHIC
@@ -2749,17 +2775,39 @@ export async function generateNarrativeSpine({ apiKey, topic, context, clusterDi
     ] : []),
     ...geographicClusteringBlock,
     ...typologyDiversityBlock,
+    ...(spineMode === "showcase" ? [
+      "═════════════════════════════",
+      "SPINE MODE — SHOWCASE (this carousel has 3+ spotlight slots).",
+      "═════════════════════════════",
+      "This is NOT an argument arc; it is a DIRECTORY. Each spotlight slide is a PEER ENTRY — a distinct entity carrying equal editorial weight, not a phase of one thesis. Do NOT force PARADOX → FRICTION → MECHANISM onto peer spotlights; each spotlight stands on its own as ONE unit in the collection.",
+      "",
+    ] : []),
     "Return a spine with:",
-    '  - thesis: ONE sentence naming the singular tension this carousel exposes. Concrete, not abstract. Not a topic ("Diaspora Infrastructure") but a claim ("Newark\'s Portuguese social clubs quietly do what commercial nightlife charges $60 a table for").',
-    "  - beats: an ordered array of 4 beats mapping to slides in this order:",
-    "      1. PARADOX — name the specific conflict/paradox this carousel opens. NO stats, NO conclusions. Sets the tension.",
-    "      2. FRICTION — why the obvious answer fails (commercial cost, zoning, cultural gatekeeping, geographic distance).",
-    "      3. MECHANISM — the unseen infrastructure/venue/collective actually solving it. THIS is where a focused metric lands if one exists.",
-    "      4. GATE — the ask: the specific action or keyword access. Never a limp 'link in bio'.",
-    "    If the topic genuinely calls for a different arc (e.g. sonic-history: ORIGIN → BREAK → LEGACY → NOW), use those beats instead — but keep the count at 4 and the shape identical.",
-    "  - slideAssignments: an array of length equal to slide count. Each entry is the beat label (PARADOX/FRICTION/MECHANISM/GATE — or your adapted labels) that this slide serves. Distribute the beats across the slides (typically the last slide is GATE; the beats spread across the middle).",
-    "  - bulletRoles: object mapping each context bullet (verbatim, first 60 chars as key) to ONE role: 'proof' (proves the thesis, must be used), 'context' (background, may be used), or 'veto' (breaks the argument's geographic/thematic focus — DISCARD, must NOT appear in any slide). Every context bullet must be classified. Be willing to VETO — a bullet from Hasbrouck Heights in a Somerset County carousel is a veto; a bullet about restaurants in a nightlife carousel is a veto.",
-    "  - proofAssignments: object mapping each PROOF bullet (same 60-char key) to the SINGLE slide index (1-based, 2 or later — see Macro-Cover Mandate) where that specific fact should land. Every PROOF bullet MUST be assigned to exactly ONE slide — no bullet appears on two slides, no slide gets two PROOFS. If two facts belong on the same beat, pick the stronger one for the primary slide and either assign the second to a different beat or downgrade it to 'context'. This is the deduplication contract — the fill call is not allowed to spread one bullet across multiple slides in different words.",
+    ...(spineMode === "showcase" ? [
+      '  - thesis: ONE sentence naming the PATTERN this collection represents. Not a claim about one entity but the through-line across the spotlights ("Six NJ listening bars where the vinyl is on speakers you can actually hear," "The Central Jersey run clubs that replaced Hinge"). Concrete pattern → concrete collection.',
+      "  - beats: an ordered array mapping to the showcase shape:",
+      "      1. OVERTURE — the umbrella framing on slide 1: names the pattern and opens the loop, without anchoring on any single entity.",
+      "      2. SHOWCASE — each spotlight slide carries ONE peer entity. Beats 2..N-1 are all SHOWCASE — no argument escalation between them; they are equal-weight entries. If a bridge slide (news/text) sits between spotlights it can be labeled CONTEXT (background on the pattern) or omit a beat entirely.",
+      "      3. CODA — the closing: last slide is the ask (CTA / GATE / directory close). Never a limp 'link in bio'.",
+      "    Use SHOWCASE as the beat label for every peer entry — do NOT invent per-entity labels ('SHOWCASE_A', 'ROSE_PICK'). The identical label is correct; the ENTITY inside each spotlight is what varies.",
+      "  - slideAssignments: an array of length equal to slide count. Slide 1 = OVERTURE; every spotlight slide = SHOWCASE; a non-spotlight bridge slide = CONTEXT; last slide = CODA. Peer entries share the same label by design.",
+    ] : [
+      '  - thesis: ONE sentence naming the singular tension this carousel exposes. Concrete, not abstract. Not a topic ("Diaspora Infrastructure") but a claim ("Newark\'s Portuguese social clubs quietly do what commercial nightlife charges $60 a table for").',
+      "  - beats: an ordered array of 4 beats mapping to slides in this order:",
+      "      1. PARADOX — name the specific conflict/paradox this carousel opens. NO stats, NO conclusions. Sets the tension.",
+      "      2. FRICTION — why the obvious answer fails (commercial cost, zoning, cultural gatekeeping, geographic distance).",
+      "      3. MECHANISM — the unseen infrastructure/venue/collective actually solving it. THIS is where a focused metric lands if one exists.",
+      "      4. GATE — the ask: the specific action or keyword access. Never a limp 'link in bio'.",
+      "    If the topic genuinely calls for a different arc (e.g. sonic-history: ORIGIN → BREAK → LEGACY → NOW), use those beats instead — but keep the count at 4 and the shape identical.",
+      "  - slideAssignments: an array of length equal to slide count. Each entry is the beat label (PARADOX/FRICTION/MECHANISM/GATE — or your adapted labels) that this slide serves. Distribute the beats across the slides (typically the last slide is GATE; the beats spread across the middle).",
+    ]),
+    ...(spineMode === "showcase" ? [
+      "  - bulletRoles: object mapping each context bullet (verbatim, first 60 chars as key) to ONE role: 'proof' (a peer entity that will fill a spotlight slot), 'context' (background on the pattern, may be used in bridge slides or the overture), or 'veto' (doesn't fit the pattern's collection — DISCARD, must NOT appear in any slide). In showcase mode, EVERY spotlight slot expects a distinct proof entity — the ecosystem of peer entries IS the carousel.",
+      "  - proofAssignments: object mapping each PROOF bullet (same 60-char key) to the SINGLE slide index (1-based, 2 or later — see Macro-Cover Mandate) where that peer entity lands. In showcase mode: one proof entity per spotlight slot, one spotlight slot per proof entity. No spotlight gets two entities, no entity gets two spotlights. If you have MORE proof entities than spotlight slots, downgrade the least-fitting entities to 'context' (they may still appear as background); NEVER stack two entities on one spotlight.",
+    ] : [
+      "  - bulletRoles: object mapping each context bullet (verbatim, first 60 chars as key) to ONE role: 'proof' (proves the thesis, must be used), 'context' (background, may be used), or 'veto' (breaks the argument's geographic/thematic focus — DISCARD, must NOT appear in any slide). Every context bullet must be classified. Be willing to VETO — a bullet from Hasbrouck Heights in a Somerset County carousel is a veto; a bullet about restaurants in a nightlife carousel is a veto.",
+      "  - proofAssignments: object mapping each PROOF bullet (same 60-char key) to the SINGLE slide index (1-based, 2 or later — see Macro-Cover Mandate) where that specific fact should land. Every PROOF bullet MUST be assigned to exactly ONE slide — no bullet appears on two slides, no slide gets two PROOFS. If two facts belong on the same beat, pick the stronger one for the primary slide and either assign the second to a different beat or downgrade it to 'context'. This is the deduplication contract — the fill call is not allowed to spread one bullet across multiple slides in different words.",
+    ]),
     "",
     "MACRO-COVER MANDATE — this rule OVERRIDES any other bullet-assignment instinct:",
     "  Slide 1 (COVER) is the UMBRELLA. It states the thesis as a hook and opens the loop.",
@@ -2771,10 +2819,17 @@ export async function generateNarrativeSpine({ apiKey, topic, context, clusterDi
     "  If you have MORE proof-role bullets than available non-cover, non-CTA content slots, DOWNGRADE the excess bullets to 'context' role (not 'proof'). Never leave a proof bullet unassigned.",
     "  If you have FEWER proof bullets than content slots, that's fine — leave the extra slots without proofAssignments and the writer will carry them with framing / context bullets. That's a separate case from dropping a proof.",
     `  - recommendedSlideCount: the honest number of slides this material can support without repeating facts (integer, between 3 and ${slideCount} inclusive). If the operator picked ${slideCount} slides but you only have 3 proof bullets and no additional systemic tension worth writing about, return 4 or 5, NOT ${slideCount}. This is the editorial compression call — better to ship a tight 4-slide carousel than a stretched 7 that paraphrases the same 3 facts. Only return the operator's full count if the material genuinely earns it (rich proof list, distinct beats, complex mechanism).`,
-    "  - causalSynthesis: EXACTLY 2 sentences that model the causal chain the carousel will dramatize. Sentence 1 names the SYSTEMIC RULE, PRESSURE, or CONSTRAINT the material implies — a policy, a zoning cap, a cost, a demographic shift, an ordinance, a market condition. Sentence 2 names how the specific VENUE / OPERATOR / SOLUTION responds to that pressure. Example: 'State decibel caps make big sound rigs a liability in mixed-use neighborhoods. In response, venues like LoFi pivot to low-decibel, high-margin vinyl nights to keep the crowd without breaking the law.' Concrete rule → concrete response. NO abstract musing, NO 'this shows how culture adapts', NO grantwriter register. This is the completed reasoning the writer will execute against — with this in hand, the writer's job is voice + format, not re-derivation. Rewrite it two or three times in your head before returning; make sure sentence 2 is a direct RESPONSE to the pressure named in sentence 1.",
+    ...(spineMode === "showcase" ? [
+      "  - causalSynthesis: EXACTLY 2 sentences that model the ECOSYSTEM this collection represents. Sentence 1 names the through-line — what distinguishes THESE entities from adjacent options ('quiet listening rooms that treat vinyl as the headliner, not the atmosphere', 'run clubs that outgrew a hobby and became social infrastructure'). Sentence 2 names one shared TRAIT or SIGNAL the peer entries carry ('curated speaker rigs, low-decibel licensing, small capacities under 100', 'consistent Saturday cadence, a coffee handoff after, a founding operator who runs it as a project not a business'). Concrete pattern → concrete shared trait. NO abstract musing, NO 'this shows how community forms', NO grantwriter register. This is the ecosystem the writer will characterize.",
+    ] : [
+      "  - causalSynthesis: EXACTLY 2 sentences that model the causal chain the carousel will dramatize. Sentence 1 names the SYSTEMIC RULE, PRESSURE, or CONSTRAINT the material implies — a policy, a zoning cap, a cost, a demographic shift, an ordinance, a market condition. Sentence 2 names how the specific VENUE / OPERATOR / SOLUTION responds to that pressure. Example: 'State decibel caps make big sound rigs a liability in mixed-use neighborhoods. In response, venues like LoFi pivot to low-decibel, high-margin vinyl nights to keep the crowd without breaking the law.' Concrete rule → concrete response. NO abstract musing, NO 'this shows how culture adapts', NO grantwriter register. This is the completed reasoning the writer will execute against — with this in hand, the writer's job is voice + format, not re-derivation. Rewrite it two or three times in your head before returning; make sure sentence 2 is a direct RESPONSE to the pressure named in sentence 1.",
+    ]),
     "",
     'Return ONLY JSON in this exact shape:',
-    '{"thesis":"...","beats":[{"label":"PARADOX","description":"..."},{"label":"FRICTION","description":"..."},{"label":"MECHANISM","description":"..."},{"label":"GATE","description":"..."}],"slideAssignments":["PARADOX","FRICTION","FRICTION","MECHANISM","MECHANISM","GATE"],"bulletRoles":{"first 60 chars of bullet":"proof|context|veto"},"proofAssignments":{"first 60 chars of bullet":3},"recommendedSlideCount":6,"causalSynthesis":"Systemic-rule sentence. Venue-response sentence."}',
+    (spineMode === "showcase"
+      ? '{"thesis":"...","beats":[{"label":"OVERTURE","description":"..."},{"label":"SHOWCASE","description":"..."},{"label":"CODA","description":"..."}],"slideAssignments":["OVERTURE","SHOWCASE","SHOWCASE","SHOWCASE","SHOWCASE","CODA"],"bulletRoles":{"first 60 chars of bullet":"proof|context|veto"},"proofAssignments":{"first 60 chars of bullet":3},"recommendedSlideCount":6,"causalSynthesis":"Ecosystem through-line sentence. Shared-trait sentence."}'
+      : '{"thesis":"...","beats":[{"label":"PARADOX","description":"..."},{"label":"FRICTION","description":"..."},{"label":"MECHANISM","description":"..."},{"label":"GATE","description":"..."}],"slideAssignments":["PARADOX","FRICTION","FRICTION","MECHANISM","MECHANISM","GATE"],"bulletRoles":{"first 60 chars of bullet":"proof|context|veto"},"proofAssignments":{"first 60 chars of bullet":3},"recommendedSlideCount":6,"causalSynthesis":"Systemic-rule sentence. Venue-response sentence."}'
+    ),
   ];
   const data = await geminiGenerate(apiKey, {
     contents: [{ parts: [{ text: promptLines.join("\n") }] }],
@@ -2862,7 +2917,7 @@ export async function generateNarrativeSpine({ apiKey, topic, context, clusterDi
   if (dropped.length) {
     throw new Error(`Spine violated Entity Prioritization: ${dropped.length} proof bullet(s) were classified 'proof' but not assigned to any slide — dropped entities: ${dropped.map(b => `"${b}"`).join(", ")}. Every proof MUST land on slides 2+, or be downgraded to 'context'.`);
   }
-  return { thesis, beats, slideAssignments, bulletRoles, proofAssignments, recommendedSlideCount, causalSynthesis };
+  return { thesis, beats, slideAssignments, bulletRoles, proofAssignments, recommendedSlideCount, causalSynthesis, spineMode };
 }
 
 // Deterministic CTA stitch — when the operator has set a DM keyword trigger,
@@ -3770,10 +3825,21 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
     // Cover slots get the Macro-Cover Mandate directive — umbrella, no
     // specific-entity anchor. All other slots get the standard beat +
     // Reserved PROOF (or the no-proof fallback) directive.
+    //
+    // SHOWCASE mode override: when the spine is in showcase mode, non-
+    // cover peer entries share the "SHOWCASE" beat label by design.
+    // A generic "this slide advances ONLY this beat" clause reads as
+    // "make it different from slides 2 and 4 that ALSO advance
+    // SHOWCASE" — that fights the whole point of a directory carousel.
+    // Reword to signal peer-entry semantics instead.
+    const spineMode = narrativeSpine?.spineMode || "insight";
+    const isShowcasePeer = spineMode === "showcase" && beatLabel === "SHOWCASE";
     const beatPrefix = beatLabel
       ? (slotType === "cover"
           ? `>>> BEAT: ${beatLabel} — MACRO-COVER: this slide states the THESIS as an UMBRELLA. Do NOT anchor the cover on any single venue, entity, or specific fact from the context — those specifics land on later slides. If you make the cover about "the run club" or "Club Zanzibar", the reader expects the rest of the carousel to be about THAT one thing, and slides 3-5 will feel like non-sequiturs. Instead, summarize the argument, open a curiosity loop, name the CATEGORY / PATTERN / TENSION (not the instance). <<<\n`
-          : `>>> BEAT: ${beatLabel} — this slide advances ONLY this beat, no other.${reservedProof ? ` Reserved PROOF for this slide: "${reservedProof}..." — this bullet lands HERE and NOWHERE ELSE in the carousel.${timelyClause}` : " NO proof bullet is reserved for this slide — do NOT reach for a proof already assigned to another slide; carry the beat with tension, framing, or a specific from context marked 'context' (not 'proof')."} <<<\n`)
+          : isShowcasePeer
+            ? `>>> BEAT: SHOWCASE — this is a PEER ENTRY in a directory. Slides sharing this label are equal-weight entries in the collection — do NOT position this one as "the next phase" of an argument the previous slide started. Each SHOWCASE slide carries ONE distinct entity from the collection. ${reservedProof ? `Reserved PROOF (entity) for this slide: "${reservedProof}..." — this entity lands HERE and NOWHERE ELSE in the carousel.${timelyClause}` : "NO proof entity is reserved for this slide — do NOT reach for an entity already assigned to another peer slot; carry this entry with a specific from context marked 'context' or leave it lighter than the sibling entries."} <<<\n`
+            : `>>> BEAT: ${beatLabel} — this slide advances ONLY this beat, no other.${reservedProof ? ` Reserved PROOF for this slide: "${reservedProof}..." — this bullet lands HERE and NOWHERE ELSE in the carousel.${timelyClause}` : " NO proof bullet is reserved for this slide — do NOT reach for a proof already assigned to another slide; carry the beat with tension, framing, or a specific from context marked 'context' (not 'proof')."} <<<\n`)
       : "";
     if (!rule) {
       return `SLIDE ${idx + 1} (${slotType.toUpperCase()}) — no rule defined; produce reasonable defaults matching brand voice.\n${doctrinePrefix}${beatPrefix}${refPrefix}`;
