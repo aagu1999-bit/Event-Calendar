@@ -221,6 +221,30 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
   const [draftingHook, setDraftingHook] = useState(false);
   const [hookError, setHookError] = useState(null);
 
+  // ─── SYNTHESIS SNAPSHOTS (staleness detection) ────────────────
+  // The matrix looks like a top-down cascade in the UI (Cluster →
+  // LENS → POV → Hook → Anchors) but the actual data-flow is
+  // OPT-IN RE-SYNTHESIS: each synth button (Reframe LENS, Draft
+  // Thesis, Draft Hook, Fuel Research) reads a specific set of
+  // upstream fields and writes ONE downstream field. Nothing auto-
+  // cascades — a downstream field just goes stale silently when an
+  // upstream field changes after synthesis.
+  //
+  // These refs record the input signature at the moment each synth
+  // succeeded. Rendering compares current inputs to the snapshot and
+  // marks the derived field STALE when they diverge. The operator
+  // sees a small chip that says either "◇ synthesized from …" or
+  // "⚠ STALE — inputs changed, resynthesize."
+  //
+  // In-modal state (not persisted): survives edits during one open
+  // session; resets on modal close. That's fine — staleness is a
+  // now-signal, not a durable record.
+  const [lensSnapshot, setLensSnapshot] = useState(null);
+  const [thesisSnapshot, setThesisSnapshot] = useState(null);
+  const [hookSnapshot, setHookSnapshot] = useState(null);
+  const [researchSnapshot, setResearchSnapshot] = useState(null);
+  const stringifyInputs = (obj) => JSON.stringify(obj || {});
+
   // Argument Coherence check (Gemini Flash-Lite) state — adversarial
   // pre-generation critic. Reads hook + POV + anchors and returns
   // verdict: "coherent" | "thin" | "mismatched" + gaps.
@@ -372,6 +396,76 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
     return `“${trigger}” doesn't echo the topic — the CTA reads “Comment ‘${trigger}’ below” and readers hesitate to type words that feel disconnected. Consider one that lifts a core word from the hook or event name.`;
   }, [local.keyword_trigger, local.hook_a_side, local.editorial_pov, event?.name]);
 
+  // ─── STALENESS MEMOS (derived-field freshness) ────────────────
+  // Compare each synthesizer's stored snapshot against current
+  // matrix values. When any input has changed since the synth
+  // ran, the derived field is stale and the UI flashes a marker.
+  //
+  // Same-shape signatures for cheap diff.
+  const lensStale = useMemo(() => {
+    if (!lensSnapshot) return false;
+    return stringifyInputs({
+      cluster: local.cluster,
+      corridor: local.corridor,
+      emotion: local.target_emotion,
+      demographics: [...selectedDemographics].sort(),
+    }) !== stringifyInputs(lensSnapshot);
+  }, [lensSnapshot, local.cluster, local.corridor, local.target_emotion, selectedDemographics]);
+
+  const thesisStale = useMemo(() => {
+    if (!thesisSnapshot) return false;
+    return stringifyInputs({
+      cluster: local.cluster,
+      corridor: local.corridor,
+      emotion: local.target_emotion,
+      demographics: [...selectedDemographics].sort(),
+    }) !== stringifyInputs(thesisSnapshot);
+  }, [thesisSnapshot, local.cluster, local.corridor, local.target_emotion, selectedDemographics]);
+
+  const hookStale = useMemo(() => {
+    if (!hookSnapshot) return false;
+    return stringifyInputs({
+      cluster: local.cluster,
+      pov: local.editorial_pov,
+      emotion: local.target_emotion,
+      demographics: [...selectedDemographics].sort(),
+    }) !== stringifyInputs(hookSnapshot);
+  }, [hookSnapshot, local.cluster, local.editorial_pov, local.target_emotion, selectedDemographics]);
+
+  const researchStale = useMemo(() => {
+    if (!researchSnapshot) return false;
+    return stringifyInputs({
+      cluster: local.cluster,
+      corridor: local.corridor,
+      pov: local.editorial_pov,
+      hook: local.hook_a_side,
+      tier: local.event_tier,
+      editorial_lens: local.editorial_lens,
+      demographics: [...selectedDemographics].sort(),
+    }) !== stringifyInputs(researchSnapshot);
+  }, [researchSnapshot, local.cluster, local.corridor, local.editorial_pov, local.hook_a_side, local.event_tier, local.editorial_lens, selectedDemographics]);
+
+  // Compact chip renderer — one line per derived field.
+  //   fresh: shows "◇ synthesized from X · Y · Z" in muted color
+  //   stale: shows "⚠ STALE — inputs changed since synthesis" in warn color
+  //   never-synthesized: null (chip doesn't render at all)
+  const renderStalenessChip = (label, snapshot, isStale, inputsLabel) => {
+    if (!snapshot) return null;
+    return (
+      <div style={{
+        fontSize: "0.6rem",
+        marginTop: 4,
+        letterSpacing: "0.03em",
+        color: isStale ? warn : faint,
+        lineHeight: 1.5,
+      }}>
+        {isStale
+          ? `⚠ STALE — ${inputsLabel} changed since ${label} was synthesized · re-run to refresh`
+          : `◇ ${label} synthesized from ${inputsLabel}`}
+      </div>
+    );
+  };
+
   // Live entity-overlap detector — runs on the FULL bullet list so
   // both typed and Perplexity-returned anchors get checked. Same
   // heuristic as the server-side detectEntityOverlap: extract
@@ -497,6 +591,18 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
       // rows in the current list.
       setOverlapOffset(bullets.length);
       setOverlaps(Array.isArray(j.overlaps) ? j.overlaps : []);
+      // Snapshot Fuel Research inputs so staleness detector flags
+      // the anchors when the operator later changes cluster / POV /
+      // hook / demographic / lens / tier after research was fetched.
+      setResearchSnapshot({
+        cluster: local.cluster,
+        corridor: local.corridor,
+        pov: local.editorial_pov,
+        hook: local.hook_a_side,
+        tier: local.event_tier,
+        editorial_lens: local.editorial_lens,
+        demographics: [...selectedDemographics].sort(),
+      });
     } catch (err) {
       setResearchError(String(err?.message || err));
     } finally {
@@ -569,6 +675,15 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
       }
       lastAutoPOVRef.current = thesis;
       applyPatch({ editorial_pov: thesis });
+      // Snapshot the exact inputs this synth ran on — staleness
+      // detector compares current values to this and flashes STALE
+      // when any change.
+      setThesisSnapshot({
+        cluster: local.cluster,
+        corridor: local.corridor,
+        emotion: local.target_emotion,
+        demographics: [...selectedDemographics].sort(),
+      });
     } catch (err) {
       setSynthError(String(err?.message || err));
     } finally {
@@ -612,6 +727,12 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
         return;
       }
       applyPatch({ hook_a_side: hook });
+      setHookSnapshot({
+        cluster: local.cluster,
+        pov: local.editorial_pov,
+        emotion: local.target_emotion,
+        demographics: [...selectedDemographics].sort(),
+      });
     } catch (err) {
       setHookError(String(err?.message || err));
     } finally {
@@ -698,6 +819,12 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
         return;
       }
       applyPatch({ editorial_lens: reframe });
+      setLensSnapshot({
+        cluster: local.cluster,
+        corridor: local.corridor,
+        emotion: local.target_emotion,
+        demographics: [...selectedDemographics].sort(),
+      });
     } catch (err) {
       setLensReframeError(String(err?.message || err));
     } finally {
@@ -1088,6 +1215,52 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
             </div>
           )}
 
+          {/* ═════════════════════════════
+              DATA FLOW MAP
+              ═════════════════════════════
+              The matrix looks top-down in the UI, but the actual
+              data flow is OPT-IN RE-SYNTHESIS — each synth button
+              reads a specific set of upstream fields and writes ONE
+              downstream field. Nothing auto-cascades. Downstream
+              fields go stale silently when upstream changes.
+              This panel names the dependency graph explicitly so
+              the operator's mental model matches the actual code. */}
+          <details style={{
+            marginBottom: 12,
+            border: `1px dashed ${whisper}`,
+            borderRadius: 6,
+            background: "rgba(99,179,237,0.02)",
+          }}>
+            <summary style={{
+              padding: "8px 12px",
+              cursor: "pointer",
+              fontSize: "0.6rem",
+              letterSpacing: "0.12em",
+              textTransform: "uppercase",
+              fontWeight: 700,
+              color: "#63B3ED",
+              listStyle: "none",
+            }}>
+              ▸ Data flow · what reads from what (open to see the dependency graph)
+            </summary>
+            <div style={{ padding: "6px 14px 12px", fontSize: "0.66rem", color: "rgba(245,240,232,0.75)", lineHeight: 1.7 }}>
+              <div style={{ marginBottom: 6, color: faint, fontStyle: "italic" }}>
+                Nothing auto-cascades — every downstream field is written by a manual synth button. When you change an upstream field after synthesizing a downstream, the downstream goes stale and shows a "⚠ STALE" chip below it.
+              </div>
+              <div style={{ marginTop: 8, fontFamily: "'JetBrains Mono', monospace", fontSize: "0.62rem", lineHeight: 1.75 }}>
+                <div><b style={{ color: cream }}>Cluster</b> · Corridor · Emotion · Demographic  <span style={{ color: faint }}>→ (click ✨ Reframe LENS)</span>  <b style={{ color: "#A78BFA" }}>editorial_lens (narrowing)</b></div>
+                <div><b style={{ color: cream }}>Cluster</b> · Corridor · Emotion · Demographic  <span style={{ color: faint }}>→ (click ✨ Draft Thesis)</span>  <b style={{ color: "#A78BFA" }}>editorial_pov</b></div>
+                <div><b style={{ color: cream }}>Cluster</b> · POV · Emotion · Demographic  <span style={{ color: faint }}>→ (click ✨ Draft Hook)</span>  <b style={{ color: "#A78BFA" }}>hook_a_side</b></div>
+                <div><b style={{ color: cream }}>Cluster</b> · Corridor · POV · Hook · Tier · LENS · Demographic  <span style={{ color: faint }}>→ (click 🔮 Fuel Research)</span>  <b style={{ color: "#A78BFA" }}>data_points (anchors)</b></div>
+                <div><b style={{ color: cream }}>Distance</b> · Cadence · Stance · Cluster  <span style={{ color: faint }}>→ (click 🎙 New Preview)</span>  <b style={{ color: "#A78BFA" }}>voice preview (not stored)</b></div>
+                <div><b style={{ color: cream }}>Hook</b> · POV · Anchors · Cluster  <span style={{ color: faint }}>→ (click 🔎 Check argument)</span>  <b style={{ color: "#A78BFA" }}>coherence verdict</b></div>
+              </div>
+              <div style={{ marginTop: 10, color: faint, fontStyle: "italic" }}>
+                Values you TYPE (Hook, POV, LENS narrowing, anchors) never trigger synth automatically — the button is always the trigger. That's by design so a stray edit doesn't overwrite a carefully-crafted downstream field. Downstream reads UPSTREAM: LENS/POV/Hook all read the same Cluster+Emotion+Demographic; Fuel Research reads everything above it; Coherence Check reads everything.
+              </div>
+            </div>
+          </details>
+
           {/* Tier */}
           <div>
             <div style={groupLabelStyle}><span style={{ width: 3, height: 12, background: orbit, borderRadius: 2, display: "inline-block" }} />Event Tier</div>
@@ -1245,6 +1418,7 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
                       ⚠️ {lensReframeError}
                     </div>
                   ) : null}
+                  {renderStalenessChip("LENS narrowing", lensSnapshot, lensStale, "cluster · corridor · emotion · demographic")}
                 </div>
               ) : (
                 <div style={hintStyle}>Editorial axis · locks the AI's analytical lens for research + carousel copy</div>
@@ -1630,6 +1804,7 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
                 {hookClash.level === "conflict" ? "⚠ " : "◇ "}Hook ↔ Voice {hookClash.level}: {hookClash.note}
               </div>
             ) : null}
+            {renderStalenessChip("Hook A-side", hookSnapshot, hookStale, "cluster · POV · emotion · demographic")}
           </div>
 
           {/* Hook B */}
@@ -1711,6 +1886,7 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
                 ⚠️ {synthError}
               </div>
             ) : null}
+            {renderStalenessChip("Editorial POV", thesisSnapshot, thesisStale, "cluster · corridor · emotion · demographic")}
           </div>
 
           {/* Research Anchors (internal field: data_points) */}
@@ -1862,6 +2038,7 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
                 ⚠ Fuel Research: {researchError}
               </div>
             )}
+            {renderStalenessChip("Research Anchors (last Fuel Research)", researchSnapshot, researchStale, "cluster · corridor · POV · hook · tier · lens · demographic")}
             {researchPhase && (
               <div style={{
                 marginTop: 8,
