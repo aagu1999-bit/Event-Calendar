@@ -193,6 +193,18 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
   const [researchPhase, setResearchPhase] = useState(null);
   const [researchDroppedCount, setResearchDroppedCount] = useState(0);
   const [researchVerificationError, setResearchVerificationError] = useState(null);
+  // Entity overlap warnings — set from server-side detectEntityOverlap.
+  // Each entry: { entity: "village brewing", bulletIndices: [0, 1, 2] }.
+  // Rendered as an amber warning under the Research Anchors so the
+  // operator can cull collapsed-carousel duplicates before shipping.
+  //
+  // Offset tracker: overlap indices are relative to the JUST-RECEIVED
+  // Perplexity payload, but bullets get APPENDED to any existing
+  // anchors (0..existing.length-1 already there before this call).
+  // We snapshot the offset when the response lands so the rendered
+  // warning points at the right rows in the current list.
+  const [overlaps, setOverlaps] = useState([]);
+  const [overlapOffset, setOverlapOffset] = useState(0);
 
   // Draft Thesis (Gemini Flash-Lite) state — synthesizes the four
   // matrix dimensions into a real editorial thesis instead of the
@@ -341,6 +353,50 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
     return `“${trigger}” doesn't echo the topic — the CTA reads “Comment ‘${trigger}’ below” and readers hesitate to type words that feel disconnected. Consider one that lifts a core word from the hook or event name.`;
   }, [local.keyword_trigger, local.hook_a_side, local.editorial_pov, event?.name]);
 
+  // Live entity-overlap detector — runs on the FULL bullet list so
+  // both typed and Perplexity-returned anchors get checked. Same
+  // heuristic as the server-side detectEntityOverlap: extract
+  // 2-5-word Title-Case proper-noun phrases, filter geographic
+  // containers, group by shared entity. When 2+ bullets share an
+  // entity, render a warning under the Research Anchors panel.
+  //
+  // This supersedes the server-only overlaps state for the display —
+  // the operator sees warnings whether they typed the anchors, ran
+  // Fuel Research, or mixed both. The server-side overlaps state is
+  // still used for the first render immediately after a Fuel
+  // Research call (before this memo has rerun).
+  const GEO_STOPS = new Set([
+    "new jersey", "central jersey", "north jersey", "south jersey",
+    "downtown somerville", "downtown newark", "downtown asbury park",
+    "asbury park", "jersey city", "atlantic city", "long branch",
+    "asbury boardwalk", "the boardwalk",
+  ]);
+  const liveOverlaps = useMemo(() => {
+    if (!Array.isArray(bullets) || bullets.length < 2) return [];
+    const entityToIndices = {};
+    bullets.forEach((raw, i) => {
+      const text = String(raw || "");
+      const matches = text.match(/\b[A-Z][a-z0-9]+(?:\s+(?:[A-Z][a-z0-9]+|of|at|on|the|and|&)){1,4}\b/g) || [];
+      const inThis = new Set();
+      for (const m of matches) {
+        const norm = m.toLowerCase().trim();
+        if (GEO_STOPS.has(norm)) continue;
+        if (norm.split(/\s+/).length < 2) continue;
+        inThis.add(norm);
+      }
+      for (const e of inThis) {
+        if (!entityToIndices[e]) entityToIndices[e] = [];
+        entityToIndices[e].push(i);
+      }
+    });
+    const out = [];
+    for (const [entity, indices] of Object.entries(entityToIndices)) {
+      if (indices.length >= 2) out.push({ entity, bulletIndices: indices });
+    }
+    out.sort((a, b) => b.bulletIndices.length - a.bulletIndices.length);
+    return out;
+  }, [bullets]);
+
   // Handlers
   const setTier = (key) => {
     applyPatch({ event_tier: key });
@@ -416,6 +472,12 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
       setResearchPhase(typeof j.phase === "string" ? j.phase : null);
       setResearchDroppedCount(typeof j.droppedCount === "number" ? j.droppedCount : 0);
       setResearchVerificationError(typeof j.verificationError === "string" ? j.verificationError : null);
+      // Overlap offset = number of anchors already present BEFORE this
+      // append. The server's overlap indices are 0-based against the
+      // just-returned payload; add the offset to point at the rendered
+      // rows in the current list.
+      setOverlapOffset(bullets.length);
+      setOverlaps(Array.isArray(j.overlaps) ? j.overlaps : []);
     } catch (err) {
       setResearchError(String(err?.message || err));
     } finally {
@@ -436,6 +498,8 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
     setResearchPhase(null);
     setResearchDroppedCount(0);
     setResearchVerificationError(null);
+    setOverlaps([]);
+    setOverlapOffset(0);
   };
 
   // Resolve the Gemini API key the same way MediaTool + ReviewQueue do:
@@ -1692,6 +1756,31 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
             </div>
             {errorsByField.data_points && (
               <div style={{ fontSize: "0.68rem", color: warn, marginTop: 6 }}>⚠ {errorsByField.data_points}</div>
+            )}
+            {/* Entity overlap warning — surfaces when 2+ anchors share
+                the same primary named entity (e.g. three bullets all
+                about Village Brewing). Collapsed-carousel prevention. */}
+            {liveOverlaps.length > 0 && (
+              <div style={{
+                marginTop: 8,
+                padding: "8px 10px",
+                background: "rgba(251,191,36,0.06)",
+                border: `1px solid rgba(251,191,36,0.32)`,
+                borderRadius: 6,
+                fontSize: "0.7rem",
+                color: warn,
+                lineHeight: 1.55,
+              }}>
+                <div style={{ fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", fontSize: "0.6rem", marginBottom: 4 }}>
+                  ⚠ Anchor overlap detected — carousel will collapse
+                </div>
+                {liveOverlaps.slice(0, 3).map((o, i) => (
+                  <div key={i} style={{ marginTop: 3 }}>
+                    <b style={{ color: cream, textTransform: "capitalize" }}>{o.entity}</b>
+                    {" "}appears in anchors #{o.bulletIndices.map((idx) => idx + 1).join(", #")} — the writer will route these onto adjacent slides that all say the same thing about the same place. Cull all but one.
+                  </div>
+                ))}
+              </div>
             )}
             {researchError && (
               <div style={{
