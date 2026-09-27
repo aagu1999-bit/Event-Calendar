@@ -194,6 +194,57 @@ export function getClusterDefaultPOV(value) {
   return CONTENT_CLUSTERS[key].defaultPOV || "";
 }
 
+// ─── VOICE PREVIEW SUBJECTS (per cluster) ────────────────────────
+// Voice preview writes ONE sample paragraph so the operator can hear
+// a Distance × Cadence × Stance combo before generating a real
+// carousel. The previous implementation used a single fixed subject
+// ("Friday night at a 150-cap music room") for every preview, which
+// isolated the voice from topic — good for a like-for-like compare,
+// but bad for telling the operator "here's how your voice will sound
+// on THIS piece."
+//
+// Each entry is a short, generic-but-shaped subject that lives in
+// the cluster's own terrain. No proper nouns, no real venues —
+// still anonymous enough that the voice, not the reporting, is what
+// the operator hears — but the shape (a run club, a home-rule
+// council chamber, a hi-fi listening room) grips on the cluster's
+// actual material.
+//
+// Falls back to the generic music-room subject when no cluster is
+// picked, so the preview still works from the standalone Voice
+// Params panel with nothing else set.
+export const VOICE_PREVIEW_SUBJECTS = {
+  SUBURBAN_THIRD_PLACE:
+    "a Saturday afternoon at a strip-mall coffee shop that's become the accidental gathering hub of its ZIP code — the parking lot, the door count, one thing the room does that no one planned",
+  DIASPORA_INFRASTRUCTURE:
+    "a Sunday evening at a second-gen cultural hall on a corridor no press outlet covers — the referral chain that filled the room, the sound system's job, one detail that marks this scene as its own",
+  NIGHTLIFE_DILEMMA:
+    "a Friday night at a 150-capacity hi-fi listening room somewhere in New Jersey — the sound system, the door policy, one thing the room does differently than the mega-club it replaced",
+  DAYTIME_PLAY:
+    "a Saturday morning run club that turned into the town's new social hub — the pace, the after-run coffee, the one social pattern that formed around it",
+  GATHERING_LOGISTICS:
+    "the two hours before a 300-person outdoor gathering opens — the venue split, the food-truck routing call, the weather contingency, one operator detail the crowd will never see",
+  REGIONAL_DEMOGRAPHICS:
+    "the last inbound train of the night at a transit-village stop — the reverse-commute crowd that got off, the local crowd that's already there, one thing the platform tells you about the town's identity",
+  STATE_SONIC_HISTORY:
+    "an unmarked ballroom that shaped the state's sonic history and closed decades ago — what the room did that the mainstream circuit never absorbed, and one code the margins wrote that every current room still runs on",
+  POLICY_MECHANICS:
+    "a municipal council chamber the night a liquor-cap variance is debated — the room, the two positions in tension, and one specific piece of statutory architecture doing the shaping",
+  DIGITAL_NETWORKS:
+    "the private WhatsApp group that replaced the street flyer for a scene's ticketing — the queue mechanics, the algorithmic gate, one thing the channel does that a flyer never could",
+  PHILOSOPHY_OF_GATHERING:
+    "a suburban weekend that feels hollow — a third-place theorist would name what's missing; write the moment through that lens, naming the absence without pontificating",
+};
+
+// Return the cluster's preview subject, or the generic fallback when
+// no cluster resolves. previewVoice reads this to pick the SUBJECT
+// line at prompt-build time.
+export function getVoicePreviewSubject(value) {
+  const key = resolveClusterKey(value);
+  if (!key) return "";
+  return VOICE_PREVIEW_SUBJECTS[key] || "";
+}
+
 // ─── Compositional POV fragments ─────────────────────────────────────
 // Each dimension (cluster, corridor, emotion, demographic) contributes
 // a phrase; composePOV stitches them into a two-sentence editorial
