@@ -28,6 +28,7 @@ import {
   composePOV,
   synthesizeThesis,
   synthesizeHook,
+  checkArgumentCoherence,
   synthesizeLensReframe,
   COMPASS_TOPICS,
 } from "./matrixCompass.js";
@@ -219,6 +220,24 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
   // the hook_a_side field.
   const [draftingHook, setDraftingHook] = useState(false);
   const [hookError, setHookError] = useState(null);
+
+  // Argument Coherence check (Gemini Flash-Lite) state — adversarial
+  // pre-generation critic. Reads hook + POV + anchors and returns
+  // verdict: "coherent" | "thin" | "mismatched" + gaps.
+  // Explicit click only (auto-runs cost too much on every keystroke);
+  // rerun any time the operator has edited enough of the matrix to
+  // want another read.
+  const [checkingCoherence, setCheckingCoherence] = useState(false);
+  const [coherenceResult, setCoherenceResult] = useState(null);
+  const [coherenceError, setCoherenceError] = useState(null);
+  // Track which matrix inputs the last coherence check was run on —
+  // if any of them change, the result is stale and we mark it so.
+  const [coherenceCheckedAt, setCoherenceCheckedAt] = useState(null);
+  const coherenceIsStale = useMemo(() => {
+    if (!coherenceResult || !coherenceCheckedAt) return false;
+    const sig = `${local.hook_a_side || ""}|${local.editorial_pov || ""}|${bullets.join("|")}`;
+    return sig !== coherenceCheckedAt;
+  }, [coherenceResult, coherenceCheckedAt, local.hook_a_side, local.editorial_pov, bullets]);
 
   // Voice Preview (Gemini Flash-Lite) state — renders one sample
   // paragraph in the current voice-params combination so the operator
@@ -597,6 +616,54 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
       setHookError(String(err?.message || err));
     } finally {
       setDraftingHook(false);
+    }
+  };
+
+  // Check Argument Coherence handler — adversarial pre-generation
+  // critic that reads hook + POV + anchors and returns whether the
+  // material can actually support the argument. Answers the
+  // operator's core anxiety: "if the AI cannot put the pieces
+  // together, that needs to be flagged BEFORE the carousel is
+  // generated." Fires as an explicit click (Flash-Lite is cheap
+  // enough that we could auto-run, but on-demand keeps API cost
+  // predictable and gives the operator a clear "I checked" moment).
+  const runCoherenceCheck = async () => {
+    if (checkingCoherence) return;
+    setCoherenceError(null);
+    const apiKey = resolveGeminiKey();
+    if (!apiKey) {
+      setCoherenceError("Paste your Gemini API key in the MediaTool toolbar first.");
+      return;
+    }
+    const cleanHook = String(local.hook_a_side || "").trim();
+    const cleanPOV = String(local.editorial_pov || "").trim();
+    const cleanAnchors = bullets.filter(Boolean);
+    if (!cleanHook || !cleanPOV || cleanAnchors.length < 2) {
+      setCoherenceError("Fill in Hook A-side, Editorial POV, and at least 2 Research Anchors first — those are what the check reads.");
+      return;
+    }
+    setCheckingCoherence(true);
+    try {
+      const result = await checkArgumentCoherence({
+        apiKey,
+        hook: cleanHook,
+        pov: cleanPOV,
+        anchors: cleanAnchors,
+        cluster: local.cluster,
+        clusterDirective: getClusterDirective(local.cluster),
+      });
+      if (!result) {
+        setCoherenceError("Coherence check returned no verdict — Gemini may be rate-limited. Retry.");
+        return;
+      }
+      setCoherenceResult(result);
+      // Snapshot the signature of the inputs the check ran on so the
+      // UI can mark the result stale if the operator edits after.
+      setCoherenceCheckedAt(`${cleanHook}|${cleanPOV}|${cleanAnchors.join("|")}`);
+    } catch (err) {
+      setCoherenceError(String(err?.message || err));
+    } finally {
+      setCheckingCoherence(false);
     }
   };
 
@@ -2012,6 +2079,105 @@ export function CuratorialMatrixModal({ open, event, onClose, onFeatureToggle, a
               ⚠ Sync error: {syncError}. Changes are still in memory — retry by editing any field.
             </div>
           )}
+
+          {/* ═════════════════════════════
+              ARGUMENT COHERENCE CHECK
+              ═════════════════════════════
+              Adversarial pre-generation critic — verifies the anchors
+              can actually support the hook + POV before we burn a
+              carousel generation on shaky material. Fires as an
+              explicit click; result renders inline with verdict color
+              (coherent=green, thin=amber, mismatched=red) + gaps. */}
+          <div style={{ marginTop: 18, borderTop: `1px dashed ${hair}`, paddingTop: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 8 }}>
+              <div style={{ fontSize: "0.66rem", color: cream, letterSpacing: "0.06em", fontWeight: 700, textTransform: "uppercase" }}>
+                🔎 Argument coherence check
+              </div>
+              <button
+                type="button"
+                onClick={runCoherenceCheck}
+                disabled={checkingCoherence || !String(local.hook_a_side || "").trim() || !String(local.editorial_pov || "").trim() || bullets.filter(Boolean).length < 2}
+                title="Adversarial pre-gen check: can these anchors support this argument? Runs before you burn a carousel generation."
+                style={{
+                  background: checkingCoherence ? "rgba(99,179,237,0.06)" : "rgba(99,179,237,0.14)",
+                  color: checkingCoherence ? faint : "#63B3ED",
+                  border: `1px solid rgba(99,179,237,0.4)`,
+                  borderRadius: 4,
+                  padding: "5px 12px",
+                  fontFamily: "inherit",
+                  fontSize: "0.6rem",
+                  letterSpacing: "0.14em",
+                  textTransform: "uppercase",
+                  fontWeight: 700,
+                  cursor: checkingCoherence ? "wait" : "pointer",
+                  opacity: (!String(local.hook_a_side || "").trim() || !String(local.editorial_pov || "").trim() || bullets.filter(Boolean).length < 2) ? 0.4 : 1,
+                }}
+              >
+                {checkingCoherence ? "…Checking" : coherenceResult ? "↻ Re-check" : "Check argument"}
+              </button>
+            </div>
+            <div style={{ fontSize: "0.62rem", color: faint, marginBottom: 8, lineHeight: 1.5 }}>
+              Reads Hook A-side + Editorial POV + Research Anchors, and returns whether the pieces actually go together — flags a thin or mismatched matrix before generation, not after.
+            </div>
+            {coherenceError && (
+              <div style={{
+                padding: "8px 10px",
+                background: warnBg,
+                border: `1px solid rgba(251,191,36,0.32)`,
+                borderRadius: 6,
+                fontSize: "0.68rem",
+                color: warn,
+              }}>
+                ⚠ {coherenceError}
+              </div>
+            )}
+            {coherenceResult && !coherenceError && (() => {
+              const v = coherenceResult.verdict;
+              const bgColor = v === "coherent" ? "rgba(52,211,153,0.08)"
+                : v === "thin" ? "rgba(251,191,36,0.08)"
+                : "rgba(251,113,133,0.08)";
+              const borderColor = v === "coherent" ? "rgba(52,211,153,0.32)"
+                : v === "thin" ? "rgba(251,191,36,0.32)"
+                : "rgba(251,113,133,0.32)";
+              const textColor = v === "coherent" ? ready
+                : v === "thin" ? warn
+                : "#FB7185";
+              const icon = v === "coherent" ? "✓" : v === "thin" ? "◑" : "✗";
+              const label = v === "coherent" ? "Coherent — argument stands"
+                : v === "thin" ? "Thin — anchors too few or too shallow"
+                : "Mismatched — anchors don't back the hook";
+              return (
+                <div style={{
+                  padding: "10px 12px",
+                  background: bgColor,
+                  border: `1px solid ${borderColor}`,
+                  borderRadius: 6,
+                  fontSize: "0.7rem",
+                  color: textColor,
+                  lineHeight: 1.6,
+                }}>
+                  <div style={{ fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", fontSize: "0.62rem", marginBottom: 6 }}>
+                    {icon} {label}{coherenceIsStale ? " · (stale — inputs changed since last check)" : ""}
+                  </div>
+                  <div style={{ color: "rgba(245,240,232,0.85)", marginBottom: coherenceResult.gaps.length ? 6 : 0 }}>
+                    {coherenceResult.reason}
+                  </div>
+                  {coherenceResult.gaps.length > 0 && (
+                    <div style={{ marginTop: 6 }}>
+                      <div style={{ fontSize: "0.58rem", letterSpacing: "0.08em", textTransform: "uppercase", color: textColor, fontWeight: 700, marginBottom: 4 }}>
+                        Specific gaps to close before generation
+                      </div>
+                      {coherenceResult.gaps.map((g, i) => (
+                        <div key={i} style={{ color: "rgba(245,240,232,0.75)", marginTop: 3 }}>
+                          — {g}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
 
         </div>
 
