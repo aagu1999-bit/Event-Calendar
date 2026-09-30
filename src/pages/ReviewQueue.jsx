@@ -81,6 +81,39 @@ function timeTypeSuspect(ev) {
   return null;
 }
 
+function isOnCalendar(ev) {
+  if (!ev) return false;
+  if (ev.calendarId != null && ev.calendarId !== "") return true;
+  return !!ev.committedAt;
+}
+
+function eventSig(e) {
+  const name = String(e?.name || "").trim().toLowerCase();
+  const day = String(e?.day || "").trim().toLowerCase();
+  const venue = String(e?.venue || "").trim().toLowerCase();
+  const date = String(e?.date || "").trim().toLowerCase();
+  return `${name}|${day || date}|${venue}`;
+}
+
+function calendarMatchId(ev, storeEvents) {
+  if (!ev) return null;
+  if (ev.calendarId != null && ev.calendarId !== "") {
+    const hit = (storeEvents || []).find((e) => String(e.id) === String(ev.calendarId));
+    if (hit) return hit.id;
+  }
+  const k = eventSig(ev);
+  if (k === "||") return null;
+  const hit = (storeEvents || []).find((e) => eventSig(e) === k);
+  return hit ? hit.id : null;
+}
+
+function stripSessionFields(ev) {
+  const next = { ...ev };
+  delete next.calendarId;
+  delete next.committedAt;
+  return next;
+}
+
 function augmentEvents(newEvents, existingEvents) {
   // Start from existing validateEvents warning system (covers missing fields,
   // name+day dupes, venue+day collisions, multi-day reposts, wrong-day mentions).
@@ -98,10 +131,13 @@ function augmentEvents(newEvents, existingEvents) {
   });
 
   // Cross-reference against existing events store — flag potential dupes.
+  // Rows already sent to the calendar this session skip these: they ARE
+  // the store copy, not a collision with it.
   const norm = s => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
   const existingKeys = new Set(existingEvents.map(e => norm(e.name) + "|" + (e.day || "")));
   const existingVenueDay = new Set(existingEvents.map(e => norm(e.venue) + "|" + (e.day || "")));
   newEvents.forEach(ev => {
+    if (isOnCalendar(ev)) return;
     const k = norm(ev.name) + "|" + (ev.day || "");
     if (k && norm(ev.name) && existingKeys.has(k)) {
       if (!warnings[ev.id]) warnings[ev.id] = [];
@@ -933,7 +969,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
   // (new import) so the cap re-engages.
   const ROW_RENDER_CAP = 100;
   const [showAllRows, setShowAllRows] = useState(false);
-  useEffect(() => { setShowAllRows(false); }, [pending.length]);
+  useEffect(() => { setShowAllRows(false); }, [pending.length, committed.length]);
   // sortByTag state (moved to top).
   // Highlighted group captures the event IDs at click time so the sort/highlight
   // survives re-validation (group numbers renumber when events are deleted).
@@ -1100,8 +1136,25 @@ export default function ReviewQueue({ betaMode = false } = {}) {
     }
   }, [sortByTag, highlightedGroup]);
 
-  // Augmenter runs whenever pending/store changes
-  const warnings = useMemo(() => augmentEvents(pending, events), [pending, events]);
+  // Session working list = pending PLUS this session's committed snapshots
+  // that were removed from pending by the old +Add path. New adds stay in
+  // pending with calendarId; extras cover already-saved sessions.
+  const sessionRows = useMemo(() => {
+    const ids = new Set((pending || []).map((e) => String(e.id)));
+    const extras = [];
+    for (const c of committed || []) {
+      if (!c || ids.has(String(c.id))) continue;
+      ids.add(String(c.id));
+      extras.push({
+        ...c,
+        committedAt: c.committedAt || Date.now(),
+      });
+    }
+    return extras.length ? [...pending, ...extras] : pending;
+  }, [pending, committed]);
+
+  // Augmenter runs whenever the session list / store changes
+  const warnings = useMemo(() => augmentEvents(sessionRows, events), [sessionRows, events]);
 
   // Count how many events carry each flag-tag (DUPE #1 and DUPE #2 collapse
   // into one "DUPE" bucket so the summary stays readable).
@@ -1147,7 +1200,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
   // Fix Flags, but "clean" isn't "wanted": Clean Sweep lets the user keep/cut
   // them one at a time. Exclude already-vetted ones (already decided).
   const cleanEvents = useMemo(
-    () => pending.filter(e => (warnings[e.id] || []).length === 0 && !approvedSet.has(e.id)),
+    () => pending.filter(e => !isOnCalendar(e) && (warnings[e.id] || []).length === 0 && !approvedSet.has(e.id)),
     [pending, warnings, approvedSet]
   );
   const cleanCount = cleanEvents.length;
@@ -1333,41 +1386,51 @@ export default function ReviewQueue({ betaMode = false } = {}) {
   });
 
   const addRowToCalendar = (id) => {
-    const ev = pending.find(e => e.id === id);
+    const ev = pending.find(e => e.id === id) || sessionRows.find(e => e.id === id);
     if (!ev) return;
+    if (isOnCalendar(ev) && calendarMatchId(ev, events)) return;
     pushUndo("add to calendar");
-    // Stamp .date if missing — derive from weekend anchor + day-of-week.
-    // The store/CSV export depends on this; without it the date column
-    // would be empty for any sheet imported without a date column.
-    const fresh = { ...ev, date: ev.date || dateForEvent(ev), id: Date.now() + Math.random() * 1e5 };
+    const date = ev.date || dateForEvent(ev);
+    const calendarId = Date.now() + Math.random() * 1e5;
+    const fresh = stripSessionFields({ ...ev, date, id: calendarId });
     updateEvents(prev => [...prev, fresh]);
-    setCommitted(c => [...c, toCommittedSnapshot(ev)]);
-    setPending(p => p.filter(e => e.id !== id));
+    const stamped = { ...ev, date, calendarId, committedAt: Date.now() };
+    setCommitted(c => [...c, { ...toCommittedSnapshot(ev), calendarId }]);
+    setPending(p => {
+      if (p.some(e => e.id === id)) return p.map(e => e.id === id ? { ...e, ...stamped } : e);
+      return [...p, stamped];
+    });
     setApprovals(a => { const next = { ...a }; delete next[id]; return next; });
-    setApprovedSet(s => { const next = new Set(s); next.delete(id); return next; });
     if (editingId === id) { setEditingId(null); setEditDraft({}); }
   };
 
-  // Bulk-add: push every currently-selected event to the store at once.
-  // We only add events that are both selected (checked) AND approved/vetted!
+  // Bulk-add: selected + approved, skip rows already on the calendar.
   const addSelectedToCalendar = () => {
-    const sel = pending.filter(e => approvals[e.id] && approvedSet.has(e.id));
+    const sel = pending.filter(e => approvals[e.id] && approvedSet.has(e.id) && !isOnCalendar(e));
     if (sel.length === 0) return;
     pushUndo("add selected to calendar");
-    const fresh = sel.map(e => ({
-      ...e,
-      // Same date-stamping rule as the single-row add — derive from
-      // friDate + day when the event didn't come in with its own date.
-      date: e.date || dateForEvent(e),
-      id: Date.now() + Math.random() * 1e5,
+    const stampedAt = Date.now();
+    const added = sel.map((e, i) => {
+      const date = e.date || dateForEvent(e);
+      const calendarId = Date.now() + Math.random() * 1e5 + i;
+      return { ev: e, date, calendarId };
+    });
+    updateEvents(prev => [
+      ...prev,
+      ...added.map(({ ev, date, calendarId }) => stripSessionFields({ ...ev, date, id: calendarId })),
+    ]);
+    setCommitted(c => [...c, ...added.map(({ ev, calendarId }) => ({ ...toCommittedSnapshot(ev), calendarId }))]);
+    const byId = new Map(added.map(({ ev, date, calendarId }) => [ev.id, { date, calendarId, committedAt: stampedAt }]));
+    setPending(p => p.map(e => {
+      const s = byId.get(e.id);
+      return s ? { ...e, ...s } : e;
     }));
-    updateEvents(prev => [...prev, ...fresh]);
-    setCommitted(c => [...c, ...sel.map(toCommittedSnapshot)]);
-    const ids = new Set(sel.map(e => e.id));
-    setPending(p => p.filter(e => !ids.has(e.id)));
-    setApprovals(a => { const next = { ...a }; ids.forEach(id => { delete next[id]; }); return next; });
-    setApprovedSet(s => { const next = new Set(s); ids.forEach(id => next.delete(id)); return next; });
-    if (editingId && ids.has(editingId)) { setEditingId(null); setEditDraft({}); }
+    setApprovals(a => {
+      const next = { ...a };
+      byId.forEach((_v, id) => { delete next[id]; });
+      return next;
+    });
+    if (editingId && byId.has(editingId)) { setEditingId(null); setEditDraft({}); }
   };
 
   // Remove-from-view for a committed audit row. Doesn't touch the calendar —
@@ -1375,6 +1438,42 @@ export default function ReviewQueue({ betaMode = false } = {}) {
   // trail entry for that row.
   const removeFromCommitted = (id) => {
     setCommitted(c => c.filter(e => String(e.id) !== String(id)));
+  };
+
+  const promptAlsoCalendar = (rows) => {
+    const onCal = (rows || []).filter((e) => isOnCalendar(e) || calendarMatchId(e, events));
+    if (onCal.length === 0) return false;
+    return window.confirm(
+      onCal.length === 1
+        ? `"${onCal[0].name || "This event"}" is on the calendar. Also remove it from the calendar?\n\nOK = Review + calendar. Cancel = Review only (calendar keeps it).`
+        : `${onCal.length} of these are on the calendar. Also remove those from the calendar?\n\nOK = Review + calendar. Cancel = Review only (calendar keeps them).`
+    );
+  };
+
+  const dropFromReview = (ids, alsoCalendar) => {
+    const idSet = new Set([...ids].map(String));
+    const rows = sessionRows.filter((e) => idSet.has(String(e.id)));
+    if (alsoCalendar) {
+      const calIds = new Set();
+      for (const ev of rows) {
+        const cid = calendarMatchId(ev, events);
+        if (cid != null) calIds.add(String(cid));
+      }
+      if (calIds.size) updateEvents((prev) => prev.filter((e) => !calIds.has(String(e.id))));
+    }
+    setPending((p) => p.filter((e) => !idSet.has(String(e.id))));
+    setCommitted((c) => c.filter((e) => !idSet.has(String(e.id))));
+    setApprovals((a) => {
+      const next = { ...a };
+      idSet.forEach((id) => { delete next[id]; });
+      return next;
+    });
+    setApprovedSet((s) => {
+      const next = new Set(s);
+      idSet.forEach((id) => next.delete(id));
+      return next;
+    });
+    if (editingId && idSet.has(String(editingId))) { setEditingId(null); setEditDraft({}); }
   };
 
   // Approval is independent of selection: a row can be selected, approved,
@@ -1398,14 +1497,12 @@ export default function ReviewQueue({ betaMode = false } = {}) {
 
   // Bulk-delete: remove every currently-selected event from the pending list.
   const deleteSelected = () => {
-    const ids = new Set(pending.filter(e => approvals[e.id]).map(e => e.id));
-    if (ids.size === 0) return;
-    if (ids.size > 5 && !window.confirm(`Delete ${ids.size} selected rows from this review?`)) return;
+    const chosen = sessionRows.filter(e => approvals[e.id]);
+    if (chosen.length === 0) return;
+    if (chosen.length > 5 && !window.confirm(`Delete ${chosen.length} selected rows from this review?`)) return;
+    const also = promptAlsoCalendar(chosen);
     pushUndo("delete selected");
-    setPending(p => p.filter(e => !ids.has(e.id)));
-    setApprovals(a => { const next = { ...a }; ids.forEach(id => { delete next[id]; }); return next; });
-    setApprovedSet(s => { const next = new Set(s); ids.forEach(id => next.delete(id)); return next; });
-    if (editingId && ids.has(editingId)) { setEditingId(null); setEditDraft({}); }
+    dropFromReview(chosen.map(e => e.id), also);
   };
 
   // Send selected pending rows back to the screenshot pool so they can be
@@ -1422,6 +1519,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
       ? "Return this event to the screenshot pool? It leaves this review list so you can pull it into another session. Back restores the list here; the pool copy stays."
       : `Return ${chosen.length} selected events to the screenshot pool? They leave this review list so you can pull them into another session. Back restores the list here; the pool copies stay.`;
     if (!window.confirm(msg)) return;
+    const alsoCal = promptAlsoCalendar(chosen);
     setReturnPoolBusy(true);
     try {
       const entries = chosen.map((ev) => {
@@ -1454,20 +1552,8 @@ export default function ReviewQueue({ betaMode = false } = {}) {
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.message || j.error || `Server ${r.status}`);
       if (!j.added) throw new Error("Pool saved 0 events");
-      const ids = new Set(chosen.map((e) => e.id));
       pushUndo("return to pool");
-      setPending((p) => p.filter((e) => !ids.has(e.id)));
-      setApprovals((a) => {
-        const next = { ...a };
-        ids.forEach((id) => { delete next[id]; });
-        return next;
-      });
-      setApprovedSet((s) => {
-        const next = new Set(s);
-        ids.forEach((id) => next.delete(id));
-        return next;
-      });
-      if (editingId && ids.has(editingId)) { setEditingId(null); setEditDraft({}); }
+      dropFromReview(chosen.map((e) => e.id), alsoCal);
       refreshPoolCount();
     } catch (err) {
       alert(`Couldn't return those to the pool: ${err?.message || err}`);
@@ -1509,14 +1595,16 @@ export default function ReviewQueue({ betaMode = false } = {}) {
   }, [committed, events]);
 
   const visible = useMemo(() => {
+    const stillOpen = (e) => calendarMatchId(e, events) == null;
+    const triage = pending.filter(stillOpen);
     let list;
     if (filter === "committed") list = mergedCommitted;
-    else if (filter === "all") list = pending;
-    else if (filter === "clean") list = pending.filter(e => (warnings[e.id] || []).length === 0);
-    else if (filter === "flagged") list = pending.filter(e => (warnings[e.id] || []).length > 0 && !approvals[e.id]);
-    else if (filter === "approved") list = pending.filter(e => approvedSet.has(e.id));
-    else if (filter === "unapproved") list = pending.filter(e => !approvals[e.id]);
-    else list = pending;
+    else if (filter === "all") list = sessionRows;
+    else if (filter === "clean") list = triage.filter(e => (warnings[e.id] || []).length === 0);
+    else if (filter === "flagged") list = triage.filter(e => (warnings[e.id] || []).length > 0 && !approvals[e.id]);
+    else if (filter === "approved") list = triage.filter(e => approvedSet.has(e.id));
+    else if (filter === "unapproved") list = triage.filter(e => !approvals[e.id]);
+    else list = sessionRows;
 
     // Base order: earliest → latest (day, then time) so the list reads
     // chronologically. The tag/group float-sorts below are stable, so they
@@ -1570,11 +1658,12 @@ export default function ReviewQueue({ betaMode = false } = {}) {
       });
     }
     return list;
-  }, [pending, committed, mergedCommitted, warnings, approvals, approvedSet, filter, searchTerm, sortByTag, highlightedGroup, weekendDates]);
+  }, [pending, committed, sessionRows, mergedCommitted, warnings, approvals, approvedSet, filter, searchTerm, sortByTag, highlightedGroup, weekendDates, events]);
 
   const approvedCount = pending.filter(e => approvals[e.id]).length;
-  const selectedApprovedCount = pending.filter(e => approvals[e.id] && approvedSet.has(e.id)).length;
-  const flaggedCount = pending.filter(e => (warnings[e.id] || []).length > 0).length;
+  const selectedApprovedCount = pending.filter(e => approvals[e.id] && approvedSet.has(e.id) && !isOnCalendar(e)).length;
+  const flaggedCount = pending.filter(e => !isOnCalendar(e) && (warnings[e.id] || []).length > 0).length;
+  const onCalendarCount = sessionRows.filter(isOnCalendar).length;
 
   // Filter-aware select-all toggle for the visible subset
   const allVisibleApproved = visible.length > 0 && visible.every(e => approvals[e.id]);
@@ -1640,37 +1729,27 @@ export default function ReviewQueue({ betaMode = false } = {}) {
     const grp = eventsInHighlightedGroup();
     if (grp.length === 0) return;
     if (!window.confirm(`Delete ${grp.length} events in ${highlightedGroup} from the upload?`)) return;
+    const also = promptAlsoCalendar(grp);
     pushUndo("delete group");
-    const ids = new Set(grp.map(e => e.id));
-    setPending(p => p.filter(e => !ids.has(e.id)));
-    setApprovals(a => { const next = { ...a }; ids.forEach(id => { delete next[id]; }); return next; });
-    setApprovedSet(s => { const next = new Set(s); ids.forEach(id => next.delete(id)); return next; });
+    dropFromReview(grp.map(e => e.id), also);
     setHighlightedGroup(null);
   };
 
-  // Delete row(s) from pending entirely — distinct from "deselect" which
-  // leaves the row in view. Delete removes them and they no longer count
-  // toward any tally.
+  // Delete row(s) from the session list. If the row is on the calendar,
+  // ask whether to pull that copy off too.
   const deleteRow = (id) => {
+    const ev = sessionRows.find(e => e.id === id);
+    if (!ev) return;
+    const also = promptAlsoCalendar([ev]);
     pushUndo("delete row");
-    setPending(p => p.filter(e => e.id !== id));
-    setApprovals(a => { const next = { ...a }; delete next[id]; return next; });
-    setApprovedSet(s => { const next = new Set(s); next.delete(id); return next; });
-    if (editingId === id) { setEditingId(null); setEditDraft({}); }
+    dropFromReview([id], also);
   };
   const deleteVisible = () => {
     if (visible.length === 0) return;
     if (visible.length > 5 && !window.confirm(`Delete ${visible.length} rows from the upload? They'll be gone from this review — re-upload the sheet to get them back.`)) return;
+    const also = promptAlsoCalendar(visible);
     pushUndo("delete visible");
-    const ids = new Set(visible.map(e => e.id));
-    setPending(p => p.filter(e => !ids.has(e.id)));
-    setApprovals(a => {
-      const next = { ...a };
-      ids.forEach(id => { delete next[id]; });
-      return next;
-    });
-    setApprovedSet(s => { const next = new Set(s); ids.forEach(id => next.delete(id)); return next; });
-    if (editingId && ids.has(editingId)) { setEditingId(null); setEditDraft({}); }
+    dropFromReview(visible.map(e => e.id), also);
   };
 
   // Inline-edit helpers
@@ -1690,10 +1769,20 @@ export default function ReviewQueue({ betaMode = false } = {}) {
   };
   const saveEdit = () => {
     if (!editingId) return;
-    // Normalize handle on save so trailing slashes / URL paste / leading @
-    // collapse into the canonical form.
     const cleaned = { ...editDraft, igHandle: normalizeHandle(editDraft.igHandle) };
-    setPending(p => p.map(e => e.id === editingId ? { ...e, ...cleaned } : e));
+    const row = sessionRows.find(e => e.id === editingId);
+    setPending(p => {
+      if (p.some(e => e.id === editingId)) return p.map(e => e.id === editingId ? { ...e, ...cleaned } : e);
+      if (row) return [...p, { ...row, ...cleaned }];
+      return p;
+    });
+    if (row && isOnCalendar(row)) {
+      const calId = calendarMatchId({ ...row, ...cleaned }, events) || row.calendarId;
+      if (calId != null) {
+        updateEvents(prev => prev.map(e => String(e.id) === String(calId) ? { ...e, ...cleaned, id: e.id } : e));
+      }
+    }
+    setCommitted(c => c.map(e => e.id === editingId ? { ...e, ...cleaned } : e));
     setEditingId(null);
     setEditDraft({});
   };
@@ -1825,11 +1914,12 @@ export default function ReviewQueue({ betaMode = false } = {}) {
           borderRadius: "6px",
         }}>
           <div style={{ flex: 1, fontSize: "0.7rem", color: "rgba(245,240,232,0.7)" }}>
-            {pending.length === 0
-              ? <>Upload your cleaned <strong>CSV or XLSX</strong> from Excel / Google Sheets. The augmenter will flag missing fields, dupes (within batch <em>and</em> against the {events.length}-event store), region-convention mismatches, and suspicious time/type combos. Hit <strong>+ Add</strong> on a row to push it straight to the calendar, <strong>Approve</strong> to mark as vetted, or use the checkboxes to multi-select for bulk actions.</>
+            {sessionRows.length === 0
+              ? <>Upload your cleaned <strong>CSV or XLSX</strong> from Excel / Google Sheets. The augmenter will flag missing fields, dupes (within batch <em>and</em> against the {events.length}-event store), region-convention mismatches, and suspicious time/type combos. Hit <strong>+ Add</strong> on a row to push it straight to the calendar — it stays listed here with 📅 In Calendar. <strong>Approve</strong> to mark as vetted, or use the checkboxes to multi-select for bulk actions.</>
               : <>
-                  <strong>{pending.length}</strong> events parsed ·
+                  <strong>{sessionRows.length}</strong> events parsed ·
                   <strong style={{ marginLeft: 8 }}>{flaggedCount}</strong> flagged ·
+                  <strong style={{ marginLeft: 8 }}>{onCalendarCount}</strong> on calendar ·
                   <strong style={{ marginLeft: 8 }}>{approvedSet.size}</strong> approved ·
                   <strong style={{ marginLeft: 8 }}>{approvedCount}</strong> selected
                 </>
@@ -1837,7 +1927,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
           </div>
           <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" onChange={handleFile} style={{ display: "none" }} />
           <button onClick={() => fileRef.current?.click()} style={Bgold}>
-            {pending.length === 0 ? "Upload sheet" : "+ Add sheet"}
+            {sessionRows.length === 0 ? "Upload sheet" : "+ Add sheet"}
           </button>
           {/* Screenshot → Event: AI vision fills the gap the scraper misses.
               One-off intake for "I just saw this on my timeline." */}
@@ -2219,6 +2309,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
             <p style={{ fontSize: "0.65rem", color: "rgba(245,240,232,0.55)", lineHeight: 1.6, marginBottom: "10px" }}>
               The <strong style={{ color: "#E5BC4F" }}>store</strong> is your shared event database used by every tool in the app — Calendar, Newsletter, Reel, Flyer, Media. Events land here from any tool's upload (this Review tab's import, Calendar's Excel import, Newsletter's paste, etc.) and persist across sessions (localStorage).
               The <strong style={{ color: "#E5BC4F" }}>ALREADY IN STORE</strong> flag means a new event in your current upload has the same name+day as something already in here. Probably a re-import — fine to skip, OR fine to approve if you meant to update.
+              Events you <strong style={{ color: "#34D399" }}>+ Add</strong> this session stay listed below with 📅 In Calendar — this store peek is the global database, not the only place to find them.
             </p>
             {events.length === 0 ? (
               <p style={{ fontSize: "0.65rem", color: "rgba(245,240,232,0.4)", fontStyle: "italic" }}>
@@ -2265,7 +2356,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
           </div>
         </details>
 
-        {pending.length > 0 && (
+        {sessionRows.length > 0 && (
           <>
             {/* Flag glossary — collapsible cheat sheet */}
             <details
@@ -2467,12 +2558,12 @@ export default function ReviewQueue({ betaMode = false } = {}) {
               <button onClick={approveClean} style={B} title="Select all clean (no warnings) rows for bulk action">Select clean</button>
               <button onClick={approveAll} style={B} title="Select every row">Select all</button>
               <button onClick={rejectAll} style={B} title="Unselect every row (doesn't delete anything)">Deselect</button>
-              {pending.length > 0 && (
+              {sessionRows.length > 0 && (
                 <button
                   onClick={clearReview}
                   style={{ ...B, background: "rgba(251,113,133,0.12)", borderColor: "rgba(251,113,133,0.4)", color: "#FB7185", fontWeight: 700 }}
                   title="Empty the whole review list (all imported events here). Does not touch the Calendar."
-                >🗑 Clear all {pending.length}</button>
+                >🗑 Clear all {sessionRows.length}</button>
               )}
             </div>
 
@@ -2521,7 +2612,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
                       fontWeight: 700,
                       cursor: selectedApprovedCount === 0 ? "not-allowed" : "pointer"
                     }}
-                    title={selectedApprovedCount === 0 ? "No selected events are approved yet. Approve them first!" : "Add every selected approved row to the calendar / store"}
+                    title={selectedApprovedCount === 0 ? "No selected events are approved yet, or they're already on the calendar." : "Add every selected approved row that isn't already on the calendar. They stay listed here."}
                   >
                     + Add {selectedApprovedCount} to calendar
                   </button>
@@ -2644,6 +2735,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
               )}
               {(showAllRows ? visible : visible.slice(0, ROW_RENDER_CAP)).map(ev => {
                 const isCommitted = filter === "committed";
+                const onCal = !isCommitted && calendarMatchId(ev, events) != null;
                 const w = isCommitted ? [] : (warnings[ev.id] || []);
                 const approved = !isCommitted && approvals[ev.id];
                 const isApproved = !isCommitted && approvedSet.has(ev.id);
@@ -2665,14 +2757,16 @@ export default function ReviewQueue({ betaMode = false } = {}) {
                       // confused with the normal approved/vetted green.
                       background: isCommitted
                         ? "rgba(52,211,153,0.06)"
+                        : onCal
+                        ? "rgba(52,211,153,0.07)"
                         : inHighlightedGroup
                         ? "rgba(229,188,79,0.12)"
                         : isEditing ? "rgba(229,188,79,0.06)"
                           : isApproved ? "rgba(52,211,153,0.12)"
                           : approved ? "rgba(52,211,153,0.05)" : "rgba(245,240,232,0.06)",
-                      borderLeft: isCommitted ? "3px solid #34D399" : (isApproved ? "3px solid #34D399" : undefined),
+                      borderLeft: (isCommitted || onCal) ? "3px solid #34D399" : (isApproved ? "3px solid #34D399" : undefined),
                       border: `1px solid ${
-                        isCommitted ? "rgba(52,211,153,0.5)" :
+                        isCommitted || onCal ? "rgba(52,211,153,0.5)" :
                         inHighlightedGroup ? "#E5BC4F" :
                         isEditing ? "#E5BC4F" :
                         isApproved ? "#34D399" :
@@ -2748,7 +2842,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
                             🔁 Regular
                           </span>
                         )}
-                        {isCommitted && (
+                        {(isCommitted || onCal) && (
                           <span title="Already added to the calendar this session" style={{ marginLeft: 8, fontSize: "0.55rem", padding: "1px 6px", borderRadius: 3, background: "rgba(52,211,153,0.22)", color: "#34D399", letterSpacing: "0.5px", textTransform: "uppercase", fontWeight: 700, verticalAlign: "middle" }}>
                             📅 In Calendar
                           </span>
@@ -2861,9 +2955,29 @@ export default function ReviewQueue({ betaMode = false } = {}) {
                       >
                         {approvedSet.has(ev.id) ? "✓ Approved" : "Approve"}
                       </button>
+                      {onCal ? (
+                        <button
+                          title="Already on the calendar — edit here to update that copy, or delete to remove from this list (you'll be asked about the calendar)"
+                          style={{
+                            padding: "5px 9px",
+                            background: "rgba(52,211,153,0.18)",
+                            color: "#34D399",
+                            border: "1px solid rgba(52,211,153,0.45)",
+                            borderRadius: "4px",
+                            fontSize: "0.6rem",
+                            fontWeight: 700,
+                            letterSpacing: "0.5px",
+                            textTransform: "uppercase",
+                            cursor: "default",
+                            fontFamily: "inherit",
+                          }}
+                        >
+                          📅 On calendar
+                        </button>
+                      ) : (
                       <button
                         onClick={() => addRowToCalendar(ev.id)}
-                        title="Add this event to the calendar / store right now (no queue)"
+                        title="Add this event to the calendar / store right now (no queue). It stays listed here."
                         style={{
                           padding: "5px 9px",
                           background: "rgba(52,211,153,0.12)",
@@ -2880,6 +2994,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
                       >
                         + Add
                       </button>
+                      )}
                       <button
                         onClick={() => isEditing ? cancelEdit() : startEdit(ev)}
                         title={isEditing ? "Cancel edit" : "Edit this event in place"}
@@ -3047,7 +3162,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
           </>
         )}
 
-        {pending.length === 0 && (
+        {sessionRows.length === 0 && (
           <div style={{ padding: "2rem", borderRadius: "8px", border: "1px dashed rgba(245,240,232,0.12)", color: "rgba(245,240,232,0.5)", fontSize: "0.75rem", lineHeight: 1.6 }}>
             <strong style={{ color: "#E5BC4F", letterSpacing: "1.5px", textTransform: "uppercase", display: "block", marginBottom: "8px" }}>What this does</strong>
             Excel / Sheets is great for bulk text curation. This page adds the checks Excel can't:
