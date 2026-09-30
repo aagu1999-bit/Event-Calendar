@@ -24,7 +24,7 @@ export const EVENT_TIERS = {
   FEATURE: {
     key: "FEATURE",
     label: "Feature",
-    desc: "Historical / policy · evergreen, no calendar date",
+    desc: "Cultural content · events as the door, not the product · no calendar date",
   },
 };
 

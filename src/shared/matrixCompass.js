@@ -1,4 +1,11 @@
-// Compass — the single source of truth for the CGE editorial worldview.
+// Compass — cluster lenses for the CGE editorial worldview.
+//
+// The PLATFORM THESIS (Black NJ as intersection; events as the door;
+// 15/85 curator/observation; archive closer) lives in cgeThesis.js and
+// sits ABOVE these clusters. A cluster is the analytical door (nightlife
+// math, liquor cap, diaspora halls). The thesis is what the piece is
+// actually about. Writers, spines, and the POV synthesizer all inherit it
+// when the record is Feature / Content.
 //
 // This module supersedes the flat CLUSTERS array in matrixEnums.js: every
 // cluster now carries a `directive` — a specific analytical lens the AI
@@ -8,7 +15,7 @@
 // for mega-club closures, bottle-service fatigue, and hi-fi listening
 // rooms rather than generic "party" facts.
 //
-// Compass also ships a curated `COMPASS_TOPICS` list — 13 pre-shaped
+// Compass also ships a curated `COMPASS_TOPICS` list — pre-shaped
 // editorial angles the operator can one-tap to auto-fill the matrix
 // (cluster + corridor + hook + emotion + demographic in one click). Think
 // of it as the operator's own "assigned beats" board.
@@ -17,6 +24,8 @@
 // e.g. "NIGHTLIFE_DILEMMA") going forward. Legacy records saved the
 // human-readable label from the old CLUSTERS array; `resolveClusterKey`
 // handles both shapes transparently, so nothing on disk breaks.
+
+import { CGE_SUBJECT, CGE_THESIS_SHORT, CGE_VOICE_RATIO } from "./cgeThesis.js";
 
 export const CONTENT_CLUSTERS = {
   SUBURBAN_THIRD_PLACE: {
@@ -368,8 +377,14 @@ export async function synthesizeThesis({ apiKey, cluster, corridor, emotion, dem
     : [];
 
   const prompt = [
-    "ROLE: You are an executive editor at a regional culture magazine covering New Jersey.",
+    "ROLE: You are an executive editor at a cultural infrastructure platform for Black New Jersey. Events are the door, not the product.",
     "TASK: The operator has picked four combinatorial variables. Synthesize them into a single, cohesive 1–2 sentence Editorial POV.",
+    "",
+    "CGE PLATFORM THESIS (always in force, ABOVE the cluster):",
+    `  Subject: ${CGE_SUBJECT}`,
+    `  Thesis: ${CGE_THESIS_SHORT}`,
+    `  Voice: ${CGE_VOICE_RATIO}`,
+    "  The cluster is the analytical door into that thesis. Do not collapse the POV into generic gathering-magazine copy (third places, liquor caps, 150-cap rooms) unless the cluster + bullets actually are that story.",
     "",
     "THE VARIABLES:",
     `- Content Cluster: ${clusterLabel}`,
@@ -853,6 +868,33 @@ export const COMPASS_TOPICS = [
     targetEmotion: "Urgency/Insider Access",
     demographics: ["Diaspora Networks", "Sonic Purists"],
   },
+  {
+    id: "TOPIC-18",
+    cluster: "Diaspora Infrastructure & Cultural Epicenters",
+    corridor: "Urban / Commuter Core",
+    title: "Who Programs vs Who Owns",
+    suggestedHook: "The rooms are full. Who owns the night, and who just booked it?",
+    targetEmotion: "Skepticism/Irreverence",
+    demographics: ["Diaspora Networks", "Creatives & DJs"],
+  },
+  {
+    id: "TOPIC-19",
+    cluster: "Diaspora Infrastructure & Cultural Epicenters",
+    corridor: "Urban / Commuter Core",
+    title: "Same City, Three Diasporas",
+    suggestedHook: "African American, Caribbean, and African scenes sharing a ZIP code — and not always a room.",
+    targetEmotion: "Curiosity/Epiphany",
+    demographics: ["Diaspora Networks"],
+  },
+  {
+    id: "TOPIC-20",
+    cluster: "Diaspora Infrastructure & Cultural Epicenters",
+    corridor: "Transit Village Suburbs",
+    title: "What the Kids Don't Inherit",
+    suggestedHook: "The hall still opens on Sunday. The memory that used to fill it does not automatically transfer.",
+    targetEmotion: "Nostalgia/Yearning",
+    demographics: ["Diaspora Networks", "Young Working Professionals"],
+  },
 
   // Nightlife Dilemma & Sound Curation
   {
@@ -902,6 +944,15 @@ export const COMPASS_TOPICS = [
     title: "The Ghost of Club Zanzibar",
     suggestedHook: "How a Newark motel ballroom in 1979 birthed the Jersey Sound and rivaled NYC's Paradise Garage.",
     targetEmotion: "Nostalgia/Yearning",
+    demographics: ["Sonic Purists", "Diaspora Networks"],
+  },
+  {
+    id: "TOPIC-92",
+    cluster: "State & Sonic History",
+    corridor: "Urban / Commuter Core",
+    title: "Preserved vs Performed",
+    suggestedHook: "Which Jersey rooms are keeping a lineage, and which are renting the aesthetic?",
+    targetEmotion: "Skepticism/Irreverence",
     demographics: ["Sonic Purists", "Diaspora Networks"],
   },
 
