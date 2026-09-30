@@ -90,6 +90,9 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
   const [keptIdx, setKeptIdx] = useState(new Set());
   // Index currently being re-rolled by the per-slide "↻" button (null = none).
   const [regenIdx, setRegenIdx] = useState(null);
+  const [rejectPromptOpen, setRejectPromptOpen] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
+  const [feedbackSaved, setFeedbackSaved] = useState(null); // "rejected" | "approved" | null
   // Set true right before a single-slot swap so the keptIdx-reset effect
   // knows to leave the user's keep/skip choices alone (only a fresh full
   // generation should reset everything to kept).
@@ -347,10 +350,6 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
   // matrix.approved_drafts, then push as normal. Both write via the
   // onSaveFeedback callback wired at the mount site (matrix modal has
   // the eventId and updateEventMatrix in scope).
-  const [rejectPromptOpen, setRejectPromptOpen] = useState(false);
-  const [rejectReason, setRejectReason] = useState("");
-  const [feedbackSaved, setFeedbackSaved] = useState(null); // "rejected" | "approved" | null
-
   const handleReject = () => {
     if (!Array.isArray(slides) || !slides.length) return;
     if (typeof onSaveFeedback !== "function") return;
