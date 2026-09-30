@@ -154,7 +154,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
       // when a caller (Matrix modal's Preview Carousel) already knows
       // which mode fits the record's tier + emotion. Whitelist to the
       // known modes so a bad payload can't wedge the segmented control.
-      if (initialRegister === "promo" || initialRegister === "editorial" || initialRegister === "story") {
+      if (initialRegister === "promo" || initialRegister === "editorial" || initialRegister === "story" || initialRegister === "content") {
         setMode(initialRegister);
       }
     }
@@ -257,7 +257,19 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
       // fill + polish it. Supersedes template selection.
       if (aiArrange) {
         setBusyLabel("Designing + filling…");
-        const arranged = await generateArrangedCarousel({ apiKey, topic, context: genContext, voice, slotPrompts, mode, targetCount: slideCount === "auto" ? null : parseInt(slideCount, 10), letterMode });
+        const arranged = await generateArrangedCarousel({
+          apiKey, topic, context: genContext, voice, slotPrompts, mode,
+          targetCount: slideCount === "auto" ? null : parseInt(slideCount, 10),
+          letterMode,
+          clusterDirective: initialClusterDirective,
+          clusterLabel: initialClusterLabel,
+          keywordTrigger: initialKeywordTrigger,
+          voiceParams: initialVoiceParams,
+          behavioralTags: initialBehavioralTags,
+          isEvergreen: initialIsEvergreen,
+          rejectedDrafts: initialRejectedDrafts,
+          approvedDrafts: initialApprovedDrafts,
+        });
         setPickedTemplate({ id: "ai-arranged", name: "AI-arranged carousel", sequence: arranged.sequence, custom: true });
         setPickReasoning(arranged.rationale);
         setCompressionEvent(arranged.compressionEvent || null);
@@ -996,21 +1008,21 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
         <label style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.5)", display: "block", marginBottom: 6, letterSpacing: 1.2, textTransform: "uppercase", fontWeight: 700 }}>
           Register
         </label>
-        <div style={{ display: "flex", gap: 4, marginBottom: 10, padding: 3, background: "rgba(0,0,0,0.28)", borderRadius: 9, border: "1px solid rgba(245,240,232,0.06)" }}>
-          {[["editorial", "📰", "Editorial", "report the scene, don't sell"], ["promo", "📣", "Promo", "centered on your event"], ["story", "📖", "Story", "narrative, human, scene-driven"]].map(([m, ic, lbl, hint]) => (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 10, padding: 3, background: "rgba(0,0,0,0.28)", borderRadius: 9, border: "1px solid rgba(245,240,232,0.06)" }}>
+          {[["content", "🏛", "Content", "cultural thesis, not a flyer"], ["editorial", "📰", "Editorial", "report the scene, don't sell"], ["promo", "📣", "Promo", "centered on your event"], ["story", "📖", "Story", "narrative, human, scene-driven"]].map(([m, ic, lbl, hint]) => (
             <button
               key={m}
               onClick={() => {
                 setMode(m);
                 // Each technique belongs to its register — clear the others'.
                 if (m !== "story") setLetterMode(false);   // Manifesto is a Story technique
-                if (m === "story") setDotsMode(false);      // dots isn't a Story technique
+                if (m === "story" || m === "content") setDotsMode(false);
                 if (m !== "promo") setDotsAnchor("");        // anchor only under Promo
                 if (m !== "editorial") setDotsDiscover(false); // discover only under Editorial
               }}
               title={hint}
               style={{
-                flex: 1, padding: "9px 8px", borderRadius: 7, cursor: "pointer",
+                flex: "1 1 22%", minWidth: 92, padding: "9px 8px", borderRadius: 7, cursor: "pointer",
                 fontSize: "0.7rem", fontWeight: 700, fontFamily: "'Syne',sans-serif",
                 display: "flex", flexDirection: "column", alignItems: "center", gap: 3, lineHeight: 1.1,
                 background: mode === m ? "rgba(229,188,79,0.16)" : "transparent",
@@ -1025,6 +1037,11 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
             </button>
           ))}
         </div>
+        {mode === "content" && (
+          <div style={{ fontSize: "0.62rem", color: "rgba(229,188,79,0.75)", lineHeight: 1.45, margin: "-4px 0 12px", padding: "0 2px" }}>
+            Feature default. Events are the door. 15% curator / 85% observation. Closer is a directory, not an RSVP.
+          </div>
+        )}
 
         {/* Each register surfaces its own optional TECHNIQUE right here — the
             pathway first, then the move that walks it. Story → Manifesto;

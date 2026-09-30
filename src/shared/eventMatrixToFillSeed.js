@@ -46,14 +46,15 @@ export function summarizeSlidesForFeedback(slides) {
 // point, not a lock.
 
 import { EVENT_TIERS, DEMOGRAPHIC_PRESETS, LEGACY_DEMOGRAPHIC_ALIASES } from "./matrixEnums.js";
-import { getClusterDirective, getClusterLabel, getClusterDefaultPOV, resolveEditorialLens } from "./matrixCompass.js";
+import { getClusterLabel, getClusterDefaultPOV, resolveEditorialLens } from "./matrixCompass.js";
+import { CONTENT_DEFAULT_VOICE } from "./cgeThesis.js";
 
 // Register (mode) mapping — matches the state variable `mode` in
-// AiTemplateFillModal. Valid values: "promo", "editorial", "story".
+// AiTemplateFillModal. Valid values: "promo", "editorial", "story", "content".
 //
 // Rules:
-//   Anchor  → promo    (in-house event, promotional intent)
-//   Feature → story    (evergreen editorial, letter tone)
+//   Anchor  → promo     (in-house event, promotional intent)
+//   Feature → content   (evergreen cultural thesis; events are the door)
 //   Orbit + Nostalgia/Yearning → story
 //   Orbit + Curiosity/Epiphany → editorial
 //   Orbit (default) → editorial
@@ -63,7 +64,7 @@ import { getClusterDirective, getClusterLabel, getClusterDefaultPOV, resolveEdit
 export function pickRegisterFromMatrix(m) {
   if (!m) return null;
   if (m.event_tier === EVENT_TIERS.ANCHOR.key) return "promo";
-  if (m.event_tier === EVENT_TIERS.FEATURE.key) return "story";
+  if (m.event_tier === EVENT_TIERS.FEATURE.key) return "content";
   if (m.event_tier === EVENT_TIERS.ORBIT.key) {
     if (m.target_emotion === "Nostalgia/Yearning") return "story";
     if (m.target_emotion === "Curiosity/Epiphany") return "editorial";
@@ -78,11 +79,14 @@ export function pickRegisterFromMatrix(m) {
 // template if the tier doesn't have a strong opinion.
 //
 // Anchor stays free-form (last-used) because in-house events run through
-// varied surfaces. Feature and Orbit have clearer editorial homes.
+// varied surfaces. Feature defaults to Local Guide (directory/archive
+// closer) — NOT Feature Drop, which is a pickleball-style selling-points
+// flyer. Orbit stays the weekend roundup. Compact-mode Preview Carousel
+// still sets arrange:true so the arranger can reshape around the material.
 export function pickTemplateFromMatrix(m) {
   if (!m) return null;
-  if (m.event_tier === EVENT_TIERS.FEATURE.key) return "FEATURE_DROP_8";
-  if (m.event_tier === EVENT_TIERS.ORBIT.key) return "EDITORIAL_ROUNDUP_7";
+  if (m.event_tier === EVENT_TIERS.FEATURE.key) return "local-guide";
+  if (m.event_tier === EVENT_TIERS.ORBIT.key) return "editorial-roundup";
   return null;
 }
 
@@ -145,7 +149,7 @@ export function eventMatrixToFillSeed(event) {
   return {
     topic,
     context,
-    register: pickRegisterFromMatrix(m),   // → mode: promo | editorial | story | null
+    register: pickRegisterFromMatrix(m),   // → mode: promo | editorial | story | content | null
     templateId: pickTemplateFromMatrix(m), // → preset id | null
     // arrange: true means "AI, pick and arrange the layout" — which is
     // what we want when the operator is coming from Matrix (they've done
@@ -165,11 +169,13 @@ export function eventMatrixToFillSeed(event) {
     // stays about ARC and these govern SENTENCE SHAPE + STANCE.
     // Empty strings when unset; the composer treats them as
     // "don't inject" and the writer falls back to mode alone.
-    voiceParams: {
-      distance: String(m.voice_distance || "").trim() || null,
-      cadence: String(m.voice_cadence || "").trim() || null,
-      stance: String(m.voice_stance || "").trim() || null,
-    },
+    voiceParams: (() => {
+      const isFeature = m.event_tier === EVENT_TIERS.FEATURE.key;
+      const distance = String(m.voice_distance || "").trim() || (isFeature ? CONTENT_DEFAULT_VOICE.distance : null);
+      const cadence = String(m.voice_cadence || "").trim() || (isFeature ? CONTENT_DEFAULT_VOICE.cadence : null);
+      const stance = String(m.voice_stance || "").trim() || null;
+      return { distance, cadence, stance };
+    })(),
     // Behavioral tags — the operator's dimension picks, forwarded to
     // the writer as BEHAVIORAL CONSTRAINTS (not vocabulary). The
     // buildTemplatePrompt reader-facing block names them and forbids

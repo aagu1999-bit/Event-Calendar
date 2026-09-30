@@ -1227,7 +1227,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
               gap: 10,
             }}>
               <span style={{ color: feature, fontWeight: 800 }}>◇</span>
-              <span><strong>Feature</strong> · this record is evergreen editorial. Date and venue are optional; it won't push to the consumer calendar.</span>
+              <span><strong>Feature</strong> · cultural content, not a calendar drop. Preview Carousel seeds the Content register (15/85 observational, archive closer). Date and venue are optional.</span>
             </div>
           )}
 
