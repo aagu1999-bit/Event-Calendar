@@ -1740,6 +1740,12 @@ export default function ReviewQueue({ betaMode = false } = {}) {
   const deleteRow = (id) => {
     const ev = sessionRows.find(e => e.id === id);
     if (!ev) return;
+    if (calendarMatchId(ev, events) != null || isOnCalendar(ev)) {
+      if (!window.confirm(
+        `Remove "${ev.name || "this event"}" from this Review list?\n\n` +
+        `Cancel keeps it here. OK continues — you'll choose whether the calendar copy stays.`
+      )) return;
+    }
     const also = promptAlsoCalendar([ev]);
     pushUndo("delete row");
     dropFromReview([id], also);
