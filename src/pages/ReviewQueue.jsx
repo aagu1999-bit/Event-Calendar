@@ -1601,7 +1601,10 @@ export default function ReviewQueue({ betaMode = false } = {}) {
     if (filter === "committed") list = mergedCommitted;
     else if (filter === "all") list = sessionRows;
     else if (filter === "clean") list = triage.filter(e => (warnings[e.id] || []).length === 0);
-    else if (filter === "flagged") list = triage.filter(e => (warnings[e.id] || []).length > 0 && !approvals[e.id]);
+    else if (filter === "flagged") list = triage.filter(e =>
+      String(e.id) === String(editingId)
+      || ((warnings[e.id] || []).length > 0 && !approvals[e.id])
+    );
     else if (filter === "approved") list = triage.filter(e => approvedSet.has(e.id));
     else if (filter === "unapproved") list = triage.filter(e => !approvals[e.id]);
     else list = sessionRows;
@@ -1658,7 +1661,7 @@ export default function ReviewQueue({ betaMode = false } = {}) {
       });
     }
     return list;
-  }, [pending, committed, sessionRows, mergedCommitted, warnings, approvals, approvedSet, filter, searchTerm, sortByTag, highlightedGroup, weekendDates, events]);
+  }, [pending, committed, sessionRows, mergedCommitted, warnings, approvals, approvedSet, filter, searchTerm, sortByTag, highlightedGroup, weekendDates, events, editingId]);
 
   const approvedCount = pending.filter(e => approvals[e.id]).length;
   const selectedApprovedCount = pending.filter(e => approvals[e.id] && approvedSet.has(e.id) && !isOnCalendar(e)).length;
