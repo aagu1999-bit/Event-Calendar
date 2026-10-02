@@ -774,12 +774,11 @@ export async function screenshotToEvents({ apiKey, image, images, mimeType = "im
 
 // === WEEKEND CAPTION — Instagram caption for a downloaded calendar post ===
 // Voiced from Brand Kit, anchored by a few-shot set of operator-approved
-// captions so the model stays in-voice. Reads the actual weekend's events for
-// concrete references (venues, days, region), detects seasonal moments (Labor
-// Day, Juneteenth, HBCU homecoming, etc.) so the tail hashtag can be
-// weekend-specific. Returns { body, hashtags }; the modal / ZIP assembly
-// wraps that in the fixed CTA + "Where we landing, folks? ✈️" line so the
-// template pieces never drift with model variance.
+// captions so the model stays in-voice. The model only writes the opening
+// (1–2 sentences). CTA + hashtags are assembled in code so they never
+// drift: in-app "Comment EVENTS" (no off-app link), fixed brand tags.
+// Event count is NOT mentioned — a 60-item sample cap used to leak
+// "sixty events" into every caption even when the weekend wasn't 60.
 
 // The operator's REAL approved caption examples — used as few-shot fuel to
 // anchor register, rhythm, and casualness. Kept intentionally to the three
@@ -847,16 +846,18 @@ export async function generateWeekendCaption({ apiKey, weekendDates = null, even
   const clean = (v) => String(v || "").trim();
   const anchorFri = clean(weekendDates?.Fri);
   const seasonal = detectSeasonalMoment(anchorFri);
-  const evList = (Array.isArray(events) ? events : []).slice(0, 60);
+  // Sample a handful of events for concrete venue/day texture. Do NOT
+  // pass a total count into the prompt — the old slice(0, 60) leaked
+  // "sixty events" into the caption even when the weekend wasn't 60.
+  const allEvents = Array.isArray(events) ? events : [];
+  const sampleEvents = allEvents.slice(0, 18);
 
-  // Summarize the weekend's events for the model without dumping everything.
   const byDay = { Fri: [], Sat: [], Sun: [] };
-  for (const e of evList) if (byDay[e.day]) byDay[e.day].push(e);
+  for (const e of sampleEvents) if (byDay[e.day]) byDay[e.day].push(e);
   const daySummary = ["Fri", "Sat", "Sun"].filter((d) => byDay[d].length).map((d) => {
-    const sample = byDay[d].slice(0, 5).map((e) => `${e.name}${e.venue ? ` @ ${e.venue}` : ""}${e.area ? `, ${e.area}` : ""}`);
-    return `- ${d} (${byDay[d].length} events): ${sample.join(" · ")}${byDay[d].length > 5 ? " …" : ""}`;
+    const sample = byDay[d].slice(0, 4).map((e) => `${e.name}${e.venue ? ` @ ${e.venue}` : ""}${e.area ? `, ${e.area}` : ""}`);
+    return `- ${d}: ${sample.join(" · ")}${byDay[d].length > 4 ? " …" : ""}`;
   }).join("\n");
-  const regions = [...new Set(evList.map((e) => e.region).filter(Boolean))];
 
   const hasVoiceDesc = voice && typeof voice.description === "string" && voice.description.trim();
   const voiceExemplars = Array.isArray(voice?.exemplars) ? voice.exemplars.filter((e) => e && e.trim()).slice(0, 3) : [];
@@ -883,23 +884,22 @@ export async function generateWeekendCaption({ apiKey, weekendDates = null, even
     "- DO NOT start the caption with 'Jersey has motion', 'the motion', 'we BEEN', or any phrase that mimics a specific example's opening. Vary your opening every time.",
     "- DO NOT force keywords from the examples ('the motion', 'a vibe', 'gang', 'BEEN'). Use them only if they emerge naturally for THIS specific weekend's context. Most captions should NOT contain 'motion' at all.",
     "- Vary your opening angle: a weather/season detail, a specific event vibe, the day of week, a question, an observation, a call-out to a subgroup, etc.",
-    "- Reference the actual events (a venue, day, or region) where it lands — stay concrete and warm.",
+    "- Reference a real venue, day, or city from THIS weekend where it lands — stay concrete and warm. Do not list a tour of regions ('from North to South', 'from here to there').",
     "- NEVER hype-clichés: 'unforgettable', 'must-visit', 'hidden gem', 'something for everyone', 'you don't want to miss', 'the vibes were unmatched'.",
     "- Say 'Jersey' not 'NJ' in the body.",
-    "- Roughly 5 sentences (4-6 is fine). Mix short-punch and slightly longer.",
-    "- 1-3 emojis, at the end of a thought — never decorative.",
-    "- One or two ALL-CAPS words for emphasis if it FITS the moment (not required).",
+    "- Write ONE or TWO sentences. That's the whole body. The opening is the part that works — stop there.",
+    "- Do NOT mention how many events there are. No 'sixty events', no 'X events this weekend', no headcount.",
+    "- Do NOT write a CTA, a link, a URL, 'link in bio', 'comment EVENTS', hashtags, or 'where we landing'. Those are added in code.",
+    "- 1 emoji is fine, at the end of a thought — never decorative.",
+    "- One ALL-CAPS word for emphasis if it FITS the moment (not required).",
     "",
     `THIS WEEKEND: Fri ${weekendDates?.Fri || "?"} · Sat ${weekendDates?.Sat || "?"} · Sun ${weekendDates?.Sun || "?"}`,
     seasonal ? `SEASONAL CONTEXT: ${seasonal.name} — reference it if it fits, don't force it.` : "",
-    `EVENT COUNT: ${evList.length}${regions.length ? ` across ${regions.join(", ")}` : ""}`,
-    daySummary ? "SAMPLE:" : "",
+    daySummary ? "SAMPLE EVENTS (texture only — do not count them, do not list them all):" : "",
     daySummary,
     "",
-    "Then produce FIVE hashtags for the tail. Include the seasonal tag when relevant. Mix brand tags with weekend/vibe tags. Never generic garbage (#instagood, #followforfollow). Good candidates: #NJBlackCulture, #CGEWeekend, #WhereWeAt, #BlackNJ, #JerseySummer/#JerseyFall/#JerseyWinter, plus " + (seasonal ? seasonal.tag : "a season-appropriate tag") + ". Use #TheMotion sparingly (max once in every ~3 captions) — it's overused if it shows up every week.",
-    "",
     "Return ONLY JSON in this exact shape (no markdown, no code fences, no preamble):",
-    '{"body":"<the caption body — plain text, keep line breaks as \\n>","hashtags":["#tag1","#tag2","#tag3","#tag4","#tag5"]}',
+    '{"body":"<1 or 2 sentences — plain text>"}',
   ].filter(Boolean).join("\n");
 
   const data = await geminiGenerate(apiKey, {
@@ -908,22 +908,49 @@ export async function generateWeekendCaption({ apiKey, weekendDates = null, even
   }, { model: "gemini-2.5-flash" });
 
   const parsed = extractJson(extractResponseText(data)) || {};
-  const body = clean(parsed.body);
-  let hashtags = Array.isArray(parsed.hashtags) ? parsed.hashtags.map(clean).filter(Boolean) : [];
-  // Normalize hashtags: ensure leading #, strip whitespace, cap at 5.
-  hashtags = hashtags.map((h) => (h.startsWith("#") ? h : `#${h}`).replace(/\s+/g, "")).slice(0, 5);
+  const body = keepWeekendCaptionOpening(clean(parsed.body));
   if (!body) throw new Error("Caption came back empty — try Regenerate.");
-  return { body, hashtags, seasonal: seasonal?.name || null };
+  return { body, seasonal: seasonal?.name || null };
 }
 
-// Assembles the final caption block from the AI's {body, hashtags} + the
-// fixed CTA and "Where we landing, folks? ✈️" line. Keeps template drift out
-// of the model's job — it only writes the creative body + tags.
-export function assembleWeekendCaption({ body, hashtags }) {
-  const cta = "Link in bio for the full spread + event details 📎 centralgroupevents.com";
-  const closer = "Where we landing, folks? ✈️";
-  const tags = (Array.isArray(hashtags) ? hashtags : []).join(" ");
-  return `${(body || "").trim()}\n\n${cta}\n\n${closer}${tags ? `\n\n${tags}` : ""}`;
+// Keep the opening that works: first 1–2 sentences. Drops leftover
+// paragraphs, hashtag tails, and any CTA the model sneaks in.
+export function keepWeekendCaptionOpening(body) {
+  let t = String(body || "").trim();
+  if (!t) return "";
+  t = t.replace(/(?:^|\n)\s*#[A-Za-z0-9_]+(?:\s+#[A-Za-z0-9_]+)*\s*$/g, "").trim();
+  const firstPara = t.split(/\n\s*\n/)[0].trim();
+  const pieces = firstPara.split(/\n+/).flatMap((line) => {
+    const m = line.match(/[^.!?]+[.!?]+(?:\s+|$)|[^.!?]+$/g);
+    return m && m.length ? m : [line];
+  }).map((s) => s
+    .replace(/\b(?:sixty|\d+|seventy|forty|fifty|eighty|ninety|hundred)\s+events\b[^.!?]*/gi, "")
+    .replace(/where we landing[^.!?]*/gi, "")
+    .replace(/link in bio[^.!?]*/gi, "")
+    .replace(/from (?:here|north) to (?:here|there|south)[^.!?]*/gi, "")
+    .replace(/centralgroupevents\.com[^.!?]*/gi, "")
+    .replace(/comment\s+events[^.!?]*/gi, "")
+    .replace(/\s+/g, " ")
+    .replace(/\s+([.!?])/g, "$1")
+    .replace(/[.!?]{2,}/g, (m) => m[0])
+    .replace(/^[,;:\-\s]+|[,\s]+$/g, "")
+    .trim()
+  ).filter((s) => /[A-Za-z0-9]/.test(s));
+  return pieces.slice(0, 2).join(" ").trim();
+}
+
+// In-app keyword ask — never a link, URL, or "link in bio". Commenting
+// EVENTS keeps people in Instagram; sending them to the site was hurting
+// reach. Hashtags are a fixed four-tag set, not model-generated.
+export const WEEKEND_CAPTION_CTA = "Comment EVENTS to get the full listing details.";
+export const WEEKEND_CAPTION_HASHTAGS = ["#CGE", "#NewJerseyIsFun", "#EventsInNewJersey", "#NJ"];
+
+// Assembles the final caption: opening body + comment-EVENTS CTA + tags.
+// `hashtags` is ignored (kept on the signature so older callers don't break).
+export function assembleWeekendCaption({ body } = {}) {
+  const opening = keepWeekendCaptionOpening(body);
+  const tags = WEEKEND_CAPTION_HASHTAGS.join(" ");
+  return `${opening}\n\n${WEEKEND_CAPTION_CTA}\n\n${tags}`;
 }
 
 // === GUIDE COMMENTARY — the editorial write-up for a website guide page ===
