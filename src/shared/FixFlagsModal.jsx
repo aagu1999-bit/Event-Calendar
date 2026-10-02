@@ -151,6 +151,12 @@ export function FixFlagsModal({ open, events, warnings, onEdit, onApply, onClose
   // prior event, just no longer visible). Freezing the order keeps the
   // user on the SAME event no matter what happens upstream.
   const [queueIds, setQueueIds] = useState([]);
+  // Fields that were missing when the modal opened, keyed by event id.
+  // Frozen for the same reason as queueIds: live warnings drop a field
+  // the instant the first character lands, which unmounted the input
+  // and left only Approve/Delete. Keep the original fields on screen
+  // so the operator can finish typing.
+  const [requiredById, setRequiredById] = useState({});
 
   useEffect(() => {
     if (!open) return;
@@ -171,6 +177,12 @@ export function FixFlagsModal({ open, events, warnings, onEdit, onApply, onClose
       if (c !== 0) return c;
       return (a.hasRequired ? 0 : 1) - (b.hasRequired ? 0 : 1);
     });
+    const req = {};
+    rows.forEach((r) => {
+      const ws = (warnings[r.ev.id] || warnings[r.id] || []).filter((w) => !isPartnerConflict(w.msg));
+      req[String(r.id)] = [...fieldsNeedingFix(ws)];
+    });
+    setRequiredById(req);
     setQueueIds(rows.map(r => r.id));
     // We intentionally don't depend on events/warnings — the queue is a
     // snapshot of the flagged set at open-time. Live data (current event
@@ -570,8 +582,9 @@ export function FixFlagsModal({ open, events, warnings, onEdit, onApply, onClose
               const info = flagInfo(ev);
               const dec = decisions[ev.id];
               const src = (ev.link && ev.link.trim()) || (ev.igHandle && `https://instagram.com/${String(ev.igHandle).replace(/^@+/, "").trim()}`) || "";
+              const frozenRequired = requiredById[String(id)] || [...info.required];
               // Read-only context line of the fields that AREN'T being fixed inline.
-              const ctxFields = ["day", "time", "venue", "area", "region", "type"].filter(f => !info.required.has(f));
+              const ctxFields = ["day", "time", "venue", "area", "region", "type"].filter(f => !frozenRequired.includes(f));
               return (
                 <div key={id} style={{
                   marginBottom: 10, padding: "11px 12px", borderRadius: 8,
@@ -599,21 +612,25 @@ export function FixFlagsModal({ open, events, warnings, onEdit, onApply, onClose
                       })}
                     </div>
                   )}
-                  {/* Inline fix — one control per MISSING required field */}
-                  {info.required.size > 0 && (
+                  {/* Inline fix — fields that were missing at open stay
+                      mounted even after the first character clears the
+                      warning, so typing is not cut off. Live `info.required`
+                      only drives the red highlight + Approve unlock. */}
+                  {frozenRequired.length > 0 && (
                     <div style={{ display: "grid", gridTemplateColumns: "58px 1fr", gap: "6px 8px", alignItems: "center", marginBottom: 8 }}>
-                      {[...info.required].map(field => {
+                      {frozenRequired.map(field => {
                         const opts = FIELD_OPTIONS[field];
+                        const stillMissing = info.required.has(field);
                         return (
                           <div key={field} style={{ display: "contents" }}>
-                            <label style={{ color: "#FB7185", fontSize: "0.55rem", letterSpacing: 0.5, textTransform: "uppercase", fontWeight: 700 }}>{FIELD_LABEL[field]} ⚠</label>
+                            <label style={{ color: stillMissing ? "#FB7185" : "#34D399", fontSize: "0.55rem", letterSpacing: 0.5, textTransform: "uppercase", fontWeight: 700 }}>{FIELD_LABEL[field]}{stillMissing ? " ⚠" : " ✓"}</label>
                             {FIELD_TYPE[field] === "select" ? (
-                              <select value={ev[field] || ""} onChange={e => onEdit(ev.id, { [field]: e.target.value })} style={{ ...inputStyle(true), padding: "6px 8px", fontSize: "0.78rem" }}>
+                              <select value={ev[field] || ""} onChange={e => onEdit(ev.id, { [field]: e.target.value })} style={{ ...inputStyle(stillMissing), padding: "6px 8px", fontSize: "0.78rem" }}>
                                 <option value="" style={{ color: "#000" }}>—</option>
                                 {opts.map(o => <option key={o} value={o} style={{ color: "#000" }}>{o}</option>)}
                               </select>
                             ) : (
-                              <input value={ev[field] || ""} onChange={e => onEdit(ev.id, { [field]: e.target.value })} placeholder={FIELD_FOR_FLAG[`NO ${FIELD_LABEL[field].toUpperCase()}`]?.placeholder || ""} style={{ ...inputStyle(true), padding: "6px 8px", fontSize: "0.78rem" }} />
+                              <input value={ev[field] || ""} onChange={e => onEdit(ev.id, { [field]: e.target.value })} placeholder={FIELD_FOR_FLAG[`NO ${FIELD_LABEL[field].toUpperCase()}`]?.placeholder || ""} style={{ ...inputStyle(stillMissing), padding: "6px 8px", fontSize: "0.78rem" }} />
                             )}
                           </div>
                         );
