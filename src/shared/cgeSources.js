@@ -97,9 +97,20 @@ export const OPINION_NEWS_DOMAINS = [
   "nj.com",
 ];
 
+// NJ universities sit on both desks. Desk A reads them as archive.
+// Desk B reads them as the homework: oral history, African American
+// Studies, Institute of Jazz Studies, a thesis that already joined
+// the specimen. That is not NJPAC season copy.
+export const UNIVERSITY_ARGUMENT_DOMAINS = [
+  "rutgers.edu",
+  "montclair.edu",
+  "princeton.edu",
+];
+
 export const CULTURAL_SEARCH_DOMAINS = [
   ...LENS_ACCOUNTS.flatMap((account) => account.sites),
   ...OPINION_NEWS_DOMAINS,
+  ...UNIVERSITY_ARGUMENT_DOMAINS,
 ].filter((site, i, all) => all.indexOf(site) === i).slice(0, 20);
 
 // Classification — longer than the search allowlists on purpose.
@@ -215,6 +226,19 @@ export function countSourceClasses(sources = []) {
   return counts;
 }
 
+export function isUniversitySource(url) {
+  const { host } = urlParts(url);
+  return UNIVERSITY_ARGUMENT_DOMAINS.some((m) => hostMatches(host, m));
+}
+
+// A Rutgers oral history is an argument even though the host classifies
+// OFFICIAL. Empty means no column, no seed page, and no university page.
+export function argumentDeskEmpty(sources = []) {
+  const counts = countSourceClasses(sources);
+  if (counts.CULTURAL > 0) return false;
+  return !sources.some((s) => isUniversitySource(s.uri || s.host));
+}
+
 // Named searches the desks should actually run. Cluster lens said
 // "what kind of fact." These say which query to type.
 export function clusterSearchQueries(cluster = "") {
@@ -290,7 +314,7 @@ export function lensDiscoveryQueries({ cluster = "", topic = "" } = {}) {
   const base = [
     `${hook} Black New Jersey opinion OR op-ed OR column -essence -timeout`,
     `${hook} Newark OR "Jersey City" commentary site:nj.com OR site:blackinjersey.com`,
-    `${hook} independent writer Instagram Substack Newark -njpac -museum -brooklyn`,
+    `${hook} oral history OR "African American Studies" site:rutgers.edu OR site:montclair.edu OR site:princeton.edu`,
   ];
   const byCluster = {
     STATE_SONIC_HISTORY: [
@@ -325,10 +349,10 @@ export function sourceDoctrineForPrompt() {
   return [
     "SOURCE DOCTRINE — the operator is systematizing Black New Jersey culture without a journalism degree. The desks teach the field. Do not require a famous critic. Require a New Jersey argument you can point at.",
     "DESK A / OFFICIAL: statute, municipal clerk, ABC, census, library catalog, university archive, ownership record. KEEP the bureaucratic language. Gemini will cook; you will not pre-chew a statute into a vibe.",
-    "DESK B / ARGUMENT: local opinion pieces, news columns, and independent pages that already asked a Black-NJ question. These count even when they are not the best writing. A column on nj.com or Black In Jersey that argues who owns vs who programs is more useful than a hall brochure. Seed Instagram/Substack pages are starting points, not canon. Class examples of ALTITUDE, not topic: not_gui, Pop Culture Detective, We Are GST. Do not write their subjects.",
+    "DESK B / ARGUMENT: local opinion pieces, news columns, university pages, and independent pages that already asked a Black-NJ question. These count even when they are not the best writing. A Rutgers-Newark oral history, a Montclair essay, a Princeton African American Studies page, or a column on nj.com / Black In Jersey is how you learn the field. That is not NJPAC season copy and not museum wall text. Seed Instagram/Substack pages are starting points, not canon. Class examples of ALTITUDE, not topic: not_gui, Pop Culture Detective, We Are GST. Do not write their subjects.",
     "THE PLACE IS BLACK NEW JERSEY. Not an adjacent NYC week, not Brooklyn, not 'the diaspora' in the abstract. A sentence that could run in Brooklyn without edits is the wrong sentence. Hyperlocal is the moat.",
     "Do NOT treat Timeout, Yelp, TripAdvisor, Eventbrite listicles, NJPAC season copy, Essence/The Root recaps, WBGO program notes, or museum wall text as the argument. They may confirm a door is open. They cannot authorize the new question. Prefer opinion / column / commentary over listings.",
-    "Hunt the COLUMN, the PERSON, and the PAGE. If the first result is a hall, a national magazine, or a Brooklyn weekender, keep searching.",
+    "Hunt the COLUMN, the PERSON, the PAGE, and the UNIVERSITY holding (oral history, AAS, Institute of Jazz Studies). If the first result is a hall, a national magazine, or a Brooklyn weekender, keep searching.",
     "Name the source class on each fact when you can: (OFFICIAL — nj.gov), (CULTURAL — blackinjersey.com), (PRESS — essence.com).",
     "A claim that only exists on an unranked listicle is UNCONFIRMED, not a document.",
   ].join(" ");

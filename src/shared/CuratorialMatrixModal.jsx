@@ -10,7 +10,7 @@ import {
   PIPELINE_STATUS, PIPELINE_STATUS_ORDER,
   LIMITS,
 } from "./matrixEnums.js";
-import { classifySources, countSourceClasses } from "./cgeSources.js";
+import { classifySources, countSourceClasses, argumentDeskEmpty } from "./cgeSources.js";
 import {
   DISTANCE_OPTIONS,
   CADENCE_OPTIONS,
@@ -613,7 +613,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
       setResearchDesks(j.desks && typeof j.desks === "object" ? j.desks : null);
       const classCounts = countSourceClasses(classified);
       setOfficialEmpty(!!j.officialEmpty || classCounts.OFFICIAL === 0);
-      setCulturalEmpty(!!j.culturalEmpty || classCounts.CULTURAL === 0);
+      setCulturalEmpty(!!j.culturalEmpty || argumentDeskEmpty(classified));
       setResearchPhase(typeof j.phase === "string" ? j.phase : null);
       setResearchDroppedCount(typeof j.droppedCount === "number" ? j.droppedCount : 0);
       setResearchVerificationError(typeof j.verificationError === "string" ? j.verificationError : null);
@@ -2142,7 +2142,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                 ) : null}
                 {culturalEmpty ? (
                   <div style={{ marginTop: 4, fontWeight: 700 }}>
-                    Argument desk is empty — citations are halls, national magazines, or unranked. Hunt a Black-NJ opinion piece, a local column, or an independent page. Not a Brooklyn week.
+                    Argument desk is empty — citations are halls, national magazines, or unranked. Hunt a Black-NJ opinion piece, a Rutgers/Montclair/Princeton page, or an independent page. Not a Brooklyn week.
                   </div>
                 ) : null}
               </div>

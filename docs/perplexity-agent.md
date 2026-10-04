@@ -5,11 +5,11 @@ The existing Curatorial Matrix **Fuel Research** button uses the official
 `/v1/responses` is the documented compatibility alias for `/v1/agent`).
 It uses the `low` preset and two filtered `web_search` desks (official
 `.gov` / library / university, then a growable argument bank of local
-opinion/news plus named Instagram/Substack seeds — hyperlocal Black NJ,
-not halls, national magazines, or an adjacent NYC week), requests a JSON
-schema, and reads the SDK's `output_text`. Search results and text
-annotations supply source URLs; the UI classifies them OFFICIAL /
-CULTURAL / PRESS / UNRANKED.
+opinion/news, Rutgers / Montclair / Princeton pages, and named
+Instagram/Substack seeds — hyperlocal Black NJ, not halls, national
+magazines, or an adjacent NYC week), requests a JSON schema, and reads
+the SDK's `output_text`. Search results and text annotations supply
+source URLs; the UI classifies them OFFICIAL / CULTURAL / PRESS / UNRANKED.
 
 Set `PERPLEXITY_API_KEY` as a server-side secret. Never use a `VITE_` key
 or put it in a browser request. The former Sonar `PERPLEXITY_MODEL` override

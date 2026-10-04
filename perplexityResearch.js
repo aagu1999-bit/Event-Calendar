@@ -21,6 +21,7 @@ import {
   CULTURAL_SEARCH_DOMAINS,
   classifySources,
   countSourceClasses,
+  argumentDeskEmpty,
   clusterSearchQueries,
   lensDiscoveryQueries,
   sourceDoctrineForPrompt,
@@ -126,7 +127,7 @@ export function researchCulturalRequest(input = {}) {
   const instructions = [
     "You are DESK B — the ARGUMENT desk for a Black New Jersey cultural publication.",
     sourceDoctrineForPrompt(),
-    "Search local opinion pieces, news columns, independent pages, named Instagram/Substack seeds, and CGE's own published guide. The operator is learning this field. A Newark op-ed that argues counts. A Brooklyn weekender does not.",
+    "Search local opinion pieces, news columns, Rutgers / Montclair / Princeton pages (oral history, African American Studies, Institute of Jazz Studies), independent pages, and CGE's own published guide. The operator is learning this field. A Rutgers oral history counts. A Brooklyn weekender does not. A university page is homework, not a hall brochure.",
     "FINDING LOGIC: hunt the COLUMN, the PERSON, and the PAGE. Prefer opinion / column / commentary over listings. If the first result is NJPAC, Essence, WBGO, a museum, a national magazine, or an NYC-adjacent week, discard it as the argument and keep searching.",
     "Do not write about Nigerian civic climate or masculinity media criticism. Those accounts are the altitude. Find the equivalent Black-NJ argument for this specimen.",
     "Return the join the argument makes — who uses the room, who programs vs who owns, who holds the memory, the living remnant. This is a new question, not a brunch list and not a season brochure.",
@@ -142,7 +143,7 @@ export function researchCulturalRequest(input = {}) {
     ...(historicalOverride ? [
       "This cluster is historically anchored: include a living remnant where the lineage still operates, if one exists in a lens or archive. A closed room can still be a valid candidate if an independent mind or the archive holds it — do not drop history because the door is shut.",
     ] : []),
-    "If you cannot find at least 1 verifiable NJ-tied argument (opinion, column, or independent page), return an empty bullets array.",
+    "If you cannot find at least 1 verifiable NJ-tied argument (opinion, column, university page, or independent page), return an empty bullets array.",
     "Output strict JSON with 'bullets' and 'citations'.",
   ];
   return {
@@ -319,7 +320,7 @@ function decorateResearchResult(result, extraUrls = [], desks = null) {
     sources,
     sourceCounts,
     officialEmpty: sourceCounts.OFFICIAL === 0,
-    culturalEmpty: sourceCounts.CULTURAL === 0,
+    culturalEmpty: argumentDeskEmpty(sources),
     desks: desks || result.desks || null,
   };
 }

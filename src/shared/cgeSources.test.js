@@ -5,9 +5,11 @@ import {
   CULTURAL_SEARCH_DOMAINS,
   LENS_ACCOUNTS,
   OPINION_NEWS_DOMAINS,
+  UNIVERSITY_ARGUMENT_DOMAINS,
   classifySource,
   classifySources,
   countSourceClasses,
+  argumentDeskEmpty,
   clusterSearchQueries,
   lensDiscoveryQueries,
 } from "./cgeSources.js";
@@ -21,12 +23,16 @@ test("desk allowlists stay inside Perplexity's 20-domain cap", () => {
   assert.ok(CULTURAL_SEARCH_DOMAINS.includes("instagram.com/thejerzclub"));
   assert.ok(CULTURAL_SEARCH_DOMAINS.includes("blackinjersey.com"));
   assert.ok(CULTURAL_SEARCH_DOMAINS.includes("nj.com"));
+  assert.ok(CULTURAL_SEARCH_DOMAINS.includes("rutgers.edu"));
+  assert.ok(CULTURAL_SEARCH_DOMAINS.includes("montclair.edu"));
+  assert.ok(CULTURAL_SEARCH_DOMAINS.includes("princeton.edu"));
   assert.equal(CULTURAL_SEARCH_DOMAINS.includes("idontdoclubs.com"), false);
   assert.equal(CULTURAL_SEARCH_DOMAINS.includes("wbgo.org"), false);
   assert.equal(CULTURAL_SEARCH_DOMAINS.includes("njpac.org"), false);
   assert.equal(CULTURAL_SEARCH_DOMAINS.includes("essence.com"), false);
   assert.ok(LENS_ACCOUNTS.length >= 1);
   assert.ok(OPINION_NEWS_DOMAINS.includes("blackinjersey.com"));
+  assert.ok(UNIVERSITY_ARGUMENT_DOMAINS.includes("rutgers.edu"));
 });
 
 test("classifySource labels official, argument, press, and unranked", () => {
@@ -59,5 +65,8 @@ test("countSourceClasses, named cluster searches, and argument hunts", () => {
   const hunts = lensDiscoveryQueries({ cluster: "NIGHTLIFE_DILEMMA", topic: "A Saturday room" });
   assert.ok(hunts.some((q) => /opinion|op-ed|column/i.test(q)));
   assert.ok(hunts.some((q) => /njpac|essence/i.test(q)));
+  assert.ok(hunts.some((q) => /rutgers\.edu|montclair\.edu|princeton\.edu/i.test(q)));
   assert.equal(hunts.some((q) => /I Don't Do Clubs|weeklies/i.test(q)), false);
+  assert.equal(argumentDeskEmpty(classifySources(["https://www.rutgers.edu/jazz"])), false);
+  assert.equal(argumentDeskEmpty(classifySources(["https://www.njpac.org/events"])), true);
 });
