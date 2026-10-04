@@ -42,8 +42,10 @@ test("Feature-tier desks split DOCUMENT and JOIN", () => {
   assert.match(cultural.instructions, /JOIN — /);
   assert.match(cultural.instructions, /ARGUMENT/);
   assert.match(cultural.input, /opinion|op-ed|column/i);
-  assert.ok(cultural.tools[0].filters.search_domain_filter.includes("instagram.com/thejerzclub"));
+  assert.ok(cultural.tools[0].filters.search_domain_filter.includes("echonewstv.com"));
   assert.ok(cultural.tools[0].filters.search_domain_filter.includes("blackinjersey.com"));
+  assert.ok(cultural.tools[0].filters.search_domain_filter.includes("frontrunnernewjersey.com"));
+  assert.equal(cultural.tools[0].filters.search_domain_filter.includes("currentaffairs.org"), false);
   assert.ok(cultural.tools[0].filters.search_domain_filter.includes("rutgers.edu"));
   assert.ok(cultural.tools[0].filters.search_domain_filter.includes("montclair.edu"));
   assert.ok(cultural.tools[0].filters.search_domain_filter.includes("princeton.edu"));

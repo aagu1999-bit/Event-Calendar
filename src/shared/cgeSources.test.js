@@ -20,9 +20,13 @@ test("desk allowlists stay inside Perplexity's 20-domain cap", () => {
   assert.ok(OFFICIAL_SEARCH_DOMAINS.includes(".gov"));
   assert.ok(CULTURAL_SEARCH_DOMAINS.includes("centralgroupevents.com"));
   assert.ok(CULTURAL_SEARCH_DOMAINS.includes("thejerzclub.substack.com"));
-  assert.ok(CULTURAL_SEARCH_DOMAINS.includes("instagram.com/thejerzclub"));
   assert.ok(CULTURAL_SEARCH_DOMAINS.includes("blackinjersey.com"));
+  assert.ok(CULTURAL_SEARCH_DOMAINS.includes("echonewstv.com"));
+  assert.ok(CULTURAL_SEARCH_DOMAINS.includes("frontrunnernewjersey.com"));
+  assert.ok(CULTURAL_SEARCH_DOMAINS.includes("fivewardsmedia.com"));
   assert.ok(CULTURAL_SEARCH_DOMAINS.includes("nj.com"));
+  assert.equal(CULTURAL_SEARCH_DOMAINS.includes("currentaffairs.org"), false);
+  assert.equal(CULTURAL_SEARCH_DOMAINS.includes("instagram.com/thejerzclub"), false);
   assert.ok(CULTURAL_SEARCH_DOMAINS.includes("rutgers.edu"));
   assert.ok(CULTURAL_SEARCH_DOMAINS.includes("montclair.edu"));
   assert.ok(CULTURAL_SEARCH_DOMAINS.includes("princeton.edu"));
@@ -41,7 +45,10 @@ test("classifySource labels official, argument, press, and unranked", () => {
   assert.equal(classifySource("https://thejerzclub.substack.com/p/x"), "CULTURAL");
   assert.equal(classifySource("https://www.instagram.com/thejerzclub/p/abc"), "CULTURAL");
   assert.equal(classifySource("https://www.blackinjersey.com/x"), "CULTURAL");
+  assert.equal(classifySource("https://www.echonewstv.com/all-news"), "CULTURAL");
+  assert.equal(classifySource("https://frontrunnernewjersey.com/x"), "CULTURAL");
   assert.equal(classifySource("https://www.nj.com/essex/"), "CULTURAL");
+  assert.equal(classifySource("https://www.currentaffairs.org/"), "UNRANKED");
   assert.equal(classifySource("https://www.instagram.com/randompage/"), "UNRANKED");
   assert.equal(classifySource("https://www.wbgo.org/show"), "PRESS");
   assert.equal(classifySource("https://www.njpac.org/events"), "PRESS");

@@ -127,7 +127,7 @@ export function researchCulturalRequest(input = {}) {
   const instructions = [
     "You are DESK B — the ARGUMENT desk for a Black New Jersey cultural publication.",
     sourceDoctrineForPrompt(),
-    "Search local opinion pieces, news columns, Rutgers / Montclair / Princeton pages (oral history, African American Studies, Institute of Jazz Studies), independent pages, and CGE's own published guide. The operator is learning this field. A Rutgers oral history counts. A Brooklyn weekender does not. A university page is homework, not a hall brochure.",
+    "Search Black New Jersey press first: Echo News, Front Runner, Five Wards, Public Square, The Positive Community, West Ward Beans, NJ Urban News, Black In Jersey, Anointed, Atlantic City Focus. Then Rutgers / Montclair / Princeton pages (oral history, African American Studies, Institute of Jazz Studies), and CGE's own published guide. The operator is learning this field. An Echo column or a Rutgers oral history counts. Current Affairs, Essence, and a Brooklyn weekender do not.",
     "FINDING LOGIC: hunt the COLUMN, the PERSON, and the PAGE. Prefer opinion / column / commentary over listings. If the first result is NJPAC, Essence, WBGO, a museum, a national magazine, or an NYC-adjacent week, discard it as the argument and keep searching.",
     "Do not write about Nigerian civic climate or masculinity media criticism. Those accounts are the altitude. Find the equivalent Black-NJ argument for this specimen.",
     "Return the join the argument makes — who uses the room, who programs vs who owns, who holds the memory, the living remnant. This is a new question, not a brunch list and not a season brochure.",
