@@ -22,6 +22,7 @@ import {
   classifySources,
   countSourceClasses,
   clusterSearchQueries,
+  lensDiscoveryQueries,
   sourceDoctrineForPrompt,
 } from "./src/shared/cgeSources.js";
 
@@ -48,7 +49,7 @@ const BULLETS_RESPONSE_SCHEMA = {
 
 // Build the user-facing context block once — both phases see the same
 // matrix dimensions. Only the instructions differ.
-function buildUserPayload({ cluster = "", topic = "", pov = "", existingBullets = [], tier = "", corridor = "", demographics = [], lensOverride = "" } = {}) {
+function buildUserPayload({ cluster = "", topic = "", pov = "", existingBullets = [], tier = "", corridor = "", demographics = [], lensOverride = "", extraSearches = [] } = {}) {
   const clusterLabel = getClusterLabel(cluster) || String(cluster || "").trim();
   const resolvedLens = resolveEditorialLens({ cluster, override: lensOverride });
   const clusterDirective = resolvedLens.base;
@@ -75,7 +76,7 @@ function buildUserPayload({ cluster = "", topic = "", pov = "", existingBullets 
     }
   }
   if (tier) userLines.push(`Tier: ${tier}.`);
-  const named = clusterSearchQueries(cluster);
+  const named = [...clusterSearchQueries(cluster), ...(Array.isArray(extraSearches) ? extraSearches : [])];
   if (named.length) {
     userLines.push("NAMED SEARCHES — run these queries, do not only riff on the topic:");
     for (const q of named) userLines.push(`- ${q}`);
@@ -123,13 +124,15 @@ export function researchOfficialRequest(input = {}) {
 export function researchCulturalRequest(input = {}) {
   const historicalOverride = isHistoricalCluster(input.cluster);
   const instructions = [
-    "You are DESK B — the CULTURAL FEEDBACK desk for a Black New Jersey cultural publication.",
+    "You are DESK B — the LENS desk for a Black New Jersey cultural publication.",
     sourceDoctrineForPrompt(),
-    "Search the cultural sources available to you: the room's own site, associations, Black/Caribbean/African press, WBGO, NJPAC, museums, historical society, CGE's own published guide.",
-    "Return who uses the room, who programs vs who owns, who holds the memory, the living remnant. This is feedback, not a brunch list.",
+    "Search the lens accounts available to you: named Instagram handles, named Substacks, personal sites, CGE's own published guide. These are independent minds. They are hard to find because they are not institutions.",
+    "FINDING LOGIC (same class as not_gui, Pop Culture Detective, We Are GST): hunt the PERSON and the PAGE. Run the named Instagram/Substack hunts. If the first result is NJPAC, Essence, WBGO, a museum, or a national magazine, discard it as the lens and keep searching. Those pages cannot provide the new question.",
+    "Do not write about Nigerian civic climate or masculinity media criticism. Those accounts are the altitude. Find the equivalent mind for Black New Jersey and this specimen.",
+    "Return the join the lens makes — who uses the room, who programs vs who owns, who holds the memory, the living remnant. This is a new question, not a brunch list and not a season brochure.",
     "PRIMARY RESEARCH LENS: Every candidate must pass the Analytical lens in the user payload.",
     "TARGET AUDIENCE: rooms and orgs must plausibly serve the Target Audience. A room whose people do not overlap is not a candidate.",
-    "BANNED: Timeout, Yelp, TripAdvisor, Eventbrite listicles as the authority. They may confirm a door is open; they cannot be the cultural source.",
+    "BANNED AS THE LENS: Timeout, Yelp, TripAdvisor, Eventbrite, NJPAC, Essence, The Root, WBGO program notes, museum wall text. They may confirm a door is open; they cannot be the cultural source.",
     "BANNED DATA — REAL ESTATE unit counts and developer flyers unless the Topic is housing policy.",
     ...(String(input.tier || "").toUpperCase() === "FEATURE" ? [
       "FEATURE / CONTENT METHOD: at least one JOIN candidate — a fact NOT about the same primary entity as the Topic (parallel room, same-city other-diaspora site, disappearance, then→now remnant). Prefix it 'JOIN — '.",
@@ -137,16 +140,16 @@ export function researchCulturalRequest(input = {}) {
     ] : []),
     "OUTPUT: Return 2–4 distinct candidate bullets. Atomic facts. Different primary entities. New Jersey specific. Never invent.",
     ...(historicalOverride ? [
-      "This cluster is historically anchored: include a living remnant where the lineage still operates, if one exists in cultural sources. A closed room can still be a valid candidate if the archive holds it — do not drop history because the door is shut.",
+      "This cluster is historically anchored: include a living remnant where the lineage still operates, if one exists in a lens or archive. A closed room can still be a valid candidate if an independent mind or the archive holds it — do not drop history because the door is shut.",
     ] : []),
-    "If you cannot find at least 1 verifiable NJ-tied cultural fact, return an empty bullets array.",
+    "If you cannot find at least 1 verifiable NJ-tied lens fact, return an empty bullets array.",
     "Output strict JSON with 'bullets' and 'citations'.",
   ];
   return {
     preset: "low",
     tools: [webSearchTool(CULTURAL_SEARCH_DOMAINS)],
     instructions: instructions.join(" "),
-    input: buildUserPayload(input),
+    input: buildUserPayload({ ...input, extraSearches: lensDiscoveryQueries(input) }),
     response_format: BULLETS_RESPONSE_SCHEMA,
   };
 }
@@ -316,6 +319,7 @@ function decorateResearchResult(result, extraUrls = [], desks = null) {
     sources,
     sourceCounts,
     officialEmpty: sourceCounts.OFFICIAL === 0,
+    culturalEmpty: sourceCounts.CULTURAL === 0,
     desks: desks || result.desks || null,
   };
 }
@@ -362,7 +366,7 @@ export async function fuelResearchViaPerplexity(input = {}) {
       return {
         ok: false,
         code: "empty",
-        message: "Both desks came back empty. Official sources had no record and cultural sources had no feedback for this cluster. Broaden the hook or add a domain to the source bank.",
+        message: "Both desks came back empty. Official sources had no record and the lens desk found no independent mind for this cluster. Broaden the hook or add a trusted Instagram/Substack to the source bank.",
       };
     }
 

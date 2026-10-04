@@ -40,6 +40,10 @@ test("Feature-tier desks split DOCUMENT and JOIN", () => {
   assert.equal(/THIRD-PLACE MANDATE/.test(official.instructions), false);
   const cultural = researchCulturalRequest({ cluster: "DIASPORA_INFRASTRUCTURE", topic: "A Newark hall", tier: "FEATURE" });
   assert.match(cultural.instructions, /JOIN — /);
+  assert.match(cultural.instructions, /LENS/);
+  assert.match(cultural.input, /Instagram|Substack/);
+  assert.ok(cultural.tools[0].filters.search_domain_filter.includes("instagram.com/thejerzclub"));
+  assert.equal(cultural.tools[0].filters.search_domain_filter.includes("njpac.org"), false);
   const orbit = researchHypothesisRequest({ cluster: "NIGHTLIFE_DILEMMA", topic: "A Saturday", tier: "ORBIT" });
   assert.equal(/FEATURE \/ CONTENT METHOD/.test(orbit.instructions), false);
 });

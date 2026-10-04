@@ -204,6 +204,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
   const [researchSources, setResearchSources] = useState([]);
   const [researchDesks, setResearchDesks] = useState(null);
   const [officialEmpty, setOfficialEmpty] = useState(false);
+  const [culturalEmpty, setCulturalEmpty] = useState(false);
   // Entity overlap warnings — set from server-side detectEntityOverlap.
   // Each entry: { entity: "village brewing", bulletIndices: [0, 1, 2] }.
   // Rendered as an amber warning under the Research Anchors so the
@@ -339,6 +340,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
     setResearchSources([]);
     setResearchDesks(null);
     setOfficialEmpty(false);
+    setCulturalEmpty(false);
     setPreResearchSnapshot(null);
     setSourcesExpanded(false);
     setNameEdit(null);
@@ -609,7 +611,9 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
         : classifySources(incomingCitations);
       setResearchSources(classified);
       setResearchDesks(j.desks && typeof j.desks === "object" ? j.desks : null);
-      setOfficialEmpty(!!j.officialEmpty || countSourceClasses(classified).OFFICIAL === 0);
+      const classCounts = countSourceClasses(classified);
+      setOfficialEmpty(!!j.officialEmpty || classCounts.OFFICIAL === 0);
+      setCulturalEmpty(!!j.culturalEmpty || classCounts.CULTURAL === 0);
       setResearchPhase(typeof j.phase === "string" ? j.phase : null);
       setResearchDroppedCount(typeof j.droppedCount === "number" ? j.droppedCount : 0);
       setResearchVerificationError(typeof j.verificationError === "string" ? j.verificationError : null);
@@ -650,6 +654,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
     setResearchSources([]);
     setResearchDesks(null);
     setOfficialEmpty(false);
+    setCulturalEmpty(false);
     setResearchError(null);
     setResearchPhase(null);
     setResearchDroppedCount(0);
@@ -2113,26 +2118,31 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                 )}
               </div>
             )}
-            {(researchDesks || officialEmpty) && (
+            {(researchDesks || officialEmpty || culturalEmpty) && (
               <div style={{
                 marginTop: 8,
                 padding: "6px 10px",
-                background: officialEmpty ? "rgba(251,191,36,0.06)" : "rgba(167,139,250,0.06)",
-                border: `1px solid ${officialEmpty ? "rgba(251,191,36,0.28)" : "rgba(167,139,250,0.18)"}`,
+                background: (officialEmpty || culturalEmpty) ? "rgba(251,191,36,0.06)" : "rgba(167,139,250,0.06)",
+                border: `1px solid ${(officialEmpty || culturalEmpty) ? "rgba(251,191,36,0.28)" : "rgba(167,139,250,0.18)"}`,
                 borderRadius: 6,
                 fontSize: "0.62rem",
-                color: officialEmpty ? warn : muted,
+                color: (officialEmpty || culturalEmpty) ? warn : muted,
                 letterSpacing: "0.04em",
                 lineHeight: 1.55,
               }}>
                 {researchDesks ? (
                   <>Desk A official {researchDesks.official?.ok ? `· ${researchDesks.official.count} fact${researchDesks.official.count === 1 ? "" : "s"}` : "· empty"}
                     {"  ·  "}
-                    Desk B cultural {researchDesks.cultural?.ok ? `· ${researchDesks.cultural.count} fact${researchDesks.cultural.count === 1 ? "" : "s"}` : "· empty"}</>
+                    Desk B lens {researchDesks.cultural?.ok ? `· ${researchDesks.cultural.count} fact${researchDesks.cultural.count === 1 ? "" : "s"}` : "· empty"}</>
                 ) : "Source desks ran."}
                 {officialEmpty ? (
                   <div style={{ marginTop: 4, fontWeight: 700 }}>
                     Official desk is empty — you are not ready to speak on the record. A cultural-only payload is feedback without the document.
+                  </div>
+                ) : null}
+                {culturalEmpty ? (
+                  <div style={{ marginTop: 4, fontWeight: 700 }}>
+                    Lens desk is empty — citations are halls, magazines, or unranked. NJPAC and Essence cannot supply the new lens. Hunt an Instagram or Substack mind.
                   </div>
                 ) : null}
               </div>

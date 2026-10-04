@@ -825,6 +825,7 @@ app.post("/api/matrix/research", express.json({ limit: "128kb" }), async (req, r
       sources: result.sources || [],
       sourceCounts: result.sourceCounts || null,
       officialEmpty: !!result.officialEmpty,
+      culturalEmpty: !!result.culturalEmpty,
       desks: result.desks || null,
       model: result.model,
       phase: result.phase,

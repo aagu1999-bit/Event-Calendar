@@ -1,4 +1,4 @@
-import { sourceDoctrineForPrompt } from "./cgeSources.js";
+import { lensDiscoveryQueries, sourceDoctrineForPrompt } from "./cgeSources.js";
 
 // CGE content METHOD — the generation ritual, not more voice rules.
 //
@@ -116,6 +116,8 @@ export function contentMethodResearchPrompt({ topic, context, clusterDirective =
     "3. A DOCUMENT: ordinance, year founded/closed, ownership, census, budget line, archive holding, liquor cap, demolition, press that names a number.",
     "4. A SIDEWAYS JOIN: a parallel room, a same-city other-diaspora site, a then→now remnant, a policy that explains the felt week, a disappearance next door. This is the quality. Without it the piece is a recap.",
     "5. Who holds this now — the living remnant or archive an everyday person can actually find.",
+    "6. A LENS ACCOUNT: an independent Instagram / Substack / personal-site mind writing about this pattern in or near New Jersey. Search the PERSON and the PAGE. Not NJPAC, not Essence, not a museum, not WBGO program notes. If you cannot name one, say so in REMNANT.",
+    ...lensDiscoveryQueries({ cluster: clusterLabel, topic }).flatMap((q) => [`   - ${q}`]),
     "",
     "Return plain text in EXACTLY this shape (no markdown headers, no preamble):",
     "SPECIMEN: (one sentence — the room/lineage already in someone's week)",
@@ -129,7 +131,7 @@ export function contentMethodResearchPrompt({ topic, context, clusterDirective =
     sourceDoctrineForPrompt(),
     "",
     "RULES:",
-    "- Prefer specific, verifiable facts. Note the source site and class in parentheses — (OFFICIAL — nj.gov), (CULTURAL — wbgo.org).",
+    "- Prefer specific, verifiable facts. Note the source site and class in parentheses — (OFFICIAL — nj.gov), (CULTURAL — thejerzclub.substack.com).",
     "- Never invent a venue, year, quote, or ordinance.",
     "- New Jersey specificity is required. A join that could sit in Brooklyn or 'the diaspora' is the wrong join.",
     "- The JOIN cannot be another selling point of the same night.",
