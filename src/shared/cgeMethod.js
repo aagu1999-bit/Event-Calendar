@@ -93,6 +93,23 @@ export function appendMethodBriefToContext(context, researched) {
   return base ? `${base}\n\n${block}` : block;
 }
 
+// Operator questions typed while a carousel is being built — after
+// research, before slides write. Same append pattern as the method brief
+// so generateArrangedCarousel / generateTemplateFill just see more context.
+export const OPERATOR_QUESTIONS_MARKER = "OPERATOR QUESTIONS WHILE BUILDING";
+
+export function appendOperatorQuestions(context, questions) {
+  const q = String(questions || "").trim();
+  if (!q) return String(context || "");
+  const block = [
+    `${OPERATOR_QUESTIONS_MARKER} — answer these in the piece.`,
+    "Use the same everyday wording as the rest of the copy. No statute numbers, no seminar talk, no kitchen-table idea dressed as a legal brief.",
+    q,
+  ].join("\n");
+  const base = String(context || "").replace(/\s+$/, "");
+  return base ? `${base}\n\n${block}` : block;
+}
+
 export function contentMethodResearchPrompt({ topic, context, clusterDirective = "", clusterLabel = "" } = {}) {
   const subject = [topic, context].map((s) => String(s || "").trim()).filter(Boolean).join("\n\n");
   return [

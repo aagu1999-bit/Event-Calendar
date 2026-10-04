@@ -1458,6 +1458,8 @@ export async function designSequence({ apiKey, topic, context, mode, targetCount
       "sale. Structure: lead (what's happening) → context (how we got here) → significance (why it matters) →",
       "what's next. NO cta pressure, no 'you should go', no selling. Curiosity comes from concrete specifics and",
       "real sourcing, never enthusiasm. This is the natural home for a coverage/evidence arc and web research.",
+      "PLAIN TALK: say what a rule or night does to a person on a Saturday. No statute numbers, no seminar",
+      "words, no 'N.J.S.A.'. If you cannot say it at a kitchen table, rewrite it.",
     ] : []),
     ...(mode === "content" ? [
       "WRITE IT AS CONTENT (content). The hero is a QUESTION about Black New Jersey — memory, ownership vs",
@@ -3423,7 +3425,7 @@ export async function polishCarousel({ apiKey, topic, context, historicalContext
         ? ["- REGISTER: STORY — narrative + human. Keep the arc (setup → tension → turn → payoff), a scene or moment on each beat, emotional truth over hype. Don't flatten it back into dry reporting."]
         : (mode === "content")
           ? ["- REGISTER: CONTENT — cultural infrastructure, not a flyer. 15% curator / 85% observational. Events are the door. Closer is a directory/archive, never RSVP. Do not flatten this back into event promo or memoir."]
-          : ["- REGISTER: EDITORIAL — restrained newsroom confidence. Inform, don't sell."]),
+          : ["- REGISTER: EDITORIAL — restrained newsroom confidence. Inform, don't sell. PLAIN TALK: kitchen-table wording, no statute numbers."]),
     voiceLine,
     "",
     // Voice params — Distance × Cadence × Stance. Enforced by the
@@ -3598,6 +3600,7 @@ function registerBlock(mode) {
     "REGISTER: EDITORIAL — we are the newsroom reporting on the scene, not selling it.",
     "- Destination is UNDERSTANDING, not a sale. Structure: lead → context → significance → what's next.",
     "- Voice: third-person, observational, understated. Report; don't invite.",
+    "- PLAIN TALK: say what a rule or night does to a person on a Saturday. No statute numbers, no seminar words, no 'N.J.S.A.'. If you cannot say it at a kitchen table, rewrite it.",
     "- REFUSE THE CTA: NO urgency words, NO ticket push, NO 'you should go' / 'pull up' / 'RSVP'. A closing",
     "  editorial slide lands on the takeaway or what's next — never a sell. If the sequence ends in a 'cta'",
     "  slot, treat it as a closing NOTE, not an invite.",

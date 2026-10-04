@@ -8,6 +8,8 @@ import {
   formatMethodBriefForContext,
   appendMethodBriefToContext,
   contextHasMethodBrief,
+  OPERATOR_QUESTIONS_MARKER,
+  appendOperatorQuestions,
 } from "./cgeMethod.js";
 
 test("parseMethodBrief reads labeled lines", () => {
@@ -56,4 +58,17 @@ test("format and append stamp the method marker and extra bullets", () => {
   assert.equal(contextHasMethodBrief(next), true);
   assert.match(next, /existing bullet/);
   assert.equal(next.includes(METHOD_MARKER), true);
+});
+
+test("appendOperatorQuestions is a no-op when blank and stamps the marker when asked", () => {
+  assert.equal(appendOperatorQuestions("towns can't add many new drink rooms", "   "), "towns can't add many new drink rooms");
+  assert.equal(appendOperatorQuestions("", ""), "");
+  const next = appendOperatorQuestions(
+    "Old places stay. New ones get blocked.",
+    "Does a new restaurant that wants a bar just get told no?\nWhat about a BYOB hall?",
+  );
+  assert.equal(next.includes(OPERATOR_QUESTIONS_MARKER), true);
+  assert.match(next, /Old places stay/);
+  assert.match(next, /BYOB hall/);
+  assert.match(next, /everyday wording/);
 });
