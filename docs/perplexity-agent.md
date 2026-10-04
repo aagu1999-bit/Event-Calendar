@@ -3,9 +3,10 @@
 The existing Curatorial Matrix **Fuel Research** button uses the official
 `@perplexity-ai/perplexity_ai` SDK's `responses.create` method (Agent API;
 `/v1/responses` is the documented compatibility alias for `/v1/agent`).
-It uses the `low` preset, explicitly enables `web_search`, requests a JSON
+It uses the `low` preset and two filtered `web_search` desks (official
+`.gov` / library / university, then a growable cultural bank), requests a JSON
 schema, and reads the SDK's `output_text`. Search results and text annotations
-supply source URLs for the existing UI.
+supply source URLs; the UI classifies them OFFICIAL / CULTURAL / PRESS / UNRANKED.
 
 Set `PERPLEXITY_API_KEY` as a server-side secret. Never use a `VITE_` key
 or put it in a browser request. The former Sonar `PERPLEXITY_MODEL` override

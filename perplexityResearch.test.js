@@ -1,11 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { researchRequest, researchHypothesisRequest, parseResearchResponse } from "./perplexityResearch.js";
+import { researchRequest, researchHypothesisRequest, researchOfficialRequest, researchCulturalRequest, researchVerificationRequest, parseResearchResponse } from "./perplexityResearch.js";
 
 test("research uses Agent preset, web search, and structured output", () => {
   const request = researchRequest({ topic: "Newark", existingBullets: [null, "Existing fact"] });
   assert.equal(request.preset, "low");
-  assert.deepEqual(request.tools, [{ type: "web_search" }]);
+  assert.equal(request.tools[0].type, "web_search");
+  assert.ok(Array.isArray(request.tools[0].filters.search_domain_filter));
   assert.equal(request.response_format.type, "json_schema");
   assert.match(request.input, /Existing fact/);
   assert.equal(request.model, undefined);
@@ -32,18 +33,30 @@ test("rejects malformed, empty, oversized, and unsourced answers", () => {
   assert.equal(parseResearchResponse({ output_text: '{"bullets":["No sources","Another unsourced fact"]}' }).code, "empty");
 });
 
-test("Feature-tier hypothesis research requires a DOCUMENT and a JOIN", () => {
-  const request = researchHypothesisRequest({ cluster: "DIASPORA_INFRASTRUCTURE", topic: "A Newark hall", tier: "FEATURE" });
-  assert.match(request.instructions, /FEATURE \/ CONTENT METHOD/);
-  assert.match(request.instructions, /DOCUMENT candidate/);
-  assert.match(request.instructions, /JOIN candidate/);
+test("Feature-tier desks split DOCUMENT and JOIN", () => {
+  const official = researchOfficialRequest({ cluster: "DIASPORA_INFRASTRUCTURE", topic: "A Newark hall", tier: "FEATURE" });
+  assert.match(official.instructions, /DOCUMENT/);
+  assert.ok(official.tools[0].filters.search_domain_filter.includes(".gov"));
+  assert.equal(/THIRD-PLACE MANDATE/.test(official.instructions), false);
+  const cultural = researchCulturalRequest({ cluster: "DIASPORA_INFRASTRUCTURE", topic: "A Newark hall", tier: "FEATURE" });
+  assert.match(cultural.instructions, /JOIN — /);
   const orbit = researchHypothesisRequest({ cluster: "NIGHTLIFE_DILEMMA", topic: "A Saturday", tier: "ORBIT" });
   assert.equal(/FEATURE \/ CONTENT METHOD/.test(orbit.instructions), false);
 });
 
+test("verification keeps history that is true as stated", () => {
+  const request = researchVerificationRequest({
+    cluster: "STATE_SONIC_HISTORY",
+    candidates: ["DOCUMENT — Club Zanzibar closed 1992"],
+  });
+  assert.match(request.instructions, /true AS STATED/);
+  assert.match(request.instructions, /Do NOT drop a fact because the door is not open today/);
+  assert.equal(/verifiably true today/.test(request.instructions), false);
+});
+
 test("merged research rules preserve NJ relevance and short-hook framing", () => {
   const request = researchRequest({ cluster: "Culture", topic: "Let Me Know" });
-  assert.match(request.instructions, /at least 3 verifiable NJ-tied/);
-  assert.match(request.instructions, /primary frame/);
+  assert.match(request.instructions, /at least 1 verifiable NJ-tied/);
+  assert.match(request.instructions, /PRIMARY RESEARCH LENS/);
   assert.equal(parseResearchResponse({ output_text: '{"bullets":["Only one fact"]}' }).code, "empty");
 });

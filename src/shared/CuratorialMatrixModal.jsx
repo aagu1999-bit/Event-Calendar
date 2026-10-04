@@ -10,6 +10,7 @@ import {
   PIPELINE_STATUS, PIPELINE_STATUS_ORDER,
   LIMITS,
 } from "./matrixEnums.js";
+import { classifySources, countSourceClasses } from "./cgeSources.js";
 import {
   DISTANCE_OPTIONS,
   CADENCE_OPTIONS,
@@ -200,6 +201,9 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
   const [researchPhase, setResearchPhase] = useState(null);
   const [researchDroppedCount, setResearchDroppedCount] = useState(0);
   const [researchVerificationError, setResearchVerificationError] = useState(null);
+  const [researchSources, setResearchSources] = useState([]);
+  const [researchDesks, setResearchDesks] = useState(null);
+  const [officialEmpty, setOfficialEmpty] = useState(false);
   // Entity overlap warnings — set from server-side detectEntityOverlap.
   // Each entry: { entity: "village brewing", bulletIndices: [0, 1, 2] }.
   // Rendered as an amber warning under the Research Anchors so the
@@ -332,6 +336,9 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
     setLocal({ ...(event?.matrix || {}) });
     setResearchError(null);
     setCitations([]);
+    setResearchSources([]);
+    setResearchDesks(null);
+    setOfficialEmpty(false);
     setPreResearchSnapshot(null);
     setSourcesExpanded(false);
     setNameEdit(null);
@@ -595,7 +602,14 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
       // Append while respecting BULLETS_MAX; the operator can trim later.
       const merged = [...bullets, ...incoming].slice(0, LIMITS.BULLETS_MAX);
       applyPatch({ data_points: merged });
-      setCitations(Array.isArray(j.citations) ? j.citations.slice(0, 8) : []);
+      const incomingCitations = Array.isArray(j.citations) ? j.citations.slice(0, 12) : [];
+      setCitations(incomingCitations);
+      const classified = Array.isArray(j.sources) && j.sources.length
+        ? j.sources
+        : classifySources(incomingCitations);
+      setResearchSources(classified);
+      setResearchDesks(j.desks && typeof j.desks === "object" ? j.desks : null);
+      setOfficialEmpty(!!j.officialEmpty || countSourceClasses(classified).OFFICIAL === 0);
       setResearchPhase(typeof j.phase === "string" ? j.phase : null);
       setResearchDroppedCount(typeof j.droppedCount === "number" ? j.droppedCount : 0);
       setResearchVerificationError(typeof j.verificationError === "string" ? j.verificationError : null);
@@ -633,6 +647,9 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
     applyPatch({ data_points: preResearchSnapshot });
     setPreResearchSnapshot(null);
     setCitations([]);
+    setResearchSources([]);
+    setResearchDesks(null);
+    setOfficialEmpty(false);
     setResearchError(null);
     setResearchPhase(null);
     setResearchDroppedCount(0);
@@ -2096,6 +2113,30 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                 )}
               </div>
             )}
+            {(researchDesks || officialEmpty) && (
+              <div style={{
+                marginTop: 8,
+                padding: "6px 10px",
+                background: officialEmpty ? "rgba(251,191,36,0.06)" : "rgba(167,139,250,0.06)",
+                border: `1px solid ${officialEmpty ? "rgba(251,191,36,0.28)" : "rgba(167,139,250,0.18)"}`,
+                borderRadius: 6,
+                fontSize: "0.62rem",
+                color: officialEmpty ? warn : muted,
+                letterSpacing: "0.04em",
+                lineHeight: 1.55,
+              }}>
+                {researchDesks ? (
+                  <>Desk A official {researchDesks.official?.ok ? `· ${researchDesks.official.count} fact${researchDesks.official.count === 1 ? "" : "s"}` : "· empty"}
+                    {"  ·  "}
+                    Desk B cultural {researchDesks.cultural?.ok ? `· ${researchDesks.cultural.count} fact${researchDesks.cultural.count === 1 ? "" : "s"}` : "· empty"}</>
+                ) : "Source desks ran."}
+                {officialEmpty ? (
+                  <div style={{ marginTop: 4, fontWeight: 700 }}>
+                    Official desk is empty — you are not ready to speak on the record. A cultural-only payload is feedback without the document.
+                  </div>
+                ) : null}
+              </div>
+            )}
             {citations.length > 0 && (
               <div style={{
                 marginTop: 8,
@@ -2128,7 +2169,10 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                     }}
                     aria-expanded={sourcesExpanded}
                   >
-                    {sourcesExpanded ? "▾" : "▸"} ◆ {citations.length} source{citations.length === 1 ? "" : "s"} · vet before shipping
+                    {sourcesExpanded ? "▾" : "▸"} ◆ {citations.length} source{citations.length === 1 ? "" : "s"} · {(() => {
+                      const c = countSourceClasses(researchSources.length ? researchSources : classifySources(citations));
+                      return `OFFICIAL ${c.OFFICIAL} · CULTURAL ${c.CULTURAL} · PRESS ${c.PRESS} · UNRANKED ${c.UNRANKED}`;
+                    })()}
                   </button>
                   {preResearchSnapshot != null && (
                     <button
@@ -2160,16 +2204,16 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                     color: faint,
                     wordBreak: "break-word",
                   }}>
-                    {citations.map((u) => hostnameOf(u)).join(" · ")}
+                    {(researchSources.length ? researchSources : classifySources(citations)).map((s) => `${s.class} ${s.host}`).join(" · ")}
                   </div>
                 )}
                 {/* Expanded: the full URL list, one per line */}
                 {sourcesExpanded && (
                   <div style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 6 }}>
-                    {citations.map((url, i) => (
+                    {(researchSources.length ? researchSources : classifySources(citations)).map((s, i) => (
                       <a
                         key={i}
-                        href={url}
+                        href={s.uri}
                         target="_blank"
                         rel="noreferrer noopener"
                         style={{
@@ -2178,7 +2222,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                           wordBreak: "break-all",
                           fontVariantNumeric: "tabular-nums",
                         }}
-                      ><b style={{ color: cream }}>{hostnameOf(url)}</b> · {i + 1}. {url}</a>
+                      ><b style={{ color: cream }}>{s.class}</b> · {s.host} · {i + 1}. {s.uri}</a>
                     ))}
                   </div>
                 )}

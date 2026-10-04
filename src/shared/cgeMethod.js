@@ -1,3 +1,5 @@
+import { sourceDoctrineForPrompt } from "./cgeSources.js";
+
 // CGE content METHOD — the generation ritual, not more voice rules.
 //
 // The platform thesis (cgeThesis.js) says what the page is about.
@@ -124,8 +126,10 @@ export function contentMethodResearchPrompt({ topic, context, clusterDirective =
     "REMNANT: (who holds this / where an everyday person finds more)",
     "UNCONFIRMED: (anything you could not verify — or NONE)",
     "",
+    sourceDoctrineForPrompt(),
+    "",
     "RULES:",
-    "- Prefer specific, verifiable facts. Note the source site in parentheses.",
+    "- Prefer specific, verifiable facts. Note the source site and class in parentheses — (OFFICIAL — nj.gov), (CULTURAL — wbgo.org).",
     "- Never invent a venue, year, quote, or ordinance.",
     "- New Jersey specificity is required. A join that could sit in Brooklyn or 'the diaspora' is the wrong join.",
     "- The JOIN cannot be another selling point of the same night.",
