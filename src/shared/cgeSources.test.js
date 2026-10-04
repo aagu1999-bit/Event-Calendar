@@ -76,6 +76,7 @@ test("countSourceClasses, named cluster searches, and argument hunts", () => {
   assert.ok(hunts.some((q) => /njpac|essence/i.test(q)));
   assert.ok(hunts.some((q) => /rutgers\.edu|montclair\.edu|princeton\.edu/i.test(q)));
   assert.ok(hunts.some((q) => /currentaffairs\.org/i.test(q)));
+  assert.ok(hunts.some((q) => /influenc/i.test(q)));
   assert.equal(hunts.some((q) => /I Don't Do Clubs|weeklies/i.test(q)), false);
   assert.equal(argumentDeskEmpty(classifySources(["https://www.rutgers.edu/jazz"])), false);
   assert.equal(argumentDeskEmpty(classifySources(["https://www.njpac.org/events"])), true);

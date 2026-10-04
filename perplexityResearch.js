@@ -127,8 +127,8 @@ export function researchCulturalRequest(input = {}) {
   const instructions = [
     "You are DESK B — the ARGUMENT desk for a Black New Jersey cultural publication.",
     sourceDoctrineForPrompt(),
-    "Search Black New Jersey press first: Echo News, Front Runner, Five Wards, Public Square, The Positive Community, West Ward Beans, NJ Urban News, Black In Jersey, Anointed, Atlantic City Focus. Then Rutgers / Montclair / Princeton pages, then Current Affairs for a pop-culture or societal MECHANISM only. CGE's own published guide is the house archive. An Echo column or a Rutgers oral history counts as place. Current Affairs counts as altitude — steal the understanding, not the subject. Essence recaps and a Brooklyn weekender still do not.",
-    "FINDING LOGIC: hunt the COLUMN, the PERSON, and the PAGE. Prefer opinion / column / commentary over listings. If the first result is NJPAC, Essence, WBGO, a museum, a national magazine, or an NYC-adjacent week, discard it as the argument and keep searching.",
+    "Search Black New Jersey press first: Echo News, Front Runner, Five Wards, Public Square, The Positive Community, West Ward Beans, NJ Urban News, Black In Jersey, Anointed, Atlantic City Focus. Then Rutgers / Montclair / Princeton pages, then Current Affairs for a pop-culture or societal MECHANISM, then the influence chain (what this NJ room took from Baltimore / Philly / NYC / a national norm, or what it gave back). CGE's own published guide is the house archive. An Echo column or a Rutgers oral history counts as place. Current Affairs counts as altitude — steal the understanding, not the subject. Essence recaps and a Brooklyn weekender calendar still do not.",
+    "FINDING LOGIC: hunt the COLUMN, the PERSON, the PAGE, and WHAT INFLUENCED WHAT. Prefer opinion / column / commentary over listings. If the first result is NJPAC, Essence, WBGO, a museum, or an NYC-adjacent weekender calendar, discard it as the argument and keep searching. A regional or national trend that explains the NJ specimen is a valid JOIN.",
     "Do not write about Nigerian civic climate or masculinity media criticism. Those accounts are the altitude. Find the equivalent Black-NJ argument for this specimen.",
     "Return the join the argument makes — who uses the room, who programs vs who owns, who holds the memory, the living remnant. This is a new question, not a brunch list and not a season brochure.",
     "PRIMARY RESEARCH LENS: Every candidate must pass the Analytical lens in the user payload.",
@@ -136,10 +136,10 @@ export function researchCulturalRequest(input = {}) {
     "BANNED AS THE LENS: Timeout, Yelp, TripAdvisor, Eventbrite, NJPAC, Essence, The Root, WBGO program notes, museum wall text. They may confirm a door is open; they cannot be the cultural source.",
     "BANNED DATA — REAL ESTATE unit counts and developer flyers unless the Topic is housing policy.",
     ...(String(input.tier || "").toUpperCase() === "FEATURE" ? [
-      "FEATURE / CONTENT METHOD: at least one JOIN candidate — a fact NOT about the same primary entity as the Topic (parallel room, same-city other-diaspora site, disappearance, then→now remnant). Prefix it 'JOIN — '.",
+      "FEATURE / CONTENT METHOD: at least one JOIN candidate — a fact NOT about the same primary entity as the Topic (parallel room, same-city other-diaspora site, disappearance, then→now remnant, or the regional/national trend that shaped this NJ specimen / that it shaped). Prefix it 'JOIN — '.",
       "A JOIN that is another selling point of the same night is invalid.",
     ] : []),
-    "OUTPUT: Return 2–4 distinct candidate bullets. Atomic facts. Different primary entities. New Jersey specific. Never invent.",
+    "OUTPUT: Return 2–4 distinct candidate bullets. Atomic facts. Different primary entities. Every bullet must land on or explain a New Jersey specimen. A JOIN may name Baltimore, Philly, NYC, or a national norm when it is the influence chain. Never invent.",
     ...(historicalOverride ? [
       "This cluster is historically anchored: include a living remnant where the lineage still operates, if one exists in a lens or archive. A closed room can still be a valid candidate if an independent mind or the archive holds it — do not drop history because the door is shut.",
     ] : []),

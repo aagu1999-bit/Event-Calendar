@@ -340,38 +340,39 @@ export function clusterSearchQueries(cluster = "") {
 }
 
 // How you learn the field without already being in it: hunt the
-// COLUMN and the PAGE inside Black New Jersey. Opinion and news that
-// argue count. An adjacent NYC week does not.
+// COLUMN and the PAGE inside Black New Jersey, then the influence
+// chain that left the state. Opinion and news that argue count.
+// An adjacent NYC weekender calendar does not.
 export function lensDiscoveryQueries({ cluster = "", topic = "" } = {}) {
   const hook = String(topic || "").trim() || "Black New Jersey gathering";
   const key = String(cluster || "").toUpperCase().replace(/\s+/g, "_");
   const base = [
     `${hook} Black New Jersey opinion OR op-ed OR column site:echonewstv.com OR site:blackinjersey.com OR site:njurbannews.com -njpac -essence`,
-    `${hook} Newark OR "South Jersey" commentary site:frontrunnernewjersey.com OR site:fivewardsmedia.com OR site:publicsq.org`,
-    `${hook} pop culture OR society OR power mechanism site:currentaffairs.org`,
+    `${hook} influenced OR influence OR "came from" OR "spread to" New Jersey Baltimore Philadelphia "New York" national`,
+    `${hook} pop culture OR society OR regional OR national trend OR norm site:currentaffairs.org`,
     `${hook} oral history OR "African American Studies" site:rutgers.edu OR site:montclair.edu OR site:princeton.edu`,
   ];
   const byCluster = {
     STATE_SONIC_HISTORY: [
-      "Jersey club Newark opinion oral history TheJerzClub -njpac",
-      "Club Zanzibar Newark column OR oral history -brooklyn",
+      "Jersey club Baltimore club Newark influence oral history TheJerzClub",
+      "Club Zanzibar Newark house music national influence",
     ],
     NIGHTLIFE_DILEMMA: [
       "Newark nightlife opinion column closure site:nj.com OR site:jerseydigs.com",
-      "Jersey City club curfew commentary -timeout",
+      "Jersey City club curfew commentary national nightlife trend",
     ],
     DIASPORA_INFRASTRUCTURE: [
       "Newark Caribbean African American hall opinion column New Jersey",
-      "who owns versus who programs Newark culture column",
+      "who owns versus who programs Newark culture Caribbean African influence",
     ],
     SUBURBAN_THIRD_PLACE: [
-      "New Jersey Black suburban gathering opinion column -brooklyn",
+      "New Jersey Black suburban gathering opinion column national third place",
     ],
     PHILOSOPHY_OF_GATHERING: [
-      "Black New Jersey cultural memory opinion column -museum",
+      "Black New Jersey cultural memory opinion column national norm",
     ],
     DIGITAL_NETWORKS: [
-      "New Jersey Black event flyer Instagram writer independent -brooklyn",
+      "New Jersey Black culture TikTok national trend influence",
     ],
     DAYTIME_PLAY: [
       "Newark daytime gathering opinion column New Jersey",
@@ -386,7 +387,8 @@ export function sourceDoctrineForPrompt() {
     "DESK A / OFFICIAL: statute, municipal clerk, ABC, census, library catalog, university archive, ownership record. KEEP the bureaucratic language. Gemini will cook; you will not pre-chew a statute into a vibe.",
     "DESK B / ARGUMENT: Black New Jersey press, local opinion, university pages, and independent pages that already asked a Black-NJ question. Echo (oldest Black-owned NJ paper), Front Runner (South Jersey), Five Wards and Public Square (Newark), The Positive Community (Montclair), West Ward Beans, NJ Urban News, Black In Jersey, Anointed (Camden). These count even when they are not the best writing. A Rutgers oral history or an Echo column is how you learn the field. That is not NJPAC season copy and not Essence lifestyle recap. Seed Instagram/Substack pages are starting points, not canon.",
     "ALTITUDE / SOCIETY: Current Affairs and pages like it are allowed for pop-culture and societal understanding — how power, media, and culture work. Same class as Pop Culture Detective. They teach a MECHANISM or a JOIN. They are not the specimen and not the place. Do not write their subject (a Ben Shapiro movie, a campus case) as the CGE piece. Land the mechanism on a Black-NJ room, corridor, or disappearance.",
-    "THE PLACE IS BLACK NEW JERSEY. Not an adjacent NYC week, not Brooklyn, not 'the diaspora' in the abstract. A sentence that could run in Brooklyn without edits is the wrong sentence. Hyperlocal is the moat.",
+    "INFLUENCE TRAVELS. A lot of these conversations go beyond Jersey walls. Hunt what influenced what: Baltimore club → Jersey club, a national digital trend flattening a Newark room, a Caribbean circuit that does not stop at the Hudson, a country-wide norm this NJ gathering is an instance of. The JOIN may name Baltimore, Philly, NYC, Atlanta, or a national pattern when it is the chain. A Brooklyn weekender calendar is still the wrong subject. A piece that never lands back in New Jersey is the wrong piece.",
+    "THE SPECIMEN AND THE DOOR ARE BLACK NEW JERSEY. The pattern and the join may be regional or national. A sentence that never names New Jersey is the wrong sentence. A sentence that only names New Jersey and pretends the trend was born in a vacuum is also the wrong sentence.",
     "Do NOT treat Timeout, Yelp, TripAdvisor, Eventbrite listicles, NJPAC season copy, Essence/The Root recaps, WBGO program notes, or museum wall text as the argument. They may confirm a door is open. They cannot authorize the new question. Prefer opinion / column / commentary over listings.",
     "Hunt the COLUMN, the PERSON, the PAGE, and the UNIVERSITY holding (oral history, AAS, Institute of Jazz Studies). If the first result is a hall, a national magazine, or a Brooklyn weekender, keep searching.",
     "Name the source class on each fact when you can: (OFFICIAL — nj.gov), (CULTURAL — blackinjersey.com), (PRESS — essence.com).",
