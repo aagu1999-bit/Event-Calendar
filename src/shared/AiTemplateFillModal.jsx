@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useBrandStore, useCarouselTemplatesStore, BUILTIN_CAROUSEL_TEMPLATES } from "../store";
-import { generateTemplateFill, pickTemplate, generateArrangedCarousel, researchEvent, researchNews, connectDots, dotsPlanToSlides, readFlyer } from "./aiContent.js";
+import { generateTemplateFill, pickTemplate, generateArrangedCarousel, researchEvent, researchContentMethod, researchNews, connectDots, dotsPlanToSlides, readFlyer } from "./aiContent.js";
 import { summarizeSlidesForFeedback } from "./eventMatrixToFillSeed.js";
+import { isContentRegister } from "./cgeThesis.js";
+import { appendMethodBriefToContext, contextHasMethodBrief } from "./cgeMethod.js";
 
 // Scaffold that primes the Context box with the ingredients a strong hook
 // (esp. an open loop) needs: the TWIST is the curiosity gap, PROOF + WHAT
@@ -71,6 +73,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
   // The brief + source links from the last news lookup, so the user can SEE
   // and verify what fed the generation instead of trusting a black box.
   const [newsFound, setNewsFound] = useState(null);
+  const [methodFound, setMethodFound] = useState(null);
   const [pickedTemplate, setPickedTemplate] = useState(null);
   const [pickReasoning, setPickReasoning] = useState("");
   // Compression event — populated by generateArrangedCarousel when
@@ -141,6 +144,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
       setSlideCount("auto");
       setNewsOn(false);
       setNewsFound(null);
+      setMethodFound(null);
       setLetterMode(false);
       if (initialTemplateId) setTemplateId(initialTemplateId);
       // Seed topic/context when a caller opens us with a story (e.g. the News
@@ -205,13 +209,33 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
     setPickReasoning("");
     setCompressionEvent(null);
     setNewsFound(null);
+    setMethodFound(null);
     try {
-      // Optional web research — a grounded Gemini call looks the event up and
-      // returns a background brief, which we append to the context so every
-      // downstream generation is richer than what the user typed alone.
-      // Best-effort: if it fails (grounding unsupported / offline), continue.
+      // Content / Feature always runs method research (specimen → pattern →
+      // join). Promo/editorial still use the opt-in "look up this event"
+      // background call. Best-effort: if grounding fails, continue.
       let genContext = context;
-      if (researchOn) {
+      const contentMode = isContentRegister(mode, initialIsEvergreen);
+      if (contentMode && !contextHasMethodBrief(genContext)) {
+        setBusyLabel("Finding the join…");
+        try {
+          const researched = await researchContentMethod({
+            apiKey, topic, context,
+            clusterDirective: initialClusterDirective,
+            clusterLabel: initialClusterLabel,
+          });
+          if (researched?.brief) {
+            genContext = appendMethodBriefToContext(genContext, researched);
+            setMethodFound({
+              brief: researched.brief,
+              sources: researched.sources,
+              hasJoin: researched.hasJoin,
+            });
+          }
+        } catch (e) {
+          console.warn("Content method research failed, continuing without it:", e?.message || e);
+        }
+      } else if (researchOn) {
         setBusyLabel("Researching the event…");
         try {
           const brief = await researchEvent({ apiKey, topic, context });
@@ -1185,8 +1209,8 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
               {/* NODE PLAN — every stage the writer will pass through */}
               <div style={{ marginBottom: 8 }}>
                 <div style={{ fontSize: "0.55rem", letterSpacing: 1.2, textTransform: "uppercase", fontWeight: 700, color: "rgba(99,179,237,0.7)", marginBottom: 3 }}>Nodes that will run</div>
-                <div>0 · <b style={{ color: "#F5F0E8" }}>Research</b> — matrix Research Anchors ({(initialContext.match(/^- /gm) || []).length} bullets); Look-up / News-lookup toggles hidden in compact mode (Fuel Research on the matrix side is the structured, entity-checked source)</div>
-                <div>1 · <b style={{ color: "#F5F0E8" }}>Spine (outline)</b> — mode auto-inferred from slot mix (3+ spotlights → SHOWCASE, else INSIGHT)</div>
+                <div>0 · <b style={{ color: "#F5F0E8" }}>Research</b> — matrix Research Anchors ({(initialContext.match(/^- /gm) || []).length} bullets){isContentRegister(mode, initialIsEvergreen) ? " + auto method pass (SPECIMEN → PATTERN → JOIN). Fuel Research is the specimen kit; this pass has to find the sideways join." : "; Look-up / News-lookup toggles hidden in compact mode"}</div>
+                <div>1 · <b style={{ color: "#F5F0E8" }}>Spine (outline)</b> — {isContentRegister(mode, initialIsEvergreen) ? "Content method (SPECIMEN → PATTERN → JOIN → DOOR)" : "mode auto-inferred from slot mix (3+ spotlights → SHOWCASE, else INSIGHT)"}</div>
                 <div>2 · <b style={{ color: "#F5F0E8" }}>Structure writer</b> — cluster="{initialClusterLabel || "(none)"}", keyword="{initialKeywordTrigger || "(none)"}", evergreen={initialIsEvergreen ? "ON" : "off"}</div>
                 <div>3 · <b style={{ color: "#F5F0E8" }}>Voice pass (Node 2)</b> — {(initialVoiceParams && (initialVoiceParams.distance || initialVoiceParams.cadence || initialVoiceParams.stance)) || (voice && voice.description && voice.description.trim()) ? "WILL RUN (voice inputs present)" : "SKIP (no voice inputs → no-op)"}</div>
                 <div>4 · <b style={{ color: "#F5F0E8" }}>Polish critic</b> — WILL RUN (whole-carousel rewrite pass)</div>
@@ -1251,6 +1275,30 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
           <div style={{ marginBottom: 14, padding: "10px 12px", background: "rgba(251,113,133,0.08)", border: "1px solid rgba(251,113,133,0.3)", borderRadius: 4, fontSize: "0.7rem", color: "rgba(251,113,133,0.9)" }}>
             <strong>Error:</strong> {error}
           </div>
+        )}
+
+        {methodFound && methodFound.brief && (
+          <details open style={{ marginBottom: 14, background: "rgba(167,139,250,0.06)", border: "1px solid rgba(167,139,250,0.35)", borderRadius: 5 }}>
+            <summary style={{ padding: "9px 12px", cursor: "pointer", fontSize: "0.6rem", color: "#A78BFA", letterSpacing: 1.2, textTransform: "uppercase", fontWeight: 700, fontFamily: "'Syne',sans-serif", listStyle: "none" }}>
+              {methodFound.hasJoin ? "The join the research found" : "Method research — no join found"}{methodFound.sources?.length ? ` · ${methodFound.sources.length} source${methodFound.sources.length === 1 ? "" : "s"}` : ""}
+            </summary>
+            <div style={{ padding: "0 12px 12px" }}>
+              <pre style={{ margin: "0 0 8px", whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: "0.68rem", lineHeight: 1.5, color: "rgba(245,240,232,0.82)" }}>{methodFound.brief}</pre>
+              {methodFound.sources?.length > 0 && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                  <div style={{ fontSize: "0.5rem", letterSpacing: 1, textTransform: "uppercase", color: "rgba(245,240,232,0.4)", marginBottom: 2 }}>Sources</div>
+                  {methodFound.sources.map((s, i) => (
+                    <a key={i} href={s.uri} target="_blank" rel="noreferrer" style={{ fontSize: "0.64rem", color: "#A78BFA", textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {i + 1}. {s.title}
+                    </a>
+                  ))}
+                </div>
+              )}
+              <div style={{ fontSize: "0.52rem", color: "rgba(245,240,232,0.4)", marginTop: 8, lineHeight: 1.4 }}>
+                Verify the document and the join before posting. If JOIN is NONE the carousel should stay short — do not invent a sideways tie.
+              </div>
+            </div>
+          </details>
         )}
 
         {/* What the news lookup actually found — surfaced so you can verify it

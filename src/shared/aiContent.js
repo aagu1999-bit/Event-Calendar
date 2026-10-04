@@ -31,6 +31,14 @@ import {
   contentCreativeDirection,
   contentSpineMandate,
 } from "./cgeThesis.js";
+import {
+  contentMethodBlock,
+  contentMethodResearchPrompt,
+  parseMethodBrief,
+  appendMethodBriefToContext,
+  contextHasMethodBrief,
+  methodHasJoin,
+} from "./cgeMethod.js";
 
 const MODEL = "gemini-2.5-flash-lite";
 const URL_BASE = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
@@ -182,6 +190,45 @@ export async function researchEvent({ apiKey, topic, context }) {
     generationConfig: { temperature: 0.4 },
   }, { model: "gemini-2.5-flash" });
   return (extractResponseText(data) || "").trim();
+}
+
+// Content / Feature research — NOT event background. Grounded search that
+// has to return a PATTERN, a DOCUMENT, and one SIDEWAYS JOIN. Promo and
+// editorial still use researchEvent (flyer/background). This is the
+// homework step the Content register cannot skip.
+export async function researchContentMethod({ apiKey, topic, context, clusterDirective = "", clusterLabel = "" } = {}) {
+  if (!apiKey) throw new Error("Missing Gemini API key");
+  const prompt = contentMethodResearchPrompt({ topic, context, clusterDirective, clusterLabel });
+  const data = await geminiGenerate(apiKey, {
+    contents: [{ parts: [{ text: prompt }] }],
+    tools: [{ google_search: {} }],
+    generationConfig: { temperature: 0.35 },
+  }, { model: "gemini-2.5-flash" });
+  const brief = (extractResponseText(data) || "").trim();
+  const parsed = parseMethodBrief(brief);
+  return {
+    brief,
+    parsed,
+    sources: extractGroundingSources(data),
+    hasJoin: methodHasJoin(parsed),
+  };
+}
+
+async function ensureContentMethodBrief({ apiKey, topic, context, clusterDirective, clusterLabel, mode, isEvergreen }) {
+  const ctx = context || "";
+  if (!isContentRegister(mode, isEvergreen)) return { context: ctx, researched: null };
+  if (contextHasMethodBrief(ctx)) return { context: ctx, researched: null };
+  try {
+    const researched = await researchContentMethod({ apiKey, topic, context: ctx, clusterDirective, clusterLabel });
+    if (researched?.brief) {
+      return { context: appendMethodBriefToContext(ctx, researched), researched };
+    }
+  } catch (e) {
+    if (typeof console !== "undefined") {
+      console.warn("Content method research failed, generating without join brief:", e?.message || e);
+    }
+  }
+  return { context: ctx, researched: null };
 }
 
 // Pull the REAL source URLs Gemini used out of the grounding metadata so the
@@ -1517,9 +1564,14 @@ export async function generateArrangedCarousel({
   clusterDirective = "", clusterLabel = "", keywordTrigger = null, voiceParams = null,
   behavioralTags = null, isEvergreen = false, rejectedDrafts = [], approvedDrafts = [],
 }) {
-  const design = await designSequence({ apiKey, topic, context, mode, targetCount, letterMode });
+  const evergreen = isEvergreen || isContentRegister(mode);
+  const prepared = await ensureContentMethodBrief({
+    apiKey, topic, context, clusterDirective, clusterLabel, mode, isEvergreen: evergreen,
+  });
+  const filledContext = prepared.context;
+  const design = await designSequence({ apiKey, topic, context: filledContext, mode, targetCount, letterMode });
   const slides = await generateTemplateFill({
-    apiKey, sequence: design.sequence, topic, context, voice, slotPrompts,
+    apiKey, sequence: design.sequence, topic, context: filledContext, voice, slotPrompts,
     templateMeta: { name: "AI-arranged carousel", keyMove: design.rationale }, mode, letterMode,
     clusterDirective, clusterLabel, keywordTrigger, voiceParams, behavioralTags,
     isEvergreen, rejectedDrafts, approvedDrafts,
@@ -1624,8 +1676,8 @@ export async function pickTemplate({ apiKey, topic, context, candidates }) {
 // Also skips fields that just happen to CONTAIN a beat label as part of a
 // longer phrase — only strips when the field IS the label (or the label +
 // a trailing colon / dash).
-const SCAFFOLDING_LABEL_PATTERN = /^\s*(?:the\s+)?(paradox|friction|mechanism|gate|thesis|beat)\s*[:\-–—]?\s*$/i;
-const SCAFFOLDING_PREFIX_PATTERN = /^\s*(?:the\s+)?(paradox|friction|mechanism|gate|thesis|beat)\s*[:\-–—]\s*/i;
+const SCAFFOLDING_LABEL_PATTERN = /^\s*(?:the\s+)?(paradox|friction|mechanism|gate|thesis|beat|specimen|pattern|join|door|remnant)\s*[:\-–—]?\s*$/i;
+const SCAFFOLDING_PREFIX_PATTERN = /^\s*(?:the\s+)?(paradox|friction|mechanism|gate|thesis|beat|specimen|pattern|join|door|remnant)\s*[:\-–—]\s*/i;
 const TITLE_FIELDS = new Set([
   "headline", "textTitle", "spotName", "kicker", "ctaKicker", "statLabel",
   "newsHeadline", "newsKicker", "accentWord", "pressTitle", "pressBadge",
@@ -2356,6 +2408,15 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   if (!Array.isArray(sequence) || !sequence.length) throw new Error("Missing template sequence");
   if ((!topic || !topic.trim()) && (!context || !context.trim())) throw new Error("Add a topic or event details first");
 
+  // Content / Feature: run the method research BEFORE thin-input so a
+  // document + join can thicken a 2-bullet matrix into an honest piece.
+  // Skips when the caller already appended a CGE METHOD BRIEF.
+  const evergreenEarly = isEvergreen || isContentRegister(mode);
+  const prepared = await ensureContentMethodBrief({
+    apiKey, topic, context, clusterDirective, clusterLabel, mode, isEvergreen: evergreenEarly,
+  });
+  context = prepared.context;
+
   // THIN_INPUT guard — refuse to write a 7-slide dispatch from 2 facts.
   // Without this the fill's response-shape enforcement ("expected N slides,
   // got M") is asymmetric: it lets the model return exactly N slides, but
@@ -2828,6 +2889,10 @@ export async function generateNarrativeSpine({ apiKey, topic, context, clusterDi
     "",
     ...platformThesisBlock({ mode, isEvergreen }),
     ...(isContentRegister(mode, isEvergreen) ? contentSpineMandate() : []),
+    ...(isContentRegister(mode, isEvergreen) && !methodHasJoin(parseMethodBrief(context || "")) ? [
+      "METHOD NOTE — JOIN is missing or NONE. Do not invent a sideways tie. Collapse JOIN into PATTERN and set recommendedSlideCount honestly short.",
+      "",
+    ] : []),
     ...(context && context.trim() ? [
       "Raw context (the writer will draw from these; you decide which serve the thesis and which are noise):",
       context.trim(),
@@ -2848,9 +2913,20 @@ export async function generateNarrativeSpine({ apiKey, topic, context, clusterDi
       "  - beats: an ordered array mapping to the showcase shape:",
       "      1. OVERTURE — the umbrella framing on slide 1: names the pattern and opens the loop, without anchoring on any single entity.",
       "      2. SHOWCASE — each spotlight slide carries ONE peer entity. Beats 2..N-1 are all SHOWCASE — no argument escalation between them; they are equal-weight entries. If a bridge slide (news/text) sits between spotlights it can be labeled CONTEXT (background on the pattern) or omit a beat entirely.",
-      "      3. CODA — the closing: last slide is the ask (CTA / GATE / directory close). Never a limp 'link in bio'.",
+      isContentRegister(mode, isEvergreen)
+        ? "      3. CODA — the closing: last slide is the DOOR (who holds this, where it lives). Never a ticket or 'link in bio'."
+        : "      3. CODA — the closing: last slide is the ask (CTA / GATE / directory close). Never a limp 'link in bio'.",
       "    Use SHOWCASE as the beat label for every peer entry — do NOT invent per-entity labels ('SHOWCASE_A', 'ROSE_PICK'). The identical label is correct; the ENTITY inside each spotlight is what varies.",
       "  - slideAssignments: an array of length equal to slide count. Slide 1 = OVERTURE; every spotlight slide = SHOWCASE; a non-spotlight bridge slide = CONTEXT; last slide = CODA. Peer entries share the same label by design.",
+    ] : isContentRegister(mode, isEvergreen) ? [
+      '  - thesis: ONE sentence naming the PATTERN this carousel teaches. Concrete, not abstract. Not a topic ("Diaspora Infrastructure") and not a flyer line — a claim the reader can reuse on the next room they walk into.',
+      "  - beats: an ordered array of 4 beats mapping to slides in this order:",
+      "      1. SPECIMEN — the room / lineage / disappearance already in the audience's week. NO conclusion, NO flyer hero.",
+      "      2. PATTERN — the reusable Black-NJ pressure this specimen is an instance of. No document dump.",
+      "      3. JOIN — the sideways tie (document, parallel room, same-city other diaspora, disappearance). This beat is the quality. If JOIN is NONE, do not fake it.",
+      "      4. DOOR — who holds this, where it lives, how an everyday person finds more. Never a ticket or RSVP.",
+      "    If the material is sonic/historical you MAY use ORIGIN → BREAK → LEGACY → NOW — but sentence 2 of causalSynthesis must still name a JOIN.",
+      "  - slideAssignments: an array of length equal to slide count. Each entry is SPECIMEN / PATTERN / JOIN / DOOR (or ORIGIN/BREAK/LEGACY/NOW). Last slide is DOOR. Spread the middle.",
     ] : [
       '  - thesis: ONE sentence naming the singular tension this carousel exposes. Concrete, not abstract. Not a topic ("Diaspora Infrastructure") but a claim ("Newark\'s Portuguese social clubs quietly do what commercial nightlife charges $60 a table for").',
       "  - beats: an ordered array of 4 beats mapping to slides in this order:",
@@ -2880,15 +2956,21 @@ export async function generateNarrativeSpine({ apiKey, topic, context, clusterDi
     "  If you have FEWER proof bullets than content slots, that's fine — leave the extra slots without proofAssignments and the writer will carry them with framing / context bullets. That's a separate case from dropping a proof.",
     `  - recommendedSlideCount: the honest number of slides this material can support without repeating facts (integer, between 3 and ${slideCount} inclusive). If the operator picked ${slideCount} slides but you only have 3 proof bullets and no additional systemic tension worth writing about, return 4 or 5, NOT ${slideCount}. This is the editorial compression call — better to ship a tight 4-slide carousel than a stretched 7 that paraphrases the same 3 facts. Only return the operator's full count if the material genuinely earns it (rich proof list, distinct beats, complex mechanism).`,
     ...(spineMode === "showcase" ? [
-      "  - causalSynthesis: EXACTLY 2 sentences that model the ECOSYSTEM this collection represents. Sentence 1 names the through-line — what distinguishes THESE entities from adjacent options ('quiet listening rooms that treat vinyl as the headliner, not the atmosphere', 'run clubs that outgrew a hobby and became social infrastructure'). Sentence 2 names one shared TRAIT or SIGNAL the peer entries carry ('curated speaker rigs, low-decibel licensing, small capacities under 100', 'consistent Saturday cadence, a coffee handoff after, a founding operator who runs it as a project not a business'). Concrete pattern → concrete shared trait. NO abstract musing, NO 'this shows how community forms', NO grantwriter register. This is the ecosystem the writer will characterize.",
+      isContentRegister(mode, isEvergreen)
+        ? "  - causalSynthesis: EXACTLY 2 sentences. Sentence 1 names the PATTERN this collection teaches. Sentence 2 names the JOIN — the document, disappearance, or pressure that makes these peer rooms one thought, not a directory dump. NOT venue-responds-to-liquor-cap unless the bullets actually are that story."
+        : "  - causalSynthesis: EXACTLY 2 sentences that model the ECOSYSTEM this collection represents. Sentence 1 names the through-line — what distinguishes THESE entities from adjacent options ('quiet listening rooms that treat vinyl as the headliner, not the atmosphere', 'run clubs that outgrew a hobby and became social infrastructure'). Sentence 2 names one shared TRAIT or SIGNAL the peer entries carry ('curated speaker rigs, low-decibel licensing, small capacities under 100', 'consistent Saturday cadence, a coffee handoff after, a founding operator who runs it as a project not a business'). Concrete pattern → concrete shared trait. NO abstract musing, NO 'this shows how community forms', NO grantwriter register. This is the ecosystem the writer will characterize.",
+    ] : isContentRegister(mode, isEvergreen) ? [
+      "  - causalSynthesis: EXACTLY 2 sentences. Sentence 1 names the PATTERN (the reusable Black-NJ pressure). Sentence 2 names the JOIN (this specimen ↔ the document, parallel room, or disappearance that makes the pattern undeniable). Example: 'Same-city diaspora rooms keep two calendars that never print each other. The Caribbean hall on that corridor and the African restaurant two blocks over share a Saturday and almost no audience — the join is the missed overlap, not the liquor cap.' NOT 'venue responds to a rule' unless the bullets actually are that story. If JOIN is NONE, sentence 2 names the living remnant only — do not invent a sideways tie.",
     ] : [
       "  - causalSynthesis: EXACTLY 2 sentences that model the causal chain the carousel will dramatize. Sentence 1 names the SYSTEMIC RULE, PRESSURE, or CONSTRAINT the material implies — a policy, a zoning cap, a cost, a demographic shift, an ordinance, a market condition. Sentence 2 names how the specific VENUE / OPERATOR / SOLUTION responds to that pressure. Example: 'State decibel caps make big sound rigs a liability in mixed-use neighborhoods. In response, venues like LoFi pivot to low-decibel, high-margin vinyl nights to keep the crowd without breaking the law.' Concrete rule → concrete response. NO abstract musing, NO 'this shows how culture adapts', NO grantwriter register. This is the completed reasoning the writer will execute against — with this in hand, the writer's job is voice + format, not re-derivation. Rewrite it two or three times in your head before returning; make sure sentence 2 is a direct RESPONSE to the pressure named in sentence 1.",
     ]),
     "",
     'Return ONLY JSON in this exact shape:',
     (spineMode === "showcase"
-      ? '{"thesis":"...","beats":[{"label":"OVERTURE","description":"..."},{"label":"SHOWCASE","description":"..."},{"label":"CODA","description":"..."}],"slideAssignments":["OVERTURE","SHOWCASE","SHOWCASE","SHOWCASE","SHOWCASE","CODA"],"bulletRoles":{"first 60 chars of bullet":"proof|context|veto"},"proofAssignments":{"first 60 chars of bullet":3},"recommendedSlideCount":6,"causalSynthesis":"Ecosystem through-line sentence. Shared-trait sentence."}'
-      : '{"thesis":"...","beats":[{"label":"PARADOX","description":"..."},{"label":"FRICTION","description":"..."},{"label":"MECHANISM","description":"..."},{"label":"GATE","description":"..."}],"slideAssignments":["PARADOX","FRICTION","FRICTION","MECHANISM","MECHANISM","GATE"],"bulletRoles":{"first 60 chars of bullet":"proof|context|veto"},"proofAssignments":{"first 60 chars of bullet":3},"recommendedSlideCount":6,"causalSynthesis":"Systemic-rule sentence. Venue-response sentence."}'
+      ? '{"thesis":"...","beats":[{"label":"OVERTURE","description":"..."},{"label":"SHOWCASE","description":"..."},{"label":"CODA","description":"..."}],"slideAssignments":["OVERTURE","SHOWCASE","SHOWCASE","SHOWCASE","SHOWCASE","CODA"],"bulletRoles":{"first 60 chars of bullet":"proof|context|veto"},"proofAssignments":{"first 60 chars of bullet":3},"recommendedSlideCount":6,"causalSynthesis":"Pattern sentence. Join or shared-trait sentence."}'
+      : isContentRegister(mode, isEvergreen)
+        ? '{"thesis":"...","beats":[{"label":"SPECIMEN","description":"..."},{"label":"PATTERN","description":"..."},{"label":"JOIN","description":"..."},{"label":"DOOR","description":"..."}],"slideAssignments":["SPECIMEN","PATTERN","PATTERN","JOIN","JOIN","DOOR"],"bulletRoles":{"first 60 chars of bullet":"proof|context|veto"},"proofAssignments":{"first 60 chars of bullet":3},"recommendedSlideCount":6,"causalSynthesis":"Pattern sentence. Join sentence."}'
+        : '{"thesis":"...","beats":[{"label":"PARADOX","description":"..."},{"label":"FRICTION","description":"..."},{"label":"MECHANISM","description":"..."},{"label":"GATE","description":"..."}],"slideAssignments":["PARADOX","FRICTION","FRICTION","MECHANISM","MECHANISM","GATE"],"bulletRoles":{"first 60 chars of bullet":"proof|context|veto"},"proofAssignments":{"first 60 chars of bullet":3},"recommendedSlideCount":6,"causalSynthesis":"Systemic-rule sentence. Venue-response sentence."}'
     ),
   ];
   const data = await geminiGenerate(apiKey, {
@@ -4008,11 +4090,11 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
       "",
     ] : []),
     "QUALITY BAR — applies to EVERY slide, not just the cover:",
-    "- ANTI-LITERALISM: The prompt uses labels like PARADOX, FRICTION, MECHANISM, GATE, and marker lines like '>>> BEAT: X <<<' as INTERNAL SCAFFOLDING for the outline. These are concepts, NOT visible copy. NEVER write these labels as text, headlines, kickers, or body — a cover headline that reads 'THE PARADOX' or a textTitle that reads 'FRICTION' or a kicker that reads 'MECHANISM' is failed output. Same rule for the words 'THESIS' and 'BEAT' — those are outline metadata. Every field you emit should be finished editorial copy that stands on its own.",
+    "- ANTI-LITERALISM: The prompt uses labels like PARADOX, FRICTION, MECHANISM, GATE, SPECIMEN, PATTERN, JOIN, DOOR, and marker lines like '>>> BEAT: X <<<' as INTERNAL SCAFFOLDING for the outline. These are concepts, NOT visible copy. NEVER write these labels as text, headlines, kickers, or body — a cover headline that reads 'THE PARADOX' or 'THE JOIN' or a textTitle that reads 'FRICTION' or a kicker that reads 'MECHANISM' is failed output. Same rule for the words 'THESIS' and 'BEAT' — those are outline metadata. Every field you emit should be finished editorial copy that stands on its own.",
     "- DATA SYNTHESIS (not transcription): The Context bullets are RAW EVIDENCE, not a script. You must WEAVE these facts naturally into the narrative argument defined by the Editorial POV. Do NOT copy or paste a bullet verbatim into a slide slot. Do NOT paraphrase a bullet as its own slide-length sentence. Subordinate the facts to the story — a bullet like 'Club Zanzibar, 1979, Lincoln Motel Newark' becomes 'the Newark motel ballroom that rewrote the Jersey Sound in '79', not a repeat of the raw bullet. The bullets are ingredients; you're cooking.",
     "- ANTI-REGURGITATION: The Editorial POV and Cluster Directive are INVISIBLE creative direction — they steer your tone and framing. DO NOT copy or paste the POV or directive text verbatim into any slide's headline, kicker, title, or body. If a reader sees the exact string of the POV appear on a slide, you failed. Synthesize original prose that EMBODIES the POV's argument instead of quoting it.",
     "- TEMPORAL INTEGRITY: NEVER invent modern revivals, reopenings, comebacks, or 'it's back' claims for historical entities unless the Context bullets EXPLICITLY state the revival. If a venue was demolished, closed, or ended decades ago and no supplied bullet names a modern successor, frame the tension around lasting INFLUENCE, not a fabricated return. A defunct room can shape today's rooms without being 'back'.",
-    "- ENTITY ISOLATION: Do NOT blend unrelated cities, decades, or venues into a single slide. When filling a slot, use ONLY the assigned fact for that slot (Reserved PROOF, per BEAT). Slides that mix Newark 1979 with Asbury Park 2024 in the same body copy read as a kitchen-sink montage, not an argument. One slide = one time, one place, one specific — unless the POV explicitly bridges them.",
+    "- ENTITY ISOLATION: Do NOT blend unrelated cities, decades, or venues into a single slide — EXCEPT the JOIN beat, which is required to connect the specimen to one sideways document, parallel room, or disappearance. Every other slide stays one time, one place, one specific. A JOIN slide that only restates the specimen failed. A non-JOIN slide that montages two cities failed.",
     "- FACT-DENSITY MANDATE: every slide MUST name a specific concrete entity from the material — a transit line, a venue, an intersection, a corridor, a specific ordinance number, a named collective, a specific time-of-day, an actual price point. BANNED sociological fluff: 'the unseen hand', 'access dictates who shows up', 'the fabric of the community', 'the very essence of', 'at its core', 'speaks to', 'a testament to', 'invisible architecture', 'the geography of', 'the way we gather'. These read as academic essay filler and mask the absence of specifics. If your instinct is to write one of those phrases, you're missing a concrete anchor — pull one from the assigned bullet or a context bullet marked 'context', or name the physical place / time / rule the material implies.",
     "- ATOMICITY MANDATE: EACH FIELD CARRIES ONE ATOMIC UNIT. One venue name in spotName, one address in spotMeta, one date in ctaDate, one time in spotTime. If your instinct is to stack Metuchen + Aug 7 + address + Album Club pitch + Crossroads into a single spotMeta separated by `·` or `|`, you're using the WRONG SLOT TYPE for the material and the field will be flagged as a data-dump. Split into multiple slides, or leave the extras out. Rule of thumb: if a field would contain more than TWO `·` separators, or more than ONE date, or BOTH an address AND a date, it's a violation.",
     "- FIELD DISCIPLINE: Title / headline / label / kicker fields (headline, textTitle, spotName, kicker, ctaKicker, statLabel, newsHeadline, newsKicker, accentWord, pressTitle, pressBadge, countEvent, countCta, spotTime, spotPrice, spotCta) are SHORT LABELS — one clause, aim under 60 characters. Body fields (textBody, newsBody, subtitle, spotMeta, subLine, statSub, countText, caption, pressLineup) carry the sentences. If a title field reads like body copy — two sentences separated by a period, multiple ideas stacked — you're in the wrong field: move it to the body and shorten the title. Example of failed output: `textTitle: \"Young's Skating Center keeps a hardwood ritual alive. Forget the casino strip.\"` That's two sentences of body prose stuffed into a title slot. Correct: `textTitle: \"THE HARDWOOD RITUAL\"`, `textBody: \"Young's Skating Center keeps Friday nights alive off the casino strip.\"`",
@@ -4049,6 +4131,7 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
       ]),
     ...(today ? [`- Today is ${today}. Use the correct current year everywhere; never default to a past year.`] : []),
     "",
+    ...(isContentRegister(mode, isEvergreen) ? contentMethodBlock() : []),
     ...(isContentRegister(mode, isEvergreen) ? contentCreativeDirection() : creativeDirection()),
     ...(sequence.includes("cover") && !isContentRegister(mode, isEvergreen) ? hookFrameworks() : []),
     ...(sequence.length > 2 ? retentionEngineering(sequence.length) : []),
@@ -4111,7 +4194,9 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
       `THESIS: ${narrativeSpine.thesis}`,
       ...(narrativeSpine.causalSynthesis ? [
         "",
-        "CAUSAL SYNTHESIS — the completed causal reasoning behind this carousel. This is the argument, already reasoned out. Your job as writer is VOICE + FORMAT, NOT re-derivation. Do NOT rewrite this reasoning; every slide must be consistent with it, dramatizing the specific rule → response chain named here:",
+        isContentRegister(mode, isEvergreen)
+          ? "CAUSAL SYNTHESIS — the completed reasoning behind this carousel (PATTERN → JOIN). Your job as writer is VOICE + FORMAT, NOT re-derivation. Do NOT rewrite this reasoning; every slide must be consistent with it. Sentence 1 is the pattern the reader keeps. Sentence 2 is the sideways join. Dramatize that join — do not fall back to a venue-responds-to-rule flyer:"
+          : "CAUSAL SYNTHESIS — the completed causal reasoning behind this carousel. This is the argument, already reasoned out. Your job as writer is VOICE + FORMAT, NOT re-derivation. Do NOT rewrite this reasoning; every slide must be consistent with it, dramatizing the specific rule → response chain named here:",
         `  ${narrativeSpine.causalSynthesis}`,
       ] : []),
       "",
@@ -4123,16 +4208,25 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
       "",
       "Rules that follow from the spine:",
       "- Do not restate the thesis on every slide — the thesis is the frame, not the copy. Each slide advances ONE beat.",
-      "- A slide labeled PARADOX must NOT contain the metric that belongs to MECHANISM. Hold the number.",
-      "- A slide labeled FRICTION must name the OBSTACLE, not the resolution. If you write the resolution here, you've written the wrong beat.",
-      "- A slide labeled GATE ends the arc; it is the ask, not another explainer.",
+      ...(isContentRegister(mode, isEvergreen) ? [
+        "- A slide labeled SPECIMEN names the room/lineage, not the conclusion.",
+        "- A slide labeled PATTERN names the reusable pressure, not another flyer detail.",
+        "- A slide labeled JOIN is the ONE slide that may connect two places, decades, or a room to a document. If you only restate the specimen here, you failed the method.",
+        "- A slide labeled DOOR ends the arc as an archive/directory door, not an invite.",
+      ] : [
+        "- A slide labeled PARADOX must NOT contain the metric that belongs to MECHANISM. Hold the number.",
+        "- A slide labeled FRICTION must name the OBSTACLE, not the resolution. If you write the resolution here, you've written the wrong beat.",
+        "- A slide labeled GATE ends the arc; it is the ask, not another explainer.",
+      ]),
       "═════════════════════════════",
       "",
     ] : []),
     ...variationDirective(),
     ...((topic && topic.trim()) ? [`Carousel topic: ${topic.trim()}`, ""] : []),
     ...(context && context.trim() ? [
-      "Context (event details, selling points, lineup — break this up across slides as the rules below dictate):",
+      isContentRegister(mode, isEvergreen)
+        ? "Context (research evidence — specimen, pattern, document, join — NOT selling points or lineup). Break this up across slides as the method dictates:"
+        : "Context (event details, selling points, lineup — break this up across slides as the rules below dictate):",
       context.trim(),
       "",
       "─────────────────────────────",

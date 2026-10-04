@@ -1,3 +1,5 @@
+import { contentMethodSpineBlock } from "./cgeMethod.js";
+
 // CGE platform thesis — sits ABOVE Compass clusters.
 //
 // Clusters are analytical lenses (nightlife math, third-place deficit,
@@ -61,6 +63,7 @@ export function contentRegisterBlock() {
   return [
     "REGISTER: CONTENT — cultural infrastructure, not a flyer and not a memoir.",
     "- Destination is UNDERSTANDING plus a door into the archive/directory. Never a sale.",
+    "- Method is SPECIMEN → PATTERN → MECHANISM → JOIN → DOOR. A piece that only describes the specimen is a recap. The JOIN (document, parallel room, disappearance) is the quality.",
     "- Hero is a QUESTION about Black New Jersey (memory, ownership vs programming, same-city diaspora tension, what quietly disappeared). An event, venue, or night may open the piece; it is not the product.",
     "- Voice: 15% curator, 85% observational + research-grounded. Third-person or restrained editorial-we. 'I' is banned unless a sourced quote needs it. You translate; you are not the subject.",
     "- Depth without heaviness. Curiosity without preachiness. If a line sounds like a seminar, a grant, or a eulogy, rewrite it as a concrete NJ specific — a room, a corridor, a lineage, a number you can vouch for.",
@@ -80,7 +83,7 @@ export function contentCreativeDirection() {
   return [
     "CREATIVE DIRECTION — Content / Feature (read before writing a single line):",
     "- Do NOT infer an 'event genre' or match nightlife/FOMO/mixer energy. This is not that post.",
-    "- FIRST name the QUESTION the swipe answers. Then pick the proof (rooms, people, lineages, numbers) that make the question undeniable.",
+    "- FIRST name the QUESTION the swipe answers. Then name the JOIN (specimen ↔ a document, parallel room, or disappearance). Then pick the proof that makes both undeniable. A question without a join is still a recap.",
     "- Hook archetypes that fit: a pointed question nobody else is asking; then→now with a living remnant; a counter-intuitive claim about who owns vs who programs; a single NJ-specific scene detail that implies the larger pattern.",
     "- Do NOT invent unverifiable history, quotes, or venues. If the material is thin, keep the carousel short and specific rather than padding with atmosphere.",
     "- Rotate away from gathering-magazine defaults (150-cap rooms, liquor caps, run clubs) unless THIS piece's cluster and bullets actually are about that.",
@@ -89,14 +92,7 @@ export function contentCreativeDirection() {
   ];
 }
 
-// Spine / arranger extras for Content — GATE is an archive door, not a keyword.
+// Spine / arranger extras for Content — the method arc, not venue-response.
 export function contentSpineMandate() {
-  return [
-    "CONTENT SPINE MANDATE — this is a Feature / content piece:",
-    "- GATE / CODA is a directory or archive door: where this lives, who holds it, how to find more. Never a ticket, RSVP, or keyword shout.",
-    "- causalSynthesis sentence 1 names a cultural PRESSURE (memory loss, generational disconnect, ownership vs programming, same-city diaspora tension, economic squeeze, digital flattening). Sentence 2 names the living remnant, room, or practice that makes that pressure visible in New Jersey. Not 'venue responds to liquor cap' unless the bullets actually are that story.",
-    "- Prefer the sonic-history shape when it fits: ORIGIN → BREAK → LEGACY → NOW. Keep the count at 4.",
-    "- Do not outline a promo arc (hook → selling points → RSVP).",
-    "",
-  ];
+  return contentMethodSpineBlock();
 }
