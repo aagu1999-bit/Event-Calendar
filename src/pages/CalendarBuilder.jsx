@@ -1136,9 +1136,9 @@ export default function CalendarBuilder() {
 
   // === Weekend caption generator ===
   // The operator hits "✨ Generate Caption" near the download buttons. The
-  // AI writes a caption in Brand Voice referencing this weekend's actual
-  // events, and the ZIP download bundles it as caption.txt so the
-  // download-then-post workflow is one round-trip.
+  // AI writes the opening 1–2 sentences in Brand Voice; code appends
+  // "Comment EVENTS…" (in-app keyword, no off-app link) and the four
+  // fixed hashtags. ZIP download ships the current text as caption.txt.
   //
   // captionText holds the currently-active caption (may be regenerated
   // multiple times or hand-edited). ZIP always ships the CURRENT text.
@@ -1149,18 +1149,17 @@ export default function CalendarBuilder() {
   const [captionModalOpen, setCaptionModalOpen] = useState(false);
   const [captionMsg, setCaptionMsg] = useState(null); // { ok, text }
 
-  // Shared generation call. Returns the assembled caption string (body +
-  // CTA + closer + hashtags) or throws. Kept in one place so the button
-  // click and the ZIP auto-gen path share exact behavior.
+  // Shared generation call. Returns the assembled caption string (opening
+  // + comment-EVENTS CTA + fixed hashtags) or throws.
   const runCaptionGeneration = async () => {
     if (!guideKey) throw new Error("Add your Gemini API key on the Media tab first.");
-    const { body, hashtags } = await generateWeekendCaption({
+    const { body } = await generateWeekendCaption({
       apiKey: guideKey,
       weekendDates: calcDates(friDate),
       events,
       voice: brandVoice,
     });
-    return assembleWeekendCaption({ body, hashtags });
+    return assembleWeekendCaption({ body });
   };
 
   const openCaptionModal = async () => {
@@ -2650,7 +2649,7 @@ export default function CalendarBuilder() {
               <button onClick={() => setCaptionModalOpen(false)} style={{ background: "transparent", border: "none", color: "rgba(245,240,232,0.5)", fontSize: "1.1rem", cursor: "pointer" }}>×</button>
             </div>
             <p style={{ margin: "0 0 14px", fontSize: "0.78rem", color: "rgba(245,240,232,0.55)", lineHeight: 1.5 }}>
-              Voiced from your Brand Kit + this weekend's events. Edit in place, regenerate, or copy. Whatever's here at ZIP-download time ships as <code>caption.txt</code> alongside the slides.
+              Voiced from your Brand Kit + this weekend's events — the opening 1–2 sentences, then <strong>Comment EVENTS</strong> (stays in-app), then #CGE #NewJerseyIsFun #EventsInNewJersey #NJ. Edit in place, regenerate, or copy. Whatever's here at ZIP-download time ships as <code>caption.txt</code> alongside the slides.
             </p>
 
             {captionMsg && (
