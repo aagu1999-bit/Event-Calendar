@@ -943,7 +943,7 @@ export function keepWeekendCaptionOpening(body) {
 // EVENTS keeps people in Instagram; sending them to the site was hurting
 // reach. Hashtags are a fixed four-tag set, not model-generated.
 export const WEEKEND_CAPTION_CTA = "Comment EVENTS to get the full listing details.";
-export const WEEKEND_CAPTION_HASHTAGS = ["#CGE", "#NewJerseyIsFun", "#EventsInNewJersey", "#NJ"];
+export const WEEKEND_CAPTION_HASHTAGS = ["#NJWeekend", "#OnlyInJersey", "#EventsInNewJersey", "#NJ"];
 
 // Assembles the final caption: opening body + comment-EVENTS CTA + tags.
 // `hashtags` is ignored (kept on the signature so older callers don't break).
