@@ -2649,7 +2649,7 @@ export default function CalendarBuilder() {
               <button onClick={() => setCaptionModalOpen(false)} style={{ background: "transparent", border: "none", color: "rgba(245,240,232,0.5)", fontSize: "1.1rem", cursor: "pointer" }}>×</button>
             </div>
             <p style={{ margin: "0 0 14px", fontSize: "0.78rem", color: "rgba(245,240,232,0.55)", lineHeight: 1.5 }}>
-              Voiced from your Brand Kit + this weekend's events — the opening 1–2 sentences, then <strong>Comment EVENTS</strong> (stays in-app), then #CGE #NewJerseyIsFun #EventsInNewJersey #NJ. Edit in place, regenerate, or copy. Whatever's here at ZIP-download time ships as <code>caption.txt</code> alongside the slides.
+              Voiced from your Brand Kit + this weekend's events — the opening 1–2 sentences, then <strong>Comment EVENTS</strong> (stays in-app), then #NJWeekend #OnlyInJersey #EventsInNewJersey #NJ. Edit in place, regenerate, or copy. Whatever's here at ZIP-download time ships as <code>caption.txt</code> alongside the slides.
             </p>
 
             {captionMsg && (
