@@ -116,7 +116,7 @@ export function contentMethodResearchPrompt({ topic, context, clusterDirective =
     "3. A DOCUMENT: ordinance, year founded/closed, ownership, census, budget line, archive holding, liquor cap, demolition, press that names a number.",
     "4. A SIDEWAYS JOIN: a parallel room, a same-city other-diaspora site, a then→now remnant, a policy that explains the felt week, a disappearance next door. This is the quality. Without it the piece is a recap.",
     "5. Who holds this now — the living remnant or archive an everyday person can actually find.",
-    "6. AN ARGUMENT: a Black-NJ opinion piece, news column, university page (Rutgers / Montclair / Princeton oral history, AAS, Institute of Jazz Studies), or independent page already asking this pattern. Search the COLUMN, the PERSON, the PAGE, and the university holding. Not NJPAC, not Essence, not a museum, not a Brooklyn weekender. If you cannot name one, say so in REMNANT.",
+    "6. AN ARGUMENT: a Black-NJ opinion piece, news column, university page (Rutgers / Montclair / Princeton oral history, AAS, Institute of Jazz Studies), or independent page already asking this pattern. A Current Affairs (or similar) piece may teach the societal / pop-culture MECHANISM — do not move the specimen onto their subject. Search the COLUMN, the PERSON, the PAGE, and the university holding. Not NJPAC, not Essence, not a museum, not a Brooklyn weekender. If you cannot name one, say so in REMNANT.",
     ...lensDiscoveryQueries({ cluster: clusterLabel, topic }).flatMap((q) => [`   - ${q}`]),
     "",
     "Return plain text in EXACTLY this shape (no markdown headers, no preamble):",

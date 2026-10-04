@@ -103,7 +103,6 @@ export const OPINION_NEWS_DOMAINS = [
   "thenewarktimes.com",
   "anointedonline.net",
   "atlanticcityfocus.com",
-  "morejersey.com",
   "nj.com",
   "tapinto.net",
   "jerseydigs.com",
@@ -112,11 +111,18 @@ export const OPINION_NEWS_DOMAINS = [
 // Live NJ Black press that did not fit the 20-domain search cap.
 // Still labeled CULTURAL when a citation lands.
 const NJ_PRESS_CLASSIFY_ONLY = [
+  "morejersey.com",
   "southjerseyjournal.com",
   "wearejerseyent.com",
   "arkrepublic.com",
   "shelterforce.org",
   "trentonjournal.com",
+];
+
+// National pop-culture / society argument. Same class as Pop Detective:
+// they teach a MECHANISM. They are not the specimen and not the place.
+export const PATTERN_ALTITUDE_DOMAINS = [
+  "currentaffairs.org",
 ];
 
 // NJ universities sit on both desks. Desk A reads them as archive.
@@ -136,6 +142,7 @@ export const CULTURAL_SEARCH_DOMAINS = [
   "thejerzclub.substack.com",
   ...UNIVERSITY_ARGUMENT_DOMAINS,
   ...OPINION_NEWS_DOMAINS,
+  ...PATTERN_ALTITUDE_DOMAINS,
 ].filter((site, i, all) => all.indexOf(site) === i).slice(0, 20);
 
 // Classification — longer than the search allowlists on purpose.
@@ -178,6 +185,7 @@ const CULTURAL_HOST_MARKERS = [
   ...LENS_ACCOUNTS.flatMap((account) => account.sites).filter((site) => !site.includes("/")),
   ...OPINION_NEWS_DOMAINS,
   ...NJ_PRESS_CLASSIFY_ONLY,
+  ...PATTERN_ALTITUDE_DOMAINS,
 ];
 
 const CULTURAL_PATH_MARKERS = LENS_ACCOUNTS
@@ -338,8 +346,9 @@ export function lensDiscoveryQueries({ cluster = "", topic = "" } = {}) {
   const hook = String(topic || "").trim() || "Black New Jersey gathering";
   const key = String(cluster || "").toUpperCase().replace(/\s+/g, "_");
   const base = [
-    `${hook} Black New Jersey opinion OR op-ed OR column site:echonewstv.com OR site:blackinjersey.com OR site:njurbannews.com -njpac -essence -currentaffairs`,
+    `${hook} Black New Jersey opinion OR op-ed OR column site:echonewstv.com OR site:blackinjersey.com OR site:njurbannews.com -njpac -essence`,
     `${hook} Newark OR "South Jersey" commentary site:frontrunnernewjersey.com OR site:fivewardsmedia.com OR site:publicsq.org`,
+    `${hook} pop culture OR society OR power mechanism site:currentaffairs.org`,
     `${hook} oral history OR "African American Studies" site:rutgers.edu OR site:montclair.edu OR site:princeton.edu`,
   ];
   const byCluster = {
@@ -375,7 +384,8 @@ export function sourceDoctrineForPrompt() {
   return [
     "SOURCE DOCTRINE — the operator is systematizing Black New Jersey culture without a journalism degree. The desks teach the field. Do not require a famous critic. Require a New Jersey argument you can point at.",
     "DESK A / OFFICIAL: statute, municipal clerk, ABC, census, library catalog, university archive, ownership record. KEEP the bureaucratic language. Gemini will cook; you will not pre-chew a statute into a vibe.",
-    "DESK B / ARGUMENT: Black New Jersey press, local opinion, university pages, and independent pages that already asked a Black-NJ question. Echo (oldest Black-owned NJ paper), Front Runner (South Jersey), Five Wards and Public Square (Newark), The Positive Community (Montclair), West Ward Beans, NJ Urban News, Black In Jersey, Anointed (Camden). These count even when they are not the best writing. A Rutgers oral history or an Echo column is how you learn the field. That is not NJPAC season copy, not Current Affairs, not Essence. Seed Instagram/Substack pages are starting points, not canon.",
+    "DESK B / ARGUMENT: Black New Jersey press, local opinion, university pages, and independent pages that already asked a Black-NJ question. Echo (oldest Black-owned NJ paper), Front Runner (South Jersey), Five Wards and Public Square (Newark), The Positive Community (Montclair), West Ward Beans, NJ Urban News, Black In Jersey, Anointed (Camden). These count even when they are not the best writing. A Rutgers oral history or an Echo column is how you learn the field. That is not NJPAC season copy and not Essence lifestyle recap. Seed Instagram/Substack pages are starting points, not canon.",
+    "ALTITUDE / SOCIETY: Current Affairs and pages like it are allowed for pop-culture and societal understanding — how power, media, and culture work. Same class as Pop Culture Detective. They teach a MECHANISM or a JOIN. They are not the specimen and not the place. Do not write their subject (a Ben Shapiro movie, a campus case) as the CGE piece. Land the mechanism on a Black-NJ room, corridor, or disappearance.",
     "THE PLACE IS BLACK NEW JERSEY. Not an adjacent NYC week, not Brooklyn, not 'the diaspora' in the abstract. A sentence that could run in Brooklyn without edits is the wrong sentence. Hyperlocal is the moat.",
     "Do NOT treat Timeout, Yelp, TripAdvisor, Eventbrite listicles, NJPAC season copy, Essence/The Root recaps, WBGO program notes, or museum wall text as the argument. They may confirm a door is open. They cannot authorize the new question. Prefer opinion / column / commentary over listings.",
     "Hunt the COLUMN, the PERSON, the PAGE, and the UNIVERSITY holding (oral history, AAS, Institute of Jazz Studies). If the first result is a hall, a national magazine, or a Brooklyn weekender, keep searching.",
