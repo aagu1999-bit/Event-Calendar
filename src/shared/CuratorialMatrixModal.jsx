@@ -2133,7 +2133,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                 {researchDesks ? (
                   <>Desk A official {researchDesks.official?.ok ? `· ${researchDesks.official.count} fact${researchDesks.official.count === 1 ? "" : "s"}` : "· empty"}
                     {"  ·  "}
-                    Desk B lens {researchDesks.cultural?.ok ? `· ${researchDesks.cultural.count} fact${researchDesks.cultural.count === 1 ? "" : "s"}` : "· empty"}</>
+                    Desk B argument {researchDesks.cultural?.ok ? `· ${researchDesks.cultural.count} fact${researchDesks.cultural.count === 1 ? "" : "s"}` : "· empty"}</>
                 ) : "Source desks ran."}
                 {officialEmpty ? (
                   <div style={{ marginTop: 4, fontWeight: 700 }}>
@@ -2142,7 +2142,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                 ) : null}
                 {culturalEmpty ? (
                   <div style={{ marginTop: 4, fontWeight: 700 }}>
-                    Lens desk is empty — citations are halls, magazines, or unranked. NJPAC and Essence cannot supply the new lens. Hunt an Instagram or Substack mind.
+                    Argument desk is empty — citations are halls, national magazines, or unranked. Hunt a Black-NJ opinion piece, a local column, or an independent page. Not a Brooklyn week.
                   </div>
                 ) : null}
               </div>

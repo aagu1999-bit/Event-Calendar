@@ -1,21 +1,23 @@
 // CGE source doctrine — the translator's desk, not a vibe scout.
 //
 // Official websites hold the record (statute, census, library, clerk).
-// Lens accounts hold the new question. Institutions and national
-// magazines cannot. The list is meant to grow from minds the operator
-// actually trusts. Append an account; do not invent a source you have
-// not actually used.
+// Desk B holds the ARGUMENT: a local opinion piece, a news column, or
+// an independent page that already asked a Black-NJ question. The
+// operator is systematizing this field without a journalism degree —
+// the desks exist so the homework is learnable, not so we pretend the
+// seed accounts are the best minds. Append a source you have actually
+// used. Do not invent one.
 //
 // Why pages like not_gui, Pop Culture Detective, and We Are GST are
 // hard to find: they are one-person (or small-team) publication-minds.
 // They publish on Instagram and Substack. They have no hall, no season
 // brochure, no SEO. Google ranks NJPAC, Essence, and museum wall text
 // first. Allowlisting instagram.com is too broad (the whole platform).
-// The move is path-level handles + named hunts for the PERSON and the
-// PAGE. Those three are the ALTITUDE, not the topic — do not write
-// about Nigerian civic climate or masculinity media criticism. Find
-// the equivalent mind for Black New Jersey and the specimen in front
-// of us.
+// The move is path-level handles + named hunts for the PERSON, the
+// PAGE, and the COLUMN. Those three are the ALTITUDE, not the topic —
+// do not write about Nigerian civic climate or masculinity media
+// criticism. Find the equivalent argument for Black New Jersey — not
+// an adjacent NYC week.
 //
 // Perplexity Agent web_search allowlists cap at 20 domains per call
 // and accept path-level filters (instagram.com/handle). Keep each
@@ -43,57 +45,62 @@ export const OFFICIAL_SEARCH_DOMAINS = [
   "montclair.edu",
 ];
 
-// Desk B — lens accounts. Independent minds with a method, not halls.
-// Seed only. Add a handle when CGE has actually used that page.
+// Desk B — argument sources. Independent pages are a seed, not canon.
+// Local opinion and news count: that is how you learn the field.
+// Hyperlocal Black NJ only. An adjacent NYC week is the wrong lens.
 export const LENS_ACCOUNTS = [
   {
     id: "cge",
     name: "Central Group Events",
-    why: "House archive — CGE's own published guide. Not an outside lens; the door the piece should close into.",
+    why: "House archive — CGE's own published guide. The door the piece should close into.",
     sites: ["centralgroupevents.com"],
   },
   {
     id: "diaspora-gothic",
     name: "Hassan Ghanny / diaspora gothic",
-    why: "NJ-born independent cultural worker. Essays, zines, video essays. Instagram-first mind, not a hall.",
+    why: "NJ-born independent cultural worker. Seed, not the best mind — counts until a stronger NJ page replaces it.",
     sites: ["hassanghanny.me", "instagram.com/diaspora.gothic"],
   },
   {
     id: "jewel-justice",
     name: "Jewel Justice",
-    why: "South Jersey writer. Independent Substack on Black life, culture, and art. A mind, not a season brochure.",
+    why: "South Jersey writer. Seed. Independent Substack on Black life and culture.",
     sites: ["jeweljustice.substack.com"],
   },
   {
     id: "thejerzclub",
     name: "TheJerzClub",
-    why: "Started as an Instagram page for Jersey club makers. Still the low-level room for that lineage — not NJPAC programming copy.",
+    why: "Instagram-first Jersey club room. Seed for that lineage — not NJPAC programming copy.",
     sites: ["thejerzclub.substack.com", "instagram.com/thejerzclub"],
-  },
-  {
-    id: "idontdoclubs",
-    name: "Genese Jamilah / I Don't Do Clubs / the weeklies",
-    why: "Independent Black-professional gathering lens that already includes NJ in the week. A person with a page, not a venue calendar.",
-    sites: ["idontdoclubs.com", "theweekliesbygenesejamilah.substack.com", "instagram.com/idontdoclubs"],
   },
   {
     id: "fayemi-shakur",
     name: "fayemi shakur",
-    why: "Newark cultural critic. Independent writing and A Womb of Violet — the city's own critical voice, not museum wall text.",
+    why: "Newark cultural critic. Seed. The city's own critical voice, not museum wall text.",
     sites: ["fayemishakur.com", "instagram.com/fayemi_"],
   },
   {
     id: "envert",
     name: "Flisadam Pointer / ENVERT",
-    why: "Newark-built independent music desk. Unsigned and local first. A journalist's own platform, not a national recap.",
+    why: "Newark-built independent music desk. Seed. A journalist's own platform, not a national recap.",
     sites: ["envertmedia.com", "instagram.com/flisadamp"],
   },
 ];
 
-export const CULTURAL_SEARCH_DOMAINS = LENS_ACCOUNTS
-  .flatMap((account) => account.sites)
-  .filter((site, i, all) => all.indexOf(site) === i)
-  .slice(0, 20);
+// Local opinion and news — valid places to PULL the question from.
+// Prefer columns, op-eds, and reported argument over listings.
+export const OPINION_NEWS_DOMAINS = [
+  "blackinjersey.com",
+  "njurbannews.com",
+  "tapinto.net",
+  "jerseydigs.com",
+  "nj.com",
+];
+
+export const CULTURAL_SEARCH_DOMAINS = [
+  ...LENS_ACCOUNTS.flatMap((account) => account.sites),
+  ...OPINION_NEWS_DOMAINS,
+].filter((site, i, all) => all.indexOf(site) === i).slice(0, 20);
 
 // Classification — longer than the search allowlists on purpose.
 const OFFICIAL_HOST_MARKERS = [
@@ -111,13 +118,10 @@ const OFFICIAL_HOST_MARKERS = [
   "archives.gov",
 ];
 
-// Halls, stations, and national magazines are PRESS now. They can
-// confirm a door. They cannot supply the daily new lens.
+// Halls, stations, and national magazines are PRESS. They can confirm
+// a door. They cannot authorize a Black-NJ argument.
 const PRESS_HOST_MARKERS = [
-  "nj.com",
-  "tapinto.net",
   "njmonthly.com",
-  "jerseydigs.com",
   "amsterdamnews.com",
   "theroot.com",
   "thegrio.com",
@@ -132,13 +136,12 @@ const PRESS_HOST_MARKERS = [
   "njpac.org",
   "newarkmuseumart.org",
   "newjerseystage.com",
-  "blackinjersey.com",
-  "njurbannews.com",
 ];
 
-const CULTURAL_HOST_MARKERS = LENS_ACCOUNTS
-  .flatMap((account) => account.sites)
-  .filter((site) => !site.includes("/"));
+const CULTURAL_HOST_MARKERS = [
+  ...LENS_ACCOUNTS.flatMap((account) => account.sites).filter((site) => !site.includes("/")),
+  ...OPINION_NEWS_DOMAINS,
+];
 
 const CULTURAL_PATH_MARKERS = LENS_ACCOUNTS
   .flatMap((account) => account.sites)
@@ -278,43 +281,41 @@ export function clusterSearchQueries(cluster = "") {
   return [];
 }
 
-// How you find a not_gui / GST / Pop Detective for what is in front of
-// us: search the PERSON and the PAGE, subtract the halls, stay on
-// Instagram + Substack + a personal site.
+// How you learn the field without already being in it: hunt the
+// COLUMN and the PAGE inside Black New Jersey. Opinion and news that
+// argue count. An adjacent NYC week does not.
 export function lensDiscoveryQueries({ cluster = "", topic = "" } = {}) {
   const hook = String(topic || "").trim() || "Black New Jersey gathering";
   const key = String(cluster || "").toUpperCase().replace(/\s+/g, "_");
   const base = [
-    `${hook} independent writer Instagram Substack Newark OR "Jersey City" -njpac -essence -museum`,
-    `${hook} New Jersey culture critic newsletter OR zine Instagram -timeout`,
-    `who writes about ${hook} Instagram "New Jersey" -njpac -yelp`,
+    `${hook} Black New Jersey opinion OR op-ed OR column -essence -timeout`,
+    `${hook} Newark OR "Jersey City" commentary site:nj.com OR site:blackinjersey.com`,
+    `${hook} independent writer Instagram Substack Newark -njpac -museum -brooklyn`,
   ];
   const byCluster = {
     STATE_SONIC_HISTORY: [
-      "Jersey club historian Instagram Substack TheJerzClub",
-      "Club Zanzibar Newark oral history independent writer -njpac",
+      "Jersey club Newark opinion oral history TheJerzClub -njpac",
+      "Club Zanzibar Newark column OR oral history -brooklyn",
     ],
     NIGHTLIFE_DILEMMA: [
-      "Newark nightlife independent writer Instagram Substack",
-      "Jersey City club closure critic newsletter",
+      "Newark nightlife opinion column closure site:nj.com OR site:jerseydigs.com",
+      "Jersey City club curfew commentary -timeout",
     ],
     DIASPORA_INFRASTRUCTURE: [
-      "Newark Caribbean African hall independent writer Instagram",
-      "diaspora gothic Hassan Ghanny New Jersey essay",
+      "Newark Caribbean African American hall opinion column New Jersey",
+      "who owns versus who programs Newark culture column",
     ],
     SUBURBAN_THIRD_PLACE: [
-      "New Jersey Black suburban gathering writer Instagram Substack",
-      "I Don't Do Clubs New Jersey weeklies",
+      "New Jersey Black suburban gathering opinion column -brooklyn",
     ],
     PHILOSOPHY_OF_GATHERING: [
-      "Newark cultural critic Instagram Substack fayemi shakur",
-      "Black New Jersey essayist zine Instagram -museum",
+      "Black New Jersey cultural memory opinion column -museum",
     ],
     DIGITAL_NETWORKS: [
-      "New Jersey Black event flyer Instagram writer independent",
+      "New Jersey Black event flyer Instagram writer independent -brooklyn",
     ],
     DAYTIME_PLAY: [
-      "Newark daytime gathering independent writer Instagram",
+      "Newark daytime gathering opinion column New Jersey",
     ],
   };
   return [...base, ...(byCluster[key] || [])].slice(0, 6);
@@ -322,12 +323,13 @@ export function lensDiscoveryQueries({ cluster = "", topic = "" } = {}) {
 
 export function sourceDoctrineForPrompt() {
   return [
-    "SOURCE DOCTRINE — a cultural translator needs the right desks, not the highest-ranked Google result.",
+    "SOURCE DOCTRINE — the operator is systematizing Black New Jersey culture without a journalism degree. The desks teach the field. Do not require a famous critic. Require a New Jersey argument you can point at.",
     "DESK A / OFFICIAL: statute, municipal clerk, ABC, census, library catalog, university archive, ownership record. KEEP the bureaucratic language. Gemini will cook; you will not pre-chew a statute into a vibe.",
-    "DESK B / LENS: independent minds, not halls. The pages that are hard to find — Instagram-first writers, Substacks, one-person publications — because Google ranks NJPAC, Essence, and museums first. Those institutions cannot provide the new lens we search for daily. A lens account has a recurring mind and a method (specimen → pattern → join). Class examples of ALTITUDE, not topic: not_gui / n0tgui, Pop Culture Detective, We Are GST. Do not write their subjects. Find the equivalent mind for Black New Jersey and this specimen. CGE's own published guide is the house archive.",
-    "Do NOT treat Timeout, Yelp, TripAdvisor, Eventbrite listicles, NJPAC season copy, Essence/The Root recaps, WBGO program notes, or museum wall text as the lens. They may confirm a door is open. They cannot authorize the new question.",
-    "Hunt the PERSON and the PAGE: named Instagram handles (path-level, not instagram.com wholesale), named Substacks, personal sites. If the first result is a hall or a national magazine, keep searching.",
-    "Name the source class on each fact when you can: (OFFICIAL — nj.gov), (CULTURAL — thejerzclub.substack.com), (PRESS — nj.com).",
+    "DESK B / ARGUMENT: local opinion pieces, news columns, and independent pages that already asked a Black-NJ question. These count even when they are not the best writing. A column on nj.com or Black In Jersey that argues who owns vs who programs is more useful than a hall brochure. Seed Instagram/Substack pages are starting points, not canon. Class examples of ALTITUDE, not topic: not_gui, Pop Culture Detective, We Are GST. Do not write their subjects.",
+    "THE PLACE IS BLACK NEW JERSEY. Not an adjacent NYC week, not Brooklyn, not 'the diaspora' in the abstract. A sentence that could run in Brooklyn without edits is the wrong sentence. Hyperlocal is the moat.",
+    "Do NOT treat Timeout, Yelp, TripAdvisor, Eventbrite listicles, NJPAC season copy, Essence/The Root recaps, WBGO program notes, or museum wall text as the argument. They may confirm a door is open. They cannot authorize the new question. Prefer opinion / column / commentary over listings.",
+    "Hunt the COLUMN, the PERSON, and the PAGE. If the first result is a hall, a national magazine, or a Brooklyn weekender, keep searching.",
+    "Name the source class on each fact when you can: (OFFICIAL — nj.gov), (CULTURAL — blackinjersey.com), (PRESS — essence.com).",
     "A claim that only exists on an unranked listicle is UNCONFIRMED, not a document.",
   ].join(" ");
 }

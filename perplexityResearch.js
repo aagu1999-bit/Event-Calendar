@@ -124,12 +124,12 @@ export function researchOfficialRequest(input = {}) {
 export function researchCulturalRequest(input = {}) {
   const historicalOverride = isHistoricalCluster(input.cluster);
   const instructions = [
-    "You are DESK B — the LENS desk for a Black New Jersey cultural publication.",
+    "You are DESK B — the ARGUMENT desk for a Black New Jersey cultural publication.",
     sourceDoctrineForPrompt(),
-    "Search the lens accounts available to you: named Instagram handles, named Substacks, personal sites, CGE's own published guide. These are independent minds. They are hard to find because they are not institutions.",
-    "FINDING LOGIC (same class as not_gui, Pop Culture Detective, We Are GST): hunt the PERSON and the PAGE. Run the named Instagram/Substack hunts. If the first result is NJPAC, Essence, WBGO, a museum, or a national magazine, discard it as the lens and keep searching. Those pages cannot provide the new question.",
-    "Do not write about Nigerian civic climate or masculinity media criticism. Those accounts are the altitude. Find the equivalent mind for Black New Jersey and this specimen.",
-    "Return the join the lens makes — who uses the room, who programs vs who owns, who holds the memory, the living remnant. This is a new question, not a brunch list and not a season brochure.",
+    "Search local opinion pieces, news columns, independent pages, named Instagram/Substack seeds, and CGE's own published guide. The operator is learning this field. A Newark op-ed that argues counts. A Brooklyn weekender does not.",
+    "FINDING LOGIC: hunt the COLUMN, the PERSON, and the PAGE. Prefer opinion / column / commentary over listings. If the first result is NJPAC, Essence, WBGO, a museum, a national magazine, or an NYC-adjacent week, discard it as the argument and keep searching.",
+    "Do not write about Nigerian civic climate or masculinity media criticism. Those accounts are the altitude. Find the equivalent Black-NJ argument for this specimen.",
+    "Return the join the argument makes — who uses the room, who programs vs who owns, who holds the memory, the living remnant. This is a new question, not a brunch list and not a season brochure.",
     "PRIMARY RESEARCH LENS: Every candidate must pass the Analytical lens in the user payload.",
     "TARGET AUDIENCE: rooms and orgs must plausibly serve the Target Audience. A room whose people do not overlap is not a candidate.",
     "BANNED AS THE LENS: Timeout, Yelp, TripAdvisor, Eventbrite, NJPAC, Essence, The Root, WBGO program notes, museum wall text. They may confirm a door is open; they cannot be the cultural source.",
@@ -142,7 +142,7 @@ export function researchCulturalRequest(input = {}) {
     ...(historicalOverride ? [
       "This cluster is historically anchored: include a living remnant where the lineage still operates, if one exists in a lens or archive. A closed room can still be a valid candidate if an independent mind or the archive holds it — do not drop history because the door is shut.",
     ] : []),
-    "If you cannot find at least 1 verifiable NJ-tied lens fact, return an empty bullets array.",
+    "If you cannot find at least 1 verifiable NJ-tied argument (opinion, column, or independent page), return an empty bullets array.",
     "Output strict JSON with 'bullets' and 'citations'.",
   ];
   return {
@@ -366,7 +366,7 @@ export async function fuelResearchViaPerplexity(input = {}) {
       return {
         ok: false,
         code: "empty",
-        message: "Both desks came back empty. Official sources had no record and the lens desk found no independent mind for this cluster. Broaden the hook or add a trusted Instagram/Substack to the source bank.",
+        message: "Both desks came back empty. Official sources had no record and the argument desk found no Black-NJ opinion, column, or independent page. Broaden the hook or add a source you actually trust.",
       };
     }
 
