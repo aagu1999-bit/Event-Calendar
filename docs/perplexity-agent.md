@@ -3,12 +3,13 @@
 The existing Curatorial Matrix **Fuel Research** button uses the official
 `@perplexity-ai/perplexity_ai` SDK's `responses.create` method (Agent API;
 `/v1/responses` is the documented compatibility alias for `/v1/agent`).
-It uses the `low` preset and two filtered `web_search` desks (official
-`.gov` / library / university, then a growable argument bank of Black
-NJ press — Echo, Front Runner, Five Wards, Public Square, The Positive
-Community, NJ Uncovered (Facebook / YouTube / Instagram) — plus Rutgers /
-Montclair / Princeton pages and Current Affairs as pop-culture / societal
-altitude, not the specimen; not halls, Essence, or an adjacent NYC week).
+It uses the `low` preset in Google AI Mode order: an unconstrained
+NJ-focused scout writes a thesis plus starting points (Cranford,
+Transit Village, an NJ Monthly piece — not four cafe addresses).
+A second pass dives those threads on the desks (official `.gov` /
+library / university, Black NJ press, leftover local press, and
+apparent halls). The desks thicken. They do not throw the brief away.
+If the dive fails, the scout brief still ships.
 It requests a JSON schema and reads
 the SDK's `output_text`. Search results and text annotations supply
 source URLs; the UI classifies them OFFICIAL / CULTURAL / PRESS / UNRANKED.

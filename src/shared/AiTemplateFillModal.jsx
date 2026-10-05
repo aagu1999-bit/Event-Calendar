@@ -1127,7 +1127,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
 
 
         {/* Enrich & voice drawer — HIDDEN in compact mode. Matrix-driven
-            flow uses Perplexity Fuel Research (structured atomic facts,
+            flow uses Perplexity Fuel Research (NJ brief + starting points,
             adversarially verified, entity-overlap checked) as its source
             of web research. Look-up + News-lookup here are unstructured
             Gemini prose that appends to the writer's context, bypassing

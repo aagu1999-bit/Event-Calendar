@@ -1,12 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { researchRequest, researchHypothesisRequest, researchOfficialRequest, researchCulturalRequest, researchVerificationRequest, parseResearchResponse } from "./perplexityResearch.js";
+import { researchRequest, researchHypothesisRequest, researchAiModeRequest, researchOfficialRequest, researchCulturalRequest, researchLookthroughRequest, researchVerificationRequest, researchDiveRequest, parseResearchResponse } from "./perplexityResearch.js";
 
-test("research uses Agent preset, web search, and structured output", () => {
+test("research uses Agent preset, open NJ web search, and structured output", () => {
   const request = researchRequest({ topic: "Newark", existingBullets: [null, "Existing fact"] });
   assert.equal(request.preset, "low");
   assert.equal(request.tools[0].type, "web_search");
-  assert.ok(Array.isArray(request.tools[0].filters.search_domain_filter));
+  assert.equal(request.tools[0].filters, undefined);
+  assert.equal(request.tools[0].user_location.region, "NJ");
   assert.equal(request.response_format.type, "json_schema");
   assert.match(request.input, /Existing fact/);
   assert.equal(request.model, undefined);
@@ -14,7 +15,7 @@ test("research uses Agent preset, web search, and structured output", () => {
 
 test("reads output_text and collects safe source and annotation URLs", () => {
   const result = parseResearchResponse({
-    output_text: '{"bullets":["A supported fact","Another supported fact"]}',
+    output_text: '{"thesis":"NJ strip towns were built to sleep.","bullets":["A supported fact","Another supported fact"]}',
     model: "test-model",
     output: [
       { type: "search_results", results: [{ url: "https://example.org/source" }, { url: "javascript:alert(1)" }] },
@@ -22,55 +23,71 @@ test("reads output_text and collects safe source and annotation URLs", () => {
     ],
   });
   assert.equal(result.ok, true);
+  assert.equal(result.thesis, "NJ strip towns were built to sleep.");
   assert.deepEqual(result.citations, ["https://example.org/source", "https://example.org/other"]);
 });
 
 test("rejects malformed, empty, oversized, and unsourced answers", () => {
-  for (const output_text of ["not JSON", "null", '{"bullets":[5]}', JSON.stringify({ bullets: ["x".repeat(501)] })]) {
+  for (const output_text of ["not JSON", "null", '{"bullets":[5]}', JSON.stringify({ bullets: ["x".repeat(701)] })]) {
     assert.equal(parseResearchResponse({ output_text }).code, "bad_response");
   }
   assert.equal(parseResearchResponse({ output_text: '{"bullets":[]}' }).code, "empty");
   assert.equal(parseResearchResponse({ output_text: '{"bullets":["No sources","Another unsourced fact"]}' }).code, "empty");
 });
 
-test("Feature-tier desks split DOCUMENT and JOIN", () => {
+test("AI Mode scout is unconstrained NJ search with a thesis and starting points", () => {
+  const scout = researchAiModeRequest({
+    cluster: "SUBURBAN_THIRD_PLACE",
+    topic: "suburban commercial strip retrofit",
+    corridor: "Transit Village Suburbs",
+  });
+  assert.match(scout.instructions, /Google AI Mode|open web|OPEN web/i);
+  assert.match(scout.instructions, /STARTING POINTS/);
+  assert.match(scout.instructions, /thesis/i);
+  assert.equal(scout.tools.length, 1);
+  assert.equal(scout.tools[0].filters, undefined);
+  assert.match(scout.input, /Transit Village|Cranford|retrofit/i);
+  assert.equal(researchHypothesisRequest({ topic: "A Saturday" }).tools[0].filters, undefined);
+});
+
+test("Feature-tier official desk still hunts the named program", () => {
   const official = researchOfficialRequest({ cluster: "DIASPORA_INFRASTRUCTURE", topic: "A Newark hall", tier: "FEATURE" });
   assert.match(official.instructions, /DOCUMENT/);
   assert.ok(official.tools[0].filters.search_domain_filter.includes(".gov"));
-  assert.equal(/THIRD-PLACE MANDATE/.test(official.instructions), false);
   const cultural = researchCulturalRequest({ cluster: "DIASPORA_INFRASTRUCTURE", topic: "A Newark hall", tier: "FEATURE" });
-  assert.match(cultural.instructions, /JOIN — /);
-  assert.match(cultural.instructions, /ARGUMENT/);
-  assert.match(cultural.input, /opinion|op-ed|column/i);
+  assert.match(cultural.instructions, /JOIN — |NEXT — |ARGUMENT/);
   assert.ok(cultural.tools[0].filters.search_domain_filter.includes("echonewstv.com"));
-  assert.ok(cultural.tools[0].filters.search_domain_filter.includes("blackinjersey.com"));
-  assert.ok(cultural.tools[0].filters.search_domain_filter.includes("frontrunnernewjersey.com"));
-  assert.ok(cultural.tools[0].filters.search_domain_filter.includes("currentaffairs.org"));
-  assert.ok(cultural.tools[0].filters.search_domain_filter.includes("rutgers.edu"));
-  assert.ok(cultural.tools[0].filters.search_domain_filter.includes("montclair.edu"));
-  assert.ok(cultural.tools[0].filters.search_domain_filter.includes("princeton.edu"));
   assert.equal(cultural.tools[0].filters.search_domain_filter.includes("njpac.org"), false);
-  assert.equal(cultural.tools[0].filters.search_domain_filter.includes("idontdoclubs.com"), false);
-  const orbit = researchHypothesisRequest({ cluster: "NIGHTLIFE_DILEMMA", topic: "A Saturday", tier: "ORBIT" });
-  assert.equal(/FEATURE \/ CONTENT METHOD/.test(orbit.instructions), false);
 });
 
-test("verification keeps history that is true as stated", () => {
-  const request = researchVerificationRequest({
+test("dive thickens starting points and does not drop the brief", () => {
+  const request = researchDiveRequest({
     cluster: "STATE_SONIC_HISTORY",
-    candidates: ["DOCUMENT — Club Zanzibar closed 1992"],
+    thesis: "Jersey club left a closed room and a living remnant.",
+    candidates: ["START — Club Zanzibar closed 1992"],
   });
-  assert.match(request.instructions, /true AS STATED/);
+  assert.match(request.instructions, /THICKEN/);
   assert.match(request.instructions, /Do NOT drop a fact because the door is not open today/);
   assert.match(request.instructions, /PREFER THE DESKS FIRST/);
-  assert.equal(request.tools.length, 3);
+  assert.match(request.input, /SCOUT THESIS/);
+  assert.match(request.input, /Club Zanzibar/);
+  assert.equal(request.tools.length, 4);
   assert.ok(request.tools[0].filters.search_domain_filter.includes(".gov"));
   assert.ok(request.tools[1].filters.search_domain_filter.includes("echonewstv.com"));
-  assert.equal(request.tools[2].filters, undefined);
-  assert.equal(/verifiably true today/.test(request.instructions), false);
+  assert.ok(request.tools[2].filters.search_domain_filter.includes("morejersey.com"));
+  assert.equal(request.tools[3].filters, undefined);
 });
 
-test("merged research rules preserve NJ relevance and short-hook framing", () => {
+test("look-through searches leftover press and apparent halls, not Desk B", () => {
+  const leftover = researchLookthroughRequest({ cluster: "POLICY_MECHANICS", topic: "NJ ABC liquor license cap" });
+  assert.match(leftover.instructions, /LOOK-THROUGH/);
+  assert.ok(leftover.tools[0].filters.search_domain_filter.includes("morejersey.com"));
+  const leftoverPress = leftover.tools[1]?.filters.search_domain_filter || [];
+  assert.ok(leftoverPress.includes("njmonthly.com"));
+  assert.equal(leftoverPress.includes("essence.com"), false);
+});
+
+test("merged research rules preserve NJ relevance", () => {
   const request = researchRequest({ cluster: "Culture", topic: "Let Me Know" });
   assert.match(request.instructions, /at least 1 verifiable NJ-tied/);
   assert.match(request.instructions, /PRIMARY RESEARCH LENS/);

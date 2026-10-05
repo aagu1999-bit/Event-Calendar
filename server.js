@@ -785,7 +785,7 @@ app.post("/api/events/bulk", express.json({ limit: "20mb" }), async (req, res) =
 // --- MATRIX RESEARCH (Perplexity Agent API) ---
 // Fuel Research button in the Curatorial Matrix modal hits this endpoint
 // with the record's cluster / topic / POV / existing bullets and gets
-// back 3–4 factually grounded new bullets plus source URLs. Perplexity
+// back an NJ thesis plus starting points, then a desk dive. Perplexity
 // key stays server-side. Client renders bullets into the data_points
 // list and shows citations in a small vetting strip.
 
@@ -820,6 +820,7 @@ app.post("/api/matrix/research", express.json({ limit: "128kb" }), async (req, r
     // "hypothesis-only").
     res.json({
       ok: true,
+      thesis: result.thesis || "",
       bullets: result.bullets,
       citations: result.citations,
       sources: result.sources || [],
