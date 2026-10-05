@@ -598,12 +598,17 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
       }
       const incoming = Array.isArray(j.bullets) ? j.bullets : [];
       if (!incoming.length) {
-        setResearchError("No bullets returned. Try broadening the cluster or hook.");
+        setResearchError("No starting points returned. Try a sharper New Jersey hook.");
         return;
       }
       // Append while respecting BULLETS_MAX; the operator can trim later.
       const merged = [...bullets, ...incoming].slice(0, LIMITS.BULLETS_MAX);
-      applyPatch({ data_points: merged });
+      const thesisLine = typeof j.thesis === "string" ? j.thesis.trim() : "";
+      const patch = { data_points: merged };
+      if (thesisLine && !(local.editorial_pov || "").trim()) {
+        patch.editorial_pov = thesisLine.slice(0, LIMITS.POV_MAX);
+      }
+      applyPatch(patch);
       const incomingCitations = Array.isArray(j.citations) ? j.citations.slice(0, 12) : [];
       setCitations(incomingCitations);
       const classified = Array.isArray(j.sources) && j.sources.length
@@ -1946,7 +1951,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
             <div style={{ ...groupLabelStyle, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
               <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <span style={{ width: 3, height: 12, background: orbit, borderRadius: 2, display: "inline-block" }} />
-                Research Anchors · friction · mechanism · specimen · next
+                Research Anchors · NJ brief + starting points
               </span>
               <button
                 type="button"
@@ -1955,7 +1960,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                 title={
                   researching ? "Researching…"
                   : !local.cluster ? "Pick a cluster first — Perplexity needs an editorial frame"
-                  : "Ask Perplexity for the NJ friction, the named program, one real specimen, and the next question"
+                  : "Ask Perplexity for an NJ-focused brief and starting points to dive"
                 }
                 style={{
                   background: researching ? "rgba(167,139,250,0.06)" : "rgba(167,139,250,0.14)",
@@ -2015,7 +2020,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                         padding: 0,
                         overflow: "hidden",
                       }}
-                      placeholder="FRICTION — / MECHANISM — / SPECIMEN — / NEXT —  one job per line. Not a venue address."
+                      placeholder="THESIS — or START — a named NJ thread to dive. Not a venue address."
                     />
                     <span style={{ fontSize: "0.6rem", color: over ? warn : faint, fontVariantNumeric: "tabular-nums", marginTop: 4, flexShrink: 0 }}>
                       {(b || "").length}/{LIMITS.BULLET_MAX}
@@ -2105,13 +2110,15 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                 letterSpacing: "0.06em",
                 lineHeight: 1.55,
               }}>
-                {researchPhase === "verified" ? (
-                  <>◆ Fact-checked · Phase 2 verified {citations.length ? "these anchors against sources" : "the candidates"}
-                    {researchDroppedCount > 0
-                      ? ` · dropped ${researchDroppedCount} Phase 1 candidate${researchDroppedCount === 1 ? "" : "s"} that couldn't be sourced`
+                {researchPhase === "dived" || researchPhase === "verified" ? (
+                  <>◆ NJ brief + desk dive · starting points thickened against official / argument pages</>
+                ) : researchPhase === "scout" ? (
+                  <>◆ NJ brief · desks did not thicken these starting points
+                    {researchVerificationError
+                      ? ` · ${researchVerificationError.slice(0, 160)}`
                       : ""}</>
                 ) : (
-                  <>⚠ Unverified · Phase 2 (fact-check) failed — these are Phase 1 candidates only
+                  <>⚠ Unverified · Phase 2 failed — these are the NJ brief only
                     {researchVerificationError
                       ? ` · reason: ${researchVerificationError.slice(0, 160)}`
                       : ""}</>
@@ -2134,6 +2141,12 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                   <>Desk A official {researchDesks.official?.ok ? `· ${researchDesks.official.count} fact${researchDesks.official.count === 1 ? "" : "s"}` : "· empty"}
                     {"  ·  "}
                     Desk B argument {researchDesks.cultural?.ok ? `· ${researchDesks.cultural.count} fact${researchDesks.cultural.count === 1 ? "" : "s"}` : "· empty"}
+                    {researchDesks.scout ? (
+                      <>
+                        {"  ·  "}
+                        Scout {researchDesks.scout.ok ? `· ${researchDesks.scout.count} starting point${researchDesks.scout.count === 1 ? "" : "s"}` : "· empty"}
+                      </>
+                    ) : null}
                     {researchDesks.lookthrough ? (
                       <>
                         {"  ·  "}
@@ -2143,12 +2156,12 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                 ) : "Source desks ran."}
                 {officialEmpty ? (
                   <div style={{ marginTop: 4, fontWeight: 700 }}>
-                    Official desk is empty — you are not ready to speak on the record. A cultural-only payload is feedback without the document.
+                    Official desk did not thicken a record page yet — dive the named program on .gov next. Keep the brief.
                   </div>
                 ) : null}
                 {culturalEmpty ? (
                   <div style={{ marginTop: 4, fontWeight: 700 }}>
-                    Argument desk is empty — citations are halls, national magazines, or unranked. Hunt a Black-NJ opinion piece, a Rutgers/Montclair/Princeton page, or an independent page. Not a Brooklyn week.
+                    Argument desk did not land a Black-NJ column yet — that's the next dive, not a reason to throw the brief away.
                   </div>
                 ) : null}
               </div>
