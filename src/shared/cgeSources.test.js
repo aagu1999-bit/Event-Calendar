@@ -39,6 +39,9 @@ test("desk allowlists stay inside Perplexity's 20-domain cap", () => {
   assert.ok(OPINION_NEWS_DOMAINS.includes("blackinjersey.com"));
   assert.ok(UNIVERSITY_ARGUMENT_DOMAINS.includes("rutgers.edu"));
   assert.ok(PATTERN_ALTITUDE_DOMAINS.includes("currentaffairs.org"));
+  assert.ok(LENS_ACCOUNTS.some((a) => a.id === "nj-uncovered"));
+  assert.equal(CULTURAL_SEARCH_DOMAINS.includes("youtube.com"), false);
+  assert.equal(CULTURAL_SEARCH_DOMAINS.includes("facebook.com"), false);
 });
 
 test("classifySource labels official, argument, press, and unranked", () => {
@@ -46,6 +49,11 @@ test("classifySource labels official, argument, press, and unranked", () => {
   assert.equal(classifySource("https://www.rutgers.edu/jazz"), "OFFICIAL");
   assert.equal(classifySource("https://thejerzclub.substack.com/p/x"), "CULTURAL");
   assert.equal(classifySource("https://www.instagram.com/thejerzclub/p/abc"), "CULTURAL");
+  assert.equal(classifySource("https://www.instagram.com/nj.uncovered/"), "CULTURAL");
+  assert.equal(classifySource("https://www.youtube.com/@nj.uncovered/videos"), "CULTURAL");
+  assert.equal(classifySource("https://www.facebook.com/njuncovered"), "CULTURAL");
+  assert.equal(classifySource("https://www.youtube.com/watch?v=abcdefghijk"), "UNRANKED");
+  assert.equal(classifySource("https://www.instagram.com/njuncovered/"), "CULTURAL");
   assert.equal(classifySource("https://www.blackinjersey.com/x"), "CULTURAL");
   assert.equal(classifySource("https://www.echonewstv.com/all-news"), "CULTURAL");
   assert.equal(classifySource("https://frontrunnernewjersey.com/x"), "CULTURAL");
@@ -77,6 +85,7 @@ test("countSourceClasses, named cluster searches, and argument hunts", () => {
   assert.ok(hunts.some((q) => /rutgers\.edu|montclair\.edu|princeton\.edu/i.test(q)));
   assert.ok(hunts.some((q) => /currentaffairs\.org/i.test(q)));
   assert.ok(hunts.some((q) => /influenc/i.test(q)));
+  assert.ok(hunts.some((q) => /njuncovered|nj\.uncovered|NJ Uncovered/i.test(q)));
   assert.equal(hunts.some((q) => /I Don't Do Clubs|weeklies/i.test(q)), false);
   assert.equal(argumentDeskEmpty(classifySources(["https://www.rutgers.edu/jazz"])), false);
   assert.equal(argumentDeskEmpty(classifySources(["https://www.njpac.org/events"])), true);

@@ -25,7 +25,7 @@ export const CGE_DOOR =
   "Events are the entry point, not the product. The closer is a door into a directory, guide, or archive that makes overlooked Black history and culture in New Jersey accessible to everyday people — not the intellectually intense museum crowd, not an RSVP, not a ticket push, not 'pull up this weekend'.";
 
 export const CGE_HOMEWORK =
-  "You are systematizing this field without a journalism degree. Do the reading: the official record, Black NJ press (Echo, Front Runner, Five Wards, Public Square, The Positive Community), a Rutgers/Montclair/Princeton holding, and a societal page (Current Affairs and pages like it) for the mechanism. Influence may leave the state. Land back in New Jersey.";
+  "You are systematizing this field without a journalism degree. Do the reading: the official record, Black NJ press (Echo, Front Runner, Five Wards, Public Square, The Positive Community, NJ Uncovered on Facebook/YouTube/Instagram), a Rutgers/Montclair/Princeton holding, and a societal page (Current Affairs and pages like it) for the mechanism. News is also how you notice the next question. Influence may leave the state. Land back in New Jersey.";
 
 // Feature / Content default voice — Reporter × Rolling is the 15/85 split
 // in Distance × Cadence. Stance stays unset so observation carries tone
