@@ -91,6 +91,30 @@ export function contentCreativeDirection() {
     "- Hook archetypes that fit: a pointed question nobody else is asking; then→now with a living remnant; a counter-intuitive claim about who owns vs who programs; a single NJ-specific scene detail that implies the larger pattern.",
     "- Do NOT invent unverifiable history, quotes, or venues. If the material is thin, keep the carousel short and specific rather than padding with atmosphere.",
     "- Rotate away from gathering-magazine defaults (150-cap rooms, liquor caps, run clubs) unless THIS piece's cluster and bullets actually are about that.",
+    ...cadenceRotationLines(),
+    "─────────────────────────────",
+    "",
+  ];
+}
+
+// Cadence is a style, not the house voice. Detective names a reusable trick.
+// GST points at who holds the door. Both read more "written" than spoken.
+// Kitchen-table plain is equally valid. Rotate. Do not default to essay.
+function cadenceRotationLines() {
+  return [
+    "- CADENCE ROTATION — pick ONE style for this piece, then stay in it. Do not blend them. Do not default to the essay cadence every time:",
+    "  KITCHEN TABLE: spoken plain text. What a Saturday does to a person. Short sentences. No named trick, no civic-we, no seminar.",
+    "  DETECTIVE: name one reusable trick (a freeze, a missed overlap). Then hand it to the reader so they see it on the next block. More written. Use this sometimes, not always.",
+    "  GST: who is holding the door, who is outside. Spoken, civic, a little sharp. Use this sometimes, not always.",
+    "  NEWSROOM: lead → context → significance → what's next. Magazine dek. Report; don't orate.",
+    "- If the last draft or an approved digest already used Detective or GST, pick Kitchen Table or Newsroom. Rotate.",
+  ];
+}
+
+export function cadenceRotationBlock() {
+  return [
+    "CADENCE — a style, not the only voice.",
+    ...cadenceRotationLines(),
     "─────────────────────────────",
     "",
   ];
