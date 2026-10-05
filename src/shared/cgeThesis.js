@@ -122,6 +122,31 @@ export function cadenceRotationBlock() {
   ];
 }
 
+// How we actually got to a readable editorial: one idea a cold
+// reader can hold, then one sideways Saturday. Not a research dump.
+export function editorialBuildFormulaLines() {
+  return [
+    "- HOW THIS EDITORIAL IS BUILT (a cold reader has no context):",
+    "  1. FELT SATURDAY — one thing they already see. Cover hook rotates: a QUESTION, a felt Saturday, a then→now. Do not lock the first hook. A question often works. BYOB / a brewery may color the Saturday; they are not the whole hook.",
+    "  2. HOMEWORK — official desk + argument desk. Named bars and spots. Not 'room'.",
+    "  3. ASK — questions while it builds that thicken ONE idea. Do not dump five names.",
+    "  4. TEACH ONE — the rule in kitchen-table words BEFORE any join. They need the handle first.",
+    "  5. ONE SPECIMEN — one bar or spot that makes the rule real. Not a collage.",
+    "  6. ONE LATERAL — one Saturday they already know (for a liquor cap: BYOB and brewery taprooms). Not a third clerk fact. Not an event brand they have to look up.",
+    "  7. NEXT QUESTION — the closer asks what the swipe just made possible. Not the mechanism again as a riddle.",
+    "- Do not write these step labels as visible copy.",
+  ];
+}
+
+export function editorialBuildFormulaBlock() {
+  return [
+    "EDITORIAL BUILD — this is the formula, not more voice rules.",
+    ...editorialBuildFormulaLines(),
+    "─────────────────────────────",
+    "",
+  ];
+}
+
 // Spine / arranger extras for Content — the method arc, not venue-response.
 export function contentSpineMandate() {
   return contentMethodSpineBlock();
