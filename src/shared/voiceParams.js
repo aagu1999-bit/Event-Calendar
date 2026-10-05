@@ -67,7 +67,7 @@ const CADENCE_SPECS = {
   ROLLING:
     "Cadence: subordinated sentences that develop and turn. Semicolons and em-dashes doing structural work. Sentences average 25 to 40 words. The reader breathes through the piece rather than punching through it. Metaphors are allowed to unfold across a clause. This is the essayist register — patience without softness.",
   CONVERSATIONAL:
-    "Cadence: fragments allowed. Contractions expected. A shrug in the middle is fine ('so, yeah'). Sentences run one or two lines long, often broken by an aside in dashes. Rhythm mimics spoken thought, not planned prose. Sound like you are texting someone smart, not writing to be read aloud.",
+    "Cadence: fragments allowed. Contractions expected. A shrug in the middle is fine ('so, yeah'). Sentences run one or two lines long, often broken by an aside in dashes. Rhythm mimics spoken thought, not planned prose. Intellectual but relevant — do the reading, keep the mechanism, say it so the person who lives this Saturday can follow. Smart, not seminar. Not dumbed down. Sound like you are talking to someone sharp at a table, not writing a poster or a paper.",
   BRAIDED:
     "Cadence: two or three threads running simultaneously through the paragraph, cutting between them mid-sentence or between clauses. The scene, the history behind it, and the argument all sharing the same paragraph. Reader holds multiple pieces at once. This trusts the reader — not for every slide, pick one paragraph to braid and keep others plainer.",
 };

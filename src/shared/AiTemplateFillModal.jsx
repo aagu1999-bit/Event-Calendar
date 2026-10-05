@@ -1,8 +1,18 @@
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useBrandStore, useCarouselTemplatesStore, BUILTIN_CAROUSEL_TEMPLATES } from "../store";
-import { generateTemplateFill, pickTemplate, generateArrangedCarousel, researchEvent, researchNews, connectDots, dotsPlanToSlides, readFlyer } from "./aiContent.js";
+import { generateTemplateFill, pickTemplate, generateArrangedCarousel, researchEvent, researchContentMethod, researchNews, connectDots, dotsPlanToSlides, readFlyer } from "./aiContent.js";
 import { summarizeSlidesForFeedback } from "./eventMatrixToFillSeed.js";
+import { isContentRegister } from "./cgeThesis.js";
+import { appendMethodBriefToContext, appendOperatorQuestions, contextHasMethodBrief } from "./cgeMethod.js";
+import {
+  interpretBuildTurn,
+  formatDraftForContinue,
+  appendSavedTeaching,
+  appendFollowupResearch,
+  appendCurrentDraft,
+  lessonFromTurn,
+} from "./cgeBuildTurn.js";
 
 // Scaffold that primes the Context box with the ingredients a strong hook
 // (esp. an open loop) needs: the TWIST is the curiosity gap, PROOF + WHAT
@@ -71,6 +81,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
   // The brief + source links from the last news lookup, so the user can SEE
   // and verify what fed the generation instead of trusting a black box.
   const [newsFound, setNewsFound] = useState(null);
+  const [methodFound, setMethodFound] = useState(null);
   const [pickedTemplate, setPickedTemplate] = useState(null);
   const [pickReasoning, setPickReasoning] = useState("");
   // Compression event — populated by generateArrangedCarousel when
@@ -90,10 +101,25 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
   const [keptIdx, setKeptIdx] = useState(new Set());
   // Index currently being re-rolled by the per-slide "↻" button (null = none).
   const [regenIdx, setRegenIdx] = useState(null);
+  const [rejectPromptOpen, setRejectPromptOpen] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
+  const [feedbackSaved, setFeedbackSaved] = useState(null); // "rejected" | "approved" | null
+  // Questions typed while a piece is being built. Research (if any) runs
+  // first, then we pause so the operator can ask what came up before
+  // slides write. Same box stays live during the look-up.
+  const [operatorQuestions, setOperatorQuestions] = useState("");
+  const [awaitingQuestions, setAwaitingQuestions] = useState(false);
+  const [pendingWrite, setPendingWrite] = useState(null);
+  // Conversation this build: marked-wrong slides, lessons that stick,
+  // and a log of what each turn did (research / continue / correct).
+  const [wrongIdx, setWrongIdx] = useState(new Set());
+  const [sessionLessons, setSessionLessons] = useState([]);
+  const [buildLog, setBuildLog] = useState([]);
   // Set true right before a single-slot swap so the keptIdx-reset effect
   // knows to leave the user's keep/skip choices alone (only a fresh full
   // generation should reset everything to kept).
   const singleRegenRef = useRef(false);
+  const questionsRef = useRef(null);
   // Flyer upload → Gemini Vision reads the poster and fills Topic + Context.
   const flyerInputRef = useRef(null);
   const onFlyerPick = async (e) => {
@@ -138,7 +164,14 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
       setSlideCount("auto");
       setNewsOn(false);
       setNewsFound(null);
+      setMethodFound(null);
       setLetterMode(false);
+      setOperatorQuestions("");
+      setAwaitingQuestions(false);
+      setPendingWrite(null);
+      setWrongIdx(new Set());
+      setSessionLessons([]);
+      setBuildLog([]);
       if (initialTemplateId) setTemplateId(initialTemplateId);
       // Seed topic/context when a caller opens us with a story (e.g. the News
       // Scout's "Build carousel"). Only overwrite when a non-empty seed is
@@ -154,7 +187,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
       // when a caller (Matrix modal's Preview Carousel) already knows
       // which mode fits the record's tier + emotion. Whitelist to the
       // known modes so a bad payload can't wedge the segmented control.
-      if (initialRegister === "promo" || initialRegister === "editorial" || initialRegister === "story") {
+      if (initialRegister === "promo" || initialRegister === "editorial" || initialRegister === "story" || initialRegister === "content") {
         setMode(initialRegister);
       }
     }
@@ -189,6 +222,99 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
   const enrichCount = (researchOn ? 1 : 0) + (newsOn ? 1 : 0);
   // Dots with "find the thread" or an anchor event needs no thesis typed; everything else needs a topic/context.
   const canGenerate = (dotsMode && (dotsDiscover || !!dotsAnchor.trim())) || !!topic.trim() || !!context.trim();
+  const liveTurn = interpretBuildTurn({
+    questions: operatorQuestions,
+    hasSlides: slides.length > 0,
+    markedSlides: [...wrongIdx],
+  });
+
+  const writeCarousel = async (genContext) => {
+    // "Connect the dots" — a thesis + several real-news dots, welded into an
+    // evidence carousel. Supersedes template/arrange.
+    if (dotsMode) {
+      // Anchor is a Promo technique; discover is an Editorial one.
+      const anchorForRun = mode === "promo" ? dotsAnchor : "";
+      const discoverForRun = mode === "editorial" ? dotsDiscover : false;
+      setBusyLabel(anchorForRun.trim() ? "Building the case for your event…" : discoverForRun ? "Finding a thread…" : "Gathering the evidence…");
+      const plan = await connectDots({ apiKey, thesis: discoverForRun ? "" : topic, area: "New Jersey", anchorEvent: anchorForRun });
+      const dotsSlides = dotsPlanToSlides(plan);
+      if (!dotsSlides.length) { setError("Couldn't find enough real dots for that thread. Try a clearer thesis, or toggle 'Let AI find the thread'."); return; }
+      setNewsFound({ brief: plan.brief, sources: plan.sources });
+      setPickedTemplate({ id: "connect-the-dots", name: `Connect the dots${plan.thesis ? ` — ${plan.thesis}` : ""}`, sequence: dotsSlides.map(s => s.type), custom: true });
+      setPickReasoning(plan.thesis ? `Thesis: ${plan.thesis}` : "");
+      setSlides(dotsSlides);
+      return;
+    }
+    // "AI arranges" — design a bespoke slot sequence for this story, then
+    // fill + polish it. Supersedes template selection.
+    if (aiArrange) {
+      setBusyLabel("Designing + filling…");
+      const arranged = await generateArrangedCarousel({
+        apiKey, topic, context: genContext, voice, slotPrompts, mode,
+        targetCount: slideCount === "auto" ? null : parseInt(slideCount, 10),
+        letterMode,
+        clusterDirective: initialClusterDirective,
+        clusterLabel: initialClusterLabel,
+        keywordTrigger: initialKeywordTrigger,
+        voiceParams: initialVoiceParams,
+        behavioralTags: initialBehavioralTags,
+        isEvergreen: initialIsEvergreen,
+        rejectedDrafts: initialRejectedDrafts,
+        approvedDrafts: initialApprovedDrafts,
+      });
+      setPickedTemplate({ id: "ai-arranged", name: "AI-arranged carousel", sequence: arranged.sequence, custom: true });
+      setPickReasoning(arranged.rationale);
+      setCompressionEvent(arranged.compressionEvent || null);
+      setSlides(arranged.slides);
+      return;
+    }
+    // Phase 1 (optional): AI picks the template.
+    let useTemplate = template;
+    if (letAiPick) {
+      setBusyLabel("Picking template…");
+      const pick = await pickTemplate({
+        apiKey,
+        topic,
+        context: genContext,
+        candidates: allTemplates,
+      });
+      useTemplate = pick.template;
+      setPickedTemplate(pick.template);
+      setPickReasoning(pick.reasoning);
+    }
+    // Phase 2: fill the picked/chosen template.
+    setBusyLabel(`Filling ${useTemplate.sequence.length} slides…`);
+    const result = await generateTemplateFill({
+      apiKey,
+      sequence: useTemplate.sequence,
+      topic,
+      context: genContext,
+      voice,
+      slotPrompts,
+      templateMeta: useTemplate,
+      mode,
+      letterMode,
+      // Compass override: cluster directive as its own top-level block +
+      // deterministic keyword-trigger stitch on the final CTA slot.
+      clusterDirective: initialClusterDirective,
+      clusterLabel: initialClusterLabel,
+      keywordTrigger: initialKeywordTrigger,
+      // Voice params — Distance × Cadence × Stance. writer's own
+      // directive block, orthogonal to the mode's register.
+      voiceParams: initialVoiceParams,
+      // Behavioral tags — labels the writer must NOT quote literally.
+      behavioralTags: initialBehavioralTags,
+      // Evergreen flag — suppresses TIMELY + HISTORICAL blocks
+      // and enforces the EVERGREEN MANDATE when tier is FEATURE.
+      isEvergreen: initialIsEvergreen,
+      // Feedback memory — previous Reject / Approve entries for
+      // THIS matrix. buildTemplatePrompt injects them as
+      // don't-reproduce and hold-the-bar blocks.
+      rejectedDrafts: initialRejectedDrafts,
+      approvedDrafts: initialApprovedDrafts,
+    });
+    setSlides(result);
+  };
 
   const handleGenerate = async () => {
     if (!apiKey) { setError("Paste your Gemini API key in the MediaTool toolbar first."); return; }
@@ -202,13 +328,37 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
     setPickReasoning("");
     setCompressionEvent(null);
     setNewsFound(null);
+    setMethodFound(null);
+    setAwaitingQuestions(false);
+    setPendingWrite(null);
+    setWrongIdx(new Set());
+    setBuildLog([]);
     try {
-      // Optional web research — a grounded Gemini call looks the event up and
-      // returns a background brief, which we append to the context so every
-      // downstream generation is richer than what the user typed alone.
-      // Best-effort: if it fails (grounding unsupported / offline), continue.
+      // Content / Feature always runs method research (specimen → pattern →
+      // join). Promo/editorial still use the opt-in "look up this event"
+      // background call. Best-effort: if grounding fails, continue.
       let genContext = context;
-      if (researchOn) {
+      const contentMode = isContentRegister(mode, initialIsEvergreen);
+      if (contentMode && !contextHasMethodBrief(genContext)) {
+        setBusyLabel("Finding the join…");
+        try {
+          const researched = await researchContentMethod({
+            apiKey, topic, context,
+            clusterDirective: initialClusterDirective,
+            clusterLabel: initialClusterLabel,
+          });
+          if (researched?.brief) {
+            genContext = appendMethodBriefToContext(genContext, researched);
+            setMethodFound({
+              brief: researched.brief,
+              sources: researched.sources,
+              hasJoin: researched.hasJoin,
+            });
+          }
+        } catch (e) {
+          console.warn("Content method research failed, continuing without it:", e?.message || e);
+        }
+      } else if (researchOn) {
         setBusyLabel("Researching the event…");
         try {
           const brief = await researchEvent({ apiKey, topic, context });
@@ -237,82 +387,193 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
           console.warn("News lookup failed, continuing without it:", e?.message || e);
         }
       }
-      // "Connect the dots" — a thesis + several real-news dots, welded into an
-      // evidence carousel. Supersedes template/arrange.
-      if (dotsMode) {
-        // Anchor is a Promo technique; discover is an Editorial one.
-        const anchorForRun = mode === "promo" ? dotsAnchor : "";
-        const discoverForRun = mode === "editorial" ? dotsDiscover : false;
-        setBusyLabel(anchorForRun.trim() ? "Building the case for your event…" : discoverForRun ? "Finding a thread…" : "Gathering the evidence…");
-        const plan = await connectDots({ apiKey, thesis: discoverForRun ? "" : topic, area: "New Jersey", anchorEvent: anchorForRun });
-        const dotsSlides = dotsPlanToSlides(plan);
-        if (!dotsSlides.length) { setError("Couldn't find enough real dots for that thread. Try a clearer thesis, or toggle 'Let AI find the thread'."); return; }
-        setNewsFound({ brief: plan.brief, sources: plan.sources });
-        setPickedTemplate({ id: "connect-the-dots", name: `Connect the dots${plan.thesis ? ` — ${plan.thesis}` : ""}`, sequence: dotsSlides.map(s => s.type), custom: true });
-        setPickReasoning(plan.thesis ? `Thesis: ${plan.thesis}` : "");
-        setSlides(dotsSlides);
-        return;
-      }
-      // "AI arranges" — design a bespoke slot sequence for this story, then
-      // fill + polish it. Supersedes template selection.
-      if (aiArrange) {
-        setBusyLabel("Designing + filling…");
-        const arranged = await generateArrangedCarousel({ apiKey, topic, context: genContext, voice, slotPrompts, mode, targetCount: slideCount === "auto" ? null : parseInt(slideCount, 10), letterMode });
-        setPickedTemplate({ id: "ai-arranged", name: "AI-arranged carousel", sequence: arranged.sequence, custom: true });
-        setPickReasoning(arranged.rationale);
-        setCompressionEvent(arranged.compressionEvent || null);
-        setSlides(arranged.slides);
-        return;
-      }
-      // Phase 1 (optional): AI picks the template.
-      let useTemplate = template;
-      if (letAiPick) {
-        setBusyLabel("Picking template…");
-        const pick = await pickTemplate({
-          apiKey,
-          topic,
-          context: genContext,
-          candidates: allTemplates,
-        });
-        useTemplate = pick.template;
-        setPickedTemplate(pick.template);
-        setPickReasoning(pick.reasoning);
-      }
-      // Phase 2: fill the picked/chosen template.
-      setBusyLabel(`Filling ${useTemplate.sequence.length} slides…`);
-      const result = await generateTemplateFill({
-        apiKey,
-        sequence: useTemplate.sequence,
-        topic,
-        context: genContext,
-        voice,
-        slotPrompts,
-        templateMeta: useTemplate,
-        mode,
-        letterMode,
-        // Compass override: cluster directive as its own top-level block +
-        // deterministic keyword-trigger stitch on the final CTA slot.
-        clusterDirective: initialClusterDirective,
-        clusterLabel: initialClusterLabel,
-        keywordTrigger: initialKeywordTrigger,
-        // Voice params — Distance × Cadence × Stance. writer's own
-        // directive block, orthogonal to the mode's register.
-        voiceParams: initialVoiceParams,
-        // Behavioral tags — labels the writer must NOT quote literally.
-        behavioralTags: initialBehavioralTags,
-        // Evergreen flag — suppresses TIMELY + HISTORICAL blocks
-        // and enforces the EVERGREEN MANDATE when tier is FEATURE.
-        isEvergreen: initialIsEvergreen,
-        // Feedback memory — previous Reject / Approve entries for
-        // THIS matrix. buildTemplatePrompt injects them as
-        // don't-reproduce and hold-the-bar blocks.
-        rejectedDrafts: initialRejectedDrafts,
-        approvedDrafts: initialApprovedDrafts,
-      });
-      setSlides(result);
+      // Pause so the operator can ask what came up before slides write.
+      // Questions already typed during the look-up stay in the box.
+      setPendingWrite({ genContext });
+      setAwaitingQuestions(true);
     } catch (err) {
       console.error(err);
       setError(err.message || "Generation failed");
+    } finally {
+      setBusy(false);
+      setBusyLabel("");
+    }
+  };
+
+  const rewriteExistingCarousel = async (genContext) => {
+    const sequence = slides.map((s) => s.type).filter(Boolean);
+    if (!sequence.length) {
+      await writeCarousel(genContext);
+      return;
+    }
+    setBusyLabel("Writing over the draft — keeping what still holds…");
+    const result = await generateTemplateFill({
+      apiKey,
+      sequence,
+      topic,
+      context: genContext,
+      voice,
+      slotPrompts,
+      templateMeta: pickedTemplate || template || { name: "AI-arranged carousel", sequence },
+      mode,
+      letterMode,
+      clusterDirective: initialClusterDirective,
+      clusterLabel: initialClusterLabel,
+      keywordTrigger: initialKeywordTrigger,
+      voiceParams: initialVoiceParams,
+      behavioralTags: initialBehavioralTags,
+      isEvergreen: initialIsEvergreen,
+      rejectedDrafts: initialRejectedDrafts,
+      approvedDrafts: initialApprovedDrafts,
+    });
+    setSlides(result);
+  };
+
+  const rewriteMarkedSlides = async (genContext, marked) => {
+    let next = slides.slice();
+    for (const idx of marked) {
+      const slot = next[idx];
+      if (!slot) continue;
+      setBusyLabel(`Writing over slide ${idx + 1}…`);
+      const fullMap = next
+        .map((s, i) => `Slide ${i + 1} (${s.type})${i === idx ? "  <-- WRONG (being rewritten)" : "  — keep"}: ${slotToExemplar(s).trim() || "(no text)"}`)
+        .join("\n");
+      const result = await generateTemplateFill({
+        apiKey,
+        sequence: [slot.type],
+        topic,
+        context: appendCurrentDraft(genContext, fullMap) + `\n\nYOUR JOB: rewrite ONLY slide ${idx + 1} (${slot.type}). Keep every other slide. Fix what the operator marked wrong.`,
+        voice,
+        slotPrompts,
+        templateMeta: pickedTemplate || template || { sequence: [slot.type] },
+        mode,
+        polish: false,
+        letterMode,
+        clusterDirective: initialClusterDirective,
+        clusterLabel: initialClusterLabel,
+        voiceParams: initialVoiceParams,
+        behavioralTags: initialBehavioralTags,
+        isEvergreen: initialIsEvergreen,
+        keywordTrigger: null,
+        spine: false,
+        rejectedDrafts: initialRejectedDrafts,
+        approvedDrafts: initialApprovedDrafts,
+      });
+      const fresh = Array.isArray(result) && result[0] ? result[0] : null;
+      if (!fresh) throw new Error(`No rewrite returned for slide ${idx + 1}`);
+      next = next.map((s, i) => (i === idx ? fresh : s));
+    }
+    singleRegenRef.current = true;
+    setSlides(next);
+    setSavedIdx((prev) => {
+      const n = new Set(prev);
+      marked.forEach((i) => n.delete(i));
+      return n;
+    });
+  };
+
+  const handleBuildTurn = async () => {
+    if (!apiKey) { setError("Paste your Gemini API key in the MediaTool toolbar first."); return; }
+    const asked = operatorQuestions.trim();
+    const marked = [...wrongIdx].sort((a, b) => a - b);
+    const turn = interpretBuildTurn({
+      questions: asked,
+      hasSlides: slides.length > 0,
+      markedSlides: marked,
+    });
+    if (!asked && !marked.length) {
+      if (!slides.length && pendingWrite) {
+        setBusy(true);
+        setError("");
+        try {
+          await writeCarousel(pendingWrite.genContext);
+          setAwaitingQuestions(true);
+        } catch (err) {
+          console.error(err);
+          setError(err.message || "Generation failed");
+          setAwaitingQuestions(true);
+        } finally {
+          setBusy(false);
+          setBusyLabel("");
+        }
+        return;
+      }
+      if (!pendingWrite && !slides.length) {
+        setError("Hit Generate first — then ask while it builds.");
+        return;
+      }
+      setError("Ask something, or mark a slide wrong.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      let genContext = pendingWrite?.genContext || context;
+      genContext = appendSavedTeaching(genContext, {
+        voice,
+        approvedDrafts: initialApprovedDrafts,
+        rejectedDrafts: initialRejectedDrafts,
+        lessons: sessionLessons,
+      });
+
+      if (turn.needsResearch && asked) {
+        setBusyLabel(turn.needsMethod ? "Finding the join for what you asked…" : "Looking up what you asked…");
+        try {
+          if (turn.needsMethod && isContentRegister(mode, initialIsEvergreen)) {
+            const researched = await researchContentMethod({
+              apiKey, topic, context: [context, asked].filter(Boolean).join("\n\n"),
+              clusterDirective: initialClusterDirective,
+              clusterLabel: initialClusterLabel,
+            });
+            if (researched?.brief) {
+              genContext = appendMethodBriefToContext(genContext, researched);
+              setMethodFound({
+                brief: researched.brief,
+                sources: researched.sources,
+                hasJoin: researched.hasJoin,
+              });
+            }
+          } else {
+            const brief = await researchEvent({
+              apiKey,
+              topic: asked,
+              context: [topic, context].filter(Boolean).join("\n\n"),
+            });
+            if (brief) {
+              genContext = appendFollowupResearch(genContext, brief);
+              setNewsFound({ brief, sources: [] });
+            }
+          }
+        } catch (e) {
+          console.warn("Follow-up research failed, continuing with what we have:", e?.message || e);
+        }
+      }
+
+      if (asked) genContext = appendOperatorQuestions(genContext, asked);
+
+      if (slides.length && (turn.continueBuild || turn.intents.includes("correct"))) {
+        const draftMap = formatDraftForContinue(slides, marked, slotToExemplar);
+        genContext = appendCurrentDraft(genContext, draftMap);
+        if (turn.rewriteMarkedOnly) {
+          await rewriteMarkedSlides(genContext, marked);
+        } else {
+          await rewriteExistingCarousel(genContext);
+        }
+      } else {
+        await writeCarousel(genContext);
+      }
+
+      const lesson = lessonFromTurn({ questions: asked, markedSlides: marked });
+      if (lesson) setSessionLessons((prev) => [...prev, lesson]);
+      setBuildLog((prev) => [...prev, { questions: asked, intents: turn.intents, label: turn.label }]);
+      setPendingWrite({ genContext });
+      setAwaitingQuestions(true);
+      setOperatorQuestions("");
+      setWrongIdx(new Set());
+    } catch (err) {
+      console.error(err);
+      setError(err.message || "Generation failed");
+      setAwaitingQuestions(true);
     } finally {
       setBusy(false);
       setBusyLabel("");
@@ -335,10 +596,6 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
   // matrix.approved_drafts, then push as normal. Both write via the
   // onSaveFeedback callback wired at the mount site (matrix modal has
   // the eventId and updateEventMatrix in scope).
-  const [rejectPromptOpen, setRejectPromptOpen] = useState(false);
-  const [rejectReason, setRejectReason] = useState("");
-  const [feedbackSaved, setFeedbackSaved] = useState(null); // "rejected" | "approved" | null
-
   const handleReject = () => {
     if (!Array.isArray(slides) || !slides.length) return;
     if (typeof onSaveFeedback !== "function") return;
@@ -390,12 +647,17 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
         after ? `THE SLIDE RIGHT AFTER (slide ${idx + 2} - ${after.type}): ${slotToExemplar(after).trim() || "(no text)"}`
               : "There is NO slide after — this is the closer/CTA.",
       ].join("\n");
-      const regenContext = [
+      const regenContext = appendOperatorQuestions(appendSavedTeaching([
         context.trim(),
         `FULL CAROUSEL (study the voice, the running motif, and what each slide already covers — do not repeat or contradict them):\n${fullMap}`,
         `YOUR JOB: rewrite ONLY slide ${idx + 1} (the ${slot.type}) so it fits SEAMLESSLY between its neighbors — continue/pay off what the slide before sets up, and tee up the slide after. Match the established voice + motif + pattern, and fill the specific missing beat this position needs. Don't duplicate what other slides already say.\n${neighborLines}`,
         prevVersion && `PREVIOUS VERSION OF THIS SLIDE (make the new one clearly DIFFERENT — fresh angle/wording, not a rephrase — while still bridging the neighbors):\n${prevVersion}`,
-      ].filter(Boolean).join("\n\n");
+      ].filter(Boolean).join("\n\n"), {
+        voice,
+        approvedDrafts: initialApprovedDrafts,
+        rejectedDrafts: initialRejectedDrafts,
+        lessons: sessionLessons,
+      }), operatorQuestions);
       const result = await generateTemplateFill({
         apiKey,
         sequence: [slot.type],
@@ -996,21 +1258,21 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
         <label style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.5)", display: "block", marginBottom: 6, letterSpacing: 1.2, textTransform: "uppercase", fontWeight: 700 }}>
           Register
         </label>
-        <div style={{ display: "flex", gap: 4, marginBottom: 10, padding: 3, background: "rgba(0,0,0,0.28)", borderRadius: 9, border: "1px solid rgba(245,240,232,0.06)" }}>
-          {[["editorial", "📰", "Editorial", "report the scene, don't sell"], ["promo", "📣", "Promo", "centered on your event"], ["story", "📖", "Story", "narrative, human, scene-driven"]].map(([m, ic, lbl, hint]) => (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 10, padding: 3, background: "rgba(0,0,0,0.28)", borderRadius: 9, border: "1px solid rgba(245,240,232,0.06)" }}>
+          {[["content", "🏛", "Content", "cultural thesis, not a flyer"], ["editorial", "📰", "Editorial", "report the scene, don't sell"], ["promo", "📣", "Promo", "centered on your event"], ["story", "📖", "Story", "narrative, human, scene-driven"]].map(([m, ic, lbl, hint]) => (
             <button
               key={m}
               onClick={() => {
                 setMode(m);
                 // Each technique belongs to its register — clear the others'.
                 if (m !== "story") setLetterMode(false);   // Manifesto is a Story technique
-                if (m === "story") setDotsMode(false);      // dots isn't a Story technique
+                if (m === "story" || m === "content") setDotsMode(false);
                 if (m !== "promo") setDotsAnchor("");        // anchor only under Promo
                 if (m !== "editorial") setDotsDiscover(false); // discover only under Editorial
               }}
               title={hint}
               style={{
-                flex: 1, padding: "9px 8px", borderRadius: 7, cursor: "pointer",
+                flex: "1 1 22%", minWidth: 92, padding: "9px 8px", borderRadius: 7, cursor: "pointer",
                 fontSize: "0.7rem", fontWeight: 700, fontFamily: "'Syne',sans-serif",
                 display: "flex", flexDirection: "column", alignItems: "center", gap: 3, lineHeight: 1.1,
                 background: mode === m ? "rgba(229,188,79,0.16)" : "transparent",
@@ -1025,6 +1287,11 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
             </button>
           ))}
         </div>
+        {mode === "content" && (
+          <div style={{ fontSize: "0.62rem", color: "rgba(229,188,79,0.75)", lineHeight: 1.45, margin: "-4px 0 12px", padding: "0 2px" }}>
+            Feature default. Events are the door. 15% curator / 85% observation. Closer is a directory, not an RSVP.
+          </div>
+        )}
 
         {/* Each register surfaces its own optional TECHNIQUE right here — the
             pathway first, then the move that walks it. Story → Manifesto;
@@ -1169,8 +1436,12 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
               {/* NODE PLAN — every stage the writer will pass through */}
               <div style={{ marginBottom: 8 }}>
                 <div style={{ fontSize: "0.55rem", letterSpacing: 1.2, textTransform: "uppercase", fontWeight: 700, color: "rgba(99,179,237,0.7)", marginBottom: 3 }}>Nodes that will run</div>
-                <div>0 · <b style={{ color: "#F5F0E8" }}>Research</b> — matrix Research Anchors ({(initialContext.match(/^- /gm) || []).length} bullets); Look-up / News-lookup toggles hidden in compact mode (Fuel Research on the matrix side is the structured, entity-checked source)</div>
-                <div>1 · <b style={{ color: "#F5F0E8" }}>Spine (outline)</b> — mode auto-inferred from slot mix (3+ spotlights → SHOWCASE, else INSIGHT)</div>
+                <div>0 · <b style={{ color: "#F5F0E8" }}>Research</b> — matrix Research Anchors ({(initialContext.match(/^- /gm) || []).length} bullets){isContentRegister(mode, initialIsEvergreen) ? " + auto method pass (SPECIMEN → PATTERN → JOIN). Fuel Research is the specimen kit; this pass has to find the sideways join." : "; Look-up / News-lookup toggles hidden in compact mode"}</div>
+                <div>0b · <b style={{ color: "#F5F0E8" }}>Operator turn</b> — a question can look something up, keep building on the current slides, write over a slide you mark wrong, and reuse saved voice / approve-reject / lessons from this build. It does not start from scratch unless you hit Start over.</div>
+                {mode === "editorial" && !isContentRegister(mode, initialIsEvergreen) ? (
+                  <div>0c · <b style={{ color: "#F5F0E8" }}>Editorial formula</b> — felt Saturday → homework → teach one → one specimen → one lateral → next question. Cover hook can be a question; try more than one. BYOB / brewery color the Saturday, they are not the hook.</div>
+                ) : null}
+                <div>1 · <b style={{ color: "#F5F0E8" }}>Spine (outline)</b> — {isContentRegister(mode, initialIsEvergreen) ? "Content method (SPECIMEN → PATTERN → JOIN → DOOR)" : "mode auto-inferred from slot mix (3+ spotlights → SHOWCASE, else INSIGHT)"}</div>
                 <div>2 · <b style={{ color: "#F5F0E8" }}>Structure writer</b> — cluster="{initialClusterLabel || "(none)"}", keyword="{initialKeywordTrigger || "(none)"}", evergreen={initialIsEvergreen ? "ON" : "off"}</div>
                 <div>3 · <b style={{ color: "#F5F0E8" }}>Voice pass (Node 2)</b> — {(initialVoiceParams && (initialVoiceParams.distance || initialVoiceParams.cadence || initialVoiceParams.stance)) || (voice && voice.description && voice.description.trim()) ? "WILL RUN (voice inputs present)" : "SKIP (no voice inputs → no-op)"}</div>
                 <div>4 · <b style={{ color: "#F5F0E8" }}>Polish critic</b> — WILL RUN (whole-carousel rewrite pass)</div>
@@ -1207,13 +1478,64 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
           </details>
         )}
 
+        <div style={{
+          marginBottom: 12,
+          padding: "10px 12px",
+          background: awaitingQuestions || slides.length ? "rgba(229,188,79,0.10)" : "rgba(229,188,79,0.04)",
+          border: "1px solid " + (awaitingQuestions || slides.length ? "rgba(229,188,79,0.45)" : "rgba(229,188,79,0.18)"),
+          borderRadius: 5,
+        }}>
+          <label style={{ fontSize: "0.6rem", color: "#E5BC4F", display: "block", marginBottom: 4, letterSpacing: 1.2, textTransform: "uppercase", fontWeight: 700 }}>
+            Questions while this is building
+          </label>
+          <div style={{ fontSize: "0.58rem", color: "rgba(245,240,232,0.55)", marginBottom: 6, lineHeight: 1.45 }}>
+            A question is a turn — not a note. It can look something up, keep building on these slides, write over a slide you mark Wrong, and reuse saved voice / what you already approved or rejected. It does not start over unless you say so.
+          </div>
+          <textarea
+            ref={questionsRef}
+            value={operatorQuestions}
+            onChange={(e) => setOperatorQuestions(e.target.value)}
+            rows={3}
+            placeholder={wrongIdx.size
+              ? "What's wrong with the marked slide? The next turn writes over that part and keeps the rest."
+              : "e.g. Does a new restaurant that wants a bar just get told no?\nThat's wrong — don't say it that way.\nWhat about a BYOB hall?"}
+            style={{
+              width: "100%",
+              padding: "8px 10px",
+              background: "#111",
+              border: "1px solid " + (awaitingQuestions || slides.length ? "rgba(229,188,79,0.35)" : "rgba(245,240,232,0.08)"),
+              borderRadius: 4,
+              color: "#F5F0E8",
+              fontFamily: "inherit",
+              fontSize: "0.72rem",
+              outline: "none",
+              boxSizing: "border-box",
+              resize: "vertical",
+            }}
+          />
+          <div style={{ marginTop: 6, fontSize: "0.58rem", color: "#E5BC4F", letterSpacing: 0.3 }}>
+            This turn: {liveTurn.label}
+            {sessionLessons.length ? ` · ${sessionLessons.length} lesson${sessionLessons.length === 1 ? "" : "s"} sticking` : ""}
+            {wrongIdx.size ? ` · ${wrongIdx.size} slide${wrongIdx.size === 1 ? "" : "s"} marked wrong` : ""}
+          </div>
+          {buildLog.length > 0 && (
+            <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 3 }}>
+              {buildLog.slice(-4).map((entry, i) => (
+                <div key={i} style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.45)", lineHeight: 1.4 }}>
+                  {entry.label}{entry.questions ? ` — “${String(entry.questions).slice(0, 90)}${entry.questions.length > 90 ? "…" : ""}”` : ""}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
           <button
-            onClick={handleGenerate}
-            disabled={busy || (!canGenerate)}
+            onClick={(awaitingQuestions || slides.length) ? handleBuildTurn : handleGenerate}
+            disabled={busy || (!(awaitingQuestions || slides.length) && !canGenerate)}
             style={{
               padding: "9px 18px",
-              background: busy ? "rgba(229,188,79,0.4)" : (canGenerate ? "#E5BC4F" : "rgba(229,188,79,0.25)"),
+              background: busy ? "rgba(229,188,79,0.4)" : ((awaitingQuestions || slides.length || canGenerate) ? "#E5BC4F" : "rgba(229,188,79,0.25)"),
               color: "#000",
               border: "none",
               borderRadius: 4,
@@ -1221,10 +1543,35 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
               fontWeight: 700,
               letterSpacing: 1,
               textTransform: "uppercase",
-              cursor: busy ? "wait" : (canGenerate ? "pointer" : "not-allowed"),
+              cursor: busy ? "wait" : ((awaitingQuestions || slides.length || canGenerate) ? "pointer" : "not-allowed"),
               fontFamily: "'Syne',sans-serif",
             }}
-          >{busy ? (busyLabel || "Generating…") : genLabel}</button>
+          >{busy
+            ? (busyLabel || "Generating…")
+            : (awaitingQuestions || slides.length)
+              ? liveTurn.label
+              : genLabel}</button>
+          {(awaitingQuestions || slides.length > 0) && !busy && (
+            <button
+              type="button"
+              onClick={handleGenerate}
+              disabled={!canGenerate}
+              title="Wipe the draft and run the look-up again from the current topic + context"
+              style={{
+                padding: "9px 12px",
+                background: "transparent",
+                color: "rgba(245,240,232,0.65)",
+                border: "1px solid rgba(245,240,232,0.18)",
+                borderRadius: 4,
+                fontSize: "0.62rem",
+                fontWeight: 700,
+                letterSpacing: 0.8,
+                textTransform: "uppercase",
+                cursor: canGenerate ? "pointer" : "not-allowed",
+                fontFamily: "'Syne',sans-serif",
+              }}
+            >↺ Start over</button>
+          )}
 
           <span style={{ fontSize: "0.6rem", color: voiceOn ? "#34D399" : "rgba(245,240,232,0.4)", letterSpacing: 1, textTransform: "uppercase", fontFamily: "'Syne',sans-serif", fontWeight: 700 }}>
             {voiceOn ? "🎙 Voice: ON" : "🎙 Voice: off"}
@@ -1235,6 +1582,30 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
           <div style={{ marginBottom: 14, padding: "10px 12px", background: "rgba(251,113,133,0.08)", border: "1px solid rgba(251,113,133,0.3)", borderRadius: 4, fontSize: "0.7rem", color: "rgba(251,113,133,0.9)" }}>
             <strong>Error:</strong> {error}
           </div>
+        )}
+
+        {methodFound && methodFound.brief && (
+          <details open style={{ marginBottom: 14, background: "rgba(167,139,250,0.06)", border: "1px solid rgba(167,139,250,0.35)", borderRadius: 5 }}>
+            <summary style={{ padding: "9px 12px", cursor: "pointer", fontSize: "0.6rem", color: "#A78BFA", letterSpacing: 1.2, textTransform: "uppercase", fontWeight: 700, fontFamily: "'Syne',sans-serif", listStyle: "none" }}>
+              {methodFound.hasJoin ? "The join the research found" : "Method research — no join found"}{methodFound.sources?.length ? ` · ${methodFound.sources.length} source${methodFound.sources.length === 1 ? "" : "s"}` : ""}
+            </summary>
+            <div style={{ padding: "0 12px 12px" }}>
+              <pre style={{ margin: "0 0 8px", whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: "0.68rem", lineHeight: 1.5, color: "rgba(245,240,232,0.82)" }}>{methodFound.brief}</pre>
+              {methodFound.sources?.length > 0 && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                  <div style={{ fontSize: "0.5rem", letterSpacing: 1, textTransform: "uppercase", color: "rgba(245,240,232,0.4)", marginBottom: 2 }}>Sources</div>
+                  {methodFound.sources.map((s, i) => (
+                    <a key={i} href={s.uri} target="_blank" rel="noreferrer" style={{ fontSize: "0.64rem", color: "#A78BFA", textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {i + 1}. {s.title}
+                    </a>
+                  ))}
+                </div>
+              )}
+              <div style={{ fontSize: "0.52rem", color: "rgba(245,240,232,0.4)", marginTop: 8, lineHeight: 1.4 }}>
+                Verify the document and the join before posting. If JOIN is NONE the carousel should stay short — do not invent a sideways tie.
+              </div>
+            </div>
+          </details>
         )}
 
         {/* What the news lookup actually found — surfaced so you can verify it
@@ -1307,16 +1678,17 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
                 const canSave = exemplarText && exemplarText.trim().length > 0;
                 const saved = savedIdx.has(idx);
                 const kept = keptIdx.has(idx);
+                const markedWrong = wrongIdx.has(idx);
                 return (
                   <div
                     key={idx}
                     style={{
                       position: "relative",
                       padding: 12,
-                      paddingRight: canSave ? 132 : 52,
+                      paddingRight: canSave ? 200 : 120,
                       paddingLeft: 40,
-                      background: kept ? "rgba(229,188,79,0.04)" : "rgba(245,240,232,0.02)",
-                      border: "1px solid " + (kept ? "rgba(229,188,79,0.20)" : "rgba(245,240,232,0.10)"),
+                      background: markedWrong ? "rgba(251,113,133,0.08)" : (kept ? "rgba(229,188,79,0.04)" : "rgba(245,240,232,0.02)"),
+                      border: "1px solid " + (markedWrong ? "rgba(251,113,133,0.45)" : (kept ? "rgba(229,188,79,0.20)" : "rgba(245,240,232,0.10)")),
                       borderRadius: 6,
                       opacity: kept ? 1 : 0.45,
                       transition: "opacity 0.1s",
@@ -1335,6 +1707,33 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
                       }}
                     >{kept ? "✓" : ""}</button>
                     <div style={{ position: "absolute", top: 8, right: 8, display: "flex", gap: 5, alignItems: "center" }}>
+                      <button
+                        onClick={() => {
+                          setWrongIdx((prev) => {
+                            const n = new Set(prev);
+                            n.has(idx) ? n.delete(idx) : n.add(idx);
+                            return n;
+                          });
+                          questionsRef.current?.focus();
+                        }}
+                        title={markedWrong ? "Unmark — this slide will be kept" : "Mark this slide wrong — the next turn writes over it and keeps the rest"}
+                        style={{
+                          background: markedWrong ? "rgba(251,113,133,0.25)" : "transparent",
+                          border: "1px solid rgba(251,113,133,0.45)",
+                          color: "#FB7185",
+                          fontSize: "0.55rem",
+                          fontWeight: 700,
+                          letterSpacing: 0.8,
+                          textTransform: "uppercase",
+                          padding: "3px 7px",
+                          borderRadius: 3,
+                          cursor: "pointer",
+                          fontFamily: "'Syne',sans-serif",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {markedWrong ? "✗ Wrong" : "Wrong"}
+                      </button>
                       <button
                         onClick={() => handleRegenerateSlide(idx)}
                         disabled={regenIdx !== null}

@@ -1,0 +1,92 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {
+  OFFICIAL_SEARCH_DOMAINS,
+  CULTURAL_SEARCH_DOMAINS,
+  LENS_ACCOUNTS,
+  OPINION_NEWS_DOMAINS,
+  UNIVERSITY_ARGUMENT_DOMAINS,
+  PATTERN_ALTITUDE_DOMAINS,
+  classifySource,
+  classifySources,
+  countSourceClasses,
+  argumentDeskEmpty,
+  clusterSearchQueries,
+  lensDiscoveryQueries,
+} from "./cgeSources.js";
+
+test("desk allowlists stay inside Perplexity's 20-domain cap", () => {
+  assert.ok(OFFICIAL_SEARCH_DOMAINS.length <= 20);
+  assert.ok(CULTURAL_SEARCH_DOMAINS.length <= 20);
+  assert.ok(OFFICIAL_SEARCH_DOMAINS.includes(".gov"));
+  assert.ok(CULTURAL_SEARCH_DOMAINS.includes("centralgroupevents.com"));
+  assert.ok(CULTURAL_SEARCH_DOMAINS.includes("thejerzclub.substack.com"));
+  assert.ok(CULTURAL_SEARCH_DOMAINS.includes("blackinjersey.com"));
+  assert.ok(CULTURAL_SEARCH_DOMAINS.includes("echonewstv.com"));
+  assert.ok(CULTURAL_SEARCH_DOMAINS.includes("frontrunnernewjersey.com"));
+  assert.ok(CULTURAL_SEARCH_DOMAINS.includes("fivewardsmedia.com"));
+  assert.ok(CULTURAL_SEARCH_DOMAINS.includes("nj.com"));
+  assert.ok(CULTURAL_SEARCH_DOMAINS.includes("currentaffairs.org"));
+  assert.equal(CULTURAL_SEARCH_DOMAINS.includes("instagram.com/thejerzclub"), false);
+  assert.ok(CULTURAL_SEARCH_DOMAINS.includes("rutgers.edu"));
+  assert.ok(CULTURAL_SEARCH_DOMAINS.includes("montclair.edu"));
+  assert.ok(CULTURAL_SEARCH_DOMAINS.includes("princeton.edu"));
+  assert.equal(CULTURAL_SEARCH_DOMAINS.includes("idontdoclubs.com"), false);
+  assert.equal(CULTURAL_SEARCH_DOMAINS.includes("wbgo.org"), false);
+  assert.equal(CULTURAL_SEARCH_DOMAINS.includes("njpac.org"), false);
+  assert.equal(CULTURAL_SEARCH_DOMAINS.includes("essence.com"), false);
+  assert.ok(LENS_ACCOUNTS.length >= 1);
+  assert.ok(OPINION_NEWS_DOMAINS.includes("blackinjersey.com"));
+  assert.ok(UNIVERSITY_ARGUMENT_DOMAINS.includes("rutgers.edu"));
+  assert.ok(PATTERN_ALTITUDE_DOMAINS.includes("currentaffairs.org"));
+  assert.ok(LENS_ACCOUNTS.some((a) => a.id === "nj-uncovered"));
+  assert.equal(CULTURAL_SEARCH_DOMAINS.includes("youtube.com"), false);
+  assert.equal(CULTURAL_SEARCH_DOMAINS.includes("facebook.com"), false);
+});
+
+test("classifySource labels official, argument, press, and unranked", () => {
+  assert.equal(classifySource("https://www.nj.gov/oag/abc/"), "OFFICIAL");
+  assert.equal(classifySource("https://www.rutgers.edu/jazz"), "OFFICIAL");
+  assert.equal(classifySource("https://thejerzclub.substack.com/p/x"), "CULTURAL");
+  assert.equal(classifySource("https://www.instagram.com/thejerzclub/p/abc"), "CULTURAL");
+  assert.equal(classifySource("https://www.instagram.com/nj.uncovered/"), "CULTURAL");
+  assert.equal(classifySource("https://www.youtube.com/@nj.uncovered/videos"), "CULTURAL");
+  assert.equal(classifySource("https://www.facebook.com/njuncovered"), "CULTURAL");
+  assert.equal(classifySource("https://www.youtube.com/watch?v=abcdefghijk"), "UNRANKED");
+  assert.equal(classifySource("https://www.instagram.com/njuncovered/"), "CULTURAL");
+  assert.equal(classifySource("https://www.blackinjersey.com/x"), "CULTURAL");
+  assert.equal(classifySource("https://www.echonewstv.com/all-news"), "CULTURAL");
+  assert.equal(classifySource("https://frontrunnernewjersey.com/x"), "CULTURAL");
+  assert.equal(classifySource("https://www.nj.com/essex/"), "CULTURAL");
+  assert.equal(classifySource("https://www.currentaffairs.org/"), "CULTURAL");
+  assert.equal(classifySource("https://www.instagram.com/randompage/"), "UNRANKED");
+  assert.equal(classifySource("https://www.wbgo.org/show"), "PRESS");
+  assert.equal(classifySource("https://www.njpac.org/events"), "PRESS");
+  assert.equal(classifySource("https://www.essence.com/"), "PRESS");
+  assert.equal(classifySource("https://www.timeout.com/newyork"), "UNRANKED");
+});
+
+test("countSourceClasses, named cluster searches, and argument hunts", () => {
+  const sources = classifySources([
+    "https://nj.gov/x",
+    "https://instagram.com/thejerzclub",
+    "https://timeout.com/z",
+  ]);
+  assert.deepEqual(countSourceClasses(sources), {
+    OFFICIAL: 1, CULTURAL: 1, PRESS: 0, UNRANKED: 1,
+  });
+  const policy = clusterSearchQueries("POLICY_MECHANICS");
+  assert.ok(policy.some((q) => /ABC|3,000|statute/i.test(q)));
+  const diaspora = clusterSearchQueries("Diaspora Infrastructure");
+  assert.ok(diaspora.some((q) => /Caribbean|African/i.test(q)));
+  const hunts = lensDiscoveryQueries({ cluster: "NIGHTLIFE_DILEMMA", topic: "A Saturday room" });
+  assert.ok(hunts.some((q) => /opinion|op-ed|column/i.test(q)));
+  assert.ok(hunts.some((q) => /njpac|essence/i.test(q)));
+  assert.ok(hunts.some((q) => /rutgers\.edu|montclair\.edu|princeton\.edu/i.test(q)));
+  assert.ok(hunts.some((q) => /currentaffairs\.org/i.test(q)));
+  assert.ok(hunts.some((q) => /influenc/i.test(q)));
+  assert.ok(hunts.some((q) => /njuncovered|nj\.uncovered|NJ Uncovered/i.test(q)));
+  assert.equal(hunts.some((q) => /I Don't Do Clubs|weeklies/i.test(q)), false);
+  assert.equal(argumentDeskEmpty(classifySources(["https://www.rutgers.edu/jazz"])), false);
+  assert.equal(argumentDeskEmpty(classifySources(["https://www.njpac.org/events"])), true);
+});
