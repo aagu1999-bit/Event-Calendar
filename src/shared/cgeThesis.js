@@ -97,23 +97,24 @@ export function contentCreativeDirection() {
   ];
 }
 
-// Cadence is a style, not the house voice. Detective names a reusable trick.
-// GST points at who holds the door. Both read more "written" than spoken.
-// Kitchen-table plain is equally valid. Rotate. Do not default to essay.
+// The one-sentence-per-line beat (STACKED) is a style, not the house
+// voice. It reads less like plain talk and more like carousel copy.
+// Rotate with rolling / conversational / braided. Honor the operator's
+// cadence knob when they set one.
 function cadenceRotationLines() {
   return [
-    "- CADENCE ROTATION — pick ONE style for this piece, then stay in it. Do not blend them. Do not default to the essay cadence every time:",
-    "  KITCHEN TABLE: spoken plain text. What a Saturday does to a person. Short sentences. No named trick, no civic-we, no seminar.",
-    "  DETECTIVE: name one reusable trick (a freeze, a missed overlap). Then hand it to the reader so they see it on the next block. More written. Use this sometimes, not always.",
-    "  GST: who is holding the door, who is outside. Spoken, civic, a little sharp. Use this sometimes, not always.",
-    "  NEWSROOM: lead → context → significance → what's next. Magazine dek. Report; don't orate.",
-    "- If the last draft or an approved digest already used Detective or GST, pick Kitchen Table or Newsroom. Rotate.",
+    "- SENTENCE CADENCE — this is the rhythm of the lines, not Detective vs GST. Pick ONE and stay in it:",
+    "  STACKED: one thought, one sentence, one line. Clipped. Carousel-copy. Use sometimes — not every post.",
+    "  CONVERSATIONAL: spoken. Contractions. A sentence can run two lines. Sounds like a text, not a poster.",
+    "  ROLLING: longer sentences that turn. The reader breathes through the slide instead of punching down a list.",
+    "  BRAIDED: two threads in one paragraph (the Saturday + the rule). Trust the reader. Not every slide.",
+    "- Do NOT default to stacked one-liners. That cadence is the one that feels 'less plain text.' If the operator already set a cadence knob, use that. If the last draft was stacked, pick conversational or rolling.",
   ];
 }
 
 export function cadenceRotationBlock() {
   return [
-    "CADENCE — a style, not the only voice.",
+    "SENTENCE CADENCE — stacked one-liners are a style, not the house voice.",
     ...cadenceRotationLines(),
     "─────────────────────────────",
     "",

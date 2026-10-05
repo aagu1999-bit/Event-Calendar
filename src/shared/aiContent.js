@@ -3602,7 +3602,7 @@ function registerBlock(mode) {
     "- Destination is UNDERSTANDING, not a sale. Structure: lead → context → significance → what's next.",
     "- Voice: third-person, observational, understated. Report; don't invite.",
     "- PLAIN TALK: say what a rule or night does to a person on a Saturday. No statute numbers, no seminar words, no 'N.J.S.A.'. If you cannot say it at a kitchen table, rewrite it.",
-    "- CADENCE ROTATION: Kitchen Table, Detective (name the trick), GST (who holds the door), and Newsroom all count. Detective and GST read more written than spoken — use them sometimes, not as the house voice. Rotate. Do not write every editorial as a mechanism essay.",
+    "- SENTENCE CADENCE: do not default to one sentence per line. That stacked beat is a style — rotate it with conversational (spoken, a sentence can run) and rolling (longer lines that turn). If the operator set a cadence knob, honor it.",
     "- REFUSE THE CTA: NO urgency words, NO ticket push, NO 'you should go' / 'pull up' / 'RSVP'. A closing",
     "  editorial slide lands on the takeaway or what's next — never a sell. If the sequence ends in a 'cta'",
     "  slot, treat it as a closing NOTE, not an invite.",
