@@ -11,6 +11,7 @@ import {
   classifySources,
   countSourceClasses,
   argumentDeskEmpty,
+  preferDeskSources,
   clusterSearchQueries,
   lensDiscoveryQueries,
 } from "./cgeSources.js";
@@ -89,4 +90,19 @@ test("countSourceClasses, named cluster searches, and argument hunts", () => {
   assert.equal(hunts.some((q) => /I Don't Do Clubs|weeklies/i.test(q)), false);
   assert.equal(argumentDeskEmpty(classifySources(["https://www.rutgers.edu/jazz"])), false);
   assert.equal(argumentDeskEmpty(classifySources(["https://www.njpac.org/events"])), true);
+});
+
+test("preferDeskSources puts official and argument URLs ahead of venue homepages", () => {
+  const ranked = preferDeskSources([
+    "https://montclairbrewery.com/",
+    "https://www.echonewstv.com/all-news",
+    "https://www.nj.gov/oag/abc/",
+    "https://visithudson.org/x",
+  ]);
+  assert.equal(ranked[0].class, "OFFICIAL");
+  assert.equal(ranked[1].class, "CULTURAL");
+  assert.equal(ranked[2].class, "UNRANKED");
+  assert.equal(ranked[3].class, "UNRANKED");
+  assert.match(ranked[0].uri, /nj\.gov/);
+  assert.match(ranked[1].uri, /echonewstv/);
 });

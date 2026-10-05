@@ -62,6 +62,11 @@ test("verification keeps history that is true as stated", () => {
   });
   assert.match(request.instructions, /true AS STATED/);
   assert.match(request.instructions, /Do NOT drop a fact because the door is not open today/);
+  assert.match(request.instructions, /PREFER THE DESKS FIRST/);
+  assert.equal(request.tools.length, 3);
+  assert.ok(request.tools[0].filters.search_domain_filter.includes(".gov"));
+  assert.ok(request.tools[1].filters.search_domain_filter.includes("echonewstv.com"));
+  assert.equal(request.tools[2].filters, undefined);
   assert.equal(/verifiably true today/.test(request.instructions), false);
 });
 

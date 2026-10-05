@@ -264,6 +264,30 @@ export function classifySources(urls = []) {
   return out;
 }
 
+// Desk URLs first — official, then argument, then halls, then
+// venue homepages. Fuel Research was citing montclairbrewery.com
+// ahead of Echo / nj.gov because Phase 2 returned whatever verified
+// the address. Prefer does not drop the brewery site; it just
+// refuses to lead with it.
+const DESK_CLASS_RANK = {
+  [SOURCE_CLASSES.OFFICIAL]: 0,
+  [SOURCE_CLASSES.CULTURAL]: 1,
+  [SOURCE_CLASSES.PRESS]: 2,
+  [SOURCE_CLASSES.UNRANKED]: 3,
+};
+
+export function preferDeskSources(urlsOrSources = []) {
+  const sources = Array.isArray(urlsOrSources) && urlsOrSources[0] && typeof urlsOrSources[0] === "object" && urlsOrSources[0].class
+    ? urlsOrSources.slice()
+    : classifySources(urlsOrSources);
+  return sources.sort((a, b) => {
+    const ra = DESK_CLASS_RANK[a?.class] ?? 3;
+    const rb = DESK_CLASS_RANK[b?.class] ?? 3;
+    if (ra !== rb) return ra - rb;
+    return String(a?.uri || "").localeCompare(String(b?.uri || ""));
+  });
+}
+
 export function countSourceClasses(sources = []) {
   const counts = { OFFICIAL: 0, CULTURAL: 0, PRESS: 0, UNRANKED: 0 };
   for (const s of sources) {
