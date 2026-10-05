@@ -3230,6 +3230,7 @@ export async function generateVoicePass({ apiKey, slides, sequence, voice, voice
     "  4. Rewrite text-string field values IN PLACE. Change how the copy sounds, not what it says.",
     "  5. Do NOT add new facts, invent details, or extrapolate. If Node 1 didn't have a number, Node 2 doesn't add one.",
     "  6. Do NOT re-route bullets to different slides. Whatever slide 3 was about, it stays about.",
+    "  7. SENTENCE CADENCE — how the sentences sit, not the source. If VOICE PARAMETERS name STACKED, rewrite body fields as one thought / one sentence / one line. If cadence is CONVERSATIONAL, ROLLING, BRAIDED, or unset, write flowing sentences. Do not introduce one-sentence-per-line breaks unless cadence is STACKED. That stacked beat is the one that reads as less plain text.",
     "",
     ...(hasVoiceDesc ? [
       "BRAND VOICE FINGERPRINT (the enduring brand voice):",
@@ -3602,7 +3603,7 @@ function registerBlock(mode) {
     "- Destination is UNDERSTANDING, not a sale. Structure: lead → context → significance → what's next.",
     "- Voice: third-person, observational, understated. Report; don't invite.",
     "- PLAIN TALK: say what a rule or night does to a person on a Saturday. No statute numbers, no seminar words, no 'N.J.S.A.'. If you cannot say it at a kitchen table, rewrite it.",
-    "- SENTENCE CADENCE: do not default to one sentence per line. That stacked beat is a style — rotate it with conversational (spoken, a sentence can run) and rolling (longer lines that turn). If the operator set a cadence knob, honor it.",
+    "- SENTENCE CADENCE: the one-sentence-per-line beat (stacked) is a style, not the default. Rotate it with conversational (spoken, a sentence can run) and rolling (longer lines that turn). If the operator set a cadence knob, honor it.",
     "- REFUSE THE CTA: NO urgency words, NO ticket push, NO 'you should go' / 'pull up' / 'RSVP'. A closing",
     "  editorial slide lands on the takeaway or what's next — never a sell. If the sequence ends in a 'cta'",
     "  slot, treat it as a closing NOTE, not an invite.",
@@ -4013,7 +4014,7 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
       const ctaTotal = sequence.filter(t => t === "cta").length;
       extra = `\n\nThis is CTA ${ctaIdxAmong} of ${ctaTotal}. Each CTA is a DIRECTORY LISTING for ONE event. ctaKicker stays BLANK. ctaDate slot becomes the EVENT NAME (uppercased big-bold headline of the card). ctaVenue slot is "<venue> · <day> · <time>". ctaUrl is that event's URL or page link. Pick a DIFFERENT event from the context for each CTA — don't repeat. If context lists fewer events than CTAs, invent plausible ones grounded in the topic.`;
     } else if (slotType === "news") {
-      extra = "\n\nNEWS slide — a SUPPORTING explainer beat, not a cover, written in the INSIDER DISPATCH format: open a small loop, hold a beat, land the payoff. newsKicker = a 1-3 word eyebrow (BREAKING / THE BACKSTORY / WHY IT MATTERS / THE BIGGER PICTURE). newsHeadline = an optional short heading, or empty. newsBody = SHORT STACKED LINES (one thought per line, single \\n between lines; a blank \\n\\n before the payoff), three-beat rhythm, NOT a dense paragraph and NOT a repeat of the cover — real reported substance. End on ONE payoff line wrapped in *asterisks* so it bolds (exactly one). Every specific must be true; never manufacture drama. newsBold true only for a genuinely urgent breaking beat.";
+      extra = "\n\nNEWS slide — a SUPPORTING explainer beat, not a cover. Open a small loop, hold a beat, land the payoff. newsKicker = a 1-3 word eyebrow (BREAKING / THE BACKSTORY / WHY IT MATTERS / THE BIGGER PICTURE). newsHeadline = an optional short heading, or empty. newsBody follows SENTENCE CADENCE — do NOT default to one sentence per line. Conversational or rolling (the default): 1-2 short paragraphs of supporting copy. Stacked (only when that cadence is chosen): one thought per line, blank line before the payoff. End on ONE payoff line wrapped in *asterisks* so it bolds (exactly one). Real reported substance, not a repeat of the cover. Every specific must be true; never manufacture drama. newsBold true only for a genuinely urgent breaking beat.";
     } else if (slotType === "features") {
       // The Features slot is the one most prone to filler because each card is
       // tiny — force concrete promises and a single standout card.

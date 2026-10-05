@@ -103,12 +103,12 @@ export function contentCreativeDirection() {
 // cadence knob when they set one.
 function cadenceRotationLines() {
   return [
-    "- SENTENCE CADENCE — this is the rhythm of the lines, not Detective vs GST. Pick ONE and stay in it:",
-    "  STACKED: one thought, one sentence, one line. Clipped. Carousel-copy. Use sometimes — not every post.",
-    "  CONVERSATIONAL: spoken. Contractions. A sentence can run two lines. Sounds like a text, not a poster.",
+    "- SENTENCE CADENCE — how the sentences sit on the slide. Pick ONE and stay in it:",
+    "  STACKED: one thought, one sentence, one line. Clipped. Poster-copy. Use sometimes — not every post.",
+    "  CONVERSATIONAL: spoken. Contractions. A sentence can run. Sounds like a text, not a poster.",
     "  ROLLING: longer sentences that turn. The reader breathes through the slide instead of punching down a list.",
     "  BRAIDED: two threads in one paragraph (the Saturday + the rule). Trust the reader. Not every slide.",
-    "- Do NOT default to stacked one-liners. That cadence is the one that feels 'less plain text.' If the operator already set a cadence knob, use that. If the last draft was stacked, pick conversational or rolling.",
+    "- Do NOT default to the one-sentence-per-line beat. That stacked cadence is the one that feels 'less plain text.' If the operator already set a cadence knob, use that. If the last draft was stacked, pick conversational or rolling.",
   ];
 }
 
