@@ -459,6 +459,44 @@ export function clusterSearchQueries(cluster = "") {
   return [];
 }
 
+// Coherence-check gaps become the next search. The critic already
+// named the hole (currently-operating car-centric spots, strip-mall
+// speakeasy, current reconfiguring). General (AI Mode) and
+// structural (desk) searches both run these before they riff.
+export function coherenceGapSearches({ gaps = [], topic = "" } = {}) {
+  const clean = (Array.isArray(gaps) ? gaps : [])
+    .map((g) => String(g || "").trim())
+    .filter(Boolean)
+    .slice(0, 4);
+  if (!clean.length) return [];
+  const hook = String(topic || "").trim() || "Black New Jersey gathering";
+  const hay = clean.join(" ").toLowerCase();
+  const out = clean.map((gap) => `${gap} New Jersey`);
+  if (/current|operating|reconfigur/.test(hay)) {
+    out.push(`${hook} currently operating New Jersey gathering spot 2025 2026`);
+  }
+  if (/speakeasy|strip mall|strip-mall/.test(hay)) {
+    out.push("strip mall speakeasy New Jersey currently open");
+  }
+  if (/historic|historical|too historical/.test(hay)) {
+    out.push(`${hook} living remnant currently open New Jersey not closed archive`);
+  }
+  return out.filter((q, i, all) => all.indexOf(q) === i).slice(0, 8);
+}
+
+export function coherenceGapPromptLines({ gaps = [], reason = "" } = {}) {
+  const clean = (Array.isArray(gaps) ? gaps : [])
+    .map((g) => String(g || "").trim())
+    .filter(Boolean)
+    .slice(0, 4);
+  if (!clean.length) return [];
+  return [
+    "CLOSE THESE GAPS — the argument check already named what's missing. Hunt these before anything else. Do not add another historical statute if the hole is a living Saturday.",
+    ...clean.map((gap) => `- ${gap}`),
+    String(reason || "").trim() ? `Check reason: ${String(reason).trim().slice(0, 400)}` : "",
+  ].filter(Boolean);
+}
+
 // How you learn the field without already being in it: hunt the
 // COLUMN and the PAGE inside Black New Jersey, then the influence
 // chain that left the state. Opinion and news that argue count.

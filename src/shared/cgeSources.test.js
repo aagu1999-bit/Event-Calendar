@@ -19,6 +19,8 @@ import {
   lensDiscoveryQueries,
   apparentLookthroughDomains,
   lookthroughSearchQueries,
+  coherenceGapSearches,
+  coherenceGapPromptLines,
 } from "./cgeSources.js";
 
 test("desk allowlists stay inside Perplexity's 20-domain cap", () => {
@@ -143,6 +145,26 @@ test("countSourceClasses, named cluster searches, and argument hunts", () => {
   assert.equal(hunts.some((q) => /I Don't Do Clubs|weeklies/i.test(q)), false);
   assert.equal(argumentDeskEmpty(classifySources(["https://www.rutgers.edu/jazz"])), false);
   assert.equal(argumentDeskEmpty(classifySources(["https://www.njpac.org/events"])), true);
+});
+
+test("coherence gaps become NJ searches for the general brief and the desks", () => {
+  const searches = coherenceGapSearches({
+    topic: "strip mall speakeasy",
+    gaps: [
+      "Need anchors for currently operating, car-centric gathering spots.",
+      "No anchor directly addresses the 'strip mall speakeasy' concept.",
+    ],
+  });
+  assert.ok(searches.some((q) => /currently operating/i.test(q)));
+  assert.ok(searches.some((q) => /strip mall speakeasy/i.test(q)));
+  assert.ok(searches.every((q) => /New Jersey|currently open|2025/i.test(q)));
+  const lines = coherenceGapPromptLines({
+    gaps: ["Need currently-operating car-centric spots."],
+    reason: "Anchors are too historical.",
+  });
+  assert.ok(lines.some((l) => /CLOSE THESE GAPS/.test(l)));
+  assert.ok(lines.some((l) => /car-centric/.test(l)));
+  assert.deepEqual(coherenceGapSearches({ gaps: [] }), []);
 });
 
 test("preferDeskSources puts official and argument URLs ahead of venue homepages", () => {

@@ -589,6 +589,8 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
           // the base cluster directive. Empty = server uses the base
           // alone (backwards-compat).
           lensOverride: local.editorial_lens || "",
+          coherenceGaps: Array.isArray(coherenceResult?.gaps) ? coherenceResult.gaps : [],
+          coherenceReason: coherenceResult?.reason || "",
         }),
       });
       const j = await r.json().catch(() => ({}));
@@ -2452,6 +2454,28 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                           — {g}
                         </div>
                       ))}
+                      <button
+                        type="button"
+                        onClick={fuelResearch}
+                        disabled={researching || !local.cluster}
+                        title={!local.cluster ? "Pick a cluster first" : "Run Fuel Research with these gaps as the hunt — general NJ brief and desk dive both see them"}
+                        style={{
+                          marginTop: 10,
+                          background: researching ? "rgba(167,139,250,0.06)" : "rgba(167,139,250,0.16)",
+                          color: researching ? faint : orbit,
+                          border: `1px solid ${orbit}`,
+                          borderRadius: 4,
+                          padding: "5px 10px",
+                          fontFamily: "inherit",
+                          fontSize: "0.58rem",
+                          letterSpacing: "0.12em",
+                          textTransform: "uppercase",
+                          fontWeight: 700,
+                          cursor: researching || !local.cluster ? "not-allowed" : "pointer",
+                        }}
+                      >
+                        {researching ? "🔮 Hunting gaps…" : "🔮 Fuel these gaps"}
+                      </button>
                     </div>
                   )}
                 </div>
