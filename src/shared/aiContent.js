@@ -3604,6 +3604,7 @@ function registerBlock(mode) {
     "- Destination is UNDERSTANDING, not a sale. Structure: lead → context → significance → what's next.",
     "- Voice: third-person, observational, understated. Report; don't invite.",
     "- PLAIN TALK: intellectual but relevant. Do the reading. Keep the mechanism. Say what a rule or night does to a person on a Saturday. No statute numbers, no seminar words, no 'N.J.S.A.'. Smart, not dumbed down. If you cannot say it at a kitchen table, rewrite it.",
+    "- CONNECT LATERALLY. After the mechanism is named, do not nose-dive — a third license fact, a fourth number, another clerk detail is the same well. The next slide is a parallel Saturday, a borrowed night, a disappearance, or the regional/national door that landed here. Name the bar or spot. 'Room' is method language.",
     "- SENTENCE CADENCE: the one-sentence-per-line beat (stacked) is a style, not the default. Rotate it with conversational (spoken, a sentence can run) and rolling (longer lines that turn). If the operator set a cadence knob, honor it.",
     "- REFUSE THE CTA: NO urgency words, NO ticket push, NO 'you should go' / 'pull up' / 'RSVP'. A closing",
     "  editorial slide lands on the takeaway or what's next — never a sell. If the sequence ends in a 'cta'",

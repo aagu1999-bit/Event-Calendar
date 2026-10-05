@@ -13,4 +13,6 @@ test("cadence rotation is the one-sentence-per-line beat, not a source voice", (
   assert.match(block, /less plain text/);
   assert.equal(/DETECTIVE/.test(block), false);
   assert.match(contentCreativeDirection().join("\n"), /one-sentence-per-line|STACKED/);
+  assert.match(contentCreativeDirection().join("\n"), /CONNECT LATERALLY/);
+  assert.match(contentCreativeDirection().join("\n"), /nose-dive/);
 });

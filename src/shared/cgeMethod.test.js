@@ -10,6 +10,7 @@ import {
   contextHasMethodBrief,
   OPERATOR_QUESTIONS_MARKER,
   appendOperatorQuestions,
+  contentMethodBlock,
 } from "./cgeMethod.js";
 
 test("parseMethodBrief reads labeled lines", () => {
@@ -71,4 +72,10 @@ test("appendOperatorQuestions is a no-op when blank and stamps the marker when a
   assert.match(next, /Old places stay/);
   assert.match(next, /BYOB hall/);
   assert.match(next, /everyday wording/);
+});
+
+test("method block tells the writer to connect laterally instead of nose-diving", () => {
+  const block = contentMethodBlock().join("\n");
+  assert.match(block, /CONNECT LATERALLY/);
+  assert.match(block, /nose-dive/);
 });

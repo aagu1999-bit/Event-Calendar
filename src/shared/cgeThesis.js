@@ -87,7 +87,8 @@ export function contentCreativeDirection() {
   return [
     "CREATIVE DIRECTION — Content / Feature (read before writing a single line):",
     "- Do NOT infer an 'event genre' or match nightlife/FOMO/mixer energy. This is not that post.",
-    "- FIRST name the QUESTION the swipe answers. Then name the JOIN (specimen ↔ a document, parallel room, disappearance, or the regional/national trend that shaped it). Then pick the proof that makes both undeniable. A question without a join is still a recap.",
+    "- FIRST name the QUESTION the swipe answers. Then name the JOIN (specimen ↔ a document, parallel bar or night, disappearance, or the regional/national trend that shaped it). Then pick the proof that makes both undeniable. A question without a join is still a recap.",
+    "- CONNECT LATERALLY. Do not nose-dive the mechanism — stacking license facts is the same well. After the trick is named, go sideways.",
     "- Hook archetypes that fit: a pointed question nobody else is asking; then→now with a living remnant; a counter-intuitive claim about who owns vs who programs; a single NJ-specific scene detail that implies the larger pattern.",
     "- Do NOT invent unverifiable history, quotes, or venues. If the material is thin, keep the carousel short and specific rather than padding with atmosphere.",
     "- Rotate away from gathering-magazine defaults (150-cap rooms, liquor caps, run clubs) unless THIS piece's cluster and bullets actually are about that.",
