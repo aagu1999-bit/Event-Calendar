@@ -8,6 +8,7 @@ test("cadence rotation is the one-sentence-per-line beat, not a source voice", (
   assert.match(block, /one thought, one sentence, one line/);
   assert.match(block, /one-sentence-per-line/);
   assert.match(block, /CONVERSATIONAL/);
+  assert.match(block, /[Ii]ntellectual but relevant/);
   assert.match(block, /ROLLING/);
   assert.match(block, /less plain text/);
   assert.equal(/DETECTIVE/.test(block), false);
