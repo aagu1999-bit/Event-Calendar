@@ -10,6 +10,9 @@ A second pass dives those threads on the desks (official `.gov` /
 library / university, Black NJ press, leftover local press, and
 apparent halls). The desks thicken. They do not throw the brief away.
 If the dive fails, the scout brief still ships.
+A coherence-check gap run is a separate Google-style search for
+specific pieces that close those holes — not another full Fuel
+Research loop. Dive those pieces next.
 It requests a JSON schema and reads
 the SDK's `output_text`. Search results and text annotations supply
 source URLs; the UI classifies them OFFICIAL / CULTURAL / PRESS / UNRANKED.

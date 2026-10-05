@@ -561,7 +561,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
   // which relays to Perplexity's web-grounded Agent API. Response bullets append to
   // data_points (up to BULLETS_MAX cap); citations render below the
   // list so the operator can vet before shipping. Errors surface inline.
-  const fuelResearch = async () => {
+  const fuelResearch = async (mode = "full") => {
     if (researching) return;
     // Snapshot the bullets we have now so a bad research can be undone
     // in one tap via the sources strip's ↺ Discard button.
@@ -569,6 +569,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
     setResearching(true);
     setResearchError(null);
     try {
+      const sendGaps = mode === "gap-scout";
       const r = await fetch("/api/matrix/research", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -589,8 +590,9 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
           // the base cluster directive. Empty = server uses the base
           // alone (backwards-compat).
           lensOverride: local.editorial_lens || "",
-          coherenceGaps: Array.isArray(coherenceResult?.gaps) ? coherenceResult.gaps : [],
-          coherenceReason: coherenceResult?.reason || "",
+          coherenceGaps: sendGaps && Array.isArray(coherenceResult?.gaps) ? coherenceResult.gaps : [],
+          coherenceReason: sendGaps ? (coherenceResult?.reason || "") : "",
+          mode,
         }),
       });
       const j = await r.json().catch(() => ({}));
@@ -603,11 +605,20 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
         setResearchError("No starting points returned. Try a sharper New Jersey hook.");
         return;
       }
-      // Append while respecting BULLETS_MAX; the operator can trim later.
-      const merged = [...bullets, ...incoming].slice(0, LIMITS.BULLETS_MAX);
+      let merged;
+      if (mode === "dive") {
+        merged = incoming.slice(0, LIMITS.BULLETS_MAX);
+      } else if (mode === "gap-scout") {
+        // Make room for the new pieces — do not slice them off
+        // because the desk is already full of history.
+        const keep = Math.max(0, LIMITS.BULLETS_MAX - incoming.length);
+        merged = [...bullets.slice(0, keep), ...incoming].slice(0, LIMITS.BULLETS_MAX);
+      } else {
+        merged = [...bullets, ...incoming].slice(0, LIMITS.BULLETS_MAX);
+      }
       const thesisLine = typeof j.thesis === "string" ? j.thesis.trim() : "";
       const patch = { data_points: merged };
-      if (thesisLine && !(local.editorial_pov || "").trim()) {
+      if (mode !== "gap-scout" && thesisLine && !(local.editorial_pov || "").trim()) {
         patch.editorial_pov = thesisLine.slice(0, LIMITS.POV_MAX);
       }
       applyPatch(patch);
@@ -1957,7 +1968,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
               </span>
               <button
                 type="button"
-                onClick={fuelResearch}
+                onClick={() => fuelResearch("full")}
                 disabled={researching || !local.cluster}
                 title={
                   researching ? "Researching…"
@@ -1981,6 +1992,29 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
               >
                 {researching ? "🔮 Researching…" : "🔮 Fuel Research"}
               </button>
+              {researchPhase === "gap-scout" ? (
+                <button
+                  type="button"
+                  onClick={() => fuelResearch("dive")}
+                  disabled={researching || bullets.filter(Boolean).length < 1}
+                  title="Desk-dive the specific pieces the gap search just found"
+                  style={{
+                    background: researching ? "rgba(52,211,153,0.06)" : "rgba(52,211,153,0.14)",
+                    color: researching ? faint : ready,
+                    border: `1px solid ${ready}`,
+                    borderRadius: 4,
+                    padding: "4px 10px",
+                    fontFamily: "inherit",
+                    fontSize: "0.6rem",
+                    letterSpacing: "0.14em",
+                    textTransform: "uppercase",
+                    fontWeight: 700,
+                    cursor: researching ? "not-allowed" : "pointer",
+                  }}
+                >
+                  {researching ? "Diving…" : "Dive these pieces"}
+                </button>
+              ) : null}
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {bullets.map((b, i) => {
@@ -2102,18 +2136,28 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
               <div style={{
                 marginTop: 8,
                 padding: "6px 10px",
-                background: researchPhase === "verified"
+                background: researchPhase === "verified" || researchPhase === "dived"
                   ? "rgba(52,211,153,0.06)"
-                  : "rgba(251,191,36,0.06)",
-                border: `1px solid ${researchPhase === "verified" ? "rgba(52,211,153,0.28)" : "rgba(251,191,36,0.28)"}`,
+                  : researchPhase === "gap-scout"
+                    ? "rgba(167,139,250,0.08)"
+                    : "rgba(251,191,36,0.06)",
+                border: `1px solid ${researchPhase === "verified" || researchPhase === "dived"
+                  ? "rgba(52,211,153,0.28)"
+                  : researchPhase === "gap-scout"
+                    ? "rgba(167,139,250,0.28)"
+                    : "rgba(251,191,36,0.28)"}`,
                 borderRadius: 6,
                 fontSize: "0.62rem",
-                color: researchPhase === "verified" ? ready : warn,
+                color: researchPhase === "verified" || researchPhase === "dived"
+                  ? ready
+                  : researchPhase === "gap-scout" ? orbit : warn,
                 letterSpacing: "0.06em",
                 lineHeight: 1.55,
               }}>
                 {researchPhase === "dived" || researchPhase === "verified" ? (
                   <>◆ NJ brief + desk dive · starting points thickened against official / argument pages</>
+                ) : researchPhase === "gap-scout" ? (
+                  <>◆ Gap search · specific pieces that close the check. Dive those next — do not run Fuel Research again.</>
                 ) : researchPhase === "scout" ? (
                   <>◆ NJ brief · desks did not thicken these starting points
                     {researchVerificationError
@@ -2456,9 +2500,9 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                       ))}
                       <button
                         type="button"
-                        onClick={fuelResearch}
+                        onClick={() => fuelResearch("gap-scout")}
                         disabled={researching || !local.cluster}
-                        title={!local.cluster ? "Pick a cluster first" : "Run Fuel Research with these gaps as the hunt — general NJ brief and desk dive both see them"}
+                        title={!local.cluster ? "Pick a cluster first" : "Google-search these gaps for specific NJ pieces. Dive those next."}
                         style={{
                           marginTop: 10,
                           background: researching ? "rgba(167,139,250,0.06)" : "rgba(167,139,250,0.16)",
@@ -2474,8 +2518,33 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                           cursor: researching || !local.cluster ? "not-allowed" : "pointer",
                         }}
                       >
-                        {researching ? "🔮 Hunting gaps…" : "🔮 Fuel these gaps"}
+                        {researching ? "🔮 Searching gaps…" : "🔮 Google these gaps"}
                       </button>
+                      {researchPhase === "gap-scout" ? (
+                        <button
+                          type="button"
+                          onClick={() => fuelResearch("dive")}
+                          disabled={researching || bullets.filter(Boolean).length < 1}
+                          title="Desk-dive the specific pieces the gap search just found"
+                          style={{
+                            marginTop: 8,
+                            marginLeft: 8,
+                            background: researching ? "rgba(52,211,153,0.06)" : "rgba(52,211,153,0.14)",
+                            color: researching ? faint : ready,
+                            border: `1px solid ${ready}`,
+                            borderRadius: 4,
+                            padding: "5px 10px",
+                            fontFamily: "inherit",
+                            fontSize: "0.58rem",
+                            letterSpacing: "0.12em",
+                            textTransform: "uppercase",
+                            fontWeight: 700,
+                            cursor: researching ? "not-allowed" : "pointer",
+                          }}
+                        >
+                          {researching ? "Diving…" : "Dive these pieces"}
+                        </button>
+                      ) : null}
                     </div>
                   )}
                 </div>

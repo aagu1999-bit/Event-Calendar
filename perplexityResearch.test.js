@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { researchRequest, researchHypothesisRequest, researchAiModeRequest, researchOfficialRequest, researchCulturalRequest, researchLookthroughRequest, researchVerificationRequest, researchDiveRequest, parseResearchResponse } from "./perplexityResearch.js";
+import { researchRequest, researchHypothesisRequest, researchAiModeRequest, researchGapScoutRequest, researchOfficialRequest, researchCulturalRequest, researchLookthroughRequest, researchVerificationRequest, researchDiveRequest, parseResearchResponse } from "./perplexityResearch.js";
 
 test("research uses Agent preset, open NJ web search, and structured output", () => {
   const request = researchRequest({ topic: "Newark", existingBullets: [null, "Existing fact"] });
@@ -66,6 +66,21 @@ test("AI Mode scout is unconstrained NJ search with a thesis and starting points
     topic: "strip mall speakeasy",
     coherenceGaps: ["Need currently-operating car-centric spots."],
   }).input, /CLOSE THESE GAPS/);
+
+  const gapScout = researchGapScoutRequest({
+    cluster: "SUBURBAN_THIRD_PLACE",
+    topic: "strip mall speakeasy",
+    coherenceGaps: [
+      "Need anchors for currently operating, car-centric gathering spots.",
+      "No anchor directly addresses the strip mall speakeasy concept.",
+    ],
+    coherenceReason: "The anchors are too historical.",
+  });
+  assert.match(gapScout.instructions, /not another full brief/i);
+  assert.match(gapScout.instructions, /GAP — /);
+  assert.equal(gapScout.tools[0].filters, undefined);
+  assert.match(gapScout.input, /CLOSE THESE GAPS/);
+  assert.equal(/STARTING POINTS: 5–8/.test(gapScout.instructions), false);
 });
 
 test("Feature-tier official desk still hunts the named program", () => {
