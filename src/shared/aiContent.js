@@ -47,6 +47,7 @@ import {
   CONTENT_FLYER_SLOTS,
   CONTENT_ESSAY_ARC,
 } from "./cgeMethod.js";
+import { generateGstCarousel } from "./gstPipeline.js";
 
 const MODEL = "gemini-2.5-flash-lite";
 const URL_BASE = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
@@ -1618,6 +1619,21 @@ export async function generateArrangedCarousel({
   clusterDirective = "", clusterLabel = "", keywordTrigger = null, voiceParams = null,
   behavioralTags = null, isEvergreen = false, rejectedDrafts = [], approvedDrafts = [],
 }) {
+  // GST / Pop Culture Detective pipeline is the arranged path now.
+  // Stages 1–3 (critical theory → 10-slide storyboard → micro-copy).
+  // Promo still wants a flyer-shaped arc — keep the legacy designer there.
+  if (mode !== "promo") {
+    const gst = await generateGstCarousel({ apiKey, topic, context });
+    return {
+      slides: gst.slides,
+      sequence: gst.sequence,
+      originalSequence: gst.originalSequence,
+      rationale: gst.rationale,
+      compressionEvent: null,
+      gst: gst.gst,
+    };
+  }
+
   const evergreen = isEvergreen || isContentRegister(mode);
   const prepared = await ensureContentMethodBrief({
     apiKey, topic, context, clusterDirective, clusterLabel, mode, isEvergreen: evergreen,
@@ -3600,7 +3616,17 @@ function variationDirective() {
 // give the model a concrete, contrasting spec for voice, POV, energy, and how
 // the closer behaves, so the two registers produce visibly different copy.
 function registerBlock(mode) {
-  if (mode === "content") return contentRegisterBlock();
+  if (mode === "content") return [
+    "REGISTER: GST CULTURAL ANALYSIS — wearegst / Pop Culture Detective energy.",
+    "- Pop culture and local nightlife are the TROJAN HORSE. The product is a systemic pattern.",
+    "- Patterns, not plot. Never review good/bad. Name the accidental lesson.",
+    "- Inverse hook in the first two sentences. Ruthless brevity. Active voice.",
+    "- Scan-path bolding on core entities. Under 35 words of intent per beat when possible.",
+    "- Banned sludge: delve, testament, moreover, landscape, unpack, nuanced, vibrant community, hidden gem, don't miss, pull up.",
+    "- Closer is community engagement or the next question — never RSVP / ticket sell.",
+    "─────────────────────────────",
+    "",
+  ];
   if (mode === "story") return [
     "REGISTER: STORY — tell this like a STORY, not a listing or a pitch.",
     "- Hero is a PERSON, a MOMENT, or a CHANGE — not logistics. Open on a scene, a moment, or a turn.",
@@ -3649,17 +3675,12 @@ function registerBlock(mode) {
     "",
   ];
   return [
-    "REGISTER: EDITORIAL — we are the newsroom reporting on the scene, not selling it.",
-    "- Destination is UNDERSTANDING, not a sale. Structure: lead → context → significance → what's next.",
-    "- Voice: third-person, observational, understated. Report; don't invite.",
-    "- PLAIN TALK: intellectual but relevant. Do the reading. Keep the mechanism. Say what a rule or night does to a person on a Saturday. No statute numbers, no seminar words, no 'N.J.S.A.'. Smart, not dumbed down. If you cannot say it at a kitchen table, rewrite it.",
-    ...editorialBuildFormulaLines(),
-    "- SENTENCE CADENCE: the one-sentence-per-line beat (stacked) is a style, not the default. Rotate it with conversational (spoken, a sentence can run) and rolling (longer lines that turn). If the operator set a cadence knob, honor it.",
-    "- REFUSE THE CTA: NO urgency words, NO ticket push, NO 'you should go' / 'pull up' / 'RSVP'. A closing",
-    "  editorial slide lands on the takeaway or what's next — never a sell. If the sequence ends in a 'cta'",
-    "  slot, treat it as a closing NOTE, not an invite.",
-    "- The hook pulls through curiosity and concrete specifics + real sourcing, never enthusiasm.",
-    "- Reads like a magazine dek, not a flyer.",
+    "REGISTER: GST EDITORIAL — audiovisual science communication for the humanities.",
+    "- Destination is UNDERSTANDING a systemic pattern, not a sale and not a recap.",
+    "- Inverse hook: thesis up front. Show a mundane NJ moment, then zoom to the structure.",
+    "- Sharp, direct, anti-establishment. Kitchen-table wording. No statute numbers.",
+    "- Banned sludge: delve, testament, moreover, landscape, unpack, nuanced, vibrant community, hidden gem, don't miss.",
+    "- Closing note / engagement keyword — never urgency, never flyer CTA.",
     "─────────────────────────────",
     "",
   ];
