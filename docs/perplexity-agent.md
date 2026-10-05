@@ -14,6 +14,9 @@ A look-through pass then opens leftover local press that missed the
 Ark Republic, Shelterforce, Trenton Journal, plus independent hosts)
 and halls/national magazines only when the topic would actually show
 up there. Those halls can confirm a door. They still cannot authorize.
+Desk B now asks for a magazine brief (friction, named mechanism, one
+NJ specimen, next question) instead of a pile of venue facts. Open
+web search is allowed only after the desks, to name the specimen.
 It requests a JSON schema and reads
 the SDK's `output_text`. Search results and text annotations supply
 source URLs; the UI classifies them OFFICIAL / CULTURAL / PRESS / UNRANKED.

@@ -97,6 +97,12 @@ test("look-through opens leftover press always and halls only when apparent", ()
   assert.ok(jazz.press.includes("njpac.org"));
   assert.ok(jazz.press.includes("njmonthly.com"));
 
+  const retrofit = apparentLookthroughDomains({
+    topic: "suburban commercial strip retrofit",
+    cluster: "SUBURBAN_THIRD_PLACE",
+  });
+  assert.ok(retrofit.press.includes("njmonthly.com"));
+
   const liquor = apparentLookthroughDomains({
     topic: "NJ ABC liquor license cap",
     cluster: "POLICY_MECHANICS",
@@ -124,6 +130,9 @@ test("countSourceClasses, named cluster searches, and argument hunts", () => {
   assert.ok(policy.some((q) => /ABC|3,000|statute/i.test(q)));
   const diaspora = clusterSearchQueries("Diaspora Infrastructure");
   assert.ok(diaspora.some((q) => /Caribbean|African/i.test(q)));
+  const suburban = clusterSearchQueries("SUBURBAN_THIRD_PLACE");
+  assert.ok(suburban.some((q) => /Transit Village|Cranford|retrofit/i.test(q)));
+  assert.equal(suburban.some((q) => /occupancy|park permit/i.test(q)), false);
   const hunts = lensDiscoveryQueries({ cluster: "NIGHTLIFE_DILEMMA", topic: "A Saturday room" });
   assert.ok(hunts.some((q) => /opinion|op-ed|column/i.test(q)));
   assert.ok(hunts.some((q) => /njpac|essence/i.test(q)));

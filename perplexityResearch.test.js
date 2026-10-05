@@ -39,10 +39,14 @@ test("Feature-tier desks split DOCUMENT and JOIN", () => {
   assert.ok(official.tools[0].filters.search_domain_filter.includes(".gov"));
   assert.equal(/THIRD-PLACE MANDATE/.test(official.instructions), false);
   const cultural = researchCulturalRequest({ cluster: "DIASPORA_INFRASTRUCTURE", topic: "A Newark hall", tier: "FEATURE" });
-  assert.match(cultural.instructions, /JOIN — /);
+  assert.match(cultural.instructions, /JOIN — |NEXT — /);
+  assert.match(cultural.instructions, /FRICTION — /);
+  assert.match(cultural.instructions, /SPECIMEN — /);
   assert.match(cultural.instructions, /ARGUMENT/);
   assert.match(cultural.input, /opinion|op-ed|column/i);
+  assert.equal(cultural.tools.length, 2);
   assert.ok(cultural.tools[0].filters.search_domain_filter.includes("echonewstv.com"));
+  assert.equal(cultural.tools[1].filters, undefined);
   assert.ok(cultural.tools[0].filters.search_domain_filter.includes("blackinjersey.com"));
   assert.ok(cultural.tools[0].filters.search_domain_filter.includes("frontrunnernewjersey.com"));
   assert.ok(cultural.tools[0].filters.search_domain_filter.includes("currentaffairs.org"));

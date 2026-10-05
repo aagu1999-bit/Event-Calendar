@@ -258,6 +258,9 @@ export function apparentLookthroughDomains({ topic = "", cluster = "", corridor 
   if (/newark|jersey city|essex|hudson|montclair/.test(hay)) {
     add(["njmonthly.com", "wbgo.org", "njpac.org", "newarkmuseumart.org", "newjerseystage.com"]);
   }
+  if (/downtown|transit.?village|suburban|strip mall|retrofit/.test(hay)) {
+    add(["njmonthly.com"]);
+  }
   // Any NJ specimen still gets the local magazine/station. Nationals
   // stay out unless a hint above made them apparent.
   if (!press.length || /jersey|newark|nj\b/.test(hay)) {
@@ -416,9 +419,9 @@ export function clusterSearchQueries(cluster = "") {
       "hi-fi listening bar New Jersey municipal code",
     ],
     SUBURBAN_THIRD_PLACE: [
-      "New Jersey municipal park permit gathering",
-      "transit village public space ordinance New Jersey",
-      "strip mall occupancy assembly license New Jersey",
+      "NJ Transit Village program walkable downtown retrofit",
+      "New Jersey suburbs that retrofitted a commercial strip into a downtown Cranford",
+      "downtown special improvement district New Jersey walkable",
     ],
     REGIONAL_DEMOGRAPHICS: [
       "NJ Transit reverse commute ridership census",
@@ -485,6 +488,7 @@ export function lensDiscoveryQueries({ cluster = "", topic = "" } = {}) {
     ],
     SUBURBAN_THIRD_PLACE: [
       "New Jersey Black suburban gathering opinion column national third place",
+      "who is the Transit Village downtown retrofit for Black New Jersey",
     ],
     PHILOSOPHY_OF_GATHERING: [
       "Black New Jersey cultural memory opinion column national norm",

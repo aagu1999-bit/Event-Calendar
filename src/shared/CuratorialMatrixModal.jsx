@@ -1946,7 +1946,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
             <div style={{ ...groupLabelStyle, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
               <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <span style={{ width: 3, height: 12, background: orbit, borderRadius: 2, display: "inline-block" }} />
-                Research Anchors · {LIMITS.BULLETS_MIN}–{LIMITS.BULLETS_MAX} atomic facts
+                Research Anchors · friction · mechanism · specimen · next
               </span>
               <button
                 type="button"
@@ -1955,7 +1955,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                 title={
                   researching ? "Researching…"
                   : !local.cluster ? "Pick a cluster first — Perplexity needs an editorial frame"
-                  : "Ask Perplexity for 3–4 verified factual anchors"
+                  : "Ask Perplexity for the NJ friction, the named program, one real specimen, and the next question"
                 }
                 style={{
                   background: researching ? "rgba(167,139,250,0.06)" : "rgba(167,139,250,0.14)",
@@ -2015,7 +2015,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                         padding: 0,
                         overflow: "hidden",
                       }}
-                      placeholder="One atomic fact — transit, capacity, price, vibe, historical note. Long anchors welcome (autocomplete wraps to a full paragraph)."
+                      placeholder="FRICTION — / MECHANISM — / SPECIMEN — / NEXT —  one job per line. Not a venue address."
                     />
                     <span style={{ fontSize: "0.6rem", color: over ? warn : faint, fontVariantNumeric: "tabular-nums", marginTop: 4, flexShrink: 0 }}>
                       {(b || "").length}/{LIMITS.BULLET_MAX}
