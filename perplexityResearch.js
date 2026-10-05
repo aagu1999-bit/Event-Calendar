@@ -24,6 +24,8 @@ import {
   lensDiscoveryQueries,
   apparentLookthroughDomains,
   lookthroughSearchQueries,
+  coherenceGapSearches,
+  coherenceGapPromptLines,
   sourceDoctrineForPrompt,
 } from "./src/shared/cgeSources.js";
 
@@ -51,7 +53,7 @@ const BULLETS_RESPONSE_SCHEMA = {
 
 // Build the user-facing context block once — both phases see the same
 // matrix dimensions. Only the instructions differ.
-function buildUserPayload({ cluster = "", topic = "", pov = "", existingBullets = [], tier = "", corridor = "", demographics = [], lensOverride = "", extraSearches = [] } = {}) {
+function buildUserPayload({ cluster = "", topic = "", pov = "", existingBullets = [], tier = "", corridor = "", demographics = [], lensOverride = "", extraSearches = [], coherenceGaps = [], coherenceReason = "" } = {}) {
   const clusterLabel = getClusterLabel(cluster) || String(cluster || "").trim();
   const resolvedLens = resolveEditorialLens({ cluster, override: lensOverride });
   const clusterDirective = resolvedLens.base;
@@ -78,7 +80,16 @@ function buildUserPayload({ cluster = "", topic = "", pov = "", existingBullets 
     }
   }
   if (tier) userLines.push(`Tier: ${tier}.`);
-  const named = [...clusterSearchQueries(cluster), ...(Array.isArray(extraSearches) ? extraSearches : [])];
+  const gapLines = coherenceGapPromptLines({ gaps: coherenceGaps, reason: coherenceReason });
+  if (gapLines.length) {
+    userLines.push("");
+    userLines.push(...gapLines);
+  }
+  const named = [
+    ...coherenceGapSearches({ gaps: coherenceGaps, topic: workingTitle }),
+    ...clusterSearchQueries(cluster),
+    ...(Array.isArray(extraSearches) ? extraSearches : []),
+  ];
   if (named.length) {
     userLines.push("NAMED SEARCHES — run these queries, do not only riff on the topic:");
     for (const q of named) userLines.push(`- ${q}`);
@@ -118,6 +129,7 @@ export function researchAiModeRequest(input = {}) {
     "STARTING POINTS: 5–8 bullets. Each is a named thread to dive later — a program, a town, a corridor, a magazine piece, a tension, a parallel Saturday. Give enough that the operator knows WHY it matters, not just a URL label. Different threads. Not four angles on the same brewery.",
     "Land Black New Jersey in the thesis or in at least one starting point: who this is for, which Saturday still feels like the strip, who owns vs who programs. Influence may leave the state. The specimen lands back in New Jersey.",
     "PRIMARY RESEARCH LENS: honor the Analytical lens, but do not shrink the brief to clerk facts that only satisfy the lens. The lens is the door. The brief is the map.",
+    "If CLOSE THESE GAPS is in the user payload, those holes are the hunt. Prefer currently-operating NJ examples when the gap asks for current. Do not pad with another historical program.",
     "BANNED AS THE THESIS: Timeout, Yelp, TripAdvisor, Eventbrite listicles, a Brooklyn weekender calendar, invented towns, condo flyers.",
     ...(historicalOverride ? [
       "This cluster is historically anchored: a closed room or a past program is a valid starting point if a living remnant or archive still holds it.",
@@ -139,6 +151,7 @@ export function researchOfficialRequest(input = {}) {
     "You are DESK A — the OFFICIAL RECORD desk for a Black New Jersey cultural publication.",
     sourceDoctrineForPrompt(),
     "Search ONLY the official / institutional sources available to you. Find the NAMED PROGRAM or statute that is already the mechanism — Transit Village, an ABC cap, a municipal SID, a clerk filing — not a pile of occupancy codes.",
+    "If CLOSE THESE GAPS is in the user payload, hunt the official page that closes them — a current designation, a living program, not only the oldest statute.",
     "Cite the desk page. Do not lead with a venue homepage or tourism listing when an official page exists.",
     "KEEP bureaucratic language. Quote the program name, the statute number, the agency, the year. Do not translate a law into a cafe. The writer will cook; you will not pre-chew.",
     "PRIMARY RESEARCH LENS: Every candidate must still pass the Analytical lens in the user payload — but a named program that explains the lens is valid even if it names no venue.",
@@ -167,6 +180,7 @@ export function researchCulturalRequest(input = {}) {
     "Write the research brief a good AI search would write — not a venue list and not four clerk facts.",
     "Search Black New Jersey press first: Echo News, Front Runner, Five Wards, Public Square, The Positive Community, West Ward Beans, NJ Urban News, Black In Jersey, Anointed, Atlantic City Focus. Then Rutgers / Montclair / Princeton pages, then Current Affairs for a pop-culture or societal MECHANISM, then leftover local press. CGE's own published guide is the house archive. Essence recaps and a Brooklyn weekender calendar still do not authorize.",
     "Cite those desk pages first. After you have the friction and the named mechanism, you MAY use open web search to find ONE real NJ specimen (Cranford's downtown retrofit, not a collage of cafe homepages).",
+    "If CLOSE THESE GAPS is in the user payload, those holes are the hunt on this desk — a current Saturday, a strip-mall speakeasy, a living reconfiguration. Do not answer them with another archive holding.",
     "FINDING LOGIC: hunt the PATTERN the way a magazine scout would. Name the NJ friction the reader already feels. Name the program or practice already in motion. Name ONE place that already did it. Then ask the Black-NJ question that specimen opens. Prefer opinion / column / commentary over listings.",
     "Do not write about Nigerian civic climate or masculinity media criticism. Those accounts are the altitude. Find the equivalent Black-NJ argument for this specimen.",
     "PRIMARY RESEARCH LENS: Every candidate must pass the Analytical lens in the user payload.",
@@ -209,6 +223,7 @@ export function researchLookthroughRequest(input = {}) {
     "FIRST: search leftover Black-NJ press and independent pages — More Jersey, South Jersey Journal, We Are Jersey Ent, Ark Republic, Shelterforce, Trenton Journal, Jewel Justice, fayemi shakur, ENVERT, Hassan Ghanny. Those ARE argument if they already asked this question. Cite them as CULTURAL.",
     "THEN: look through halls and national magazines ONLY when they are apparent for THIS specimen — NJ Monthly, WBGO, NJPAC, Newark Museum, New Jersey Stage, Essence, The Root, The Grio, Okayplayer, Caribbean Life, Amsterdam News, NYT, WaPo. They may confirm a door, a date, or that a night existed. Prefix those confirmations 'DOOR — '. They cannot authorize the new question.",
     "Cite the leftover press before a hall recap. A brewery homepage is still last-resort address confirmation.",
+    "If CLOSE THESE GAPS is in the user payload, open leftover press and apparent halls for those holes first.",
     "PRIMARY RESEARCH LENS: Every candidate must pass the Analytical lens in the user payload.",
     "If you only find Essence / NJPAC / museum wall text and no leftover press, return the door facts as 'DOOR — ' or an empty bullets array. Do not dress a season brochure as the argument.",
     "OUTPUT: Return 1–3 distinct candidate bullets. Atomic facts. New Jersey specific. Never invent.",
@@ -241,6 +256,7 @@ export function researchVerificationRequest({ candidates = [], thesis = "", ...i
     "You are diving an NJ research brief for a Black New Jersey cultural magazine.",
     "This is PHASE 2. Phase 1 already wrote the Google-style brief — a thesis and starting points. Your job is to OPEN those threads on the desks and THICKEN them. You are NOT starting over. You are NOT dropping the brief because a cafe homepage also exists.",
     "PROCESS: For each starting point, search official (.gov, ABC, clerk, university archive) and argument (Echo, Front Runner, Five Wards, Public Square, The Positive Community, NJ Urban News, Black In Jersey, leftover local press) and look through apparent halls (NJ Monthly, WBGO, NJPAC) when the thread would show up there. Keep the starting point if it is still true AS STATED. A hall that closed in 1992 is true as history. A statute from 1947 is true as law. Do NOT drop a fact because the door is not open today.",
+    "If CLOSE THESE GAPS is in the user payload, dive those holes first — currently-operating spots, the named concept, current examples of reconfiguring. Adding another archive fact does not close a current-Saturday gap.",
     "You MAY tighten a starting point with the citation you found. You MAY add 1–3 extra bullets prefixed 'DOCUMENT — ' or 'ARGUMENT — ' when a desk page gives the operator more to dive. You may NOT replace Cranford with a brewery, or Transit Village with a tourism listing.",
     "KEEP every starting point that is still true. Better to return the whole brief plus one official page than two 'verified' venue facts.",
     "Do NOT collapse two different threads (a state program AND a town AND a magazine piece) into one venue. Those are starting points, not duplicate slides.",

@@ -48,6 +48,24 @@ test("AI Mode scout is unconstrained NJ search with a thesis and starting points
   assert.equal(scout.tools[0].filters, undefined);
   assert.match(scout.input, /Transit Village|Cranford|retrofit/i);
   assert.equal(researchHypothesisRequest({ topic: "A Saturday" }).tools[0].filters, undefined);
+
+  const calibrated = researchAiModeRequest({
+    cluster: "SUBURBAN_THIRD_PLACE",
+    topic: "strip mall speakeasy",
+    coherenceGaps: [
+      "Need anchors for currently operating, car-centric gathering spots.",
+      "No anchor directly addresses the strip mall speakeasy concept.",
+    ],
+    coherenceReason: "The anchors are too historical.",
+  });
+  assert.match(calibrated.instructions, /CLOSE THESE GAPS/);
+  assert.match(calibrated.input, /CLOSE THESE GAPS/);
+  assert.match(calibrated.input, /currently operating/);
+  assert.match(calibrated.input, /strip mall speakeasy/);
+  assert.match(researchOfficialRequest({
+    topic: "strip mall speakeasy",
+    coherenceGaps: ["Need currently-operating car-centric spots."],
+  }).input, /CLOSE THESE GAPS/);
 });
 
 test("Feature-tier official desk still hunts the named program", () => {
