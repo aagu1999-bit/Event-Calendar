@@ -155,18 +155,72 @@ export const SLOT_DOCTRINE = {
 // anti-patterns without ballooning the prompt with the full doctrine.
 // The writer sees this at the top of each per-slot instruction block
 // so the model writes for the reader outcome, not the JSON shape.
-export function formatSlotDoctrineForPrompt(slotType) {
+export function formatSlotDoctrineForPrompt(slotType, { content = false } = {}) {
   const entry = SLOT_DOCTRINE[slotType];
   if (!entry) return "";
-  const antiTop = entry.antiPatterns.slice(0, 3).map((a) => `  - ${a}`).join("\n");
+  const override = content ? CONTENT_SLOT_OVERRIDES[slotType] : null;
+  const readerJob = override?.readerJob || entry.readerJob;
+  const success = override?.successCriteria || entry.successCriteria;
+  const antis = override?.antiPatterns || entry.antiPatterns;
+  const antiTop = antis.slice(0, 3).map((a) => `  - ${a}`).join("\n");
   return [
     `SLOT PURPOSE — ${slotType.toUpperCase()}`,
-    `  Reader Job: ${entry.readerJob}`,
-    `  Success: ${entry.successCriteria}`,
+    `  Reader Job: ${readerJob}`,
+    `  Success: ${success}`,
     `  Do NOT:`,
     antiTop,
   ].join("\n");
 }
+
+// Content / Feature overrides — the default doctrine is an Instagram
+// carousel (stop the scroll, one place you could go, one number to
+// repeat, one thing to do next). That doctrine cannot write a brief.
+export const CONTENT_SLOT_OVERRIDES = {
+  cover: {
+    readerJob:
+      "Name the contrast the brief already proved. The reader should be able to retitle the piece.",
+    successCriteria:
+      "The two expressions are on the cover. The subtitle connects them. Not an itch. Not 'is gone'.",
+    antiPatterns: [
+      "Loss covers: 'is gone', 'the last one', 'ghost town', 'social life is gone'.",
+      "Open-loop tease that withholds the point so they swipe.",
+      "Discover surprising / gathering spots / here's why.",
+    ],
+  },
+  text: {
+    readerJob:
+      "Explain one section of the argument in a connecting paragraph. Names and numbers live inside the explanation.",
+    successCriteria:
+      "The reader understands WHY, not just WHERE. They could retell the section.",
+    antiPatterns: [
+      "Manifesto pileup — 5+ short stacked sentences banging the same point.",
+      "Peeling a venue out to be the whole slide.",
+      "A 2-word label with no explanation.",
+    ],
+  },
+  news: {
+    readerJob:
+      "Continue the explanation as a reported section, not a stacked card.",
+    successCriteria:
+      "The section adds a connection the cover did not already make.",
+    antiPatterns: [
+      "Scaffolding kickers: 'THE BIGGER PICTURE', 'THE STORY', 'THE CONTEXT', 'THE FRAME', 'THE FIX IS IN'.",
+      "Stacked one-liners instead of a paragraph.",
+      "Recap of the cover with no new connection.",
+    ],
+  },
+  cta: {
+    readerJob:
+      "Ask the next question the explanation just made possible.",
+    successCriteria:
+      "The question is about the argument — Black-owned hospitality, the liquor barrier, who the retrofit is for — not a place to go.",
+    antiPatterns: [
+      "'Find your next gathering spot' / 'explore NJ's emergent social infrastructure'.",
+      "THE ARCHIVE / THE MAP / START HERE as the whole kicker.",
+      "A directory door instead of the next question.",
+    ],
+  },
+};
 
 // Compiled anti-pattern token detectors — the post-generation
 // validator reads these to flag doctrine violations in returned
@@ -177,9 +231,10 @@ export function formatSlotDoctrineForPrompt(slotType) {
 export const SLOT_ANTIPATTERN_TOKENS = {
   cover: [
     { field: "headline", re: /^(here'?s why|the real (story|reason)|everything you know)/i, message: "Marketing trope in cover headline." },
+    { field: "headline", re: /\b(social life is gone|ghost town)\b/i, message: "Loss cover — name the contrast instead of a eulogy." },
   ],
   news: [
-    { field: "newsKicker", re: /^(the (bigger picture|story|context|frame))$/i, message: "Scaffolding kicker instead of an eyebrow." },
+    { field: "newsKicker", re: /^(the (bigger picture|story|context|frame|fix is in))$/i, message: "Scaffolding kicker instead of an eyebrow." },
   ],
   spotlight: [
     // spotName must be a proper-noun physical entity — reject pure

@@ -17,6 +17,24 @@ test("Feature matrix defaults to Editorial Insight, not Local Guide", () => {
   assert.equal(pickTemplateFromMatrix({ event_tier: EVENT_TIERS.ORBIT.key }), "editorial-roundup");
 });
 
+test("Feature Preview does not send the brief through the Instagram arranger", () => {
+  const seed = eventMatrixToFillSeed({
+    name: "Strip brief",
+    matrix: {
+      event_tier: EVENT_TIERS.FEATURE.key,
+      editorial_pov: "Strip malls vs urban cafes",
+      data_points: ["START — Sunken Silo and Autodidact on Route 22"],
+    },
+  });
+  assert.equal(seed.arrange, false);
+  assert.equal(seed.templateId, "editorial-insight");
+  const orbit = eventMatrixToFillSeed({
+    name: "Weekend",
+    matrix: { event_tier: EVENT_TIERS.ORBIT.key, editorial_pov: "this weekend" },
+  });
+  assert.equal(orbit.arrange, true);
+});
+
 test("generation topic ignores a listicle hook and keeps Fuel geography", () => {
   const m = {
     hook_a_side: "Did your commuter community? Discover surprising new gathering spots",

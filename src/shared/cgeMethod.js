@@ -18,6 +18,41 @@ export const METHOD_MARKER = "CGE METHOD BRIEF";
 
 export const CGE_METHOD_ARC = "SPECIMEN → PATTERN → MECHANISM → JOIN → DOOR";
 
+// Research still hunts specimen / pattern / join. Generation was
+// mapping those labels onto Instagram slots (cover loop, venue card,
+// liquor-cap stat, archive CTA). That cannot write a brief. Slides
+// follow this essay instead: name the contrast, explain the cause,
+// explain each expression with the names inside the paragraph, ask
+// the next question.
+export const CONTENT_ESSAY_ARC = "CONTRAST → CAUSE → EXPLAIN → NEXT";
+
+export const CONTENT_FLYER_SLOTS = [
+  "spotlight",
+  "stat",
+  "features",
+  "countdown",
+  "poster",
+  "press",
+  "photo",
+];
+
+export const CONTENT_ESSAY_SLOTS = ["cover", "text", "news", "cta"];
+
+export function contentArrangerLines() {
+  return [
+    "THIS IS AN ESSAY IN SLIDES. The Instagram formula is banned.",
+    `Arc: ${CONTENT_ESSAY_ARC}.`,
+    "Do NOT use OPEN A LOOP → CREATE TENSION → DELIVER THE PAYOFF. That spine writes 'THE COMMUTER TOWN'S SOCIAL LIFE IS GONE', then a manifesto dump, then a brewery hours card, then a 1:3000 stat.",
+    "Do NOT pick spotlight, stat, features, countdown, poster, press, or photo. A venue name and a number live INSIDE an explained paragraph — they are not their own slides.",
+    "Prefer cover → text → text → text → cta (5 slides). News is allowed only when it continues the explanation as prose, not a stacked card or scaffolding kicker.",
+    "Slide jobs:",
+    "  CONTRAST (cover) — title names the two expressions (Strip Malls vs Urban Cafes). Subtitle is the connecting sentence. Never 'is gone'. Never 'discover surprising gathering spots'.",
+    "  CAUSE (text) — one paragraph that connects: sprawl + the cap → deficit → commercial space getting hijacked. The 1:3000 (if the brief has it) lives in this paragraph.",
+    "  EXPLAIN (text) — one section per expression. Title names the section ('Route 22's Parking Lot Breweries'). Body explains WHY, and names Sunken Silo and Autodidact inside that paragraph. Same for the urban-core cafe.",
+    "  NEXT (cta) — the question the explanation just opened (Black-owned hospitality, the liquor barrier, who the retrofit is for). Never 'find your next gathering spot'. Never THE ARCHIVE.",
+  ];
+}
+
 const JOIN_NONE = /^(?:none|n\/a|unfound|not found|could not|can't find|cannot find|no join)\b/i;
 
 export function contextHasMethodBrief(context) {
@@ -170,22 +205,21 @@ export function contentMethodResearchPrompt({ topic, context, clusterDirective =
 export function contentMethodBlock() {
   return [
     "═════════════════════════════",
-    `CGE METHOD — ${CGE_METHOD_ARC}`,
+    `CGE ESSAY — ${CONTENT_ESSAY_ARC}`,
     "═════════════════════════════",
-    "This is HOW the piece is built. Voice rules cannot substitute for it.",
-    "- SPECIMEN: the room, gathering, lineage, or disappearance already in the audience's week. The door. Not the product.",
-    "- PATTERN: the reusable pressure this specimen is an instance of. After this piece the reader should be able to see the next room without you.",
-    "- MECHANISM: name the trick (a keepable word). Do not stop at mood.",
-    "- JOIN: one sideways tie — this specimen ↔ a document, a parallel bar or night, a disappearance, a then→now remnant, or the regional/national trend that shaped it / that it shaped. THIS IS THE QUALITY. A carousel that only describes the specimen is a recap, even if the voice is perfect.",
-    "- After MECHANISM is named, CONNECT LATERALLY. Do not nose-dive the same trick (a second cap number, a third clerk detail). The next beat is sideways: a Saturday a cold reader already knows (BYOB, a brewery taproom), a paper that walked, a national exception that landed here. Not an event brand they have to look up.",
-    "- DOOR: who holds this, where it lives, how an everyday person finds more. Not an RSVP.",
+    "This is HOW the piece is written. The Instagram carousel formula cannot do this job. Voice rules cannot substitute for it.",
+    "- CONTRAST: the cover names the two expressions the brief already proved (strip-mall vs urban cafe, Route 22 vs Cranford). Connecting subtitle. Not a withheld loop. Not 'is gone'.",
+    "- CAUSE: one paragraph that articulates the mechanism — how A + B produced C. A number from the brief lives here, inside the sentence, not on a stat card.",
+    "- EXPLAIN: each middle slide is a SECTION. Title names the section. Body is 2-5 connecting sentences that explain WHY that expression works. Place-names live inside that paragraph (Sunken Silo and Autodidact in the Route 22 section; Black Swan in the urban-core section). Two names in one explained section is the quality, not a violation.",
+    "- NEXT: the closer asks the question the explanation just made possible. Not a door into a directory. Not 'find your next gathering spot'. Not THE ARCHIVE.",
     "",
     "HARD RULES:",
-    "- If the context contains a CGE METHOD BRIEF, execute that architecture. Do not replace it with a nightlife-math or selling-points arc.",
-    "- If JOIN is NONE or missing, do NOT invent a join. Keep the carousel short. Honesty over a fake sideways tie.",
-    "- The JOIN slide is the ONE slide allowed to connect two places, decades, or a room to a document. Every other slide stays on one time, one place, one specific.",
-    "- Cover states the PATTERN as a named NJ contrast from THESIS / START — Walker's Paradise vs strip-mall, Route 22 vs a Cranford retrofit. Never 'discover surprising gathering spots'. Never the specimen's flyer.",
-    "- Do not write the method labels (SPECIMEN, PATTERN, MECHANISM, JOIN, DOOR) as visible copy.",
+    "- If the context contains THESIS / START / GAP lines or a CGE METHOD BRIEF, teach THAT brief. Do not replace it with a nightlife-math or selling-points arc.",
+    "- Do NOT peel a venue onto a spotlight or a number onto a stat. Those slots are flyer instruments. They kill explanation.",
+    "- Do NOT isolate entities. Connection is the job. A slide that names two places in one argument is correct when they are the same expression.",
+    "- Manifesto pileup (five short stacked sentences banging the same point) is a failed text slide. Write a paragraph.",
+    "- Cover states the CONTRAST from THESIS / START. Never 'discover surprising gathering spots'. Never 'THE SOCIAL LIFE IS GONE'.",
+    "- Do not write the essay labels (CONTRAST, CAUSE, EXPLAIN, NEXT, SPECIMEN, PATTERN, JOIN, DOOR) as visible copy.",
     "═════════════════════════════",
     "",
   ];
@@ -194,16 +228,15 @@ export function contentMethodBlock() {
 // Spine-facing: replaces Paradox → Friction → Mechanism → Gate for Content.
 export function contentMethodSpineBlock() {
   return [
-    "CONTENT METHOD SPINE — Feature / content piece. This OVERRIDES the default Paradox → Friction → Mechanism → Gate venue-response arc.",
-    `Outline as ${CGE_METHOD_ARC}. Keep four beats. Spread them across the slide count.`,
-    "- SPECIMEN — name the room / lineage / disappearance. No conclusion yet. No flyer details as the hero.",
-    "- PATTERN — the reusable Black-NJ pressure. No document dump. The reader should be able to reuse this lens.",
-    "- JOIN — the sideways tie (document, parallel room, disappearance, or the regional/national influence chain). This beat is the quality. If JOIN is NONE in the method brief, do not fake it; collapse JOIN into PATTERN and recommend fewer slides.",
-    "- DOOR — who holds this, where it lives, how an everyday person finds more. Never a ticket, RSVP, or keyword shout.",
+    "CONTENT ESSAY SPINE — Feature / content piece. This OVERRIDES Paradox → Friction → Mechanism → Gate AND the Instagram open-loop spine.",
+    `Outline as ${CONTENT_ESSAY_ARC}. Keep four beats. Spread them across the slide count.`,
+    "- CONTRAST — name the two expressions. No withheld loop. No 'is gone'.",
+    "- CAUSE — articulate how the pressure produced those expressions. Numbers live in this sentence.",
+    "- EXPLAIN — the section that makes one expression undeniable. Place-names live inside the paragraph. If there are two expressions, a second EXPLAIN beat is correct.",
+    "- NEXT — the question the explanation opened. Never a ticket, RSVP, archive kicker, or 'find your next gathering spot'.",
     "",
-    "causalSynthesis: EXACTLY 2 sentences. Sentence 1 names the PATTERN (the reusable pressure). Sentence 2 names the JOIN (specimen ↔ the document/room/disappearance that makes the pattern undeniable). NOT 'venue responds to liquor cap' unless the bullets actually are that story.",
-    "Prefer ORIGIN → BREAK → LEGACY → NOW only when the material is sonic/historical AND you can still name a JOIN in sentence 2.",
-    "Do not outline a promo arc (hook → selling points → RSVP).",
+    "causalSynthesis: EXACTLY 2 sentences. Sentence 1 names the CONTRAST (the two expressions). Sentence 2 names the CAUSE (how they are the same pressure). Not 'venue responds to liquor cap' unless the bullets actually are that story.",
+    "Do not outline a promo arc (hook → selling points → RSVP). Do not outline a directory (cover → venue card → stat → find a spot).",
     "",
   ];
 }
