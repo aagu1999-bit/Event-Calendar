@@ -58,7 +58,9 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
   // banner. After generation, the picked template + reasoning displays
   // in the result panel so the user knows what was chosen.
   const [letAiPick, setLetAiPick] = useState(false);
-  const [aiArrange, setAiArrange] = useState(false);
+  // Cultural / editorial / content default onto the GST 10-slide pipeline.
+  // Promo keeps the flyer arranger. Operator can still untoggle.
+  const [aiArrange, setAiArrange] = useState(mode !== "promo");
   // Connect-the-dots mode — a thesis + several real-news "dots" welded into one
   // evidence carousel. dotsDiscover lets the AI propose the thread itself.
   const [dotsMode, setDotsMode] = useState(false);
@@ -66,9 +68,8 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
   // Anchor event — when set, the dots become the problem/demand and THIS event
   // is the answer (verdict) + the CTA. Turns coverage into problem→solution promo.
   const [dotsAnchor, setDotsAnchor] = useState("");
-  // Target slide count for "AI arranges" — "auto" lets Gemini size the arc to
-  // the story; a number pins it. Ignored by fixed-length template fill.
-  const [slideCount, setSlideCount] = useState("auto");
+  // GST locks 10 slides when AI arranges (non-promo). Promo still uses auto/pin.
+  const [slideCount, setSlideCount] = useState(mode === "promo" ? "auto" : "10");
   // Letter / manifesto mode — write the whole carousel as one continuous
   // first-person letter (the @summerblockfest structure), thought carrying
   // slide to slide, instead of standalone cards.
@@ -82,6 +83,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
   // and verify what fed the generation instead of trusting a black box.
   const [newsFound, setNewsFound] = useState(null);
   const [methodFound, setMethodFound] = useState(null);
+  const [gstMeta, setGstMeta] = useState(null);
   const [pickedTemplate, setPickedTemplate] = useState(null);
   const [pickReasoning, setPickReasoning] = useState("");
   // Compression event — populated by generateArrangedCarousel when
@@ -156,15 +158,16 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
       setPickReasoning("");
       setCompressionEvent(null);
       setSavedIdx(new Set());
-      setMode("editorial");
-      setAiArrange(false);
+      setMode(initialRegister || "editorial");
+      setAiArrange((initialRegister || "editorial") !== "promo");
       setDotsMode(false);
       setDotsDiscover(false);
       setDotsAnchor("");
-      setSlideCount("auto");
+      setSlideCount((initialRegister || "editorial") === "promo" ? "auto" : "10");
       setNewsOn(false);
       setNewsFound(null);
       setMethodFound(null);
+      setGstMeta(null);
       setLetterMode(false);
       setOperatorQuestions("");
       setAwaitingQuestions(false);
@@ -215,7 +218,9 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
     : dotsMode
       ? (dotsAnchor.trim() ? "🧵 Build the case for my event" : dotsDiscover ? "🧵 Find a thread + build" : "🧵 Connect the dots")
       : aiArrange
-        ? (slideCount === "auto" ? "✨ Design + generate" : `✨ Generate ${slideCount} slides`)
+        ? (mode === "promo"
+          ? (slideCount === "auto" ? "✨ Design + generate" : `✨ Generate ${slideCount} slides`)
+          : "✨ GST generate (10)")
         : letAiPick
           ? "✨ Let AI pick + generate"
           : `✨ Generate ${template?.sequence?.length || 0} slides`;
@@ -248,7 +253,8 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
     // "AI arranges" — design a bespoke slot sequence for this story, then
     // fill + polish it. Supersedes template selection.
     if (aiArrange) {
-      setBusyLabel("Designing + filling…");
+      setBusyLabel(mode === "promo" ? "Designing + filling…" : "GST pipeline — theory → storyboard → micro-copy…");
+      setGstMeta(null);
       const arranged = await generateArrangedCarousel({
         apiKey, topic, context: genContext, voice, slotPrompts, mode,
         targetCount: slideCount === "auto" ? null : parseInt(slideCount, 10),
@@ -262,9 +268,15 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
         rejectedDrafts: initialRejectedDrafts,
         approvedDrafts: initialApprovedDrafts,
       });
-      setPickedTemplate({ id: "ai-arranged", name: "AI-arranged carousel", sequence: arranged.sequence, custom: true });
+      setPickedTemplate({
+        id: arranged.gst ? "gst-pipeline" : "ai-arranged",
+        name: arranged.gst ? "GST cultural carousel (10)" : "AI-arranged carousel",
+        sequence: arranged.sequence,
+        custom: true,
+      });
       setPickReasoning(arranged.rationale);
       setCompressionEvent(arranged.compressionEvent || null);
+      setGstMeta(arranged.gst || null);
       setSlides(arranged.slides);
       return;
     }
@@ -329,6 +341,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
     setCompressionEvent(null);
     setNewsFound(null);
     setMethodFound(null);
+    setGstMeta(null);
     setAwaitingQuestions(false);
     setPendingWrite(null);
     setWrongIdx(new Set());
@@ -339,7 +352,9 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
       // background call. Best-effort: if grounding fails, continue.
       let genContext = context;
       const contentMode = isContentRegister(mode, initialIsEvergreen);
-      if (contentMode && !contextHasMethodBrief(genContext)) {
+      // GST arranged path runs its own Stage-1 theory parser — do not also
+      // stack the old Feature method brief on top.
+      if (contentMode && !aiArrange && !contextHasMethodBrief(genContext)) {
         setBusyLabel("Finding the join…");
         try {
           const researched = await researchContentMethod({
@@ -1091,10 +1106,10 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
                 onChange={(e) => { setAiArrange(e.target.checked); if (e.target.checked) { setLetAiPick(false); setDotsMode(false); } }}
               />
               <span style={{ fontWeight: 700, letterSpacing: 0.5 }}>
-                🪄 Let AI arrange the carousel
+                🪄 GST cultural pipeline (10 slides)
               </span>
               <span style={{ marginLeft: "auto", fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: 0.5 }}>
-                designs a custom sequence
+                theory → storyboard → micro-copy
               </span>
             </label>
           </>
@@ -1436,16 +1451,24 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
               {/* NODE PLAN — every stage the writer will pass through */}
               <div style={{ marginBottom: 8 }}>
                 <div style={{ fontSize: "0.55rem", letterSpacing: 1.2, textTransform: "uppercase", fontWeight: 700, color: "rgba(99,179,237,0.7)", marginBottom: 3 }}>Nodes that will run</div>
-                <div>0 · <b style={{ color: "#F5F0E8" }}>Research</b> — matrix Research Anchors ({(initialContext.match(/^- /gm) || []).length} bullets){isContentRegister(mode, initialIsEvergreen) ? " + auto method pass (SPECIMEN → PATTERN → JOIN). Fuel Research is the specimen kit; this pass has to find the sideways join." : "; Look-up / News-lookup toggles hidden in compact mode"}</div>
-                <div>0b · <b style={{ color: "#F5F0E8" }}>Operator turn</b> — a question can look something up, keep building on the current slides, write over a slide you mark wrong, and reuse saved voice / approve-reject / lessons from this build. It does not start from scratch unless you hit Start over.</div>
-                {mode === "editorial" && !isContentRegister(mode, initialIsEvergreen) ? (
-                  <div>0c · <b style={{ color: "#F5F0E8" }}>Editorial formula</b> — felt Saturday → homework → teach one → one specimen → one lateral → next question. Cover hook can be a question; try more than one. BYOB / brewery color the Saturday, they are not the hook.</div>
-                ) : null}
-                <div>1 · <b style={{ color: "#F5F0E8" }}>Spine (outline)</b> — {isContentRegister(mode, initialIsEvergreen) ? "Content method (SPECIMEN → PATTERN → JOIN → DOOR)" : "mode auto-inferred from slot mix (3+ spotlights → SHOWCASE, else INSIGHT)"}</div>
-                <div>2 · <b style={{ color: "#F5F0E8" }}>Structure writer</b> — cluster="{initialClusterLabel || "(none)"}", keyword="{initialKeywordTrigger || "(none)"}", evergreen={initialIsEvergreen ? "ON" : "off"}</div>
-                <div>3 · <b style={{ color: "#F5F0E8" }}>Voice pass (Node 2)</b> — {(initialVoiceParams && (initialVoiceParams.distance || initialVoiceParams.cadence || initialVoiceParams.stance)) || (voice && voice.description && voice.description.trim()) ? "WILL RUN (voice inputs present)" : "SKIP (no voice inputs → no-op)"}</div>
-                <div>4 · <b style={{ color: "#F5F0E8" }}>Polish critic</b> — WILL RUN (whole-carousel rewrite pass)</div>
-                <div>5 · <b style={{ color: "#F5F0E8" }}>CTA stitch</b> — {initialKeywordTrigger ? `deterministic ("Comment '${initialKeywordTrigger}' below…")` : "LLM-written CTA (no keyword trigger set)"}</div>
+                {aiArrange && mode !== "promo" ? (
+                  <>
+                    <div>1 · <b style={{ color: "#F5F0E8" }}>Critical Theory Parser</b> — trope / power structure / accidental lesson (not plot review)</div>
+                    <div>2 · <b style={{ color: "#F5F0E8" }}>10-Slide Storyboard</b> — hook → anatomy (2–4) → cases (5–8) → epiphany → CTA</div>
+                    <div>3 · <b style={{ color: "#F5F0E8" }}>Micro-copy + Scan-Path</b> — under 35 words/slide, bold entities, anti-corporate voice</div>
+                    <div>4 · <b style={{ color: "#F5F0E8" }}>Design tokens</b> — cream/charcoal/olive · serif+sans · documentary grain (layout contract)</div>
+                    <div>0b · <b style={{ color: "#F5F0E8" }}>Operator turn</b> — questions mid-build still research / keep building / write over Wrong</div>
+                  </>
+                ) : (
+                  <>
+                    <div>0 · <b style={{ color: "#F5F0E8" }}>Research</b> — matrix Research Anchors ({(initialContext.match(/^- /gm) || []).length} bullets){isContentRegister(mode, initialIsEvergreen) ? " + auto method pass (SPECIMEN → PATTERN → JOIN)." : "; Look-up / News-lookup toggles hidden in compact mode"}</div>
+                    <div>0b · <b style={{ color: "#F5F0E8" }}>Operator turn</b> — a question can look something up, keep building, write over Wrong</div>
+                    <div>1 · <b style={{ color: "#F5F0E8" }}>Spine (outline)</b> — {isContentRegister(mode, initialIsEvergreen) ? "Content method" : "slot-mix mode"}</div>
+                    <div>2 · <b style={{ color: "#F5F0E8" }}>Structure writer</b> — cluster="{initialClusterLabel || "(none)"}"</div>
+                    <div>3 · <b style={{ color: "#F5F0E8" }}>Voice pass</b></div>
+                    <div>4 · <b style={{ color: "#F5F0E8" }}>Polish critic</b></div>
+                  </>
+                )}
               </div>
               {/* MATRIX INPUTS — what the first window contributed */}
               <div style={{ marginBottom: 8 }}>
@@ -1646,6 +1669,13 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
                 {pickReasoning && (
                   <div style={{ fontSize: "0.7rem", color: "rgba(245,240,232,0.7)", fontStyle: "italic", lineHeight: 1.4 }}>
                     "{pickReasoning}"
+                  </div>
+                )}
+                {gstMeta?.theory && (
+                  <div style={{ marginTop: 8, fontSize: "0.62rem", color: "rgba(245,240,232,0.65)", lineHeight: 1.5 }}>
+                    <div><b style={{ color: "#E5BC4F" }}>Trope:</b> {gstMeta.theory.trope}</div>
+                    <div><b style={{ color: "#E5BC4F" }}>Lens:</b> {gstMeta.theory.academicLens}</div>
+                    <div><b style={{ color: "#E5BC4F" }}>Claim:</b> {gstMeta.theory.systemicClaim}</div>
                   </div>
                 )}
                 <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.45)", marginTop: 4, letterSpacing: 0.5 }}>
