@@ -24,6 +24,17 @@ export function contextHasMethodBrief(context) {
   return typeof context === "string" && context.includes(METHOD_MARKER);
 }
 
+// Fuel Research already wrote the brief (thesis + starting points / gaps).
+// A second Gemini Google pass at generation invents a different architecture
+// and the writer serves that instead of the desk. Skip it.
+const FUEL_BRIEF_PREFIX = /(?:^|\n)\s*(?:[-•*]\s+)?(?:THESIS|START|GAP|FRICTION|MECHANISM|SPECIMEN|NEXT|DOCUMENT|ARGUMENT|JOIN)\s*—/;
+
+export function contextHasFuelBrief(context) {
+  const ctx = String(context || "");
+  if (contextHasMethodBrief(ctx)) return true;
+  return FUEL_BRIEF_PREFIX.test(ctx);
+}
+
 export function parseMethodBrief(text) {
   const raw = String(text || "");
   const grab = (label) => {

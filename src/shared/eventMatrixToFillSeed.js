@@ -79,13 +79,13 @@ export function pickRegisterFromMatrix(m) {
 // template if the tier doesn't have a strong opinion.
 //
 // Anchor stays free-form (last-used) because in-house events run through
-// varied surfaces. Feature defaults to Local Guide (directory/archive
-// closer) — NOT Feature Drop, which is a pickleball-style selling-points
+// varied surfaces. Feature defaults to Editorial Insight — teach one
+// idea. Local Guide is a cafe directory; Feature Drop is a pickleball
 // flyer. Orbit stays the weekend roundup. Compact-mode Preview Carousel
 // still sets arrange:true so the arranger can reshape around the material.
 export function pickTemplateFromMatrix(m) {
   if (!m) return null;
-  if (m.event_tier === EVENT_TIERS.FEATURE.key) return "local-guide";
+  if (m.event_tier === EVENT_TIERS.FEATURE.key) return "editorial-insight";
   if (m.event_tier === EVENT_TIERS.ORBIT.key) return "editorial-roundup";
   return null;
 }

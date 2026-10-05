@@ -40,6 +40,7 @@ import {
   parseMethodBrief,
   appendMethodBriefToContext,
   contextHasMethodBrief,
+  contextHasFuelBrief,
   methodHasJoin,
 } from "./cgeMethod.js";
 
@@ -220,7 +221,7 @@ export async function researchContentMethod({ apiKey, topic, context, clusterDir
 async function ensureContentMethodBrief({ apiKey, topic, context, clusterDirective, clusterLabel, mode, isEvergreen }) {
   const ctx = context || "";
   if (!isContentRegister(mode, isEvergreen)) return { context: ctx, researched: null };
-  if (contextHasMethodBrief(ctx)) return { context: ctx, researched: null };
+  if (contextHasMethodBrief(ctx) || contextHasFuelBrief(ctx)) return { context: ctx, researched: null };
   try {
     const researched = await researchContentMethod({ apiKey, topic, context: ctx, clusterDirective, clusterLabel });
     if (researched?.brief) {
@@ -1470,9 +1471,11 @@ export async function designSequence({ apiKey, topic, context, mode, targetCount
       "WRITE IT AS CONTENT (content). The hero is a QUESTION about Black New Jersey — memory, ownership vs",
       "programming, same-city diaspora tension, what quietly disappeared. An event or room may open the piece;",
       "it is not the product. BANNED slot types: poster, press, countdown, features (flyer/promo instruments).",
-      "Prefer: cover → news/text (the question) → spotlights or stats as PROOF of living rooms/lineages/numbers",
-      "→ a cta that is a DIRECTORY / ARCHIVE door (who holds this, where it lives, how an everyday person finds",
+      "Prefer: cover → news/text that TEACH ONE IDEA → at most ONE spotlight (the specimen) or a stat →",
+      "a cta that is a DIRECTORY / ARCHIVE door (who holds this, where it lives, how an everyday person finds",
       "more). Never RSVP / pull up / this weekend. Do not design a selling-points carousel.",
+      "DO NOT lay out 3+ spotlights. That forces a directory spine and shreds a magazine brief into a cafe list.",
+      "Starting points (THESIS / START / GAP / FRICTION / MECHANISM) are proof for beats, not a listicle.",
     ] : []),
     ...(letterMode ? [
       "LETTER MODE is ON — favor a short, flowing, human arc: mostly cover + text + news beats and a",
@@ -1553,6 +1556,16 @@ export async function designSequence({ apiKey, topic, context, mode, targetCount
   const middleBudget = Math.max(1, cap - 2);
   const middleSliced = middle.slice(0, middleBudget);
   seq = ["cover", ...middleSliced, "cta"];
+  // Content / Feature: extra spotlights flip the spine into SHOWCASE
+  // (a directory). Convert the extras to text so the brief can teach.
+  if (mode === "content") {
+    let spots = 0;
+    seq = seq.map((slot) => {
+      if (slot !== "spotlight") return slot;
+      spots += 1;
+      return spots === 1 ? slot : "text";
+    });
+  }
   if (seq.length < 2) throw new Error("Designed sequence too short");
   // Post-enforcement assertion — should always hold; belt-and-suspenders log.
   const coverCount = seq.filter(s => s === "cover").length;
@@ -1627,8 +1640,8 @@ export async function pickTemplate({ apiKey, topic, context, candidates }) {
     "You are picking the best carousel template for a CGE Instagram post.",
     "CGE = Central Group Events, a cultural infrastructure platform for Black New Jersey.",
     "Events are the door into the conversation, not the product. If the topic is a Feature /",
-    "cultural thesis (memory, ownership, diaspora, lineage) prefer Local Guide or an insight",
-    "arc — NEVER Feature Drop (that's a selling-points flyer for one event).",
+    "cultural thesis (memory, ownership, diaspora, lineage) prefer Editorial Insight —",
+    "NEVER Feature Drop (selling-points flyer) and NEVER Local Guide (a cafe directory).",
     "",
     `Topic: ${topic.trim()}`,
     "",
@@ -2834,14 +2847,15 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
 //
 // Explicit here → downstream can also render the mode as a badge if
 // useful, and the spine's prompt is properly matched to the shape.
-export function inferSpineMode(sequence = []) {
+export function inferSpineMode(sequence = [], { mode, isEvergreen } = {}) {
+  if (isContentRegister(mode, isEvergreen)) return "insight";
   const spotlightCount = sequence.filter((t) => t === "spotlight").length;
   return spotlightCount >= 3 ? "showcase" : "insight";
 }
 
 export async function generateNarrativeSpine({ apiKey, topic, context, clusterDirective, clusterLabel, sequence, mode, today, letterMode, isEvergreen = false }) {
   const slideCount = sequence.length;
-  const spineMode = inferSpineMode(sequence);
+  const spineMode = inferSpineMode(sequence, { mode, isEvergreen });
 
   // Geographic grouping pre-pass — extract cities from each context
   // bullet. If 2+ distinct cities appear, we inject a GEOGRAPHIC
@@ -4052,7 +4066,7 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
     ...purposeBlock,
     "You are generating an ENTIRE editorial Instagram carousel for CGE. The slides will be exported in order — write them as ONE coherent story, not isolated cards.",
     "",
-    "NODE 1 — STRUCTURE PASS: your primary job here is STRUCTURE, FACTS, and ROUTING under schema pressure. The BRAND VOICE FINGERPRINT block above is signal, not a straitjacket — a downstream Node 2 (Voice Pass) will rewrite text-string field values to lock voice cadence, stance, and distance without touching JSON shape, facts, or routing. So: hit the schema, honor the beat + reserved proof for each slide, keep facts atomic, and don't strain to satisfy voice at the cost of a starved slot. If a slot's material is thin, keep it short and specific rather than padding — Node 2 can only rewrite what you route correctly, it cannot rescue empty structure or misrouted facts.",
+    "NODE 1 — STRUCTURE PASS: your primary job here is STRUCTURE, FACTS, and ROUTING under schema pressure. The BRAND VOICE FINGERPRINT block above is signal, not a straitjacket — a downstream Node 2 (Voice Pass) will rewrite text-string field values to lock voice cadence, stance, and distance without touching JSON shape, facts, or routing. So: hit the schema, honor the beat + reserved proof for each slide. One beat per slide. A starting point may color a beat — do not turn the carousel into a directory of starting points. If a slot's material is thin, keep it short and specific rather than padding — Node 2 can only rewrite what you route correctly, it cannot rescue empty structure or misrouted facts.",
     "",
     // FEEDBACK MEMORY — operator's Reject / Approve history for THIS matrix.
     // Rejections come with a reason ("wall of text on cover", "slide 3 empty",
