@@ -1453,9 +1453,9 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
                 <div style={{ fontSize: "0.55rem", letterSpacing: 1.2, textTransform: "uppercase", fontWeight: 700, color: "rgba(99,179,237,0.7)", marginBottom: 3 }}>Nodes that will run</div>
                 {aiArrange && mode !== "promo" ? (
                   <>
-                    <div>1 · <b style={{ color: "#F5F0E8" }}>Critical Theory Parser</b> — trope / power structure / accidental lesson (not plot review)</div>
-                    <div>2 · <b style={{ color: "#F5F0E8" }}>10-Slide Storyboard</b> — hook → anatomy (2–4) → cases (5–8) → epiphany → CTA</div>
-                    <div>3 · <b style={{ color: "#F5F0E8" }}>Micro-copy + Scan-Path</b> — under 35 words/slide, bold entities, anti-corporate voice</div>
+                    <div>1 · <b style={{ color: "#F5F0E8" }}>Critical Theory Parser</b> — pattern + teach + stance under charge/stakes (omniscient, not plot review)</div>
+                    <div>2 · <b style={{ color: "#F5F0E8" }}>10-Slide Storyboard</b> — hook (charge) → anatomy (pattern) → cases (stakes) → epiphany (teach) → CTA (stance)</div>
+                    <div>3 · <b style={{ color: "#F5F0E8" }}>Micro-copy + Scan-Path</b> — under 35 words/slide, bold entities, anti-corporate, no both-sides fog</div>
                     <div>4 · <b style={{ color: "#F5F0E8" }}>Design tokens</b> — cream/charcoal/olive · serif+sans · documentary grain (layout contract)</div>
                     <div>0b · <b style={{ color: "#F5F0E8" }}>Operator turn</b> — questions mid-build still research / keep building / write over Wrong</div>
                   </>
@@ -1673,8 +1673,12 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
                 )}
                 {gstMeta?.theory && (
                   <div style={{ marginTop: 8, fontSize: "0.62rem", color: "rgba(245,240,232,0.65)", lineHeight: 1.5 }}>
-                    <div><b style={{ color: "#E5BC4F" }}>Trope:</b> {gstMeta.theory.trope}</div>
-                    <div><b style={{ color: "#E5BC4F" }}>Lens:</b> {gstMeta.theory.academicLens}</div>
+                    <div><b style={{ color: "#E5BC4F" }}>Pattern:</b> {gstMeta.theory.trope}</div>
+                    <div><b style={{ color: "#E5BC4F" }}>Teach:</b> {gstMeta.theory.teachLens || gstMeta.theory.academicLens}</div>
+                    <div><b style={{ color: "#E5BC4F" }}>Stance:</b> {gstMeta.theory.stance || gstMeta.theory.powerStructure}</div>
+                    {(gstMeta.theory.charge || gstMeta.theory.stakes) && (
+                      <div><b style={{ color: "#E5BC4F" }}>Charge / stakes:</b> {[gstMeta.theory.charge, gstMeta.theory.stakes].filter(Boolean).join(" / ")}</div>
+                    )}
                     <div><b style={{ color: "#E5BC4F" }}>Claim:</b> {gstMeta.theory.systemicClaim}</div>
                   </div>
                 )}

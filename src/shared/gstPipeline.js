@@ -3,11 +3,17 @@
 //
 // This replaces the old Feature/Content thesis + spine + flyer-shaped
 // arranger for AI-arranged carousels. Pop culture / local culture is the
-// trojan horse. The product is a systemic pattern, not a review and not
-// an event listing.
+// trojan horse. The product is not a review and not an event listing.
 //
-// STAGE 1 — Critical Theory Parser: isolate the trope / power structure
-// STAGE 2 — 10-Slide Storyboard Segmenter: hook → anatomy → cases → epiphany → CTA
+// The full move is THREE gears, not pattern alone:
+//   PATTERN — name the repeating structure
+//   TEACH   — hand the reader a reusable lens
+//   STANCE  — land: who benefits, who's blocked, what the system is doing
+// under CHARGE (felt heat) + STAKES (what it costs someone).
+// Omniscient stance = float above the specimen and read the map out loud.
+//
+// STAGE 1 — Critical Theory Parser: pattern + teach + stance + charge/stakes
+// STAGE 2 — 10-Slide Storyboard Segmenter: hook → anatomy → cases → teach/epiphany → CTA
 // STAGE 3 — Micro-Copy + Scan-Path: <35 words/slide, punchy fragments, bold entities
 // STAGE 4 — Design tokens (layout contract for Figma/Canva — not a write path yet)
 
@@ -19,6 +25,9 @@ const RETRYABLE = new Set([429, 500, 502, 503, 504]);
 
 export const GST_SLIDE_COUNT = 10;
 export const GST_MAX_WORDS = 35;
+
+/** The three gears every GST carousel must turn. */
+export const GST_GEARS = Object.freeze(["pattern", "teach", "stance"]);
 
 /** Stage 4 design contract — what a programmatic layout engine should paint. */
 export const GST_DESIGN_TOKENS = Object.freeze({
@@ -77,17 +86,32 @@ export const GST_BANNED_PHRASES = [
   "seamless",
   "robust",
   "holistic",
+  "both sides",
+  "it's complicated",
+  "make of it what you will",
 ];
 
 const GST_VOICE = [
   "You write like wearegst (Goldsmiths Street Society) and Pop Culture Detective,",
   "for Central Group Events — Black New Jersey cultural infrastructure.",
-  "Pop culture and local nightlife are the TROJAN HORSE. The real subject is a",
-  "systemic pattern: hyper-masculinity, class divides, licensing scarcity,",
-  "third-place erosion, who owns vs who programs culture.",
+  "Pop culture and local nightlife are the TROJAN HORSE. The real subject is power,",
+  "class, licensing scarcity, third-place erosion, who owns vs who programs culture.",
+  "",
+  "OMNISCIENT STANCE: float above the specimen. See the map. Read it out loud.",
+  "You are not a reviewer and not a neutral newsroom. You teach a lens and take a side.",
+  "",
+  "THREE GEARS — every carousel must turn all three:",
+  "  1. PATTERN — name the repeating structure (not one club, not one bad night).",
+  "  2. TEACH — hand the reader a reusable lens for the next town / room / clip.",
+  "  3. STANCE — land. Who benefits. Who's blocked. What the system is doing. No both-sides fog.",
+  "",
+  "CHARGE + STAKES:",
+  "  - CHARGE = the felt heat that stops the thumb (shut Saturday, frozen tap, same three rooms).",
+  "  - STAKES = what that heat costs someone (a restaurant that can't pour, a night with nowhere new).",
+  "  Charge without stakes is vibes. Stakes without charge is a complaint. Take without both is a seminar.",
   "",
   "RULES:",
-  "- Patterns, not plot. Never review whether something is 'good' or 'bad'.",
+  "- Patterns + teach + stance — never plot review, never 'good'/'bad' scorekeeping.",
   "- Inverse hook: thesis in the first two sentences. Title answers an implicit question.",
   "- Show-don't-tell bridge: specific mundane moment → structural framework.",
   "- Ruthless brevity. No fluff. No long setup. Digital audience can look up context.",
@@ -168,7 +192,7 @@ function subjectBlock(topic, context) {
 
 /**
  * STAGE 1 — Critical Theory Parser
- * Bypasses surface definitions. Pulls the ideological critique / power structure.
+ * Pattern + teach + stance under charge/stakes. Not a summary. Not a review.
  */
 export async function stage1CriticalTheory({ apiKey, topic, context }) {
   const prompt = [
@@ -176,18 +200,22 @@ export async function stage1CriticalTheory({ apiKey, topic, context }) {
     "",
     "STAGE 1 — CRITICAL THEORY PARSER",
     "Do NOT summarize the topic. Do NOT write carousel copy yet.",
-    "Deconstruct the PATTERN the material is accidentally teaching.",
+    "Build the three gears: PATTERN, TEACH, STANCE — with CHARGE and STAKES named.",
     "",
     subjectBlock(topic, context),
     "",
     "Return JSON ONLY:",
     JSON.stringify({
-      trope: "name the repeating formula in 3-8 words",
-      powerStructure: "who benefits / who is blocked — one sentence",
+      trope: "name the repeating formula in 3-8 words (PATTERN)",
+      powerStructure: "who benefits / who is blocked — one sentence (feeds STANCE)",
       academicLens: "urban planning / gender / class / media studies lens in a few words",
+      teachLens: "one reusable way of seeing the reader should leave with — portable to the next town/room/clip (TEACH)",
+      stance: "the side you take, said plain — not both-sides, not 'it's complicated' (STANCE)",
+      charge: "the felt heat that stops the thumb — one concrete beat",
+      stakes: "what that heat costs someone — one concrete cost",
       accidentalLesson: "what the audience is being taught without noticing",
       mundaneEntry: "one hyper-specific recognizable NJ or pop-culture moment that opens the door",
-      systemicClaim: "the definitive thesis (inverse-hook ready) in one sentence",
+      systemicClaim: "the definitive thesis (inverse-hook ready) in one sentence — must encode pattern + stance",
     }),
   ].join("\n");
 
@@ -196,6 +224,10 @@ export async function stage1CriticalTheory({ apiKey, topic, context }) {
     trope: String(parsed?.trope || "").trim(),
     powerStructure: String(parsed?.powerStructure || "").trim(),
     academicLens: String(parsed?.academicLens || "").trim(),
+    teachLens: String(parsed?.teachLens || "").trim(),
+    stance: String(parsed?.stance || "").trim(),
+    charge: String(parsed?.charge || "").trim(),
+    stakes: String(parsed?.stakes || "").trim(),
     accidentalLesson: String(parsed?.accidentalLesson || "").trim(),
     mundaneEntry: String(parsed?.mundaneEntry || "").trim(),
     systemicClaim: String(parsed?.systemicClaim || "").trim(),
@@ -205,6 +237,7 @@ export async function stage1CriticalTheory({ apiKey, topic, context }) {
 /**
  * STAGE 2 — 10-Slide Storyboard Segmenter
  * Fixed GST arc. Jobs only — no polished copy yet.
+ * Hook carries charge; anatomy = pattern; cases = stakes; epiphany = teach; closer = stance.
  */
 export async function stage2Storyboard({ apiKey, topic, context, theory }) {
   const prompt = [
@@ -214,11 +247,14 @@ export async function stage2Storyboard({ apiKey, topic, context, theory }) {
     "Design EXACTLY 10 slides. Jobs + beat notes only. No finished copy.",
     "",
     "FIXED ARC:",
-    "1 hook — high-friction micro-thesis (inverse hook)",
-    "2-4 anatomy — structural mechanics / why it happens (Barrier, Mechanism, Proof)",
-    "5-8 cases — real-world evidence / physical manifestations (named places or scenes when the source has them)",
-    "9 epiphany — radical systemic takeaway",
-    "10 cta — community engagement, not a ticket sell",
+    "1 hook — high-friction micro-thesis (inverse hook) loaded with CHARGE",
+    "2-4 anatomy — PATTERN mechanics / why it happens (Barrier, Mechanism, Proof)",
+    "5-8 cases — STAKES made physical (named places or scenes when the source has them)",
+    "9 epiphany — TEACH the reusable lens (reader can aim this at the next town)",
+    "10 cta — STANCE as engagement (not a ticket sell) — invite them to name/use the lens",
+    "",
+    "Every beat note should serve at least one gear: pattern / teach / stance.",
+    "Do not write a neutral tour. Do not flatten into vibes without cost.",
     "",
     "THEORY FROM STAGE 1:",
     JSON.stringify(theory, null, 2),
@@ -226,17 +262,20 @@ export async function stage2Storyboard({ apiKey, topic, context, theory }) {
     subjectBlock(topic, context),
     "",
     "Return JSON ONLY:",
-    `{"slides":[{"n":1,"role":"hook","job":"...","beat":"..."},{"n":2,"role":"anatomy","job":"...","beat":"..."},{"n":3,"role":"anatomy","job":"...","beat":"..."},{"n":4,"role":"anatomy","job":"...","beat":"..."},{"n":5,"role":"case","job":"...","beat":"..."},{"n":6,"role":"case","job":"...","beat":"..."},{"n":7,"role":"case","job":"...","beat":"..."},{"n":8,"role":"case","job":"...","beat":"..."},{"n":9,"role":"epiphany","job":"...","beat":"..."},{"n":10,"role":"cta","job":"...","beat":"..."}],"arc":"one sentence on the emotional journey"}`,
+    `{"slides":[{"n":1,"role":"hook","job":"...","beat":"...","gear":"charge|pattern|teach|stance"},{"n":2,"role":"anatomy","job":"...","beat":"...","gear":"pattern"},{"n":3,"role":"anatomy","job":"...","beat":"...","gear":"pattern"},{"n":4,"role":"anatomy","job":"...","beat":"...","gear":"pattern"},{"n":5,"role":"case","job":"...","beat":"...","gear":"stakes"},{"n":6,"role":"case","job":"...","beat":"...","gear":"stakes"},{"n":7,"role":"case","job":"...","beat":"...","gear":"stakes"},{"n":8,"role":"case","job":"...","beat":"...","gear":"stakes"},{"n":9,"role":"epiphany","job":"...","beat":"...","gear":"teach"},{"n":10,"role":"cta","job":"...","beat":"...","gear":"stance"}],"arc":"one sentence: charge → stakes → teach → stance"}`,
   ].join("\n");
 
   const parsed = await geminiJson(apiKey, prompt, { temperature: 0.55 });
   let slides = Array.isArray(parsed?.slides) ? parsed.slides : [];
+  const defaultGear = (n) =>
+    n === 1 ? "charge" : n <= 4 ? "pattern" : n <= 8 ? "stakes" : n === 9 ? "teach" : "stance";
   slides = slides
     .map((s, i) => ({
       n: Number(s?.n) || i + 1,
       role: String(s?.role || "").toLowerCase().trim(),
       job: String(s?.job || "").trim(),
       beat: String(s?.beat || "").trim(),
+      gear: String(s?.gear || defaultGear(i + 1)).toLowerCase().trim(),
     }))
     .slice(0, GST_SLIDE_COUNT);
 
@@ -245,7 +284,13 @@ export async function stage2Storyboard({ apiKey, topic, context, theory }) {
     const n = slides.length + 1;
     const role =
       n === 1 ? "hook" : n <= 4 ? "anatomy" : n <= 8 ? "case" : n === 9 ? "epiphany" : "cta";
-    slides.push({ n, role, job: role, beat: theory?.systemicClaim || topic || "" });
+    slides.push({
+      n,
+      role,
+      job: role,
+      beat: theory?.systemicClaim || topic || "",
+      gear: defaultGear(n),
+    });
   }
 
   return {
@@ -266,10 +311,12 @@ export async function stage3MicroCopy({ apiKey, topic, context, theory, storyboa
     `Write finished Instagram carousel copy for EXACTLY ${GST_SLIDE_COUNT} slides.`,
     `HARD LIMIT: under ${GST_MAX_WORDS} words per slide (count every word).`,
     "Punchy single-sentence fragments. Scan-path: wrap the core semantic entity in **double asterisks** once per slide when it helps (e.g. **The Barrier:**).",
-    "No passive voice. No corporate sludge. No statute-speak.",
-    "Slide 1 must open with the systemicClaim as an inverse hook.",
-    "Slides 5-8 need concrete evidence — named rooms, towns, prices, scenes from the source when available. Invent nothing unverifiable.",
-    "Slide 10 is engagement (comment keyword / share the pattern) — never RSVP / don't miss / buy tickets.",
+    "No passive voice. No corporate sludge. No statute-speak. No both-sides fog.",
+    "Slide 1 = inverse hook + CHARGE (systemicClaim).",
+    "Slides 2-4 = PATTERN mechanics.",
+    "Slides 5-8 = STAKES as concrete evidence — named rooms, towns, prices, scenes from the source when available. Invent nothing unverifiable.",
+    "Slide 9 = TEACH — leave them a reusable lens (teachLens), not just a mood.",
+    "Slide 10 = STANCE as engagement (comment keyword / name the town / aim the lens) — never RSVP / don't miss / buy tickets.",
     "",
     "THEORY:",
     JSON.stringify(theory, null, 2),
@@ -299,6 +346,7 @@ export async function stage3MicroCopy({ apiKey, topic, context, theory, storyboa
       headline,
       body,
       scanPath,
+      gear: storyboard.slides[i]?.gear || "",
       wordCount: wordCount(combined),
       bannedHits: containsBannedPhrase(combined),
     };
@@ -313,6 +361,7 @@ export async function stage3MicroCopy({ apiKey, topic, context, theory, storyboa
       headline: sb.job || "THE PATTERN",
       body: sb.beat || theory?.systemicClaim || "",
       scanPath: [],
+      gear: sb.gear || "",
       wordCount: 0,
       bannedHits: [],
     });
@@ -481,7 +530,10 @@ export async function generateGstCarousel({ apiKey, topic, context }) {
   const rationale = [
     storyboard.arc || "",
     theory.systemicClaim ? `Thesis: ${theory.systemicClaim}` : "",
-    theory.trope ? `Trope: ${theory.trope}` : "",
+    theory.trope ? `Pattern: ${theory.trope}` : "",
+    theory.teachLens ? `Teach: ${theory.teachLens}` : "",
+    theory.stance ? `Stance: ${theory.stance}` : "",
+    theory.charge && theory.stakes ? `Charge/stakes: ${theory.charge} / ${theory.stakes}` : "",
   ]
     .filter(Boolean)
     .join(" · ");
