@@ -24,6 +24,17 @@ export function contextHasMethodBrief(context) {
   return typeof context === "string" && context.includes(METHOD_MARKER);
 }
 
+// Fuel Research already wrote the brief (thesis + starting points / gaps).
+// A second Gemini Google pass at generation invents a different architecture
+// and the writer serves that instead of the desk. Skip it.
+const FUEL_BRIEF_PREFIX = /(?:^|\n)\s*(?:[-•*]\s+)?(?:THESIS|START|GAP|FRICTION|MECHANISM|SPECIMEN|NEXT|DOCUMENT|ARGUMENT|JOIN)\s*—/;
+
+export function contextHasFuelBrief(context) {
+  const ctx = String(context || "");
+  if (contextHasMethodBrief(ctx)) return true;
+  return FUEL_BRIEF_PREFIX.test(ctx);
+}
+
 export function parseMethodBrief(text) {
   const raw = String(text || "");
   const grab = (label) => {
@@ -173,7 +184,7 @@ export function contentMethodBlock() {
     "- If the context contains a CGE METHOD BRIEF, execute that architecture. Do not replace it with a nightlife-math or selling-points arc.",
     "- If JOIN is NONE or missing, do NOT invent a join. Keep the carousel short. Honesty over a fake sideways tie.",
     "- The JOIN slide is the ONE slide allowed to connect two places, decades, or a room to a document. Every other slide stays on one time, one place, one specific.",
-    "- Cover states the PATTERN as a question or claim — never the specimen's flyer.",
+    "- Cover states the PATTERN as a named NJ contrast from THESIS / START — Walker's Paradise vs strip-mall, Route 22 vs a Cranford retrofit. Never 'discover surprising gathering spots'. Never the specimen's flyer.",
     "- Do not write the method labels (SPECIMEN, PATTERN, MECHANISM, JOIN, DOOR) as visible copy.",
     "═════════════════════════════",
     "",

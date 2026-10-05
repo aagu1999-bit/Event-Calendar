@@ -667,6 +667,18 @@ export const BUILTIN_CAROUSEL_TEMPLATES = [
     sequence: ["cover", "spotlight", "spotlight", "spotlight", "spotlight", "spotlight", "cta"],
   },
   {
+    id: "editorial-insight",
+    name: "Editorial Insight",
+    intent: "Teach one idea. Cover hook → context → the mechanism → one specimen → the next question. Not a cafe directory and not a selling-points flyer.",
+    audience: "A cold reader who felt the Saturday and has never heard the rule. They want the handle, then one place that makes it real.",
+    tone: "Intellectual but relevant. Kitchen-table wording. One beat per slide. Starting points color the beats — they are not a listicle.",
+    bestFor: "Feature / Content theses: Transit Village, a liquor cap, a strip-mall speakeasy, a disappearance, a living remnant. A Fuel Research brief with THESIS / START / GAP lines.",
+    notFor: "A place listicle (Local Guide), a weekend directory (Editorial Roundup), one event's selling points (Feature Drop).",
+    keyMove: "Cover states the pattern as a question or felt Saturday. Middle slides teach ONE mechanism, then ONE specimen, then ONE lateral. Close is the next question / the door into the archive. Never five spotlights.",
+    example: "Cover: 'Why does the strip feel empty on a Saturday?' Text: the commuter-town layout. News: Transit Village is already moving. Text: Cranford actually did it. Text: who is that retrofit for. CTA: the door.",
+    sequence: ["cover", "text", "news", "text", "text", "cta"],
+  },
+  {
     id: "single-beat",
     name: "Single Beat",
     intent: "Partner spotlight, one-image scene report. Cover + optional Text.",

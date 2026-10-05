@@ -46,7 +46,7 @@ export function summarizeSlidesForFeedback(slides) {
 // point, not a lock.
 
 import { EVENT_TIERS, DEMOGRAPHIC_PRESETS, LEGACY_DEMOGRAPHIC_ALIASES } from "./matrixEnums.js";
-import { getClusterLabel, getClusterDefaultPOV, resolveEditorialLens } from "./matrixCompass.js";
+import { getClusterLabel, getClusterDefaultPOV, resolveEditorialLens, isListicleHook } from "./matrixCompass.js";
 import { CONTENT_DEFAULT_VOICE } from "./cgeThesis.js";
 
 // Register (mode) mapping — matches the state variable `mode` in
@@ -79,14 +79,44 @@ export function pickRegisterFromMatrix(m) {
 // template if the tier doesn't have a strong opinion.
 //
 // Anchor stays free-form (last-used) because in-house events run through
-// varied surfaces. Feature defaults to Local Guide (directory/archive
-// closer) — NOT Feature Drop, which is a pickleball-style selling-points
+// varied surfaces. Feature defaults to Editorial Insight — teach one
+// idea. Local Guide is a cafe directory; Feature Drop is a pickleball
 // flyer. Orbit stays the weekend roundup. Compact-mode Preview Carousel
 // still sets arrange:true so the arranger can reshape around the material.
 export function pickTemplateFromMatrix(m) {
   if (!m) return null;
-  if (m.event_tier === EVENT_TIERS.FEATURE.key) return "local-guide";
+  if (m.event_tier === EVENT_TIERS.FEATURE.key) return "editorial-insight";
   if (m.event_tier === EVENT_TIERS.ORBIT.key) return "editorial-roundup";
+  return null;
+}
+
+// Preview Carousel used to send hook_a_side as the Topic. A listicle
+// hook ("Discover surprising new gathering spots") then becomes the
+// generation brief and the Fuel START names never reach the cover.
+// Prefer the argument: a non-listicle hook, else POV, else a THESIS /
+// START line, else the event name.
+export function pickGenerationTopic(m = {}, event = {}) {
+  const hookA = String(m.hook_a_side || "").trim();
+  const typedPOV = String(m.editorial_pov || "").trim();
+  const bullets = Array.isArray(m.data_points)
+    ? m.data_points.map((b) => String(b || "").trim()).filter(Boolean)
+    : [];
+  if (hookA && !isListicleHook(hookA)) return hookA;
+  if (typedPOV) return typedPOV.slice(0, 220);
+  const fuel = bullets.find((b) => /^(?:THESIS|START)\s*—/i.test(b.replace(/^[-•*]\s+/, "")));
+  if (fuel) return fuel.replace(/^(?:[-•*]\s+)?(?:THESIS|START)\s*—\s*/i, "").slice(0, 220);
+  return hookA || String(event.name || "").trim() || "";
+}
+
+// Leftover event brands (AFROFEVER on a suburban-strip Feature) must
+// not become the CTA keyword. Feature only keeps a trigger that already
+// appears in the hook or POV.
+export function pickKeywordTrigger(m = {}) {
+  const trigger = String(m.keyword_trigger || "").trim();
+  if (!trigger) return null;
+  if (m.event_tier !== EVENT_TIERS.FEATURE.key) return trigger;
+  const corpus = [m.hook_a_side, m.editorial_pov].join(" ").toLowerCase();
+  if (corpus.includes(trigger.toLowerCase())) return trigger;
   return null;
 }
 
@@ -111,10 +141,10 @@ export function eventMatrixToFillSeed(event) {
   // Nothing to work with → let the caller open the modal empty.
   if (!hookA && !pov && !bullets.length) return null;
 
-  // Topic falls back to event.name so the seed is never empty when the
-  // matrix has been touched at all — Gemini can generate from a bare
-  // event name in a pinch.
-  const topic = hookA || String(event.name || "").trim() || "";
+  // Topic is the argument, not a listicle hook. A leftover
+  // "discover surprising gathering spots" line used to become the
+  // generation brief and shred the Fuel START geography.
+  const topic = pickGenerationTopic(m, event);
 
   // Context is structured: POV on top, then a blank line, then one
   // dashed bullet per data point. Consistent format across seed calls
@@ -140,6 +170,11 @@ export function eventMatrixToFillSeed(event) {
   const clusterLabel = m.cluster ? (getClusterLabel(m.cluster) || m.cluster) : "";
   const contextLines = [];
   if (pov) contextLines.push(`POV: ${pov}`);
+  if (hookA && isListicleHook(hookA)) {
+    contextLines.push(`OPERATOR HOOK (listicle — do not teach this; write the contrast the START / THESIS lines named): ${hookA}`);
+  } else if (hookA && hookA !== topic) {
+    contextLines.push(`OPERATOR HOOK: ${hookA}`);
+  }
   if (bullets.length) {
     if (contextLines.length) contextLines.push("");
     for (const b of bullets) contextLines.push(`- ${b}`);
@@ -163,7 +198,7 @@ export function eventMatrixToFillSeed(event) {
     // stitches the final CTA slide with this token, bypassing LLM drift
     // that produces limp "link in bio" fallbacks when the trigger is
     // orphaned from the prompt.
-    keywordTrigger: String(m.keyword_trigger || "").trim() || null,
+    keywordTrigger: pickKeywordTrigger(m),
     // Voice parameters — Distance × Cadence × Stance. Passed to the
     // writer as its own directive block so the mode's register block
     // stays about ARC and these govern SENTENCE SHAPE + STANCE.

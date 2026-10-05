@@ -577,15 +577,90 @@ export function resolveEditorialLens({ cluster, override } = {}) {
   };
 }
 
-// ─── DRAFT HOOK SYNTHESIZER (Parametric Persona) ─────────────────────
-// Previous version relied on three named frameworks (Contrarian Take,
-// Real Story, Bold Stat), which produced surprisingly similar cadence
-// across cross-sections because the framework choice dominated the
-// tone rather than the picks. The parametric-persona rewrite: the
-// operator's Target Emotion dictates the TONE, and the Target
-// Demographic dictates the VOCABULARY. Same client-side Gemini
-// Flash-Lite call, structured JSON output, explicit-click only.
-export async function synthesizeHook({ apiKey, cluster, pov, emotion, demographics = [], editorialLens = "" } = {}) {
+// ─── DRAFT HOOK SYNTHESIZER ─────────────────────────────────────────
+// Cover line for a magazine brief — not an Instagram listicle.
+// Emotion still sets tone; Fuel START / THESIS lines authorize the
+// named NJ geography Google already found. Without those names the
+// model writes "discover surprising gathering spots."
+const FUEL_LINE = /^(?:[-•*]\s+)?(?:THESIS|START|GAP|FRICTION|MECHANISM|SPECIMEN|NEXT|DOCUMENT|ARGUMENT|JOIN)\s*—/i;
+
+const LISTICLE_HOOK_TROPES = [
+  /\bdiscover\s+(surprising|new|hidden)\b/i,
+  /\bsurprising\s+(new\s+)?gathering\s+spots?\b/i,
+  /\bnew\s+gathering\s+spots?\b/i,
+  /\bdid\s+you(?:r)?\s+(?:know|commuter|community)\b/i,
+  /\bhere'?s\s+why\b/i,
+  /\bthe\s+real\s+reason\b/i,
+  /\beverything\s+you\s+know\s+is\s+wrong\b/i,
+  /\byou\s+won'?t\s+believe\b/i,
+  /\blet'?s\s+talk\s+about\b/i,
+  /\bhidden\s+gems?\b/i,
+  /\bmust-?visit\b/i,
+  /\bspots?\s+you\s+(?:need|have)\s+to\s+(?:see|know|try)\b/i,
+  /\bthe\s+truth\s+is\b/i,
+];
+
+export function isListicleHook(text) {
+  const s = String(text || "").trim();
+  if (!s) return false;
+  return LISTICLE_HOOK_TROPES.some((re) => re.test(s));
+}
+
+export function hookEvidenceLines(anchors = []) {
+  const clean = (Array.isArray(anchors) ? anchors : [])
+    .map((a) => String(a || "").trim())
+    .filter(Boolean);
+  const fuel = clean.filter((a) => FUEL_LINE.test(a));
+  return (fuel.length ? fuel : clean).slice(0, 12);
+}
+
+export function buildHookPrompt({
+  pov,
+  emotion,
+  demographics = [],
+  editorialLens = "",
+  anchors = [],
+} = {}) {
+  const cleanPOV = String(pov || "").trim();
+  const cleanEmotion = String(emotion || "").trim();
+  const cleanLens = String(editorialLens || "").trim();
+  const demoList = Array.isArray(demographics)
+    ? demographics.filter((d) => typeof d === "string" && d.trim()).map((d) => d.trim())
+    : [];
+  const evidence = hookEvidenceLines(anchors);
+  return [
+    "ROLE: You write magazine cover lines for a Black New Jersey cultural publication. You are not an Instagram listicle copywriter.",
+    "TASK: Write one 10-to-18 word cover line that NAMES THE CONTRAST the brief already proved.",
+    "",
+    "THE INPUTS:",
+    `- The Core Argument: ${cleanPOV}`,
+    ...(cleanLens ? [`- LENS Narrowing: ${cleanLens}`] : []),
+    ...(evidence.length
+      ? [
+        "- Fuel starting points (authorized proper nouns — use at least one named road, town, retrofit, or geography from these lines):",
+        ...evidence.map((line) => `  • ${line}`),
+      ]
+      : ["- Fuel starting points: (none — stay inside the POV; do not invent a town or road.)"]),
+    `- The Voice/Emotion: ${cleanEmotion || "(not set — use a neutral curious register)"}`,
+    `- The Audience: ${demoList.length ? demoList.join(", ") : "(not set — write for the general reader)"}`,
+    "",
+    "QUALITY BAR — Google AI Mode, not a listing:",
+    "  GOOD: \"Walker's Paradise vs the strip-mall geography Route 22 actually built.\"",
+    "  GOOD: \"Cranford retrofitted the downtown. Route 22 still gathers in a parking lot.\"",
+    "  FAILED: \"Did your commuter community? Discover surprising new gathering spots.\"",
+    "",
+    "STRICT CONSTRAINTS:",
+    '1. Emotion sets TONE only. Curiosity/Epiphany means name the contrast the brief proved — Walkable vs strip, Route 22 vs a Cranford retrofit, parking-lot hub vs downtown. Do NOT pose a vague "did you know" or "discover surprising spots" observation.',
+    "2. Audience sets vocabulary. Speak to them. Do not sound like a marketer.",
+    '3. No listicle tropes: NEVER "Discover surprising", "new gathering spots", "Did your community", "Did you know", "Here\'s why", "The real reason", "hidden gems", "spots you need to know", "Let\'s talk about", "You won\'t believe", "The truth is", "Everything you know is wrong".',
+    "4. Proper nouns: you MAY and SHOULD name towns, roads, corridors, and patterns that already appear in the POV, LENS, or Fuel starting points. Do NOT invent names that are not there.",
+    "5. Format: one sentence. No quotes, no preamble, no framing.",
+    "",
+    'Return ONLY JSON in this exact shape: {"hook": "..."}',
+  ].join("\n");
+}
+
+export async function synthesizeHook({ apiKey, cluster, pov, emotion, demographics = [], editorialLens = "", anchors = [] } = {}) {
   if (!apiKey || !String(apiKey).trim()) {
     throw new Error("Missing Gemini API key");
   }
@@ -597,31 +672,8 @@ export async function synthesizeHook({ apiKey, cluster, pov, emotion, demographi
   if (!cleanPOV) {
     throw new Error("Write or draft an Editorial POV first — the hook is the POV compressed into a scroll-stopper.");
   }
-  const cleanEmotion = String(emotion || "").trim();
-  const cleanLens = String(editorialLens || "").trim();
-  const demoList = Array.isArray(demographics)
-    ? demographics.filter((d) => typeof d === "string" && d.trim()).map((d) => d.trim())
-    : [];
 
-  const prompt = [
-    "ROLE: You are a master copywriter for a niche cultural magazine.",
-    "TASK: Write a single, 10-to-15 word hook sentence for an Instagram carousel cover slide.",
-    "",
-    "THE INPUTS:",
-    `- The Core Argument: ${cleanPOV}`,
-    ...(cleanLens ? [`- LENS Narrowing (operator's per-piece framing that anchors the hook to a specific angle beyond the POV): ${cleanLens}`] : []),
-    `- The Voice/Emotion: ${cleanEmotion || "(not set — use a neutral curious register)"}`,
-    `- The Audience: ${demoList.length ? demoList.join(", ") : "(not set — write for the general reader)"}`,
-    "",
-    "STRICT CONSTRAINTS:",
-    '1. The Emotion dictates the tone: if the emotion is "Skepticism/Irreverence", the hook must be cynical, sharp, or questioning. If the emotion is "Validation/Relatability", it must feel seen and grounded. If it is "Curiosity/Epiphany", pose a specific observation that opens a loop. If "Nostalgia/Yearning", reach for what was lost without sentiment. If "Urgency/Insider Access", write like the door is closing. If "Ambition/Sovereignty", write for the operator, not the audience.',
-    "2. The Audience dictates the vocabulary: speak directly to the audience above. Use their cultural shorthand. Do not sound like a marketer.",
-    '3. No Marketing Tropes: NEVER use phrases like "The real reason", "Here\'s why", "Everything you know is wrong", "Let\'s talk about", "The truth is", "You won\'t believe".',
-    "4. Format: output NOTHING but the single hook sentence — no quotes, no preamble, no framing.",
-    "5. No invented proper nouns: do NOT name specific venues, towns, or ordinances the POV or LENS narrowing didn't already mention.",
-    "",
-    'Return ONLY JSON in this exact shape: {"hook": "..."}',
-  ].join("\n");
+  const prompt = buildHookPrompt({ pov: cleanPOV, emotion, demographics, editorialLens, anchors });
 
   const MODEL = "gemini-2.5-flash-lite";
   const URL_BASE = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
@@ -667,12 +719,15 @@ export async function synthesizeHook({ apiKey, cluster, pov, emotion, demographi
   }
   const hook = String(parsed?.hook || "").trim().replace(/^["'“”‘’]+|["'“”‘’]+$/g, "");
   if (!hook) throw new Error("Gemini returned no hook text — retry.");
-  // Word-count guard — the spec says 10-15 words. A one-liner outside
+  if (isListicleHook(hook)) {
+    throw new Error("Gemini wrote a listicle cover. Redraft Hook — the line has to name the contrast the Fuel brief already proved.");
+  }
+  // Word-count guard — the spec says 10-18 words. A one-liner outside
   // that range violates the parametric contract; log a warning but
   // still return so the operator can decide whether to redraft.
   const wordCount = hook.split(/\s+/).filter(Boolean).length;
-  if (typeof console !== "undefined" && (wordCount < 8 || wordCount > 18)) {
-    console.warn(`Hook word count ${wordCount} is outside the 10-15 target — consider redrafting.`);
+  if (typeof console !== "undefined" && (wordCount < 8 || wordCount > 22)) {
+    console.warn(`Hook word count ${wordCount} is outside the 10-18 target — consider redrafting.`);
   }
   // Hard length cap — hook_a_side is a 220-char field, so match it.
   return hook.slice(0, 220);

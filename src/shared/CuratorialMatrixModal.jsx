@@ -30,6 +30,7 @@ import {
   composePOV,
   synthesizeThesis,
   synthesizeHook,
+  isListicleHook,
   checkArgumentCoherence,
   synthesizeLensReframe,
   COMPASS_TOPICS,
@@ -226,9 +227,8 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
   const [synthError, setSynthError] = useState(null);
 
   // Draft Hook (Gemini Flash-Lite) state — writes the Instagram-cover
-  // A-side hook from Editorial POV + Cluster LENS using proven
-  // hook frameworks. Explicit click only; errors render inline near
-  // the hook_a_side field.
+  // A-side hook from Editorial POV + Fuel START lines. Explicit
+  // click only; errors render inline near the hook_a_side field.
   const [draftingHook, setDraftingHook] = useState(false);
   const [hookError, setHookError] = useState(null);
 
@@ -575,7 +575,9 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           cluster: local.cluster || "",
-          topic: local.hook_a_side || event?.name || "",
+          topic: (local.hook_a_side && !isListicleHook(local.hook_a_side)
+            ? local.hook_a_side
+            : "") || local.editorial_pov || event?.name || "",
           pov: local.editorial_pov || "",
           existingBullets: bullets,
           tier: local.event_tier || "",
@@ -747,9 +749,9 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
     }
   };
 
-  // Draft Hook handler — compresses the current Editorial POV +
-  // Cluster LENS into a scroll-stopping cover hook using proven
-  // social-media hook frameworks. Requires both a cluster AND a POV;
+  // Draft Hook handler — compresses POV + Fuel START lines into a
+  // cover that names the NJ contrast the brief already proved.
+  // Requires both a cluster AND a POV;
   // surfaces clear errors when either is missing so the operator
   // knows exactly what to fill in first.
   const draftHook = async () => {
@@ -778,6 +780,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
         emotion: local.target_emotion,
         demographics: selectedDemographics,
         editorialLens: local.editorial_lens,
+        anchors: bullets,
       });
       if (!hook) {
         setHookError("Gemini returned an empty hook. Retry.");
@@ -1794,8 +1797,8 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                 Hook A-side · Primary Carousel Opener
               </span>
               {/* Draft Hook — fires Gemini Flash-Lite to compress the
-                  current POV into a scroll-stopping hook using proven
-                  frameworks (Contrarian Take / Real Story / Bold Stat).
+                  current POV plus Fuel START lines into a cover that
+                  names the NJ contrast the brief already proved.
                   Disabled without both a cluster AND a POV. */}
               {(() => {
                 const clusterKey = resolveClusterKey(local.cluster);
@@ -1816,7 +1819,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                         ? "Pick a Content Cluster first — the LENS anchors the hook synthesis."
                         : !hasPOV
                           ? "Draft or write an Editorial POV first — the hook is the POV compressed into a scroll-stopper."
-                          : "Compress the current POV into a scroll-stopping cover hook using proven social-media hook frameworks."
+                          : "Compress the POV plus Fuel START points into a cover that names the contrast — not a listicle."
                     }
                     style={{
                       background: disabled ? "transparent" : "rgba(229,188,79,0.14)",

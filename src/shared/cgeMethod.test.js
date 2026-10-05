@@ -8,6 +8,7 @@ import {
   formatMethodBriefForContext,
   appendMethodBriefToContext,
   contextHasMethodBrief,
+  contextHasFuelBrief,
   OPERATOR_QUESTIONS_MARKER,
   appendOperatorQuestions,
   contentMethodBlock,
@@ -27,6 +28,12 @@ test("parseMethodBrief reads labeled lines", () => {
   assert.equal(parsed.mechanism, "missed overlap");
   assert.equal(methodHasJoin(parsed), true);
   assert.deepEqual(methodBriefToBullets(parsed).length, 3);
+});
+
+test("a Fuel Research brief skips the second generation research pass", () => {
+  assert.equal(contextHasFuelBrief("POV: the strip is empty\n\n- START — Cranford retrofitted the downtown\n- GAP — currently operating strip-mall speakeasy"), true);
+  assert.equal(contextHasFuelBrief("THESIS — NJ was built as a commuter town."), true);
+  assert.equal(contextHasFuelBrief("POV: a vibe\n- some cafe hours"), false);
 });
 
 test("JOIN: NONE is not a join", () => {
@@ -78,4 +85,6 @@ test("method block tells the writer to connect laterally instead of nose-diving"
   const block = contentMethodBlock().join("\n");
   assert.match(block, /CONNECT LATERALLY/);
   assert.match(block, /nose-dive/);
+  assert.match(block, /named NJ contrast/);
+  assert.match(block, /discover surprising gathering spots/);
 });
