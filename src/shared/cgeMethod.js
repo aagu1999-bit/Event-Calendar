@@ -166,7 +166,7 @@ export function contentMethodBlock() {
     "- PATTERN: the reusable pressure this specimen is an instance of. After this piece the reader should be able to see the next room without you.",
     "- MECHANISM: name the trick (a keepable word). Do not stop at mood.",
     "- JOIN: one sideways tie — this specimen ↔ a document, a parallel bar or night, a disappearance, a then→now remnant, or the regional/national trend that shaped it / that it shaped. THIS IS THE QUALITY. A carousel that only describes the specimen is a recap, even if the voice is perfect.",
-    "- After MECHANISM is named, CONNECT LATERALLY. Do not nose-dive the same trick (a second cap number, a third clerk detail). The next beat is sideways: a borrowed Saturday, a paper that walked, a national exception that landed here.",
+    "- After MECHANISM is named, CONNECT LATERALLY. Do not nose-dive the same trick (a second cap number, a third clerk detail). The next beat is sideways: a Saturday a cold reader already knows (BYOB, a brewery taproom), a paper that walked, a national exception that landed here. Not an event brand they have to look up.",
     "- DOOR: who holds this, where it lives, how an everyday person finds more. Not an RSVP.",
     "",
     "HARD RULES:",
