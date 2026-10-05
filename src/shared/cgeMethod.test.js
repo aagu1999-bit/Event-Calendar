@@ -12,6 +12,9 @@ import {
   OPERATOR_QUESTIONS_MARKER,
   appendOperatorQuestions,
   contentMethodBlock,
+  contentArrangerLines,
+  CONTENT_ESSAY_ARC,
+  CONTENT_FLYER_SLOTS,
 } from "./cgeMethod.js";
 
 test("parseMethodBrief reads labeled lines", () => {
@@ -81,10 +84,18 @@ test("appendOperatorQuestions is a no-op when blank and stamps the marker when a
   assert.match(next, /everyday wording/);
 });
 
-test("method block tells the writer to connect laterally instead of nose-diving", () => {
+test("method block writes an essay, not an Instagram formula", () => {
   const block = contentMethodBlock().join("\n");
-  assert.match(block, /CONNECT LATERALLY/);
-  assert.match(block, /nose-dive/);
-  assert.match(block, /named NJ contrast/);
+  assert.match(block, new RegExp(CONTENT_ESSAY_ARC.replace(/[→]/g, "→")));
+  assert.match(block, /EXPLAIN/);
+  assert.match(block, /Sunken Silo and Autodidact/);
+  assert.match(block, /find your next gathering spot/);
   assert.match(block, /discover surprising gathering spots/);
+  assert.equal(/every other slide stays on one time/.test(block), false);
+  const arranger = contentArrangerLines().join("\n");
+  assert.match(arranger, /OPEN A LOOP/);
+  assert.match(arranger, /Instagram formula is banned/);
+  for (const slot of CONTENT_FLYER_SLOTS) {
+    assert.match(arranger, new RegExp(slot));
+  }
 });

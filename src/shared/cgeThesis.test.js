@@ -13,10 +13,10 @@ test("cadence rotation is the one-sentence-per-line beat, not a source voice", (
   assert.match(block, /less plain text/);
   assert.equal(/DETECTIVE/.test(block), false);
   assert.match(contentCreativeDirection().join("\n"), /one-sentence-per-line|STACKED/);
-  assert.match(contentCreativeDirection().join("\n"), /CONNECT LATERALLY/);
-  assert.match(contentCreativeDirection().join("\n"), /nose-dive/);
+  assert.match(contentCreativeDirection().join("\n"), /CONNECT/);
   assert.match(contentCreativeDirection().join("\n"), /discover surprising/);
-  assert.match(contentCreativeDirection().join("\n"), /named road vs a named town/);
+  assert.match(contentCreativeDirection().join("\n"), /is gone/);
+  assert.match(contentCreativeDirection().join("\n"), /Strip Malls vs Urban Cafes/);
 });
 
 test("editorial build formula is one idea then one sideways Saturday", () => {

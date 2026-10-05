@@ -81,8 +81,8 @@ export function pickRegisterFromMatrix(m) {
 // Anchor stays free-form (last-used) because in-house events run through
 // varied surfaces. Feature defaults to Editorial Insight — teach one
 // idea. Local Guide is a cafe directory; Feature Drop is a pickleball
-// flyer. Orbit stays the weekend roundup. Compact-mode Preview Carousel
-// still sets arrange:true so the arranger can reshape around the material.
+// flyer. Orbit stays the weekend roundup. Feature Preview does NOT
+// send the piece through the Instagram arranger.
 export function pickTemplateFromMatrix(m) {
   if (!m) return null;
   if (m.event_tier === EVENT_TIERS.FEATURE.key) return "editorial-insight";
@@ -186,10 +186,9 @@ export function eventMatrixToFillSeed(event) {
     context,
     register: pickRegisterFromMatrix(m),   // → mode: promo | editorial | story | content | null
     templateId: pickTemplateFromMatrix(m), // → preset id | null
-    // arrange: true means "AI, pick and arrange the layout" — which is
-    // what we want when the operator is coming from Matrix (they've done
-    // the editorial thinking; let the AI handle sequence).
-    arrange: true,
+    // Feature stays on Editorial Insight. The Instagram arranger is
+    // the hardcoded spine that cannot articulate a brief.
+    arrange: m.event_tier !== EVENT_TIERS.FEATURE.key,
     // Cluster directive as its own field — buildTemplatePrompt renders it
     // as a top-level VOICE + FRAMING block, not a context footnote.
     clusterDirective,
