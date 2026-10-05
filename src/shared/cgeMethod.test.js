@@ -85,4 +85,6 @@ test("method block tells the writer to connect laterally instead of nose-diving"
   const block = contentMethodBlock().join("\n");
   assert.match(block, /CONNECT LATERALLY/);
   assert.match(block, /nose-dive/);
+  assert.match(block, /named NJ contrast/);
+  assert.match(block, /discover surprising gathering spots/);
 });

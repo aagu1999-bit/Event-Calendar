@@ -1476,6 +1476,7 @@ export async function designSequence({ apiKey, topic, context, mode, targetCount
       "more). Never RSVP / pull up / this weekend. Do not design a selling-points carousel.",
       "DO NOT lay out 3+ spotlights. That forces a directory spine and shreds a magazine brief into a cafe list.",
       "Starting points (THESIS / START / GAP / FRICTION / MECHANISM) are proof for beats, not a listicle.",
+      "The COVER names the contrast those starting points already proved (Route 22 vs Cranford, walkable score vs strip-mall). Never 'discover surprising gathering spots'.",
     ] : []),
     ...(letterMode ? [
       "LETTER MODE is ON — favor a short, flowing, human arc: mostly cover + text + news beats and a",
@@ -2967,9 +2968,11 @@ export async function generateNarrativeSpine({ apiKey, topic, context, clusterDi
     ]),
     "",
     "MACRO-COVER MANDATE — this rule OVERRIDES any other bullet-assignment instinct:",
-    "  Slide 1 (COVER) is the UMBRELLA. It states the thesis as a hook and opens the loop.",
-    "  Slide 1 MUST NOT appear as a value anywhere in proofAssignments — the cover CANNOT be assigned a specific PROOF bullet, EVER. If you assign a run-club bullet to slide 1, the whole carousel gets anchored on that one venue and the reader expects the rest to be about it. That's narrative whiplash when slide 4 introduces a different venue. Cover = thesis; specifics = slides 2+.",
-    "  Concretely: if there are 3 proof bullets and 3 content slots (slides 2, 3, and 4), each bullet lands on ONE of those three slides. Slide 1 stays a generic umbrella. Slide 5 (or wherever CTA sits) is not a content slot.",
+    "  Slide 1 (COVER) is the UMBRELLA CONTRAST. It names the pattern the Fuel brief already proved — Walker's Paradise vs strip-mall geography, Route 22 vs a Cranford retrofit — and opens the loop.",
+    "  Slide 1 MUST NOT appear as a value anywhere in proofAssignments — the cover CANNOT be assigned a specific PROOF bullet, EVER. If you assign a run-club bullet to slide 1, the whole carousel gets anchored on that one venue and the reader expects the rest to be about it. That's narrative whiplash when slide 4 introduces a different venue.",
+    "  Cover = named contrast / thesis. Specifics (one cafe, one hall) = slides 2+.",
+    "  A corridor, a score-vs-strip contrast, or two named geographies IS the umbrella. 'Discover surprising new gathering spots' is not — that is a listing.",
+    "  Concretely: if there are 3 proof bullets and 3 content slots (slides 2, 3, and 4), each bullet lands on ONE of those three slides. Slide 1 stays the contrast umbrella, not a generic mush and not one venue. Slide 5 (or wherever CTA sits) is not a content slot.",
     "",
     "ENTITY PRIORITIZATION — the second override:",
     "  Every bullet classified as 'proof' in bulletRoles MUST have an entry in proofAssignments. A proof bullet with no slide assignment is a DROPPED entity — that's how a Asbury Park bullet ends up in the trash while slide 2 gets a filler summary sentence.",
@@ -4006,7 +4009,7 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
     const isShowcasePeer = spineMode === "showcase" && beatLabel === "SHOWCASE";
     const beatPrefix = beatLabel
       ? (slotType === "cover"
-          ? `>>> BEAT: ${beatLabel} — MACRO-COVER: this slide states the THESIS as an UMBRELLA. Do NOT anchor the cover on any single venue, entity, or specific fact from the context — those specifics land on later slides. If you make the cover about "the run club" or "Club Zanzibar", the reader expects the rest of the carousel to be about THAT one thing, and slides 3-5 will feel like non-sequiturs. Instead, summarize the argument, open a curiosity loop, name the CATEGORY / PATTERN / TENSION (not the instance). <<<\n`
+          ? `>>> BEAT: ${beatLabel} — MACRO-COVER: this slide states the THESIS as a NAMED CONTRAST. Do NOT anchor the cover on any single venue. If you make the cover about "the run club" or "Club Zanzibar", the reader expects the rest of the carousel to be about THAT one thing. Do NOT write category mush ("discover surprising gathering spots", "did your commuter community"). Name the contrast the START / THESIS lines already proved — a road vs a town, walkable vs strip-mall, parking-lot hub vs downtown retrofit. That geography is the umbrella; the instances land on later slides. <<<\n`
           : isShowcasePeer
             ? `>>> BEAT: SHOWCASE — this is a PEER ENTRY in a directory. Slides sharing this label are equal-weight entries in the collection — do NOT position this one as "the next phase" of an argument the previous slide started. Each SHOWCASE slide carries ONE distinct entity from the collection. ${reservedProof ? `Reserved PROOF (entity) for this slide: "${reservedProof}..." — this entity lands HERE and NOWHERE ELSE in the carousel.${timelyClause}` : "NO proof entity is reserved for this slide — do NOT reach for an entity already assigned to another peer slot; carry this entry with a specific from context marked 'context' or leave it lighter than the sibling entries."} <<<\n`
             : `>>> BEAT: ${beatLabel} — this slide advances ONLY this beat, no other.${reservedProof ? ` Reserved PROOF for this slide: "${reservedProof}..." — this bullet lands HERE and NOWHERE ELSE in the carousel.${timelyClause}` : " NO proof bullet is reserved for this slide — do NOT reach for a proof already assigned to another slide; carry the beat with tension, framing, or a specific from context marked 'context' (not 'proof')."} <<<\n`)
@@ -4130,15 +4133,18 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
     "- COVER SLOT — worked examples (headline is the HOOK, subtitle is the PROMISE):",
     "    FAILED: `headline: \"CENTRAL GROUP EVENTS. HERE'S WHY. THE OLD PLAYBOOK IS GETTING COMPLICATED. TAP THROUGH FOR THE FULL STORY.\"` — whole caption dumped into headline; not a hook, four different sentences fused together.",
     "    FAILED: `headline: \"Village Brewing Underground opens Friday 9pm-2am\"` — anchored on ONE specific venue (Macro-Cover Mandate violation — cover is umbrella, specifics land on slides 2+).",
+    "    FAILED: `headline: \"Did your commuter community? Discover surprising new gathering spots.\"` — listicle mush. Google already named Route 22, the strip, Cranford. Teach that contrast.",
     "    CORRECT: `headline: \"ROUTE 1'S NIGHTLIFE IS WHISPERING AGAIN.\"` `subtitle: \"The rooms that replaced the mega-clubs — and what they know that the old playbook forgot.\"` — headline is the umbrella claim, opens the curiosity loop; subtitle sets the promise the rest of the carousel pays off.",
+    "    CORRECT: `headline: \"WALKER'S PARADISE VS THE STRIP.\"` `subtitle: \"Route 22 still gathers in a parking lot. Cranford retrofitted the downtown.\"` — named NJ contrast, not a listing.",
     "- Write in the register of street-level neighborhood critique (anti-hype, no-nonsense local insider). Focus strictly on the input topic/event—do not pivot to unrelated domains (like food/restaurants or party vibes) unless the input specifically describes them.",
-    "- BANNED CLICHÉS: Never use 'hidden gem', 'must-visit', 'good vibes', 'scenic view', 'great music', 'experience like no other', 'unforgettable', 'movie', 'can't-miss', 'movie vibes', or 'something for everyone'. If you write these, the editor will reject it.",
+    "- BANNED CLICHÉS: Never use 'hidden gem', 'must-visit', 'good vibes', 'scenic view', 'great music', 'experience like no other', 'unforgettable', 'movie', 'can't-miss', 'movie vibes', 'something for everyone', 'discover surprising', 'new gathering spots', 'did your community', or 'did you know'. If you write these, the editor will reject it.",
     "- Be extremely specific about location: name the neighborhood (e.g., Ironbound, Heights, Downtown) or specific cross-streets/landmarks rather than just a generic town name.",
     "- Concrete over generic. Name the real thing — a number, a place, a moment.",
     "  BAN vague filler: 'educate, inspire, and uplift', 'for all', 'something for",
     "  everyone', 'fun for the whole family', 'come out and enjoy'.",
-    "- The COVER must open with a real HOOK — a curiosity gap, a before→after, a",
-    "  number, or a question. NEVER a bland label like 'First Annual X'.",
+    "- The COVER must open with a real HOOK — a named NJ contrast, a before→after, a",
+    "  number, or a pointed question. NEVER a bland label like 'First Annual X'. NEVER",
+    "  a listicle ('discover surprising gathering spots').",
     "- PREFER AN OPEN LOOP on the cover whenever the story supports it: a setup +",
     "  a withheld payoff that forces the swipe ('This Jersey mall was left for",
     "  dead. Saturday, it wakes up.'). It outperforms a plain descriptive line.",
