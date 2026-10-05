@@ -121,15 +121,24 @@ export const OPINION_NEWS_DOMAINS = [
   "jerseydigs.com",
 ];
 
-// Live NJ Black press that did not fit the 20-domain search cap.
-// Still labeled CULTURAL when a citation lands.
-const NJ_PRESS_CLASSIFY_ONLY = [
+// Live NJ Black press that did not fit Desk B's 20-domain search cap.
+// Looked through when the topic makes them apparent — they ARE argument.
+export const OVERFLOW_ARGUMENT_DOMAINS = [
   "morejersey.com",
   "southjerseyjournal.com",
   "wearejerseyent.com",
   "arkrepublic.com",
   "shelterforce.org",
   "trentonjournal.com",
+];
+
+// Independent seed hosts that also missed the Desk B cap (IG/YT/FB
+// paths stay classify-only — allowlisting the whole platform is too wide).
+export const OVERFLOW_INDEPENDENT_DOMAINS = [
+  "hassanghanny.me",
+  "jeweljustice.substack.com",
+  "fayemishakur.com",
+  "envertmedia.com",
 ];
 
 // National pop-culture / society argument. Same class as Pop Detective:
@@ -174,9 +183,10 @@ const OFFICIAL_HOST_MARKERS = [
   "archives.gov",
 ];
 
-// Halls, stations, and national magazines are PRESS. They can confirm
+// Halls, stations, and national magazines are PRESS. Look through
+// them when the topic would actually show up there. They can confirm
 // a door. They cannot authorize a Black-NJ argument.
-const PRESS_HOST_MARKERS = [
+export const PRESS_SEARCH_DOMAINS = [
   "njmonthly.com",
   "amsterdamnews.com",
   "theroot.com",
@@ -194,12 +204,82 @@ const PRESS_HOST_MARKERS = [
   "newjerseystage.com",
 ];
 
+const PRESS_HOST_MARKERS = PRESS_SEARCH_DOMAINS;
+
 const CULTURAL_HOST_MARKERS = [
   ...LENS_ACCOUNTS.flatMap((account) => account.sites).filter((site) => !site.includes("/")),
   ...OPINION_NEWS_DOMAINS,
-  ...NJ_PRESS_CLASSIFY_ONLY,
+  ...OVERFLOW_ARGUMENT_DOMAINS,
+  ...OVERFLOW_INDEPENDENT_DOMAINS,
   ...PATTERN_ALTITUDE_DOMAINS,
 ];
+
+function uniqueDomains(list, cap = 20) {
+  return (list || []).filter((site, i, all) => site && all.indexOf(site) === i).slice(0, cap);
+}
+
+function haystackOf({ topic = "", cluster = "", corridor = "" } = {}) {
+  return [topic, cluster, corridor].join(" ").toLowerCase();
+}
+
+// Leftover Desk B pages always get opened. Halls and national magazines
+// only when the hook would actually appear on them — a suburban liquor
+// cap is not an Essence story; a Newark jazz night is a WBGO/NJPAC one.
+export function apparentLookthroughDomains({ topic = "", cluster = "", corridor = "" } = {}) {
+  const hay = haystackOf({ topic, cluster, corridor });
+  const argument = uniqueDomains([
+    ...OVERFLOW_ARGUMENT_DOMAINS,
+    ...OVERFLOW_INDEPENDENT_DOMAINS,
+  ]);
+
+  const press = [];
+  const add = (domains) => {
+    for (const domain of domains) press.push(domain);
+  };
+
+  if (/south|atlantic|camden|cape may|vineland|millville/.test(hay)) {
+    add(["njmonthly.com"]);
+  }
+  if (/nightlife|club|music|jazz|sonic|concert|hip.?hop|r&b|stage|theater|theatre/.test(hay)) {
+    add(["wbgo.org", "njpac.org", "okayplayer.com", "okayafrica.com", "newjerseystage.com"]);
+  }
+  if (/museum|art|exhibit|gallery/.test(hay)) {
+    add(["newarkmuseumart.org", "njpac.org", "njmonthly.com"]);
+  }
+  if (/caribbean|west african|diaspora|african/.test(hay)) {
+    add(["caribbeanlifenews.com", "amsterdamnews.com", "okayafrica.com"]);
+  }
+  if (/black|culture|society|magazine|national|essence|root/.test(hay)) {
+    add(["essence.com", "theroot.com", "thegrio.com", "blackenterprise.com"]);
+  }
+  if (/policy|statute|license|ordinance|census|congress|legislation|abc\b/.test(hay)) {
+    add(["nytimes.com", "washingtonpost.com", "njmonthly.com"]);
+  }
+  if (/newark|jersey city|essex|hudson|montclair/.test(hay)) {
+    add(["njmonthly.com", "wbgo.org", "njpac.org", "newarkmuseumart.org", "newjerseystage.com"]);
+  }
+  // Any NJ specimen still gets the local magazine/station. Nationals
+  // stay out unless a hint above made them apparent.
+  if (!press.length || /jersey|newark|nj\b/.test(hay)) {
+    add(["njmonthly.com", "wbgo.org"]);
+  }
+
+  return {
+    argument,
+    press: uniqueDomains(press),
+    all: uniqueDomains([...argument, ...press]),
+  };
+}
+
+export function lookthroughSearchQueries({ topic = "", cluster = "", corridor = "" } = {}) {
+  const hook = String(topic || "").trim() || "Black New Jersey gathering";
+  const { argument, press } = apparentLookthroughDomains({ topic, cluster, corridor });
+  const siteOr = (domains) => domains.slice(0, 5).map((domain) => `site:${domain}`).join(" OR ");
+  return [
+    `${hook} ${siteOr(argument)}`,
+    press.length ? `${hook} ${siteOr(press)}` : null,
+  ].filter(Boolean);
+}
 
 const CULTURAL_PATH_MARKERS = LENS_ACCOUNTS
   .flatMap((account) => account.sites)
@@ -427,6 +507,7 @@ export function sourceDoctrineForPrompt() {
     "ALTITUDE / SOCIETY: Current Affairs and pages like it are allowed for pop-culture and societal understanding — how power, media, and culture work. Same class as Pop Culture Detective. They teach a MECHANISM or a JOIN. They are not the specimen and not the place. Do not write their subject (a Ben Shapiro movie, a campus case) as the CGE piece. Land the mechanism on a Black-NJ room, corridor, or disappearance.",
     "INFLUENCE TRAVELS. A lot of these conversations go beyond Jersey walls. Hunt what influenced what: Baltimore club → Jersey club, a national digital trend flattening a Newark room, a Caribbean circuit that does not stop at the Hudson, a country-wide norm this NJ gathering is an instance of. The JOIN may name Baltimore, Philly, NYC, Atlanta, or a national pattern when it is the chain. A Brooklyn weekender calendar is still the wrong subject. A piece that never lands back in New Jersey is the wrong piece.",
     "THE SPECIMEN AND THE DOOR ARE BLACK NEW JERSEY. The pattern and the join may be regional or national. A sentence that never names New Jersey is the wrong sentence. A sentence that only names New Jersey and pretends the trend was born in a vacuum is also the wrong sentence.",
+    "LOOK THROUGH leftover local press and apparent halls when the topic would show up there: More Jersey, South Jersey Journal, We Are Jersey Ent, Ark Republic, Shelterforce, Trenton Journal, Jewel Justice, fayemi, ENVERT, Hassan Ghanny — those ARE argument if they asked the question. NJPAC, WBGO, NJ Monthly, Essence, The Root, The Grio, Okayplayer, a museum, NYT/WaPo — open them when they are apparent. They may confirm a door, a date, or that a night existed. They cannot authorize the new question.",
     "Do NOT treat Timeout, Yelp, TripAdvisor, Eventbrite listicles, NJPAC season copy, Essence/The Root recaps, WBGO program notes, or museum wall text as the argument. They may confirm a door is open. They cannot authorize the new question. Prefer opinion / column / commentary over listings.",
     "Hunt the COLUMN, the PERSON, the PAGE, and the UNIVERSITY holding (oral history, AAS, Institute of Jazz Studies). If the first result is a hall, a national magazine, or a Brooklyn weekender, keep searching.",
     "Name the source class on each fact when you can: (OFFICIAL — nj.gov), (CULTURAL — blackinjersey.com), (PRESS — essence.com).",

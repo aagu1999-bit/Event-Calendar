@@ -2133,7 +2133,13 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                 {researchDesks ? (
                   <>Desk A official {researchDesks.official?.ok ? `· ${researchDesks.official.count} fact${researchDesks.official.count === 1 ? "" : "s"}` : "· empty"}
                     {"  ·  "}
-                    Desk B argument {researchDesks.cultural?.ok ? `· ${researchDesks.cultural.count} fact${researchDesks.cultural.count === 1 ? "" : "s"}` : "· empty"}</>
+                    Desk B argument {researchDesks.cultural?.ok ? `· ${researchDesks.cultural.count} fact${researchDesks.cultural.count === 1 ? "" : "s"}` : "· empty"}
+                    {researchDesks.lookthrough ? (
+                      <>
+                        {"  ·  "}
+                        Look-through {researchDesks.lookthrough.ok ? `· ${researchDesks.lookthrough.count} page${researchDesks.lookthrough.count === 1 ? "" : "s"}` : "· empty"}
+                      </>
+                    ) : null}</>
                 ) : "Source desks ran."}
                 {officialEmpty ? (
                   <div style={{ marginTop: 4, fontWeight: 700 }}>

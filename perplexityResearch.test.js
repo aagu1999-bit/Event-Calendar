@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { researchRequest, researchHypothesisRequest, researchOfficialRequest, researchCulturalRequest, researchVerificationRequest, parseResearchResponse } from "./perplexityResearch.js";
+import { researchRequest, researchHypothesisRequest, researchOfficialRequest, researchCulturalRequest, researchLookthroughRequest, researchVerificationRequest, parseResearchResponse } from "./perplexityResearch.js";
 
 test("research uses Agent preset, web search, and structured output", () => {
   const request = researchRequest({ topic: "Newark", existingBullets: [null, "Existing fact"] });
@@ -63,11 +63,34 @@ test("verification keeps history that is true as stated", () => {
   assert.match(request.instructions, /true AS STATED/);
   assert.match(request.instructions, /Do NOT drop a fact because the door is not open today/);
   assert.match(request.instructions, /PREFER THE DESKS FIRST/);
-  assert.equal(request.tools.length, 3);
+  assert.equal(request.tools.length, 4);
   assert.ok(request.tools[0].filters.search_domain_filter.includes(".gov"));
   assert.ok(request.tools[1].filters.search_domain_filter.includes("echonewstv.com"));
-  assert.equal(request.tools[2].filters, undefined);
+  assert.ok(request.tools[2].filters.search_domain_filter.includes("morejersey.com"));
+  assert.equal(request.tools[3].filters, undefined);
   assert.equal(/verifiably true today/.test(request.instructions), false);
+});
+
+test("look-through searches leftover press and apparent halls, not Desk B", () => {
+  const leftover = researchLookthroughRequest({ cluster: "POLICY_MECHANICS", topic: "NJ ABC liquor license cap" });
+  assert.match(leftover.instructions, /LOOK-THROUGH/);
+  assert.match(leftover.instructions, /cannot authorize/);
+  assert.ok(leftover.tools[0].filters.search_domain_filter.includes("morejersey.com"));
+  assert.ok(leftover.tools[0].filters.search_domain_filter.includes("trentonjournal.com"));
+  assert.ok(leftover.tools[0].filters.search_domain_filter.includes("jeweljustice.substack.com"));
+  const leftoverPress = leftover.tools[1]?.filters.search_domain_filter || [];
+  assert.ok(leftoverPress.includes("njmonthly.com"));
+  assert.equal(leftoverPress.includes("essence.com"), false);
+
+  const jazz = researchLookthroughRequest({
+    cluster: "STATE_SONIC_HISTORY",
+    topic: "Newark jazz night",
+    corridor: "Newark",
+  });
+  const jazzPress = jazz.tools[1]?.filters.search_domain_filter || [];
+  assert.ok(jazzPress.includes("wbgo.org"));
+  assert.ok(jazzPress.includes("njpac.org"));
+  assert.equal(researchCulturalRequest({ topic: "Newark jazz night" }).tools[0].filters.search_domain_filter.includes("njpac.org"), false);
 });
 
 test("merged research rules preserve NJ relevance and short-hook framing", () => {

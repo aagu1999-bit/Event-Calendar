@@ -9,6 +9,11 @@ NJ press — Echo, Front Runner, Five Wards, Public Square, The Positive
 Community, NJ Uncovered (Facebook / YouTube / Instagram) — plus Rutgers /
 Montclair / Princeton pages and Current Affairs as pop-culture / societal
 altitude, not the specimen; not halls, Essence, or an adjacent NYC week).
+A look-through pass then opens leftover local press that missed the
+20-domain cap (More Jersey, South Jersey Journal, We Are Jersey Ent,
+Ark Republic, Shelterforce, Trenton Journal, plus independent hosts)
+and halls/national magazines only when the topic would actually show
+up there. Those halls can confirm a door. They still cannot authorize.
 It requests a JSON schema and reads
 the SDK's `output_text`. Search results and text annotations supply
 source URLs; the UI classifies them OFFICIAL / CULTURAL / PRESS / UNRANKED.

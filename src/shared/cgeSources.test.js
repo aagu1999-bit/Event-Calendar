@@ -7,6 +7,9 @@ import {
   OPINION_NEWS_DOMAINS,
   UNIVERSITY_ARGUMENT_DOMAINS,
   PATTERN_ALTITUDE_DOMAINS,
+  OVERFLOW_ARGUMENT_DOMAINS,
+  OVERFLOW_INDEPENDENT_DOMAINS,
+  PRESS_SEARCH_DOMAINS,
   classifySource,
   classifySources,
   countSourceClasses,
@@ -14,6 +17,8 @@ import {
   preferDeskSources,
   clusterSearchQueries,
   lensDiscoveryQueries,
+  apparentLookthroughDomains,
+  lookthroughSearchQueries,
 } from "./cgeSources.js";
 
 test("desk allowlists stay inside Perplexity's 20-domain cap", () => {
@@ -36,6 +41,11 @@ test("desk allowlists stay inside Perplexity's 20-domain cap", () => {
   assert.equal(CULTURAL_SEARCH_DOMAINS.includes("wbgo.org"), false);
   assert.equal(CULTURAL_SEARCH_DOMAINS.includes("njpac.org"), false);
   assert.equal(CULTURAL_SEARCH_DOMAINS.includes("essence.com"), false);
+  assert.ok(OVERFLOW_ARGUMENT_DOMAINS.includes("morejersey.com"));
+  assert.ok(OVERFLOW_ARGUMENT_DOMAINS.includes("trentonjournal.com"));
+  assert.ok(OVERFLOW_INDEPENDENT_DOMAINS.includes("jeweljustice.substack.com"));
+  assert.ok(PRESS_SEARCH_DOMAINS.includes("njpac.org"));
+  assert.ok(PRESS_SEARCH_DOMAINS.includes("essence.com"));
   assert.ok(LENS_ACCOUNTS.length >= 1);
   assert.ok(OPINION_NEWS_DOMAINS.includes("blackinjersey.com"));
   assert.ok(UNIVERSITY_ARGUMENT_DOMAINS.includes("rutgers.edu"));
@@ -64,7 +74,41 @@ test("classifySource labels official, argument, press, and unranked", () => {
   assert.equal(classifySource("https://www.wbgo.org/show"), "PRESS");
   assert.equal(classifySource("https://www.njpac.org/events"), "PRESS");
   assert.equal(classifySource("https://www.essence.com/"), "PRESS");
+  assert.equal(classifySource("https://www.morejersey.com/x"), "CULTURAL");
+  assert.equal(classifySource("https://southjerseyjournal.com/x"), "CULTURAL");
+  assert.equal(classifySource("https://jeweljustice.substack.com/p/x"), "CULTURAL");
   assert.equal(classifySource("https://www.timeout.com/newyork"), "UNRANKED");
+});
+
+test("look-through opens leftover press always and halls only when apparent", () => {
+  const leftover = apparentLookthroughDomains({ topic: "A Saturday" });
+  assert.ok(leftover.argument.includes("morejersey.com"));
+  assert.ok(leftover.argument.includes("southjerseyjournal.com"));
+  assert.ok(leftover.argument.includes("jeweljustice.substack.com"));
+  assert.ok(leftover.argument.length <= 20);
+  assert.ok(leftover.press.length <= 20);
+
+  const jazz = apparentLookthroughDomains({
+    topic: "Newark jazz night",
+    cluster: "STATE_SONIC_HISTORY",
+    corridor: "Newark",
+  });
+  assert.ok(jazz.press.includes("wbgo.org"));
+  assert.ok(jazz.press.includes("njpac.org"));
+  assert.ok(jazz.press.includes("njmonthly.com"));
+
+  const liquor = apparentLookthroughDomains({
+    topic: "NJ ABC liquor license cap",
+    cluster: "POLICY_MECHANICS",
+  });
+  assert.ok(liquor.press.includes("njmonthly.com"));
+  assert.ok(liquor.press.includes("nytimes.com"));
+  assert.equal(liquor.press.includes("essence.com"), false);
+  assert.equal(liquor.press.includes("njpac.org"), false);
+
+  const queries = lookthroughSearchQueries({ topic: "A Saturday room", cluster: "NIGHTLIFE_DILEMMA" });
+  assert.ok(queries.some((q) => /morejersey\.com|trentonjournal\.com/i.test(q)));
+  assert.ok(queries.some((q) => /wbgo\.org|njpac\.org/i.test(q)));
 });
 
 test("countSourceClasses, named cluster searches, and argument hunts", () => {
