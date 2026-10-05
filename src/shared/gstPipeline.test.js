@@ -4,6 +4,7 @@ import {
   GST_SLIDE_COUNT,
   GST_MAX_WORDS,
   GST_DESIGN_TOKENS,
+  GST_GEARS,
   wordCount,
   containsBannedPhrase,
   stripScanMarkers,
@@ -18,15 +19,20 @@ test("GST design tokens lock a 10-role arc", () => {
   assert.equal(GST_DESIGN_TOKENS.slideRoles[9], "cta");
 });
 
+test("GST gears are pattern + teach + stance", () => {
+  assert.deepEqual([...GST_GEARS], ["pattern", "teach", "stance"]);
+});
+
 test("word count ignores scan-path markers", () => {
   assert.equal(wordCount("**The Barrier:** liquor caps freeze the tap"), 7);
 });
 
-test("banned corporate sludge is detected", () => {
-  const hits = containsBannedPhrase("Moreover this is a testament to our vibrant community");
+test("banned corporate sludge and both-sides fog are detected", () => {
+  const hits = containsBannedPhrase("Moreover this is a testament to our vibrant community — both sides");
   assert.ok(hits.includes("moreover"));
   assert.ok(hits.includes("testament"));
   assert.ok(hits.includes("vibrant community"));
+  assert.ok(hits.includes("both sides"));
 });
 
 test("scan-path extract + strip", () => {

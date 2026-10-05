@@ -3618,12 +3618,13 @@ function variationDirective() {
 function registerBlock(mode) {
   if (mode === "content") return [
     "REGISTER: GST CULTURAL ANALYSIS — wearegst / Pop Culture Detective energy.",
-    "- Pop culture and local nightlife are the TROJAN HORSE. The product is a systemic pattern.",
-    "- Patterns, not plot. Never review good/bad. Name the accidental lesson.",
+    "- THREE GEARS: PATTERN (repeating structure) + TEACH (reusable lens) + STANCE (who benefits / who's blocked). Pattern alone is incomplete.",
+    "- CHARGE + STAKES under the gears: felt heat that stops the thumb, and what it costs someone.",
+    "- Omniscient: float above the specimen, read the map, take a side. No both-sides fog.",
     "- Inverse hook in the first two sentences. Ruthless brevity. Active voice.",
     "- Scan-path bolding on core entities. Under 35 words of intent per beat when possible.",
-    "- Banned sludge: delve, testament, moreover, landscape, unpack, nuanced, vibrant community, hidden gem, don't miss, pull up.",
-    "- Closer is community engagement or the next question — never RSVP / ticket sell.",
+    "- Banned sludge: delve, testament, moreover, landscape, unpack, nuanced, vibrant community, hidden gem, don't miss, pull up, both sides, it's complicated.",
+    "- Closer is stance-as-engagement or the next question — never RSVP / ticket sell.",
     "─────────────────────────────",
     "",
   ];
@@ -3676,11 +3677,12 @@ function registerBlock(mode) {
   ];
   return [
     "REGISTER: GST EDITORIAL — audiovisual science communication for the humanities.",
-    "- Destination is UNDERSTANDING a systemic pattern, not a sale and not a recap.",
+    "- Destination is UNDERSTANDING + a reusable lens + a clear stance — not a sale and not a recap.",
+    "- Pattern + teach + stance under charge and stakes. Omniscient, not neutral fog.",
     "- Inverse hook: thesis up front. Show a mundane NJ moment, then zoom to the structure.",
     "- Sharp, direct, anti-establishment. Kitchen-table wording. No statute numbers.",
-    "- Banned sludge: delve, testament, moreover, landscape, unpack, nuanced, vibrant community, hidden gem, don't miss.",
-    "- Closing note / engagement keyword — never urgency, never flyer CTA.",
+    "- Banned sludge: delve, testament, moreover, landscape, unpack, nuanced, vibrant community, hidden gem, don't miss, both sides.",
+    "- Closing note / engagement keyword that aims the lens — never urgency, never flyer CTA.",
     "─────────────────────────────",
     "",
   ];
