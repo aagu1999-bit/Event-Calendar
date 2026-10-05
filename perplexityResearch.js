@@ -146,6 +146,34 @@ export function researchAiModeRequest(input = {}) {
   };
 }
 
+// Recheck gaps → one Google-style search. Not another full Fuel Research.
+// Returns specific pieces that close the holes. Dive comes after.
+export function researchGapScoutRequest(input = {}) {
+  const hook = String(input.topic || "").trim() || "Black New Jersey gathering";
+  const extraSearches = [
+    ...coherenceGapSearches({ gaps: input.coherenceGaps, topic: hook }),
+    `${hook} New Jersey currently operating example that closes the argument gap`,
+  ];
+  const instructions = [
+    "You are a Google AI Mode pass with ONE job: close the argument-check gaps. This is not another full brief. Do not re-research the whole topic. Do not rewrite the thesis. Do not stack another historical statute.",
+    "Search the OPEN web. New Jersey first. No 20-site cap.",
+    sourceDoctrineForPrompt(),
+    "For EACH gap, return 1–2 specific named pieces a writer can later dive: a currently-operating place, a program still in force, a magazine piece, a Saturday that exists now. Prefix each bullet 'GAP — ' and name the hole it closes in the first clause.",
+    "OUTPUT: 2–6 bullets. One real piece per hole beats five more archive facts. Different entities. Never invent.",
+    "Leave the thesis field empty unless you found one tighter current-example sentence. Do not replace the operator's thesis.",
+    "If CLOSE THESE GAPS is missing, return an empty bullets array.",
+    "If you cannot find at least 1 verifiable NJ-tied piece that closes a gap, return an empty bullets array.",
+    "Output strict JSON with 'thesis', 'bullets', and 'citations'.",
+  ];
+  return {
+    preset: "low",
+    tools: [openWebSearch()],
+    instructions: instructions.join(" "),
+    input: buildUserPayload({ ...input, extraSearches }),
+    response_format: BULLETS_RESPONSE_SCHEMA,
+  };
+}
+
 export function researchOfficialRequest(input = {}) {
   const instructions = [
     "You are DESK A — the OFFICIAL RECORD desk for a Black New Jersey cultural publication.",
@@ -458,6 +486,84 @@ export async function fuelResearchViaPerplexity(input = {}) {
       } catch (err) {
         return { ok: false, bullets: [], citations: [], thesis: "", message: err?.message || emptyMessage };
       }
+    }
+
+    const mode = ["gap-scout", "dive", "full"].includes(input.mode) ? input.mode : "full";
+    if (mode === "full") {
+      input = { ...input, coherenceGaps: [], coherenceReason: "" };
+    }
+
+    if (mode === "gap-scout") {
+      const gapParsed = await runPass(
+        () => researchGapScoutRequest(input),
+        "Gap search failed.",
+        { minBullets: 1, maxBullets: 6 }
+      );
+      if (!gapParsed.ok || !gapParsed.bullets.length) {
+        return {
+          ok: false,
+          code: "empty",
+          message: "The gap search found no specific NJ piece that closes those holes. Try a sharper current example in the hook.",
+        };
+      }
+      return decorateResearchResult({
+        ok: true,
+        thesis: "",
+        bullets: gapParsed.bullets,
+        citations: gapParsed.citations,
+        model: gapParsed.model,
+        phase: "gap-scout",
+        droppedCount: 0,
+        overlaps: gapParsed.overlaps || [],
+        desks: {
+          scout: { ok: true, count: gapParsed.bullets.length, error: null },
+          official: { ok: false, count: 0, error: null },
+          cultural: { ok: false, count: 0, error: null },
+          lookthrough: { ok: false, count: 0, error: null },
+        },
+      });
+    }
+
+    if (mode === "dive") {
+      const candidates = (Array.isArray(input.existingBullets) ? input.existingBullets : [])
+        .map((b) => String(b || "").trim())
+        .filter(Boolean)
+        .slice(0, 8);
+      if (!candidates.length) {
+        return { ok: false, code: "no_seed", message: "Nothing to dive — run the NJ brief or the gap search first." };
+      }
+      const diveOnly = await runPass(
+        () => researchDiveRequest({
+          ...input,
+          thesis: input.pov,
+          candidates,
+        }),
+        "Desk dive failed.",
+        { minBullets: 1, maxBullets: 8 }
+      );
+      if (!diveOnly.ok || !diveOnly.bullets.length) {
+        return {
+          ok: false,
+          code: "empty",
+          message: "The desks could not thicken these pieces. Keep the Google pieces and try a named place.",
+        };
+      }
+      return decorateResearchResult({
+        ok: true,
+        thesis: diveOnly.thesis || input.pov || "",
+        bullets: diveOnly.bullets,
+        citations: diveOnly.citations,
+        model: diveOnly.model,
+        phase: "dived",
+        droppedCount: 0,
+        overlaps: diveOnly.overlaps || [],
+        desks: {
+          scout: { ok: true, count: candidates.length, error: null },
+          official: { ok: true, count: diveOnly.bullets.filter((b) => /^DOCUMENT\s—/i.test(b)).length, error: null },
+          cultural: { ok: true, count: diveOnly.bullets.filter((b) => /^ARGUMENT\s—/i.test(b)).length, error: null },
+          lookthrough: { ok: false, count: 0, error: null },
+        },
+      });
     }
 
     const scoutParsed = await runPass(
