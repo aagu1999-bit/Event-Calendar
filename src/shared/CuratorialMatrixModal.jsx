@@ -42,6 +42,7 @@ import {
   localesForCorridor,
   joinFacetOptions,
   subjectLockPromptLines,
+  getFacet,
 } from "./subjectLock.js";
 import { validateMatrix, matrixCompleteness, isMatrixReadyForGeneration } from "./matrixValidation.js";
 import { eventMatrixToFillSeed } from "./eventMatrixToFillSeed.js";
@@ -188,8 +189,8 @@ function LockChipRow({ label, hint, options, selected, onToggle, accent, max = 3
   if (!options.length) return null;
   const picked = Array.isArray(selected) ? selected : [];
   return (
-    <div style={{ marginTop: 8 }}>
-      <div style={{ ...labelStyle, marginBottom: 6 }}>{label}</div>
+    <div style={{ marginTop: label ? 8 : 4 }}>
+      {label ? <div style={{ ...labelStyle, marginBottom: 6 }}>{label}</div> : null}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
         {options.map((opt) => {
           const on = picked.includes(opt.id);
@@ -1653,16 +1654,35 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
           </div>
 
           {resolveClusterKey(local.cluster) ? (
-            <LockChipRow
-              label="Join · optional · one facet from another cluster"
-              hint="Empty = stay inside this cluster. A join is the only permitted intersection (e.g. parking-lot brewery joined to liquor cap)."
-              options={joinFacetOptions(local.cluster)}
-              selected={selectedJoin ? [selectedJoin] : []}
-              onToggle={toggleJoin}
-              max={1}
-              optionLabel={(opt) => opt.joinLabel || opt.label}
-              accent={{ bg: warnBg, border: warn, color: warn }}
-            />
+            <details style={{
+              marginTop: 4,
+              border: `1px dashed ${whisper}`,
+              borderRadius: 8,
+              padding: "6px 10px 8px",
+              background: selectedJoin ? "rgba(251,191,36,0.06)" : "transparent",
+            }}>
+              <summary style={{
+                cursor: "pointer",
+                fontSize: "0.65rem",
+                letterSpacing: "0.12em",
+                textTransform: "uppercase",
+                fontWeight: 700,
+                color: selectedJoin ? warn : muted,
+                listStyle: "none",
+              }}>
+                Join · optional{selectedJoin ? ` · ${getFacet(selectedJoin)?.label || selectedJoin}` : " · closed — stay inside this cluster"}
+              </summary>
+              <LockChipRow
+                label=""
+                hint="Empty = stay inside this cluster. A join is the only permitted intersection (e.g. parking-lot brewery joined to liquor cap)."
+                options={joinFacetOptions(local.cluster)}
+                selected={selectedJoin ? [selectedJoin] : []}
+                onToggle={toggleJoin}
+                max={1}
+                optionLabel={(opt) => opt.joinLabel || opt.label}
+                accent={{ bg: warnBg, border: warn, color: warn }}
+              />
+            </details>
           ) : null}
 
           {/* Emotion + Demographic */}
