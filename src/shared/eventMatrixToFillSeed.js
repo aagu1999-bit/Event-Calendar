@@ -47,6 +47,7 @@ export function summarizeSlidesForFeedback(slides) {
 
 import { EVENT_TIERS, DEMOGRAPHIC_PRESETS, LEGACY_DEMOGRAPHIC_ALIASES } from "./matrixEnums.js";
 import { getClusterLabel, getClusterDefaultPOV, resolveEditorialLens, isListicleHook } from "./matrixCompass.js";
+import { buildSubjectLock } from "./subjectLock.js";
 import { CONTENT_DEFAULT_VOICE } from "./cgeThesis.js";
 
 // Register (mode) mapping — matches the state variable `mode` in
@@ -168,8 +169,18 @@ export function eventMatrixToFillSeed(event) {
   // separately from the narrowing when useful.
   void clusterDirectiveBase; void lensOverride;
   const clusterLabel = m.cluster ? (getClusterLabel(m.cluster) || m.cluster) : "";
+  const lock = buildSubjectLock({
+    cluster: m.cluster,
+    corridor: m.corridor,
+    subjectFacets: m.subject_facets,
+    corridorLocales: m.corridor_locales,
+    joinFacet: m.join_facet,
+  });
   const contextLines = [];
   if (pov) contextLines.push(`POV: ${pov}`);
+  if (!lock.empty) {
+    contextLines.push(`SUBJECT LOCK: ${lock.summary}. Stay on these sub-versions. Do not mash overlapping cluster topics unless JOIN is named.`);
+  }
   if (hookA && isListicleHook(hookA)) {
     contextLines.push(`OPERATOR HOOK (listicle — do not teach this; write the contrast the START / THESIS lines named): ${hookA}`);
   } else if (hookA && hookA !== topic) {

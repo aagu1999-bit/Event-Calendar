@@ -35,6 +35,14 @@ import {
   synthesizeLensReframe,
   COMPASS_TOPICS,
 } from "./matrixCompass.js";
+import {
+  buildSubjectLock,
+  sanitizeSubjectLock,
+  facetsForCluster,
+  localesForCorridor,
+  joinFacetOptions,
+  subjectLockPromptLines,
+} from "./subjectLock.js";
 import { validateMatrix, matrixCompleteness, isMatrixReadyForGeneration } from "./matrixValidation.js";
 import { eventMatrixToFillSeed } from "./eventMatrixToFillSeed.js";
 
@@ -176,6 +184,44 @@ function CharCounter({ current, max, error }) {
   );
 }
 
+function LockChipRow({ label, hint, options, selected, onToggle, accent, max = 3, optionLabel }) {
+  if (!options.length) return null;
+  const picked = Array.isArray(selected) ? selected : [];
+  return (
+    <div style={{ marginTop: 8 }}>
+      <div style={{ ...labelStyle, marginBottom: 6 }}>{label}</div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+        {options.map((opt) => {
+          const on = picked.includes(opt.id);
+          const atCap = !on && max > 0 && picked.length >= max;
+          return (
+            <button
+              key={opt.id}
+              type="button"
+              disabled={atCap}
+              onClick={() => onToggle(opt.id)}
+              title={opt.hint || opt.search || opt.label}
+              style={{
+                padding: "4px 10px",
+                background: on ? accent.bg : "transparent",
+                border: `1px solid ${on ? accent.border : whisper}`,
+                color: on ? accent.color : muted,
+                borderRadius: 999,
+                fontFamily: "inherit",
+                fontSize: "0.66rem",
+                fontWeight: on ? 700 : 500,
+                cursor: atCap ? "not-allowed" : "pointer",
+                opacity: atCap ? 0.45 : 1,
+              }}
+            >{on ? (optionLabel ? optionLabel(opt) : opt.label) : `+ ${optionLabel ? optionLabel(opt) : opt.label}`}</button>
+          );
+        })}
+      </div>
+      {hint ? <div style={hintStyle}>{hint}</div> : null}
+    </div>
+  );
+}
+
 export function CuratorialMatrixModal(props) {
   if (!props.open || !props.event) return null;
   return <CuratorialMatrixModalContent {...props} />;
@@ -276,6 +322,26 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
   // Demographics are stored on the matrix as an array; normalize legacy
   // comma-string values before staleness memos read the selection.
   const selectedDemographics = normalizeDemographic(local.target_demographic);
+  const selectedFacets = Array.isArray(local.subject_facets)
+    ? local.subject_facets.map((id) => String(id || "").trim()).filter(Boolean)
+    : [];
+  const selectedLocales = Array.isArray(local.corridor_locales)
+    ? local.corridor_locales.map((id) => String(id || "").trim()).filter(Boolean)
+    : [];
+  const selectedJoin = String(local.join_facet || "").trim();
+  const facetsKey = selectedFacets.join("|");
+  const localesKey = selectedLocales.join("|");
+  const subjectLock = useMemo(() => buildSubjectLock({
+    cluster: local.cluster,
+    corridor: local.corridor,
+    subjectFacets: facetsKey ? facetsKey.split("|") : [],
+    corridorLocales: localesKey ? localesKey.split("|") : [],
+    joinFacet: selectedJoin,
+  }), [local.cluster, local.corridor, facetsKey, localesKey, selectedJoin]);
+  const subjectLockPrompt = useMemo(
+    () => ({ promptLines: subjectLockPromptLines(subjectLock), summary: subjectLock.summary, empty: subjectLock.empty }),
+    [subjectLock]
+  );
   const coherenceIsStale = useMemo(() => {
     if (!coherenceResult || !coherenceCheckedAt) return false;
     const sig = `${local.hook_a_side || ""}|${local.editorial_pov || ""}|${bullets.join("|")}`;
@@ -430,8 +496,9 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
       corridor: local.corridor,
       emotion: local.target_emotion,
       demographics: [...selectedDemographics].sort(),
+      lock: subjectLock.snapshot,
     }) !== stringifyInputs(lensSnapshot);
-  }, [lensSnapshot, local.cluster, local.corridor, local.target_emotion, selectedDemographics]);
+  }, [lensSnapshot, local.cluster, local.corridor, local.target_emotion, selectedDemographics, subjectLock.snapshot]);
 
   const thesisStale = useMemo(() => {
     if (!thesisSnapshot) return false;
@@ -441,8 +508,9 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
       emotion: local.target_emotion,
       demographics: [...selectedDemographics].sort(),
       editorial_lens: local.editorial_lens || "",
+      lock: subjectLock.snapshot,
     }) !== stringifyInputs(thesisSnapshot);
-  }, [thesisSnapshot, local.cluster, local.corridor, local.target_emotion, selectedDemographics, local.editorial_lens]);
+  }, [thesisSnapshot, local.cluster, local.corridor, local.target_emotion, selectedDemographics, local.editorial_lens, subjectLock.snapshot]);
 
   const hookStale = useMemo(() => {
     if (!hookSnapshot) return false;
@@ -452,8 +520,9 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
       emotion: local.target_emotion,
       demographics: [...selectedDemographics].sort(),
       editorial_lens: local.editorial_lens || "",
+      lock: subjectLock.snapshot,
     }) !== stringifyInputs(hookSnapshot);
-  }, [hookSnapshot, local.cluster, local.editorial_pov, local.target_emotion, selectedDemographics, local.editorial_lens]);
+  }, [hookSnapshot, local.cluster, local.editorial_pov, local.target_emotion, selectedDemographics, local.editorial_lens, subjectLock.snapshot]);
 
   const researchStale = useMemo(() => {
     if (!researchSnapshot) return false;
@@ -465,8 +534,9 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
       tier: local.event_tier,
       editorial_lens: local.editorial_lens,
       demographics: [...selectedDemographics].sort(),
+      lock: subjectLock.snapshot,
     }) !== stringifyInputs(researchSnapshot);
-  }, [researchSnapshot, local.cluster, local.corridor, local.editorial_pov, local.hook_a_side, local.event_tier, local.editorial_lens, selectedDemographics]);
+  }, [researchSnapshot, local.cluster, local.corridor, local.editorial_pov, local.hook_a_side, local.event_tier, local.editorial_lens, selectedDemographics, subjectLock.snapshot]);
 
   // Compact chip renderer — one line per derived field.
   //   fresh: shows "◇ synthesized from X · Y · Z" in muted color
@@ -592,6 +662,9 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
           // the base cluster directive. Empty = server uses the base
           // alone (backwards-compat).
           lensOverride: local.editorial_lens || "",
+          subjectFacets: selectedFacets,
+          corridorLocales: selectedLocales,
+          joinFacet: selectedJoin,
           coherenceGaps: sendGaps && Array.isArray(coherenceResult?.gaps) ? coherenceResult.gaps : [],
           coherenceReason: sendGaps ? (coherenceResult?.reason || "") : "",
           mode,
@@ -654,6 +727,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
         tier: local.event_tier,
         editorial_lens: local.editorial_lens,
         demographics: [...selectedDemographics].sort(),
+        lock: subjectLock.snapshot,
       });
     } catch (err) {
       setResearchError(String(err?.message || err));
@@ -725,6 +799,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
         emotion: local.target_emotion,
         demographics: selectedDemographics,
         editorialLens: local.editorial_lens,
+        subjectLock: subjectLockPrompt,
       });
       if (!thesis) {
         setSynthError("Gemini returned an empty thesis. Retry.");
@@ -741,6 +816,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
         emotion: local.target_emotion,
         demographics: [...selectedDemographics].sort(),
         editorial_lens: local.editorial_lens || "",
+        lock: subjectLock.snapshot,
       });
     } catch (err) {
       setSynthError(String(err?.message || err));
@@ -781,6 +857,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
         demographics: selectedDemographics,
         editorialLens: local.editorial_lens,
         anchors: bullets,
+        subjectLock: subjectLockPrompt,
       });
       if (!hook) {
         setHookError("Gemini returned an empty hook. Retry.");
@@ -793,6 +870,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
         emotion: local.target_emotion,
         demographics: [...selectedDemographics].sort(),
         editorial_lens: local.editorial_lens || "",
+        lock: subjectLock.snapshot,
       });
     } catch (err) {
       setHookError(String(err?.message || err));
@@ -879,6 +957,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
         corridor: local.corridor,
         emotion: local.target_emotion,
         demographics: selectedDemographics,
+        subjectLock: subjectLockPrompt,
       });
       if (!reframe) {
         setLensReframeError("Gemini returned an empty reframe. Retry.");
@@ -890,6 +969,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
         corridor: local.corridor,
         emotion: local.target_emotion,
         demographics: [...selectedDemographics].sort(),
+        lock: subjectLock.snapshot,
       });
     } catch (err) {
       setLensReframeError(String(err?.message || err));
@@ -987,6 +1067,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
       corridor: local.corridor,
       emotion: local.target_emotion,
       demographics: selectedDemographics,
+      lockSentence: subjectLock.composeClause,
     });
     if (!nextAuto) return;
     const currentPOV = String(local.editorial_pov || "").trim();
@@ -1001,7 +1082,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
     // a Zustand selector. Intentionally not listing it in deps: the
     // effect must fire on dimension changes, not on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [local.cluster, local.corridor, local.target_emotion, demographicsKey]);
+  }, [local.cluster, local.corridor, local.target_emotion, demographicsKey, facetsKey, localesKey, selectedJoin]);
 
   const toggleDemographic = (value) => {
     const clean = String(value || "").trim();
@@ -1011,6 +1092,30 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
     } else {
       setDemographics([...selectedDemographics, clean]);
     }
+  };
+  const applyLockPatch = (partial) => {
+    applyPatch(sanitizeSubjectLock({
+      cluster: partial.cluster !== undefined ? partial.cluster : local.cluster,
+      corridor: partial.corridor !== undefined ? partial.corridor : local.corridor,
+      subjectFacets: partial.subject_facets !== undefined ? partial.subject_facets : selectedFacets,
+      corridorLocales: partial.corridor_locales !== undefined ? partial.corridor_locales : selectedLocales,
+      joinFacet: partial.join_facet !== undefined ? partial.join_facet : selectedJoin,
+    }));
+  };
+  const toggleFacet = (id) => {
+    const next = selectedFacets.includes(id)
+      ? selectedFacets.filter((v) => v !== id)
+      : [...selectedFacets, id].slice(0, LIMITS.FACETS_MAX);
+    applyLockPatch({ subject_facets: next });
+  };
+  const toggleLocale = (id) => {
+    const next = selectedLocales.includes(id)
+      ? selectedLocales.filter((v) => v !== id)
+      : [...selectedLocales, id].slice(0, LIMITS.LOCALES_MAX);
+    applyLockPatch({ corridor_locales: next });
+  };
+  const toggleJoin = (id) => {
+    applyLockPatch({ join_facet: selectedJoin === id ? "" : id });
   };
   const addCustomDemographic = () => {
     const clean = String(demographicInput || "").trim();
@@ -1052,7 +1157,14 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
       ]));
       patch.target_demographic = merged;
     }
-    applyPatch(patch);
+    const lock = sanitizeSubjectLock({
+      cluster: clusterKey || local.cluster,
+      corridor: topic.corridor || local.corridor,
+      subjectFacets: Array.isArray(topic.facets) ? topic.facets : [],
+      corridorLocales: Array.isArray(topic.locales) ? topic.locales : [],
+      joinFacet: topic.joinFacet || "",
+    });
+    applyPatch({ ...patch, ...lock });
     setCompassOpen(false);
   };
 
@@ -1307,15 +1419,15 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                 Nothing auto-cascades — every downstream field is written by a manual synth button. When you change an upstream field after synthesizing a downstream, the downstream goes stale and shows a "⚠ STALE" chip below it.
               </div>
               <div style={{ marginTop: 8, fontFamily: "'JetBrains Mono', monospace", fontSize: "0.62rem", lineHeight: 1.75 }}>
-                <div><b style={{ color: cream }}>Cluster</b> · Corridor · Emotion · Demographic  <span style={{ color: faint }}>→ (click ✨ Reframe LENS)</span>  <b style={{ color: "#A78BFA" }}>editorial_lens (narrowing)</b></div>
-                <div><b style={{ color: cream }}>Cluster</b> · Corridor · Emotion · Demographic · <b style={{ color: "#A78BFA" }}>LENS narrowing</b>  <span style={{ color: faint }}>→ (click ✨ Draft Thesis)</span>  <b style={{ color: "#A78BFA" }}>editorial_pov</b></div>
-                <div><b style={{ color: cream }}>Cluster</b> · POV · Emotion · Demographic · <b style={{ color: "#A78BFA" }}>LENS narrowing</b>  <span style={{ color: faint }}>→ (click ✨ Draft Hook)</span>  <b style={{ color: "#A78BFA" }}>hook_a_side</b></div>
-                <div><b style={{ color: cream }}>Cluster</b> · Corridor · POV · Hook · Tier · <b style={{ color: "#A78BFA" }}>LENS</b> · Demographic  <span style={{ color: faint }}>→ (click 🔮 Fuel Research)</span>  <b style={{ color: "#A78BFA" }}>data_points (anchors)</b></div>
+                <div><b style={{ color: cream }}>Cluster</b> · Facets · Corridor · Locales · Join · Emotion · Demographic  <span style={{ color: faint }}>→ (click ✨ Reframe LENS)</span>  <b style={{ color: "#A78BFA" }}>editorial_lens (narrowing)</b></div>
+                <div><b style={{ color: cream }}>Cluster</b> · Facets · Corridor · Locales · Join · Emotion · Demographic · <b style={{ color: "#A78BFA" }}>LENS narrowing</b>  <span style={{ color: faint }}>→ (click ✨ Draft Thesis)</span>  <b style={{ color: "#A78BFA" }}>editorial_pov</b></div>
+                <div><b style={{ color: cream }}>Cluster</b> · Facets · Join · POV · Emotion · Demographic · <b style={{ color: "#A78BFA" }}>LENS narrowing</b>  <span style={{ color: faint }}>→ (click ✨ Draft Hook)</span>  <b style={{ color: "#A78BFA" }}>hook_a_side</b></div>
+                <div><b style={{ color: cream }}>Cluster</b> · Facets · Corridor · Locales · Join · POV · Hook · Tier · <b style={{ color: "#A78BFA" }}>LENS</b> · Demographic  <span style={{ color: faint }}>→ (click 🔮 Fuel Research)</span>  <b style={{ color: "#A78BFA" }}>data_points (anchors)</b></div>
                 <div><b style={{ color: cream }}>Distance</b> · Cadence · Stance · Cluster  <span style={{ color: faint }}>→ (click 🎙 New Preview)</span>  <b style={{ color: "#A78BFA" }}>voice preview (not stored)</b></div>
                 <div><b style={{ color: cream }}>Hook</b> · POV · Anchors · Cluster + <b style={{ color: "#A78BFA" }}>LENS narrowing</b>  <span style={{ color: faint }}>→ (click 🔎 Check argument)</span>  <b style={{ color: "#A78BFA" }}>coherence verdict</b></div>
               </div>
               <div style={{ marginTop: 8, fontSize: "0.6rem", color: "#63B3ED", fontWeight: 700, letterSpacing: "0.06em" }}>
-                LENS narrowing now feeds every downstream synth — it directly shapes POV, Hook, Anchors, Coherence check, and the final carousel writer.
+                Subject lock (facets · locales · join) pins the sub-version before Draft Thesis / Fuel Research. Empty chips keep today's whole-cluster behavior. A join is the only permitted intersection with another cluster.
               </div>
               <div style={{ marginTop: 10, color: faint, fontStyle: "italic" }}>
                 Values you TYPE (Hook, POV, LENS narrowing, anchors) never trigger synth automatically — the button is always the trigger. That's by design so a stray edit doesn't overwrite a carefully-crafted downstream field. Downstream reads UPSTREAM: LENS/POV/Hook all read the same Cluster+Emotion+Demographic; Fuel Research reads everything above it; Coherence Check reads everything.
@@ -1366,11 +1478,32 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
               <select
                 style={selectStyle}
                 value={LEGACY_CORRIDOR_ALIASES[local.corridor] || local.corridor || ""}
-                onChange={(e) => applyPatch({ corridor: e.target.value || undefined })}
+                onChange={(e) => {
+                  const nextCorridor = e.target.value || undefined;
+                  const lock = sanitizeSubjectLock({
+                    cluster: local.cluster,
+                    corridor: nextCorridor,
+                    subjectFacets: selectedFacets,
+                    corridorLocales: selectedLocales,
+                    joinFacet: selectedJoin,
+                  });
+                  applyPatch({ corridor: nextCorridor, ...lock });
+                }}
               >
                 <option value="">— pick corridor —</option>
                 {CORRIDORS.map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
+              <LockChipRow
+                label="Locales · optional"
+                hint={local.corridor
+                  ? `Empty = the whole corridor. Max ${LIMITS.LOCALES_MAX}. Pin the towns so Fuel doesn't wander.`
+                  : "Pick a corridor first — locales live inside it."}
+                options={localesForCorridor(LEGACY_CORRIDOR_ALIASES[local.corridor] || local.corridor)}
+                selected={selectedLocales}
+                onToggle={toggleLocale}
+                max={LIMITS.LOCALES_MAX}
+                accent={{ bg: featureBg, border: feature, color: feature }}
+              />
               <div style={hintStyle}>Geographic axis · maps to public filter on the consumer site</div>
             </div>
             <div>
@@ -1383,7 +1516,16 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                   // effect above — it re-composes whenever cluster,
                   // corridor, emotion, or demographic changes, so
                   // there is nothing to seed here beyond the cluster.
-                  applyPatch({ cluster: e.target.value || undefined });
+                  // Facets that don't belong to the new cluster drop.
+                  const nextCluster = e.target.value || undefined;
+                  const lock = sanitizeSubjectLock({
+                    cluster: nextCluster,
+                    corridor: local.corridor,
+                    subjectFacets: selectedFacets,
+                    corridorLocales: selectedLocales,
+                    joinFacet: selectedJoin,
+                  });
+                  applyPatch({ cluster: nextCluster, ...lock });
                 }}
               >
                 <option value="">— pick cluster —</option>
@@ -1391,6 +1533,17 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                   <option key={c.key} value={c.key}>{c.label}</option>
                 ))}
               </select>
+              <LockChipRow
+                label="Facets · optional"
+                hint={local.cluster
+                  ? `Empty = the whole cluster. Max ${LIMITS.FACETS_MAX}. Pick the sub-version so Fuel doesn't mash overlapping topics.`
+                  : "Pick a cluster first — facets live inside it."}
+                options={facetsForCluster(local.cluster)}
+                selected={selectedFacets}
+                onToggle={toggleFacet}
+                max={LIMITS.FACETS_MAX}
+                accent={{ bg: orbitBg, border: orbit, color: orbit }}
+              />
               {getClusterDirective(local.cluster) ? (
                 <div style={{ marginTop: 8 }}>
                   {/* Base directive — hardcoded per cluster, canonical
@@ -1498,6 +1651,19 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
               )}
             </div>
           </div>
+
+          {resolveClusterKey(local.cluster) ? (
+            <LockChipRow
+              label="Join · optional · one facet from another cluster"
+              hint="Empty = stay inside this cluster. A join is the only permitted intersection (e.g. parking-lot brewery joined to liquor cap)."
+              options={joinFacetOptions(local.cluster)}
+              selected={selectedJoin ? [selectedJoin] : []}
+              onToggle={toggleJoin}
+              max={1}
+              optionLabel={(opt) => opt.joinLabel || opt.label}
+              accent={{ bg: warnBg, border: warn, color: warn }}
+            />
+          ) : null}
 
           {/* Emotion + Demographic */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>

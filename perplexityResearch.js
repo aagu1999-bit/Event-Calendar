@@ -14,6 +14,11 @@
 import Perplexity from "@perplexity-ai/perplexity_ai";
 import { getClusterDirective, getClusterLabel, isHistoricalCluster, resolveEditorialLens } from "./src/shared/matrixCompass.js";
 import {
+  buildSubjectLock,
+  subjectLockPromptLines,
+  subjectLockInstruction,
+} from "./src/shared/subjectLock.js";
+import {
   OFFICIAL_SEARCH_DOMAINS,
   CULTURAL_SEARCH_DOMAINS,
   classifySources,
@@ -53,7 +58,7 @@ const BULLETS_RESPONSE_SCHEMA = {
 
 // Build the user-facing context block once — both phases see the same
 // matrix dimensions. Only the instructions differ.
-function buildUserPayload({ cluster = "", topic = "", pov = "", existingBullets = [], tier = "", corridor = "", demographics = [], lensOverride = "", extraSearches = [], coherenceGaps = [], coherenceReason = "" } = {}) {
+function buildUserPayload({ cluster = "", topic = "", pov = "", existingBullets = [], tier = "", corridor = "", demographics = [], lensOverride = "", extraSearches = [], coherenceGaps = [], coherenceReason = "", subjectFacets = [], corridorLocales = [], joinFacet = "" } = {}) {
   const clusterLabel = getClusterLabel(cluster) || String(cluster || "").trim();
   const resolvedLens = resolveEditorialLens({ cluster, override: lensOverride });
   const clusterDirective = resolvedLens.base;
@@ -64,6 +69,13 @@ function buildUserPayload({ cluster = "", topic = "", pov = "", existingBullets 
     ? demographics.filter((d) => typeof d === "string" && d.trim()).map((d) => d.trim())
     : [];
   const demoLine = demoList.length ? demoList.join(", ") : "";
+  const lock = buildSubjectLock({
+    cluster,
+    corridor,
+    subjectFacets,
+    corridorLocales,
+    joinFacet,
+  });
   const userLines = [
     `Topic: ${workingTitle || "(none)"}.`,
     `Corridor: ${String(corridor || "").trim() || "(none)"}.`,
@@ -73,6 +85,11 @@ function buildUserPayload({ cluster = "", topic = "", pov = "", existingBullets 
   ];
   if (clusterDirective) userLines.push(`Analytical lens (base — cluster identity): ${clusterDirective}`);
   if (narrowingClause) userLines.push(`Analytical lens NARROWING (operator override for THIS piece — narrows the base to a specific angle, does NOT replace it; every fact must satisfy BOTH clauses): ${narrowingClause}`);
+  const lockLines = subjectLockPromptLines(lock);
+  if (lockLines.length) {
+    userLines.push("");
+    userLines.push(...lockLines);
+  }
   if (existingBullets.length) {
     userLines.push("Do NOT repeat these bullets already on the matrix:");
     for (const b of existingBullets.slice(0, 12)) {
@@ -86,6 +103,7 @@ function buildUserPayload({ cluster = "", topic = "", pov = "", existingBullets 
     userLines.push(...gapLines);
   }
   const named = [
+    ...lock.searches,
     ...coherenceGapSearches({ gaps: coherenceGaps, topic: workingTitle }),
     ...clusterSearchQueries(cluster),
     ...(Array.isArray(extraSearches) ? extraSearches : []),
@@ -129,6 +147,7 @@ export function researchAiModeRequest(input = {}) {
     "STARTING POINTS: 5–8 bullets. Each is a named thread to dive later — a program, a town, a corridor, a magazine piece, a tension, a parallel Saturday. Give enough that the operator knows WHY it matters, not just a URL label. Different threads. Not four angles on the same brewery.",
     "Land Black New Jersey in the thesis or in at least one starting point: who this is for, which Saturday still feels like the strip, who owns vs who programs. Influence may leave the state. The specimen lands back in New Jersey.",
     "PRIMARY RESEARCH LENS: honor the Analytical lens, but do not shrink the brief to clerk facts that only satisfy the lens. The lens is the door. The brief is the map.",
+    subjectLockInstruction(),
     "If CLOSE THESE GAPS is in the user payload, those holes are the hunt. Prefer currently-operating NJ examples when the gap asks for current. Do not pad with another historical program.",
     "BANNED AS THE THESIS: Timeout, Yelp, TripAdvisor, Eventbrite listicles, a Brooklyn weekender calendar, invented towns, condo flyers.",
     ...(historicalOverride ? [
