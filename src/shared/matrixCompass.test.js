@@ -13,6 +13,14 @@ test("listicle hooks are the Google-vs-CGE failure", () => {
   assert.equal(isListicleHook("Cranford retrofitted the downtown. Route 22 still parks the night."), false);
 });
 
+test("question-mark and who-is-X-for covers are the Tech Week failure", () => {
+  assert.equal(isListicleHook("Newark Tech Week's new professionals and students: Who is Newark's tech future for?"), true);
+  assert.equal(isListicleHook("Who is Newark's tech future for?"), true);
+  assert.equal(isListicleHook("Is this gathering actually for students?"), true);
+  assert.equal(isListicleHook("The new class filled Newark Tech Week. The old gatekeepers still set the room."), false);
+  assert.equal(isListicleHook("Who programs Newark Tech Week still decides who counts."), false);
+});
+
 test("hook evidence prefers THESIS / START lines over leftover venue notes", () => {
   const lines = hookEvidenceLines([
     "AFROFEVER doors at 10",
@@ -40,6 +48,10 @@ test("hook prompt authorizes Fuel names and bans the listicle cover", () => {
   assert.match(prompt, /authorized proper nouns/);
   assert.match(prompt, /Discover surprising/);
   assert.match(prompt, /not an Instagram listicle/);
+  assert.match(prompt, /Who is X for/);
+  assert.match(prompt, /question-mark cover/);
+  assert.match(prompt, /never the cover's guest list/);
+  assert.match(prompt, /Newark Tech Week's new professionals and students/);
   assert.equal(/No invented proper nouns: do NOT name specific venues, towns/.test(prompt), false);
 });
 

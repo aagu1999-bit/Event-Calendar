@@ -899,6 +899,10 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
       setHookError("Draft or write an Editorial POV first — the hook is the POV compressed into a scroll-stopper.");
       return;
     }
+    if (lensStale) {
+      setHookError("Re-run Reframe first — Draft Hook reads the LENS box, not the live chips. The yellow STALE chip means the audience list in Narrowing is from an older pick.");
+      return;
+    }
     setDraftingHook(true);
     try {
       const hook = await synthesizeHook({
@@ -2073,7 +2077,9 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                     title={
                       !hasPOV
                         ? "Draft or write an Editorial POV first — the hook is the POV compressed into a scroll-stopper."
-                        : "Compress the POV plus Fuel START points into a cover that names the contrast — not a listicle."
+                        : lensStale
+                          ? "Re-run Reframe first — Draft Hook still reads the stale LENS box, not the live chips."
+                          : "Compress the POV's contrast into a statement — not a question-mark cover."
                     }
                     style={{
                       background: disabled ? "transparent" : "rgba(229,188,79,0.14)",
