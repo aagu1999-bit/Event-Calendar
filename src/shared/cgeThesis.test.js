@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { cadenceRotationBlock, contentCreativeDirection, editorialBuildFormulaLines } from "./cgeThesis.js";
+import { cadenceRotationBlock, contentCreativeDirection, editorialBuildFormulaLines, isPlatformThemeLeak, platformThesisBlock, contentRegisterBlock } from "./cgeThesis.js";
 
 test("cadence rotation is the one-sentence-per-line beat, not a source voice", () => {
   const block = cadenceRotationBlock().join("\n");
@@ -17,6 +17,26 @@ test("cadence rotation is the one-sentence-per-line beat, not a source voice", (
   assert.match(contentCreativeDirection().join("\n"), /discover surprising/);
   assert.match(contentCreativeDirection().join("\n"), /is gone/);
   assert.match(contentCreativeDirection().join("\n"), /Strip Malls vs Urban Cafes/);
+});
+
+test("house fight is a leak unless the LENS already named it", () => {
+  const lens = "Newark Tech Week is here, specifically for business owners.";
+  assert.equal(isPlatformThemeLeak("The Black diaspora's entrepreneurial spirit is navigating new digital frontiers.", lens), true);
+  assert.equal(isPlatformThemeLeak("This influx prompts a closer look at whose vision is being prioritized.", lens), true);
+  assert.equal(isPlatformThemeLeak("Newark Tech Week gathers business owners for a week of sessions in the city.", lens), false);
+  assert.equal(isPlatformThemeLeak("Same-city diaspora rooms keep two calendars.", "same-city diasporas on one ZIP"), false);
+});
+
+test("writer platform block does not sit the house fight ABOVE the LENS", () => {
+  const block = platformThesisBlock({ mode: "content" }).join("\n");
+  assert.match(block, /PUBLICATION IDENTITY/);
+  assert.match(block, /ORIENT/);
+  assert.equal(/this sits ABOVE the cluster lens/.test(block), false);
+  assert.equal(/Black New Jersey as an intersection/.test(block), false);
+  assert.equal(/who actually benefits/.test(block), true);
+  const hero = contentRegisterBlock().join("\n");
+  assert.match(hero, /locates the specimen/);
+  assert.equal(/Hero is a QUESTION about Black New Jersey/.test(hero), false);
 });
 
 test("editorial build formula is one idea then one sideways Saturday", () => {
