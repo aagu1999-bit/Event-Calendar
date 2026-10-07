@@ -275,6 +275,33 @@ export function eventMatrixToFillSeed(event) {
 export function wipeFeedbackMemoryPatch() {
   return { rejected_drafts: [], approved_drafts: [] };
 }
+
+export function countFeedbackMemory(events) {
+  const list = Array.isArray(events) ? events : [];
+  let eventCount = 0;
+  let rejected = 0;
+  let approved = 0;
+  for (const e of list) {
+    const m = e?.matrix && typeof e.matrix === "object" ? e.matrix : {};
+    const r = Array.isArray(m.rejected_drafts) ? m.rejected_drafts.length : 0;
+    const a = Array.isArray(m.approved_drafts) ? m.approved_drafts.length : 0;
+    if (r || a) eventCount += 1;
+    rejected += r;
+    approved += a;
+  }
+  return { events: eventCount, rejected, approved };
+}
+
+export function stripFeedbackMemoryFromEvents(events) {
+  const list = Array.isArray(events) ? events : [];
+  return list.map((e) => {
+    if (!e || typeof e !== "object") return e;
+    const m = e.matrix;
+    if (!m || typeof m !== "object") return e;
+    if (!("rejected_drafts" in m) && !("approved_drafts" in m)) return e;
+    return { ...e, matrix: { ...m, ...wipeFeedbackMemoryPatch() } };
+  });
+}
 // Reference DEMOGRAPHIC_PRESETS to keep the import for future use
 // (typed narrowing on unknown demographics) without unused-var warns.
 void DEMOGRAPHIC_PRESETS;
