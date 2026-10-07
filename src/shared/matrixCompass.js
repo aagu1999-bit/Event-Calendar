@@ -885,7 +885,7 @@ export async function synthesizeHook({ apiKey, pov, editorialLens = "", anchors 
 //     for "thin" and "mismatched" verdicts; empty for "coherent"
 //   claims: pointed claim → source rows (hook|pov × anchored|unverified)
 //   useFor: what this desk can actually carry (Cover + News, not GST 10)
-//   slideCount: pointed slides the desk earned (2–6), not a template length
+//   slideCount: pointed slides the desk earned (2–10), not GST's locked 10
 //
 // Bounded to one Flash-Lite call so the check is cheap enough to
 // run automatically after Fuel. Failure returns null; caller treats
@@ -894,15 +894,18 @@ export async function synthesizeHook({ apiKey, pov, editorialLens = "", anchors 
 const COHERENCE_FROM = ["hook", "pov"];
 const COHERENCE_SUPPORT = ["anchored", "unverified"];
 
+export const DESK_SLIDE_MIN = 3;
+export const DESK_SLIDE_MAX = 10;
+
 export function defaultCoherenceUseFor(slideCount) {
-  const n = Math.min(6, Math.max(2, Number(slideCount) || 2));
+  const n = Math.min(DESK_SLIDE_MAX, Math.max(2, Number(slideCount) || 2));
   if (n <= 3) {
     return "Cover + News. Stay-line on the cover; one receipt in News. The desk did not earn a long carousel.";
   }
   if (n === 4) {
     return "Cover + News + one explanatory beat. Cap at 4 slides — pointed claims, not padding.";
   }
-  return `Cover + News plus ${n - 2} pointed receipts. Cap at ${n} slides — not a 10-card carousel.`;
+  return `Cover + News plus ${n - 2} pointed receipts. Cap at ${n} slides — Cover + News length, not GST's locked stance arc.`;
 }
 
 export function coherenceInputSignature({ hook = "", pov = "", anchors = [], lens = "" } = {}) {
@@ -947,7 +950,7 @@ export function buildCoherencePrompt({ hook, pov, anchors = [], clusterDirective
     "",
     "CLAIMS MAP: extract 1-6 pointed claims the cover/thesis is making. For each: which line it came from (hook or pov), and whether an numbered anchor actually proves it (anchored + 1-based anchor index) or it is still a promise (unverified, anchor 0). A paraphrase of the hook is not a proof. A catalog recitation is not a proof.",
     "",
-    "USE THIS DESK FOR + SLIDE COUNT: say what this material can actually carry. Cover + News is the starting pair. slideCount is the number of pointed slides the desk earned (2-6), NOT a template length and NOT a 10-slide Instagram carousel. If only two claims are anchored, slideCount is 3 (cover + news + stay) or less — do not recommend stretching.",
+    "USE THIS DESK FOR + SLIDE COUNT: say what this material can actually carry. Cover + News is the starting pair. slideCount is the number of pointed slides the desk earned (2-10), NOT a template length and NOT GST's locked 10-slide stance arc. If only two claims are anchored, slideCount is 3 (cover + news + stay) or less — do not recommend stretching.",
     "",
     "For 'thin' and 'mismatched': also return 1-3 specific GAPS — each a short (60-120 char) sentence naming what's missing or what's off. Concrete, not vague. Example: 'No anchor names a currently-operating venue — every specific is either historical or a policy metric.' NOT: 'anchors are weak.'",
     "For 'coherent': return an empty gaps array.",
@@ -986,9 +989,9 @@ export function normalizeCoherenceResult(parsed, { anchors = [] } = {}) {
   const anchoredCount = claims.filter((c) => c.support === "anchored").length;
   let slideCount = Number.parseInt(parsed.slideCount, 10);
   if (!Number.isFinite(slideCount)) {
-    slideCount = Math.min(6, Math.max(2, (anchoredCount || 0) + 1));
+    slideCount = Math.min(DESK_SLIDE_MAX, Math.max(2, (anchoredCount || 0) + 1));
   }
-  slideCount = Math.min(6, Math.max(2, slideCount));
+  slideCount = Math.min(DESK_SLIDE_MAX, Math.max(2, slideCount));
   const useFor = String(parsed.useFor || "").trim().slice(0, 280) || defaultCoherenceUseFor(slideCount);
   const out = {
     verdict,
@@ -1012,7 +1015,7 @@ export function formatCoherenceSeedLines(check) {
   const lines = [
     `COHERENCE: ${normalized.verdict} — ${normalized.reason || "no reason"}`.trim(),
     `USE THIS DESK FOR: ${normalized.useFor}`,
-    `POINTED SLIDE COUNT: ${normalized.slideCount}. Cover + News is the starting pair. Do not stretch to a 10-slide carousel.`,
+    `POINTED SLIDE COUNT: ${normalized.slideCount}. Cover + News is the starting pair. Do not stretch into GST's locked 10-slide stance arc.`,
   ];
   const unverified = normalized.claims.filter((c) => c.support === "unverified");
   if (unverified.length) {
@@ -1035,7 +1038,7 @@ export function parsePointedSlideCount(text) {
   if (!m) return null;
   const n = Number.parseInt(m[1], 10);
   if (!Number.isFinite(n)) return null;
-  return Math.min(6, Math.max(2, n));
+  return Math.min(DESK_SLIDE_MAX, Math.max(2, n));
 }
 
 export function countUsableAnchors(context) {
@@ -1059,22 +1062,22 @@ export function countUsableAnchors(context) {
 
 // Auto length from THIS desk's copy, not a silent 3 and not GST 10.
 // Operator pin wins. Else countable START / THESIS / SPECIMEN receipts
-// (1 proof → 3, 4 proofs → 6). Check's pointed count is only a fallback
+// (1 proof → 3, 8 proofs → 10). Check's pointed count is only a fallback
 // when the desk has no countable receipts — a JSON example of slideCount:3
 // must not freeze a richer Fuel set.
 export function earnedSlideCount(context, pinned = null) {
   if (typeof pinned === "number" && Number.isFinite(pinned) && pinned > 0) {
-    return Math.min(6, Math.max(3, Math.round(pinned)));
+    return Math.min(DESK_SLIDE_MAX, Math.max(DESK_SLIDE_MIN, Math.round(pinned)));
   }
   const proofs = countUsableAnchors(context);
-  if (proofs > 0) return Math.min(6, Math.max(3, proofs + 2));
+  if (proofs > 0) return Math.min(DESK_SLIDE_MAX, Math.max(DESK_SLIDE_MIN, proofs + 2));
   const pointed = parsePointedSlideCount(context);
-  if (pointed) return Math.min(6, Math.max(3, pointed));
-  return 3;
+  if (pointed) return Math.min(DESK_SLIDE_MAX, Math.max(DESK_SLIDE_MIN, pointed));
+  return DESK_SLIDE_MIN;
 }
 
 export function essaySlideSequence(n) {
-  const count = Math.min(6, Math.max(3, Number(n) || 3));
+  const count = Math.min(DESK_SLIDE_MAX, Math.max(DESK_SLIDE_MIN, Number(n) || DESK_SLIDE_MIN));
   const seq = ["cover", "news"];
   for (let i = 0; i < count - 3; i += 1) seq.push("text");
   seq.push("cta");

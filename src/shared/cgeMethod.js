@@ -44,7 +44,7 @@ export function contentArrangerLines() {
     `Arc: ${CONTENT_ESSAY_ARC} when the desk earned a contrast. If the desk only locates, Cover + News locates. Do not invent paradox / friction / pattern / join / mechanism to complete the kit.`,
     "Do NOT use OPEN A LOOP → CREATE TENSION → DELIVER THE PAYOFF. That spine writes 'THE COMMUTER TOWN'S SOCIAL LIFE IS GONE', then a manifesto dump, then a brewery hours card, then a 1:3000 stat.",
     "Do NOT pick spotlight, stat, features, countdown, poster, press, or photo. A venue name and a number live INSIDE an explained paragraph — they are not their own slides.",
-    "Honor the slide count the desk earned (Auto 3–6). Cover → news → cta is honest when there is no contrast. Do not pad to 5 to complete CAUSE / EXPLAIN. News is allowed when it continues the explanation as prose, not a stacked card or scaffolding kicker.",
+    "Honor the slide count the desk earned (Auto 3–10). Cover → news → cta is honest when there is no contrast. Do not pad to complete CAUSE / EXPLAIN. News is allowed when it continues the explanation as prose, not a stacked card or scaffolding kicker.",
     "Slide jobs:",
     "  LOCATE or CONTRAST (cover) — locate who / what / where / when. Title two expressions (Strip Malls vs Urban Cafes) ONLY if Fuel already proved them. Subtitle connects. Never 'is gone'. Never 'discover surprising gathering spots'.",
     "  NEWS or CAUSE (text/news) — the proving paragraph for what is already on this desk. A cause paragraph (sprawl + the cap → deficit) ONLY if the brief named that pressure. Do not invent a 1:3000.",
