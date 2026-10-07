@@ -942,10 +942,10 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
     }
   };
 
-  // Reframe LENS handler — Gemini narrows the base cluster directive
-  // through the operator's current picks and drops the result into
-  // matrix.editorial_lens. The base directive stays canonical; this
-  // just LAYERS a narrowing on top. Editable inline after fill.
+  // Reframe LENS handler — stitches the topic typed in the Narrowing
+  // box to the chips already selected (facets, locales, join, corridor,
+  // emotion, demographic) and writes the combined angle into
+  // matrix.editorial_lens. Empty topic = pills-only reframe.
   const reframeLens = async () => {
     if (reframingLens) return;
     setLensReframeError(null);
@@ -969,6 +969,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
         demographics: selectedDemographics,
         subjectLock: subjectLockPrompt,
         lensBase: liveLens,
+        operatorTopic: local.editorial_lens,
       });
       if (!reframe) {
         setLensReframeError("Gemini returned an empty reframe. Retry.");
@@ -1589,7 +1590,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                             onClick={reframeLens}
                             disabled={disabled}
                             title={clusterKey
-                              ? "Fire a Gemini Flash-Lite call to reframe the LENS this piece sees (a facet lock, or the cluster syllabus if chips are empty) through Corridor + Emotion + Demographic."
+                              ? "Stitch the topic in this box with the chips you already picked (facets, locales, join, corridor, emotion, demographic). Result replaces this box."
                               : "Pick a Content Cluster first — the base LENS is what the reframe narrows."}
                             style={{
                               background: disabled ? "transparent" : "rgba(167,139,250,0.14)",
@@ -1635,7 +1636,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                     style={{ ...textareaStyle, minHeight: 56, fontSize: "0.78rem" }}
                     value={local.editorial_lens || ""}
                     onChange={(e) => applyPatch({ editorial_lens: e.target.value })}
-                    placeholder="Optional. Narrow the LENS this piece already sees — a corridor-specific pressure, a demographic-relevant framing. Empty = the live LENS alone. Layers under a facet lock; does not restore the cluster syllabus."
+                    placeholder="Type a topic, then ✨ Reframe — it gets stitched to the chips you already picked. Empty = reframe from the chips alone."
                     maxLength={800}
                   />
                   {lensReframeError ? (
@@ -1658,7 +1659,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                       letterSpacing: "0.03em",
                       lineHeight: 1.5,
                     }}>
-                      ◆ This narrowing feeds → Draft Thesis, Draft Hook, Fuel Research, Coherence Check, and the carousel writer. Re-run any downstream synth to pick up your edits.
+                      ◆ Stitched from your topic + chips. Feeds → Draft Thesis, Draft Hook, Fuel Research, Coherence Check, and the carousel writer. Change a chip or the topic and Reframe again.
                     </div>
                   )}
                 </div>

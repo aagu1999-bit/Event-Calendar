@@ -480,7 +480,54 @@ export async function synthesizeThesis({ apiKey, cluster, corridor, emotion, dem
 //
 // Same client-side Gemini Flash-Lite architecture as synthesizeThesis
 // and synthesizeHook. Explicit button click only.
-export async function synthesizeLensReframe({ apiKey, cluster, corridor, emotion, demographics = [], subjectLock = null, lensBase = "" } = {}) {
+export function buildLensReframePrompt({
+  clusterLabel,
+  baseDirective,
+  corridor,
+  emotion,
+  demographics = [],
+  subjectLock = null,
+  operatorTopic = "",
+} = {}) {
+  const demoList = Array.isArray(demographics)
+    ? demographics.filter((d) => typeof d === "string" && d.trim()).map((d) => d.trim())
+    : [];
+  const topic = String(operatorTopic || "").trim();
+  const lockSummary = String(subjectLock?.summary || "").trim();
+  return [
+    "ROLE: You are a senior editor at a regional culture magazine covering New Jersey. Your job is NOT to replace the cluster's editorial identity — that's the base directive below. Your job is to NARROW the base directive by stitching the operator's typed topic to the pills they already selected.",
+    "TASK: Write a 1-3 sentence reframed LENS that keeps the typed topic (if any) and combines it with the selected pills. Do NOT drop the topic. Do NOT drop a chip. Do NOT drift into a different cluster's territory.",
+    "",
+    "BASE DIRECTIVE (this stays the anchor — don't contradict it):",
+    `  Cluster: ${clusterLabel}`,
+    `  Directive: ${baseDirective}`,
+    "",
+    "OPERATOR PILLS (already selected — stitch these with the topic; do not drop a chip):",
+    `  Cluster: ${clusterLabel || "(none)"}`,
+    `  Corridor: ${corridor || "(none — whole state)"}`,
+    `  Emotion: ${emotion || "(none)"}`,
+    `  Demographic: ${demoList.length ? demoList.join(", ") : "(none)"}`,
+    `  Subject lock: ${lockSummary || "(none — whole cluster)"}`,
+    ...(Array.isArray(subjectLock?.promptLines) && subjectLock.promptLines.length ? ["", ...subjectLock.promptLines] : []),
+    "",
+    topic
+      ? `OPERATOR TOPIC (typed in Narrowing — keep this named subject and stitch it to the pills above; do not throw it out): ${topic}`
+      : "OPERATOR TOPIC: (none — stitch the pills into a narrowing angle on their own.)",
+    "",
+    "CONSTRAINTS:",
+    "1. NARROW, DO NOT REPLACE. The base directive is what THIS piece sees. If it is a facet lock, do not widen back to sibling facets or the cluster syllabus. If it is the whole-cluster directive, stay inside that cluster.",
+    "2. TOPIC + PILLS. If an OPERATOR TOPIC is present, the reframe must keep that named subject and combine it with the selected pills. Do not replace the topic with a generic cluster recitation.",
+    "3. GROUND IN THE CORRIDOR + AUDIENCE when those pills are set.",
+    "4. NO META-WRITING. Do not refer to the piece, the carousel, or the reader. State the narrowing as an editorial angle, not as memo scaffolding.",
+    "5. NO INVENTED SPECIFICS beyond the base directive, the pills, and the operator topic. Names the operator typed are authorized.",
+    "6. LENGTH: 1 to 3 sentences. Reads as an angle, not a paragraph.",
+    "7. SUBJECT LOCK: If SUBJECT LOCK lines appear above, the reframe must name those sub-versions. Do not widen back to the whole cluster, and do not import a different cluster's territory unless JOIN names it.",
+    "",
+    'Return ONLY JSON in this exact shape: {"reframe": "..."}',
+  ].join("\n");
+}
+
+export async function synthesizeLensReframe({ apiKey, cluster, corridor, emotion, demographics = [], subjectLock = null, lensBase = "", operatorTopic = "" } = {}) {
   if (!apiKey || !String(apiKey).trim()) {
     throw new Error("Missing Gemini API key");
   }
@@ -490,34 +537,15 @@ export async function synthesizeLensReframe({ apiKey, cluster, corridor, emotion
   }
   const clusterLabel = CONTENT_CLUSTERS[clusterKey].label;
   const baseDirective = String(lensBase || "").trim() || CONTENT_CLUSTERS[clusterKey].directive;
-  const demoList = Array.isArray(demographics)
-    ? demographics.filter((d) => typeof d === "string" && d.trim()).map((d) => d.trim())
-    : [];
-
-  const prompt = [
-    "ROLE: You are a senior editor at a regional culture magazine covering New Jersey. Your job is NOT to replace the cluster's editorial identity — that's the base directive below. Your job is to NARROW the base directive through the operator's current picks so this specific piece has a specific angle within the cluster.",
-    "TASK: Write a 1-3 sentence reframed LENS that reads as a specific angle inside the base cluster directive, calibrated to the Corridor + Emotion + Demographic below. Do NOT rewrite the cluster's identity; do NOT drift into a different cluster's territory. Narrow, don't replace.",
-    "",
-    "BASE DIRECTIVE (this stays the anchor — don't contradict it):",
-    `  Cluster: ${clusterLabel}`,
-    `  Directive: ${baseDirective}`,
-    "",
-    "OPERATOR'S CURRENT PICKS (what to narrow through):",
-    `  Corridor: ${corridor || "(not set — write for the whole state)"}`,
-    `  Target Emotion: ${emotion || "(not set — default to Curiosity/Epiphany)"}`,
-    `  Target Demographic: ${demoList.length ? demoList.join(", ") : "(not set — write broadly)"}`,
-    ...(Array.isArray(subjectLock?.promptLines) && subjectLock.promptLines.length ? ["", ...subjectLock.promptLines] : []),
-    "",
-    "CONSTRAINTS:",
-    "1. NARROW, DO NOT REPLACE. The base directive is what THIS piece sees. If it is a facet lock, do not widen back to sibling facets or the cluster syllabus. If it is the whole-cluster directive, stay inside that cluster — do not drift into a different cluster's territory.",
-    "2. GROUND IN THE CORRIDOR + AUDIENCE. The reframe should name what SPECIFICALLY matters about this cluster for this corridor's readers of this demographic. Example: Policy Mechanics through Urban / Commuter Core + Young Working Professionals + Ambition might narrow the base directive from liquor licenses toward rent-cap ordinances, transit-funding formulas, and workforce-housing policy — still Policy Mechanics, but the SPECIFIC policies these readers actually care about.",
-    "3. NO META-WRITING. Do not refer to the piece, the carousel, or the reader. State the narrowing as an editorial angle, not as memo scaffolding.",
-    "4. NO INVENTED SPECIFICS. Do not name specific ordinances, statutes, venues, or towns the base directive didn't already mention. Stay at the level of CATEGORIES (rent ordinances, transit formulas, permit thresholds) — the writer will source the specifics.",
-    "5. LENGTH: 1 to 3 sentences. Reads as an angle, not a paragraph.",
-    "6. SUBJECT LOCK: If SUBJECT LOCK lines appear above, the reframe must name those sub-versions. Do not widen back to the whole cluster, and do not import a different cluster's territory unless JOIN names it.",
-    "",
-    'Return ONLY JSON in this exact shape: {"reframe": "..."}',
-  ].join("\n");
+  const prompt = buildLensReframePrompt({
+    clusterLabel,
+    baseDirective,
+    corridor,
+    emotion,
+    demographics,
+    subjectLock,
+    operatorTopic,
+  });
 
   const MODEL = "gemini-2.5-flash-lite";
   const URL_BASE = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
