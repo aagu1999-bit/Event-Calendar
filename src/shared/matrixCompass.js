@@ -708,10 +708,10 @@ export function buildHookPrompt({
   const evidence = hookEvidenceLines(anchors);
   return [
     "ROLE: You write magazine cover lines for a Black New Jersey cultural publication. You are not an Instagram listicle copywriter.",
-    "TASK: Write one 10-to-18 word STATEMENT that NAMES THE CONTRAST the POV already named. A declaration, never a question.",
+    "TASK: Write one 10-to-18 word STATEMENT that compresses what the POV already said. If the POV named a contrast, name that contrast. If the POV only orients (who / what / where / when), the cover locates — do not invent a fight. A declaration, never a question.",
     "",
     "THE INPUTS (POV first, then LENS, then Fuel — not live chips):",
-    `- The Core Argument (POV — this is the contrast to compress): ${cleanPOV}`,
+    `- The Core Argument (POV — compress this; do not add a house fight it did not name): ${cleanPOV}`,
     ...(cleanBase ? [`- Analytical lens (facet lock labels): ${cleanBase}`] : []),
     ...(cleanLens ? [`- LENS Narrowing (scene, not the guest list to recap): ${cleanLens}`] : []),
     ...(evidence.length
@@ -724,19 +724,20 @@ export function buildHookPrompt({
     "QUALITY BAR — Google AI Mode, not a listing:",
     "  GOOD: \"Walker's Paradise vs the strip-mall geography Route 22 actually built.\"",
     "  GOOD: \"Cranford retrofitted the downtown. Route 22 still gathers in a parking lot.\"",
-    "  GOOD: \"The new class filled Newark Tech Week. The old gatekeepers still set the room.\"",
+    "  GOOD: \"Newark Tech Week is in town. The rooms are built for business owners.\"",
     "  FAILED: \"Did your commuter community? Discover surprising new gathering spots.\"",
     "  FAILED: \"Newark Tech Week's new professionals and students: Who is Newark's tech future for?\"",
+    "  FAILED: \"The new class filled Newark Tech Week. The old gatekeepers still set the room.\"",
     "",
     "STRICT CONSTRAINTS:",
-    "1. Compress the POV's tension. The LENS is the scene, not a guest list to recap. Do not invent a tone, audience, cluster syllabus, or corridor spend that is not already in those inputs. Unclicked dropdowns are not inputs.",
-    '2. Name the contrast the POV proved. Do NOT pose a vague "did you know" or "discover surprising spots" observation.',
+    "1. Compress the POV. The LENS is the scene, not a guest list to recap. Do not invent a tone, audience, cluster syllabus, corridor spend, or CGE house fight that is not already in the POV or LENS. Unclicked dropdowns are not inputs.",
+    '2. If the POV named a contrast, name that contrast. If it did not, locate. Do NOT pose a vague "did you know" or "discover surprising spots" observation, and do NOT graft who-programs / diaspora / who-benefits onto an orienting POV.',
     '3. No listicle tropes: NEVER "Discover surprising", "new gathering spots", "Did your community", "Did you know", "Here\'s why", "The real reason", "hidden gems", "spots you need to know", "Let\'s talk about", "You won\'t believe", "The truth is", "Everything you know is wrong".',
     "4. Proper nouns: you MAY and SHOULD name towns, roads, corridors, and patterns that already appear in the POV, LENS, or Fuel starting points. Do NOT invent names that are not there.",
     "5. Format: one sentence. No quotes, no preamble, no framing. No trailing question mark.",
     "6. Demographic labels (students, professionals, business owners, creatives, DJs) are who the piece is FOR — never the cover's guest list. Do not recap who showed up.",
     '7. NEVER a question-mark cover. NEVER "Who is X for?". NEVER "Event name: question". NEVER a colon-title that restates the audience then asks who the future is for.',
-    "8. Prefer the POV's fight (who programs / who already holds the room vs who the flyer named) over the LENS's crowd recap.",
+    "8. Do NOT import African American / Caribbean / African diaspora tension, who owns vs who programs, who actually benefits, whose vision, entrepreneurial spirit, or old gatekeepers unless those words or that fight are already in the POV or LENS.",
     "",
     'Return ONLY JSON in this exact shape: {"hook": "..."}',
   ].join("\n");
@@ -799,6 +800,10 @@ export async function synthesizeHook({ apiKey, pov, editorialLens = "", anchors 
   if (!hook) throw new Error("Gemini returned no hook text — retry.");
   if (isListicleHook(hook)) {
     throw new Error("Gemini wrote a question-mark or listicle cover. Redraft Hook — the line has to name the contrast, not ask who the piece is for.");
+  }
+  const desk = [cleanPOV, editorialLens, lensBase, ...hookEvidenceLines(anchors)].join(" ");
+  if (isPlatformThemeLeak(hook, desk)) {
+    throw new Error("Hook imported the CGE house fight (diaspora / who benefits / gatekeepers) that this POV did not name. Redraft Hook, or name that fight in the POV first.");
   }
   // Word-count guard — the spec says 10-18 words. A one-liner outside
   // that range violates the parametric contract; log a warning but
