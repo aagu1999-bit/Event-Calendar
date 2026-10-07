@@ -380,6 +380,8 @@ export function buildThesisPrompt({ lens = "" } = {}) {
     "",
     "CONSTRAINTS:",
     "1. Write FROM the LENS. Do not add a cluster syllabus, a corridor spend, an emotion stance, or an audience frame that is not already in the LENS.",
+    "1b. Do not paste the platform line 'who actually benefits' as a generic closer when the LENS did not name an owner/programmer fight. If the LENS is an event name plus audiences, name one contrast — do not recap a showcase.",
+    "1c. BANNED: vibrant, ecosystem, landscape, showcase, illuminating, opportunities and challenges, begs the question.",
     "2. No Proper Nouns: do NOT invent specific venue names, town names, ordinance names, statute years, or era labels the LENS did not supply. Names already in the LENS are authorized.",
     "3. No filler, no introductory remarks, no 'this piece argues that…' scaffolding, no grantwriter register.",
     "4. Length: EXACTLY 1–2 sentences of punchy, opinionated thesis text. Second sentence, when present, extends the tension into a payoff or a wager; it never restates sentence 1.",
@@ -465,6 +467,23 @@ export async function synthesizeThesis({ apiKey, editorialLens = "", lensBase = 
 //
 // Same client-side Gemini Flash-Lite architecture as synthesizeThesis
 // and synthesizeHook. Explicit button click only.
+// Chip label for what Reframe actually read. Empty cluster / corridor /
+// emotion must not appear on the chip — that was the Newark Tech Week lie.
+export function describeReframeInputs({ cluster, corridor, emotion, demographics = [], lock, topic } = {}) {
+  const parts = [];
+  if (topic) parts.push("typed topic");
+  if (String(cluster || "").trim()) parts.push("cluster desk");
+  if (String(corridor || "").trim()) parts.push("corridor");
+  if (String(emotion || "").trim()) parts.push("emotion");
+  if (Array.isArray(demographics) && demographics.some((d) => String(d || "").trim())) parts.push("demographic");
+  const facets = Array.isArray(lock?.facets) ? lock.facets.filter(Boolean) : [];
+  const locales = Array.isArray(lock?.locales) ? lock.locales.filter(Boolean) : [];
+  if (facets.length) parts.push("facets");
+  if (locales.length) parts.push("locales");
+  if (String(lock?.join || "").trim()) parts.push("join");
+  return parts.length ? parts.join(" · ") : "typed topic";
+}
+
 export function buildLensReframePrompt({
   clusterLabel,
   baseDirective,
@@ -509,6 +528,8 @@ export function buildLensReframePrompt({
     "5. NO INVENTED SPECIFICS beyond the base directive, the pills, and the operator topic. Names the operator typed are authorized.",
     "6. LENGTH: 1 to 3 sentences. Reads as an angle, not a paragraph.",
     "7. SUBJECT LOCK: If SUBJECT LOCK lines appear above, the reframe must name those sub-versions. Do not widen to unselected facets, and do not import a different cluster's territory unless JOIN names it. Empty facets are not permission to recite the catalog.",
+    "8. DEMOGRAPHIC PILLS are who the piece is FOR — a constraint. Do NOT recap them as 'opportunities and challenges for Young Working Professionals, students, and business owners.' Do not write a press release.",
+    "9. BANNED in the reframe: vibrant, ecosystem, landscape, showcase, illuminating, opportunities and challenges, access for all. An event name is not a brochure. If cluster, corridor, and emotion are omitted, do not write as if a desk was opened.",
     "",
     'Return ONLY JSON in this exact shape: {"reframe": "..."}',
   ].join("\n");
