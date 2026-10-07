@@ -57,6 +57,8 @@ const PLATFORM_THEME_LEAKS = [
   { re: /\bafrican american\b/i, needle: "african american" },
   { re: /\bcaribbean\b/i, needle: "caribbean" },
   { re: /\bgatekeepers?\b/i, needle: "gatekeeper" },
+  { re: /\bstill set the room\b/i, needle: "still set the room" },
+  { re: /\bold guard\b/i, needle: "old guard" },
 ];
 
 export function isPlatformThemeLeak(text, desk = "") {

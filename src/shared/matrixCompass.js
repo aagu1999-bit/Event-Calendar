@@ -373,14 +373,21 @@ export function buildThesisPrompt({ lens = "" } = {}) {
     "  Do NOT import African American / Caribbean / African diaspora tension, who owns vs who programs, who actually benefits, whose vision is being prioritized, or 'entrepreneurial spirit' unless those words or that fight are already in the LENS.",
     "  If the LENS is an event name plus an audience, ORIENT: who / what / where / when. Name one contrast only if the LENS already contains it. Do not invent a CGE theme to sound serious.",
     "  Do not collapse the POV into generic gathering-magazine copy (third places, liquor caps, 150-cap rooms) unless the LENS actually is that story.",
+    "  Do not paraphrase a press-release LENS. A flyer that 'highlights innovations' is not an angle — locate anyway.",
     "",
     "THE LENS (the only argument this piece is allowed to make):",
     cleanLens || "(empty — do not write)",
     "",
+    "QUALITY BAR — locate, do not recap the flyer:",
+    "  GOOD: \"Newark Tech Week is a week of sessions in Newark.\"",
+    "  GOOD: \"Newark Tech Week is in town. The rooms are built for business owners.\"",
+    "  FAILED: \"Newark Tech Week is bringing attention to the city's developing technology sector, highlighting the innovations and future potential from within Newark's tech scene.\"",
+    "",
     "CONSTRAINTS:",
     "1. Write FROM the LENS. Do not add a cluster syllabus, a corridor spend, an emotion stance, or an audience frame that is not already in the LENS.",
     "1b. Do not paste or paraphrase 'who actually benefits', 'whose vision is being prioritized', 'diaspora's entrepreneurial spirit', or 'who owns vs who programs' when the LENS did not name that fight. If the LENS is an event name plus audiences, orient — do not recap a showcase and do not graft the house thesis.",
-    "1c. BANNED: vibrant, ecosystem, landscape, showcase, illuminating, opportunities and challenges, begs the question.",
+    "1c. BANNED: vibrant, ecosystem, landscape, showcase, illuminating, opportunities and challenges, begs the question, burgeoning, drawing attention, bringing attention, highlights, highlighting, spotlights, city's innovations, future potential, technology sector, tech scene.",
+    "1d. If the LENS is a chamber-of-commerce recap (burgeoning sector, highlights innovations, future potential), do not rewrite it in new words. ORIENT: who / what / where / when. One locating sentence is enough.",
     "2. No Proper Nouns: do NOT invent specific venue names, town names, ordinance names, statute years, or era labels the LENS did not supply. Names already in the LENS are authorized.",
     "3. No filler, no introductory remarks, no 'this piece argues that…' scaffolding, no grantwriter register.",
     "4. Length: EXACTLY 1–2 sentences of punchy, opinionated thesis text. Second sentence, when present, extends the tension into a payoff or a wager; it never restates sentence 1. If there is no tension in the LENS, one locating sentence is enough.",
@@ -450,6 +457,9 @@ export async function synthesizeThesis({ apiKey, editorialLens = "", lensBase = 
   }
   const thesis = String(parsed?.thesis || "").trim();
   if (!thesis) throw new Error("Gemini returned no thesis text — retry.");
+  if (isBrochureCopy(thesis)) {
+    throw new Error("Thesis recapped the LENS as a press release (highlights / innovations / future potential). Redraft Thesis — locate who / what / where / when; do not rewrite the flyer.");
+  }
   if (isPlatformThemeLeak(thesis, resolved.combined)) {
     throw new Error("Thesis imported the CGE house fight (diaspora / who benefits) that this LENS did not name. Redraft Thesis, or name that fight in Narrowing first.");
   }
@@ -566,7 +576,9 @@ export function buildLensReframePrompt({
     "6. LENGTH: 1 to 3 sentences. Reads as an angle, not a paragraph.",
     "7. SUBJECT LOCK: If SUBJECT LOCK lines appear above, the reframe must name those sub-versions. Do not widen to unselected facets, and do not import a different cluster's territory unless JOIN names it. Empty facets are not permission to recite the catalog.",
     "8. DEMOGRAPHIC PILLS are who the piece is FOR — a constraint. Do NOT recap them as 'opportunities and challenges for Young Working Professionals, students, and business owners.' Do not write a press release.",
-    "9. BANNED in the reframe: vibrant, ecosystem, landscape, showcase, illuminating, opportunities and challenges, access for all. An event name is not a brochure. If cluster, corridor, and emotion are omitted, do not write as if a desk was opened.",
+    "9. BANNED in the reframe: vibrant, ecosystem, landscape, showcase, illuminating, opportunities and challenges, access for all, burgeoning, drawing attention, bringing attention, highlights, highlighting, spotlights, city's innovations, future potential, technology sector, tech scene. An event name is not a brochure. Locate: who / what / where / when. If the typed topic is only an event name, say the week is in town — do not invent a sector pitch. If cluster, corridor, and emotion are omitted, do not write as if a desk was opened.",
+    "10. FAILED: \"Newark Tech Week is drawing attention to the city's burgeoning technology sector. This event highlights the innovations and future potential emerging from Newark's tech scene.\"",
+    "    GOOD: \"Newark Tech Week is a week of sessions in Newark.\"",
     "",
     'Return ONLY JSON in this exact shape: {"reframe": "..."}',
   ].join("\n");
@@ -633,6 +645,9 @@ export async function synthesizeLensReframe({ apiKey, cluster, corridor, emotion
   }
   const reframe = String(parsed?.reframe || "").trim();
   if (!reframe) throw new Error("Gemini returned no reframe text — retry.");
+  if (isBrochureCopy(reframe)) {
+    throw new Error("Reframe wrote chamber-of-commerce copy (burgeoning / highlights / future potential). Redraft Reframe — locate the specimen, do not recap the flyer.");
+  }
   return reframe.slice(0, 800);
 }
 
@@ -688,6 +703,31 @@ export function isListicleHook(text) {
   return LISTICLE_HOOK_TROPES.some((re) => re.test(s));
 }
 
+// Chamber-of-commerce / flyer recap. Reframe and Thesis were writing
+// "burgeoning technology sector / highlights innovations / future
+// potential" for a typed event name, then Hook invented a fight to
+// make the empty recap feel like a magazine cover.
+const BROCHURE_TROPES = [
+  /\bburgeoning\b/i,
+  /\bfuture potential\b/i,
+  /\b(?:drawing|bringing)\s+attention\b/i,
+  /\bthis event highlights\b/i,
+  /\bhighlight(?:s|ing)\s+(?:the\s+)?(?:innovations?|event|city|future)\b/i,
+  /\bspotlight(?:s|ing)\b/i,
+  /\binnovations?\s+and\s+future\b/i,
+  /\bcity's\s+innovations\b/i,
+  /\btechnology sector\b/i,
+  /\btech scene\b/i,
+  /\bdeveloping technology\b/i,
+  /\bemerging from\b/i,
+];
+
+export function isBrochureCopy(text) {
+  const s = String(text || "").trim();
+  if (!s) return false;
+  return BROCHURE_TROPES.some((re) => re.test(s));
+}
+
 export function hookEvidenceLines(anchors = []) {
   const clean = (Array.isArray(anchors) ? anchors : [])
     .map((a) => String(a || "").trim())
@@ -728,6 +768,7 @@ export function buildHookPrompt({
     "  FAILED: \"Did your commuter community? Discover surprising new gathering spots.\"",
     "  FAILED: \"Newark Tech Week's new professionals and students: Who is Newark's tech future for?\"",
     "  FAILED: \"The new class filled Newark Tech Week. The old gatekeepers still set the room.\"",
+    "  FAILED: \"Newark Tech Week spotlights the city's innovations while the old gatekeepers still set the room.\"",
     "",
     "STRICT CONSTRAINTS:",
     "1. Compress the POV. The LENS is the scene, not a guest list to recap. Do not invent a tone, audience, cluster syllabus, corridor spend, or CGE house fight that is not already in the POV or LENS. Unclicked dropdowns are not inputs.",
@@ -737,7 +778,8 @@ export function buildHookPrompt({
     "5. Format: one sentence. No quotes, no preamble, no framing. No trailing question mark.",
     "6. Demographic labels (students, professionals, business owners, creatives, DJs) are who the piece is FOR — never the cover's guest list. Do not recap who showed up.",
     '7. NEVER a question-mark cover. NEVER "Who is X for?". NEVER "Event name: question". NEVER a colon-title that restates the audience then asks who the future is for.',
-    "8. Do NOT import African American / Caribbean / African diaspora tension, who owns vs who programs, who actually benefits, whose vision, entrepreneurial spirit, or old gatekeepers unless those words or that fight are already in the POV or LENS.",
+    "8. Do NOT import African American / Caribbean / African diaspora tension, who owns vs who programs, who actually benefits, whose vision, entrepreneurial spirit, old gatekeepers, old guard, or 'still set the room' unless those words or that fight are already in the POV or LENS.",
+    "9. Do NOT recap a flyer. NEVER 'spotlights the city's innovations', 'burgeoning', 'future potential', 'drawing attention', or 'highlights'. If the POV only orients, locate in fewer words — do not invent a gatekeeper contrast to make the cover feel serious.",
     "",
     'Return ONLY JSON in this exact shape: {"hook": "..."}',
   ].join("\n");
@@ -800,6 +842,9 @@ export async function synthesizeHook({ apiKey, pov, editorialLens = "", anchors 
   if (!hook) throw new Error("Gemini returned no hook text — retry.");
   if (isListicleHook(hook)) {
     throw new Error("Gemini wrote a question-mark or listicle cover. Redraft Hook — the line has to name the contrast, not ask who the piece is for.");
+  }
+  if (isBrochureCopy(hook)) {
+    throw new Error("Hook recapped the flyer (spotlights / innovations / future potential). Redraft Hook — compress the POV; do not invent a gatekeeper fight.");
   }
   const desk = [cleanPOV, editorialLens, lensBase, ...hookEvidenceLines(anchors)].join(" ");
   if (isPlatformThemeLeak(hook, desk)) {
