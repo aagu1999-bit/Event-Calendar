@@ -469,7 +469,8 @@ export async function synthesizeThesis({ apiKey, editorialLens = "", lensBase = 
 // and synthesizeHook. Explicit button click only.
 // Chip label for what Reframe actually read. Empty cluster / corridor /
 // emotion must not appear on the chip — that was the Newark Tech Week lie.
-export function describeReframeInputs({ cluster, corridor, emotion, demographics = [], lock, topic } = {}) {
+export function describeReframeInputs(inputs = {}) {
+  const { cluster, corridor, emotion, demographics = [], lock, topic } = inputs || {};
   const parts = [];
   if (topic) parts.push("typed topic");
   if (String(cluster || "").trim()) parts.push("cluster desk");
