@@ -1016,9 +1016,69 @@ export function formatCoherenceSeedLines(check) {
   ];
   const unverified = normalized.claims.filter((c) => c.support === "unverified");
   if (unverified.length) {
-    lines.push(`UNVERIFIED CLAIMS (do not treat as proven): ${unverified.map((c) => c.claim).join("; ")}`);
+    lines.push(`UNVERIFIED CLAIMS — OMIT FROM EVERY SLIDE. Do not write, paraphrase, or imply these. If the hook or POV used one, rewrite that beat from an anchored START / THESIS / SPECIMEN line. Never treat a RECEIPT — UNVERIFIED line as proof: ${unverified.map((c) => c.claim).join("; ")}`);
+  }
+  if (normalized.gaps.length) {
+    lines.push(`OPEN GAPS — homework, not copy. Do not invent these onto slides: ${normalized.gaps.join("; ")}`);
   }
   return lines;
+}
+
+const HOMEWORK_ANCHOR = /^(?:[-•*]\s+)?(?:RECEIPT\s*—\s*UNVERIFIED|GAP\s*—)/i;
+
+export function isHomeworkAnchor(line) {
+  return HOMEWORK_ANCHOR.test(String(line || "").trim());
+}
+
+export function parsePointedSlideCount(text) {
+  const m = String(text || "").match(/POINTED SLIDE COUNT:\s*(\d+)/i);
+  if (!m) return null;
+  const n = Number.parseInt(m[1], 10);
+  if (!Number.isFinite(n)) return null;
+  return Math.min(6, Math.max(2, n));
+}
+
+export function countUsableAnchors(context) {
+  const lines = String(context || "").split(/\n/);
+  let n = 0;
+  for (const line of lines) {
+    const raw = String(line || "").trim();
+    if (!raw) continue;
+    const bullet = raw.replace(/^[-•*]\s+/, "");
+    if (isHomeworkAnchor(raw) || isHomeworkAnchor(bullet)) continue;
+    if (/^(?:THESIS|START|SPECIMEN|MECHANISM|FRICTION|DOCUMENT|ARGUMENT|JOIN|NEXT)\s*—/i.test(bullet)) {
+      n += 1;
+      continue;
+    }
+    if (/^[-•*]/.test(raw) && bullet.length > 8 && !/^(?:POV:|OPERATOR HOOK:|COHERENCE:|USE THIS DESK|POINTED SLIDE|UNVERIFIED|OPEN GAPS|CONVERSATION|ANCHORED FACTS|HOMEWORK)/i.test(bullet)) {
+      n += 1;
+    }
+  }
+  return n;
+}
+
+// Auto length from THIS desk's copy, not a silent 3 and not GST 10.
+// Operator pin wins. Else countable START / THESIS / SPECIMEN receipts
+// (1 proof → 3, 4 proofs → 6). Check's pointed count is only a fallback
+// when the desk has no countable receipts — a JSON example of slideCount:3
+// must not freeze a richer Fuel set.
+export function earnedSlideCount(context, pinned = null) {
+  if (typeof pinned === "number" && Number.isFinite(pinned) && pinned > 0) {
+    return Math.min(6, Math.max(3, Math.round(pinned)));
+  }
+  const proofs = countUsableAnchors(context);
+  if (proofs > 0) return Math.min(6, Math.max(3, proofs + 2));
+  const pointed = parsePointedSlideCount(context);
+  if (pointed) return Math.min(6, Math.max(3, pointed));
+  return 3;
+}
+
+export function essaySlideSequence(n) {
+  const count = Math.min(6, Math.max(3, Number(n) || 3));
+  const seq = ["cover", "news"];
+  for (let i = 0; i < count - 3; i += 1) seq.push("text");
+  seq.push("cta");
+  return seq;
 }
 
 export async function checkArgumentCoherence({ apiKey, hook, pov, anchors = [], clusterDirective, conversationPrimary } = {}) {

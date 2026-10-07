@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isListicleHook, isBrochureCopy, hookEvidenceLines, buildHookPrompt, buildLensReframePrompt, buildThesisPrompt, buildCoherencePrompt, normalizeCoherenceResult, formatCoherenceSeedLines, defaultCoherenceUseFor, coherenceInputSignature, describeReframeInputs, lensFreshnessSignature } from "./matrixCompass.js";
+import { isListicleHook, isBrochureCopy, hookEvidenceLines, buildHookPrompt, buildLensReframePrompt, buildThesisPrompt, buildCoherencePrompt, normalizeCoherenceResult, formatCoherenceSeedLines, defaultCoherenceUseFor, coherenceInputSignature, describeReframeInputs, lensFreshnessSignature, earnedSlideCount, essaySlideSequence, countUsableAnchors, isHomeworkAnchor } from "./matrixCompass.js";
 import { buildSubjectLock, subjectLockPromptLines, lockLensDirective } from "./subjectLock.js";
 
 test("listicle hooks are the Google-vs-CGE failure", () => {
@@ -301,6 +301,7 @@ test("coherence seed lines tell the writer what the desk can carry", () => {
   const lines = formatCoherenceSeedLines({
     verdict: "thin",
     reason: "One receipt.",
+    gaps: ["Need a currently-operating Parkway Saturday, not a Brooklyn calendar."],
     claims: [
       { claim: "Parkway towns eat the summer influx.", from: "hook", support: "anchored", anchor: 1 },
       { claim: "The tax is unpaid.", from: "pov", support: "unverified", anchor: 0 },
@@ -312,9 +313,42 @@ test("coherence seed lines tell the writer what the desk can carry", () => {
   assert.match(blob, /COHERENCE: thin/);
   assert.match(blob, /USE THIS DESK FOR: Cover \+ News/);
   assert.match(blob, /POINTED SLIDE COUNT: 3/);
-  assert.match(blob, /UNVERIFIED CLAIMS/);
+  assert.match(blob, /UNVERIFIED CLAIMS — OMIT FROM EVERY SLIDE/);
   assert.match(blob, /The tax is unpaid/);
+  assert.match(blob, /OPEN GAPS — homework, not copy/);
+  assert.match(blob, /currently-operating Parkway Saturday/);
   assert.deepEqual(formatCoherenceSeedLines(null), []);
   const sig = coherenceInputSignature({ hook: "a", pov: "b", anchors: ["c"], lens: "d" });
   assert.equal(sig, "a|b|c|d");
+});
+
+test("slide count is earned from this desk, not a silent 3", () => {
+  assert.equal(isHomeworkAnchor("RECEIPT — UNVERIFIED: the tax is unpaid"), true);
+  assert.equal(isHomeworkAnchor("GAP — a currently-operating Saturday"), true);
+  assert.equal(isHomeworkAnchor("START — Parkway towns lose the shoulder season."), false);
+
+  const fourProofs = [
+    "POV: The influx is a logistics tax.",
+    "ANCHORED FACTS (write from these):",
+    "- START — Parkway towns lose the shoulder season.",
+    "- START — A currently-operating Saturday still pays the tax.",
+    "- MECHANISM — weekend traffic eats the split.",
+    "- SPECIMEN — a Parkway operator named the influx.",
+    "HOMEWORK — NOT PROOF. Do not write these as facts:",
+    "- RECEIPT — UNVERIFIED: the tax is unpaid",
+    "- GAP — a currently-operating Saturday operator quote",
+    "POINTED SLIDE COUNT: 3. Cover + News is the starting pair.",
+  ].join("\n");
+  assert.equal(countUsableAnchors(fourProofs), 4);
+  // Four receipts earn 6. Check's example slideCount:3 must not freeze Auto at 3.
+  assert.equal(earnedSlideCount(fourProofs), 6);
+  assert.equal(earnedSlideCount(fourProofs, 4), 4);
+  assert.deepEqual(essaySlideSequence(6), ["cover", "news", "text", "text", "text", "cta"]);
+  assert.deepEqual(essaySlideSequence(3), ["cover", "news", "cta"]);
+  assert.deepEqual(essaySlideSequence(4), ["cover", "news", "text", "cta"]);
+
+  const emptyDesk = "POV: locate.\nPOINTED SLIDE COUNT: 5.";
+  assert.equal(countUsableAnchors(emptyDesk), 0);
+  assert.equal(earnedSlideCount(emptyDesk), 5);
+  assert.equal(earnedSlideCount(""), 3);
 });

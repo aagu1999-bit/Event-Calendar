@@ -1,3 +1,5 @@
+import { earnedSlideCount, essaySlideSequence } from "./matrixCompass.js";
+
 // Conversation maps — Injustice / Explainer / Re-frame / Micro-doc.
 //
 // These are what KIND OF TALK the piece is, ranked after Fuel + Check
@@ -173,7 +175,7 @@ export function formatConversationSeedLines(rank) {
     `CONVERSATION_RANK_KEYS: primary=${clean.primary}; secondary=${clean.secondary || "none"}; tertiary=${clean.tertiary || "none"}`,
     `CONVERSATION MAP: primary ${primary.label} — ${primary.talk}`,
     primary.seed,
-    "Cover + News in this talk. Do not stretch to a 10-slide carousel. Do not write Stat, Spotlight, or 'share this to change the conversation.'",
+    "Cover + News is the starting pair in this talk. Slide count comes from the anchored receipts on this desk (Auto 3–6) — not a default 3, not a 10-slide carousel. Do not write Stat, Spotlight, or 'share this to change the conversation.'",
   ];
   if (clean.secondary) {
     const sec = CONVERSATION_MAPS[clean.secondary];
@@ -215,7 +217,7 @@ export function conversationWriterBlock(rankOrText) {
     "═════════════════════════════",
     "CONVERSATION MAP — operator-selected. This is the talk. It outranks GST's default who-benefits stance and any cluster drawer.",
     ...lines,
-    "PRIMARY is the piece. Write Cover + News in that talk. SECONDARY colors one pointed source already on the desk — do not hunt a second syllabus. TERTIARY is caption or parked: no slide, Fuel does not hunt it.",
+    "PRIMARY is the piece. Write Cover + News in that talk, then only as many extra beats as this desk earned. SECONDARY colors one pointed source already on the desk — do not hunt a second syllabus. TERTIARY is caption or parked: no slide, Fuel does not hunt it.",
     "If primary is Explainer, Re-frame, or Micro-doc: do not invent who-owns / who-benefits / diaspora to make the brief feel like CGE or GST.",
     "If primary is Injustice: stance is who paid / the rule — only from SOURCE MATERIAL already on the desk.",
     "═════════════════════════════",
@@ -223,19 +225,15 @@ export function conversationWriterBlock(rankOrText) {
   ];
 }
 
-// Cover + News in the ranked talk. Extra text slides only if a count is pinned.
+// Cover + News in the ranked talk. Extra text slides from this desk's
+// receipts (or an operator pin). A selected map does not freeze length at 3.
 export function conversationSlideSequence(rankOrText, targetCount = null) {
   const rank = typeof rankOrText === "string"
     ? parseConversationRankFromContext(rankOrText)
     : sanitizeConversationRank(rankOrText);
   if (!rank.primary) return null;
-  const n = (typeof targetCount === "number" && targetCount > 0)
-    ? Math.min(6, Math.max(3, Math.round(targetCount)))
-    : 3;
-  const seq = ["cover", "news"];
-  for (let i = 0; i < n - 3; i += 1) seq.push("text");
-  seq.push("cta");
-  return seq;
+  const ctx = typeof rankOrText === "string" ? rankOrText : "";
+  return essaySlideSequence(earnedSlideCount(ctx, targetCount));
 }
 
 export function applyConversationSuggestion(current, suggestion) {

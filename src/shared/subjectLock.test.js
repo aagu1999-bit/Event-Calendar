@@ -349,7 +349,7 @@ test("fill seed injects coherence claim map and slide advice, not a 10-slide str
   assert.match(seed.context, /COHERENCE: thin/);
   assert.match(seed.context, /USE THIS DESK FOR: Cover \+ News/);
   assert.match(seed.context, /POINTED SLIDE COUNT: 3/);
-  assert.match(seed.context, /UNVERIFIED CLAIMS/);
+  assert.match(seed.context, /UNVERIFIED CLAIMS — OMIT FROM EVERY SLIDE/);
   assert.equal(/10-slide GST/i.test(seed.context), false);
   assert.equal(seed.arrange, false);
 });
