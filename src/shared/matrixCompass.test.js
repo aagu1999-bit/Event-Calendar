@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isListicleHook, hookEvidenceLines, buildHookPrompt, buildLensReframePrompt, buildThesisPrompt, buildCoherencePrompt, normalizeCoherenceResult, formatCoherenceSeedLines, defaultCoherenceUseFor, coherenceInputSignature, describeReframeInputs } from "./matrixCompass.js";
+import { isListicleHook, hookEvidenceLines, buildHookPrompt, buildLensReframePrompt, buildThesisPrompt, buildCoherencePrompt, normalizeCoherenceResult, formatCoherenceSeedLines, defaultCoherenceUseFor, coherenceInputSignature, describeReframeInputs, lensFreshnessSignature } from "./matrixCompass.js";
 import { buildSubjectLock, subjectLockPromptLines, lockLensDirective } from "./subjectLock.js";
 
 test("listicle hooks are the Google-vs-CGE failure", () => {
@@ -146,6 +146,22 @@ test("reframe chip names only the pills that were actually selected", () => {
     emotion: "Curiosity/Epiphany",
     lock: { facets: ["venue-splits"] },
   }), /cluster desk · corridor · emotion · facets/);
+});
+
+test("LENS freshness ignores chip-only topic so a just-ran Reframe is not stale", () => {
+  const live = {
+    cluster: "",
+    corridor: "",
+    emotion: "",
+    demographics: ["student"],
+    lock: { facets: [], locales: [], join: "" },
+  };
+  const snapshotAfterReframe = { ...live, topic: true };
+  assert.equal(lensFreshnessSignature(live), lensFreshnessSignature(snapshotAfterReframe));
+  assert.notEqual(
+    lensFreshnessSignature(live),
+    lensFreshnessSignature({ ...live, demographics: ["student", "Young Working Professionals"] }),
+  );
 });
 
 test("reframe with only a topic and demographics does not invent a cluster desk", () => {

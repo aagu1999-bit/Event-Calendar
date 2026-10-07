@@ -31,6 +31,7 @@ import {
   checkArgumentCoherence,
   synthesizeLensReframe,
   describeReframeInputs,
+  lensFreshnessSignature,
   normalizeCoherenceResult,
   coherenceInputSignature,
   COMPASS_TOPICS,
@@ -552,13 +553,13 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
   // Same-shape signatures for cheap diff.
   const lensStale = useMemo(() => {
     if (!lensSnapshot) return false;
-    return stringifyInputs({
+    return lensFreshnessSignature({
       cluster: local.cluster,
       corridor: local.corridor,
       emotion: local.target_emotion,
-      demographics: [...selectedDemographics].sort(),
+      demographics: selectedDemographics,
       lock: subjectLock.snapshot,
-    }) !== stringifyInputs(lensSnapshot);
+    }) !== lensFreshnessSignature(lensSnapshot);
   }, [lensSnapshot, local.cluster, local.corridor, local.target_emotion, selectedDemographics, subjectLock.snapshot]);
 
   const thesisStale = useMemo(() => {
@@ -1044,6 +1045,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
         lock: subjectLock.snapshot,
         topic: hasTopic,
       });
+      setHookError(null);
     } catch (err) {
       setLensReframeError(String(err?.message || err));
     } finally {
