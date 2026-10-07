@@ -179,7 +179,10 @@ test("reframe with only a topic and demographics does not invent a cluster desk"
   assert.match(prompt, /BANNED in the reframe: vibrant/);
   assert.match(prompt, /Do NOT recap them as/);
   const thesis = buildThesisPrompt({ lens: "Newark Tech Week. For young working professionals." });
-  assert.match(thesis, /who actually benefits/);
+  assert.match(thesis, /Do NOT import African American/);
+  assert.match(thesis, /ORIENT/);
+  assert.equal(/always in force, ABOVE the LENS/.test(thesis), false);
+  assert.equal(/Black New Jersey as an intersection/.test(thesis), false);
   assert.match(thesis, /do not recap a showcase/);
   assert.match(thesis, /BANNED: vibrant/);
 });

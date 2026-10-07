@@ -1,12 +1,15 @@
 import { contentMethodSpineBlock } from "./cgeMethod.js";
 
-// CGE platform thesis — sits ABOVE Compass clusters.
+// CGE platform thesis — publication identity, not a filler argument.
 //
 // Clusters are analytical lenses (nightlife math, third-place deficit,
-// liquor-cap architecture). This module is the worldview every Feature /
-// content carousel inherits even when the cluster is Nightlife Dilemma.
-// Without it the writer is a gathering critic with extra adjectives.
-// With it, events stay the door into Black New Jersey — not the product.
+// liquor-cap architecture). This module is who CGE is: a Black New Jersey
+// cultural publication; events are the door, not the product.
+// The house fight (diaspora intersection, who owns vs who programs, who
+// actually benefits) is only in force when THIS piece's LENS, POV, or a
+// numbered anchor already named it. An event-plus-audience LENS orients
+// (who / what / where / when) and stops. Do not invent the CGE theme
+// to sound serious.
 //
 // Keep the prompt blocks short. Longer mission essays drown the model;
 // these lines are the load-bearing ones that must survive 800 tokens of
@@ -41,21 +44,42 @@ export function isContentRegister(mode, isEvergreen = false) {
   return mode === "content" || !!isEvergreen;
 }
 
+// House-fight vocabulary. If a thesis/cover uses these and the LENS
+// (or desk) did not, the model imported CGE_SUBJECT / CGE_THESIS_SHORT
+// as filler. "Black" and "New Jersey" are identity, not this list.
+const PLATFORM_THEME_LEAKS = [
+  { re: /\bdiaspora\b/i, needle: "diaspora" },
+  { re: /\bwho actually benefits\b/i, needle: "who actually benefits" },
+  { re: /\bwho owns\b/i, needle: "who owns" },
+  { re: /\bwho programs\b/i, needle: "who programs" },
+  { re: /\bwhose vision\b/i, needle: "whose vision" },
+  { re: /\bentrepreneurial spirit\b/i, needle: "entrepreneurial spirit" },
+  { re: /\bafrican american\b/i, needle: "african american" },
+  { re: /\bcaribbean\b/i, needle: "caribbean" },
+];
+
+export function isPlatformThemeLeak(text, desk = "") {
+  const hay = String(text || "");
+  if (!hay.trim()) return false;
+  const onDesk = String(desk || "").toLowerCase();
+  return PLATFORM_THEME_LEAKS.some(({ re, needle }) => re.test(hay) && !onDesk.includes(needle));
+}
+
 // Injected at the top of writer / spine / arranger prompts when the
 // carousel is Feature-tier or the operator picked Content register.
 export function platformThesisBlock({ mode, isEvergreen } = {}) {
   if (!isContentRegister(mode, isEvergreen)) return [];
   return [
     "═════════════════════════════",
-    "CGE PLATFORM THESIS — this sits ABOVE the cluster lens. Honor it even when the cluster is about gathering math, nightlife, or policy. The cluster is the door. This is what the piece is actually about.",
+    "CGE is a Black New Jersey cultural publication. Events are the door, not the product.",
+    "PUBLICATION IDENTITY — not a fight to paste in. Do NOT import African American / Caribbean / African diaspora tension, who owns vs who programs, or who actually benefits unless the LENS, POV, or a numbered anchor already named that fight.",
+    "If this piece's LENS is an event plus an audience, ORIENT (who / what / where / when) and stop. Do not invent a CGE theme to sound serious.",
     "",
-    `SUBJECT: ${CGE_SUBJECT}`,
-    `THESIS: ${CGE_THESIS_SHORT}`,
     `VOICE RATIO: ${CGE_VOICE_RATIO}`,
     `THE DOOR: ${CGE_DOOR}`,
     `HOMEWORK: ${CGE_HOMEWORK}`,
     "",
-    "You are not making event content. You are using a gathering, a room, a lineage, or a disappearance as the entry point into that intersection — what this community is, what it values, what it is forgetting, and what it is building. Ask the underserved question — authority comes from the question nobody else is asking, not from repeating the one everyone already answers. Name what influenced what when the trend is bigger than Jersey. Then bring it home.",
+    "You are not making event content. You are using a gathering, a room, a lineage, or a disappearance as the entry point into what THIS desk already named. Ask the underserved question that is on the desk — not the house question everyone at CGE already knows. Name what influenced what when the LENS already opened that join. Then bring it home.",
     "═════════════════════════════",
     "",
   ];
@@ -68,7 +92,7 @@ export function contentRegisterBlock() {
     "REGISTER: CONTENT — cultural infrastructure, not a flyer and not a memoir.",
     "- Destination is UNDERSTANDING. Never a sale. Never a listing.",
     "- The piece is an ESSAY: CONTRAST → CAUSE → EXPLAIN → NEXT. A piece that only names places is a directory. A piece that only names a number is a slogan. Articulation and connection are the quality.",
-    "- Hero is a QUESTION about Black New Jersey (memory, ownership vs programming, same-city diaspora tension, what quietly disappeared). An event, venue, or night may open the piece; it is not the product.",
+    "- Hero locates the specimen (who / what / where / when), then names a tension already on the desk. Do not default to ownership vs programming or same-city diaspora tension unless the LENS, POV, or an anchor named it. An event, venue, or night may open the piece; it is not the product.",
     "- Voice: 15% curator, 85% observational + research-grounded. Third-person or restrained editorial-we. 'I' is banned unless a sourced quote needs it. You translate; you are not the subject.",
     "- Depth without heaviness. Curiosity without preachiness. If a line sounds like a seminar, a grant, or a eulogy, rewrite it as a concrete NJ specific — a room, a corridor, a lineage, a number you can vouch for.",
     "- Underserved questions only. Do not recap the take everyone already has ('nightlife is changing', 'third places matter'). Name the thing the audience has felt but never had a word for.",

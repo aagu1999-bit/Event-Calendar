@@ -1,11 +1,9 @@
 // Compass — cluster lenses for the CGE editorial worldview.
 //
-// The PLATFORM THESIS (Black NJ as intersection; events as the door;
-// 15/85 curator/observation; archive closer) lives in cgeThesis.js and
-// sits ABOVE these clusters. A cluster is the analytical door (nightlife
-// math, liquor cap, diaspora halls). The thesis is what the piece is
-// actually about. Writers, spines, and the POV synthesizer all inherit it
-// when the record is Feature / Content.
+// Publication identity (Black NJ; events as the door; 15/85; archive
+// closer) lives in cgeThesis.js. A cluster is the analytical door
+// (nightlife math, liquor cap, diaspora halls). The house fight is
+// only the argument when THIS piece's LENS already named it.
 //
 // This module supersedes the flat CLUSTERS array in matrixEnums.js: every
 // cluster now carries a `directive` — a specific analytical lens the AI
@@ -25,7 +23,7 @@
 // human-readable label from the old CLUSTERS array; `resolveClusterKey`
 // handles both shapes transparently, so nothing on disk breaks.
 
-import { CGE_SUBJECT, CGE_THESIS_SHORT, CGE_VOICE_RATIO } from "./cgeThesis.js";
+import { CGE_VOICE_RATIO, isPlatformThemeLeak } from "./cgeThesis.js";
 
 export const CONTENT_CLUSTERS = {
   SUBURBAN_THIRD_PLACE: {
@@ -369,22 +367,23 @@ export function buildThesisPrompt({ lens = "" } = {}) {
     "ROLE: You are an executive editor at a cultural infrastructure platform for Black New Jersey. Events are the door, not the product.",
     "TASK: Write a single, cohesive 1–2 sentence Editorial POV from the LENS below. Cluster, corridor, emotion, and demographic only count if they were already stitched into this LENS via Reframe. Do not invent a dropdown you cannot see.",
     "",
-    "CGE PLATFORM THESIS (always in force, ABOVE the LENS):",
-    `  Subject: ${CGE_SUBJECT}`,
-    `  Thesis: ${CGE_THESIS_SHORT}`,
+    "PUBLICATION (who you work for — NOT a fight to paste in):",
+    "  CGE covers Black New Jersey. Events are the door, not the product.",
     `  Voice: ${CGE_VOICE_RATIO}`,
+    "  Do NOT import African American / Caribbean / African diaspora tension, who owns vs who programs, who actually benefits, whose vision is being prioritized, or 'entrepreneurial spirit' unless those words or that fight are already in the LENS.",
+    "  If the LENS is an event name plus an audience, ORIENT: who / what / where / when. Name one contrast only if the LENS already contains it. Do not invent a CGE theme to sound serious.",
     "  Do not collapse the POV into generic gathering-magazine copy (third places, liquor caps, 150-cap rooms) unless the LENS actually is that story.",
     "",
-    "THE LENS (the only editorial input for this piece):",
+    "THE LENS (the only argument this piece is allowed to make):",
     cleanLens || "(empty — do not write)",
     "",
     "CONSTRAINTS:",
     "1. Write FROM the LENS. Do not add a cluster syllabus, a corridor spend, an emotion stance, or an audience frame that is not already in the LENS.",
-    "1b. Do not paste the platform line 'who actually benefits' as a generic closer when the LENS did not name an owner/programmer fight. If the LENS is an event name plus audiences, name one contrast — do not recap a showcase.",
+    "1b. Do not paste or paraphrase 'who actually benefits', 'whose vision is being prioritized', 'diaspora's entrepreneurial spirit', or 'who owns vs who programs' when the LENS did not name that fight. If the LENS is an event name plus audiences, orient — do not recap a showcase and do not graft the house thesis.",
     "1c. BANNED: vibrant, ecosystem, landscape, showcase, illuminating, opportunities and challenges, begs the question.",
     "2. No Proper Nouns: do NOT invent specific venue names, town names, ordinance names, statute years, or era labels the LENS did not supply. Names already in the LENS are authorized.",
     "3. No filler, no introductory remarks, no 'this piece argues that…' scaffolding, no grantwriter register.",
-    "4. Length: EXACTLY 1–2 sentences of punchy, opinionated thesis text. Second sentence, when present, extends the tension into a payoff or a wager; it never restates sentence 1.",
+    "4. Length: EXACTLY 1–2 sentences of punchy, opinionated thesis text. Second sentence, when present, extends the tension into a payoff or a wager; it never restates sentence 1. If there is no tension in the LENS, one locating sentence is enough.",
     "5. NO META-WRITING: You are strictly banned from referring to the content, the carousel, the piece, the post, the article, or the reader. Never use phrases like 'This piece explores', 'This post shows', 'This validates', 'The reader learns', or any variant. State the cultural thesis as an objective, standalone fact — as if you were writing the pull-quote a magazine sets in 48pt, not the editor's memo that explains it.",
     "",
     'Return ONLY JSON in this exact shape: {"thesis": "..."}',
@@ -451,6 +450,9 @@ export async function synthesizeThesis({ apiKey, editorialLens = "", lensBase = 
   }
   const thesis = String(parsed?.thesis || "").trim();
   if (!thesis) throw new Error("Gemini returned no thesis text — retry.");
+  if (isPlatformThemeLeak(thesis, resolved.combined)) {
+    throw new Error("Thesis imported the CGE house fight (diaspora / who benefits) that this LENS did not name. Redraft Thesis, or name that fight in Narrowing first.");
+  }
   // Hard length cap regardless of what the model returned. 500 chars
   // matches LIMITS.POV_MAX — keeps the field the operator sees fillable
   // and the downstream editor pass grounded.
