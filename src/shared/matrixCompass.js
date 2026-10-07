@@ -794,7 +794,7 @@ export function coherenceInputSignature({ hook = "", pov = "", anchors = [], len
   return `${String(hook || "").trim()}|${String(pov || "").trim()}|${cleanAnchors.join("|")}|${String(lens || "").trim()}`;
 }
 
-export function buildCoherencePrompt({ hook, pov, anchors = [], clusterDirective } = {}) {
+export function buildCoherencePrompt({ hook, pov, anchors = [], clusterDirective, conversationPrimary } = {}) {
   const cleanHook = String(hook || "").trim();
   const cleanPOV = String(pov || "").trim();
   const cleanAnchors = Array.isArray(anchors)
@@ -816,6 +816,11 @@ export function buildCoherencePrompt({ hook, pov, anchors = [], clusterDirective
     ...cleanAnchors.map((a, i) => `  ${i + 1}. ${a.slice(0, 400)}`),
     "",
     "LENS IS STRICT. The LENS is the facet labels and/or the typed Narrowing on screen. It is NOT the cluster catalog. Reciting unclicked cluster topics (Oldenburg, venue permits, bottle service, liquor-cap math) is NOT support unless those words are already in the LENS. If the LENS names a place or facet, an anchor that wanders to another geography or a different spend is unverified — and if the whole desk wandered, the verdict is mismatched.",
+    ...(String(conversationPrimary || "").trim() ? [
+      "",
+      `CONVERSATION MAP PRIMARY (what kind of talk — not a 10-slide template, not a cluster): ${String(conversationPrimary).trim()}`,
+      "If the desk cannot support that talk (Injustice with only festival listings; Explainer with no mechanism; Re-frame with no headline to counter; Micro-doc with no person/room over time), verdict is mismatched and name it in gaps. Do not treat the conversation map as a cluster syllabus to recite.",
+    ] : []),
     "",
     "VERDICTS (pick ONE):",
     '  "coherent" — the anchors carry the argument ON THE LENS. Different entities, different angles, each proving part of the thesis. Generation will succeed.',
@@ -898,7 +903,7 @@ export function formatCoherenceSeedLines(check) {
   return lines;
 }
 
-export async function checkArgumentCoherence({ apiKey, hook, pov, anchors = [], clusterDirective } = {}) {
+export async function checkArgumentCoherence({ apiKey, hook, pov, anchors = [], clusterDirective, conversationPrimary } = {}) {
   if (!apiKey || !String(apiKey).trim()) return null;
   const cleanHook = String(hook || "").trim();
   const cleanPOV = String(pov || "").trim();
@@ -916,6 +921,7 @@ export async function checkArgumentCoherence({ apiKey, hook, pov, anchors = [], 
     pov: cleanPOV,
     anchors: cleanAnchors,
     clusterDirective: directiveLine,
+    conversationPrimary,
   });
 
   const MODEL = "gemini-2.5-flash-lite";
