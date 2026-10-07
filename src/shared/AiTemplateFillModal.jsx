@@ -1127,7 +1127,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
             <div style={{ fontSize: "0.62rem", color: "rgba(245,240,232,0.7)", lineHeight: 1.45 }}>
               {gstOn
                 ? "Generate will run GST. Auto / 4 / 5 do not change the length. Ranked Injustice / Explainer / Re-frame / Micro-doc still name the talk."
-                : `Generate will not run GST. Length is ${deskN} from the copy on this desk (anchored START / THESIS / SPECIMEN lines). Pin 3–6 if you want a different count. Ranked maps name the talk. Unverified claims stay off the slides.`}
+                : `Generate will not run GST. Length is ${deskN} from the copy on this desk (anchored START / THESIS / SPECIMEN lines). Pin 3–10 if you want a different count. Ranked maps name the talk. Unverified claims stay off the slides.`}
             </div>
           </div>
         )}
@@ -1195,7 +1195,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, padding: "8px 10px", background: "rgba(99,179,237,0.06)", border: "1px solid rgba(99,179,237,0.22)", borderRadius: 4 }}>
             <span style={{ fontSize: "0.65rem", color: "rgba(245,240,232,0.7)", letterSpacing: 0.5, fontWeight: 700 }}>How many slides?</span>
             <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-              {["auto", "3", "4", "5", "6"].map((c) => (
+              {["auto", "3", "4", "5", "6", "7", "8", "9", "10"].map((c) => (
                 <button
                   key={c}
                   type="button"
@@ -1582,7 +1582,7 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
                   <button type="button" onClick={() => setGstOn(true)} style={{ padding: "3px 8px", borderRadius: 3, cursor: "pointer", fontSize: "0.55rem", fontWeight: 800, letterSpacing: 0.08, textTransform: "uppercase", background: gstOn ? "rgba(229,188,79,0.22)" : "transparent", color: gstOn ? "#E5BC4F" : "rgba(245,240,232,0.45)", border: `1px solid ${gstOn ? "rgba(229,188,79,0.5)" : "rgba(245,240,232,0.12)"}` }}>On</button>
                 </div>
                 <div>{gstOn ? "— 10-slide stance arc. Ranked conversation map still names the talk." : "— Cover + News in the ranked conversation map (Injustice / Explainer / Re-frame / Micro-doc) if you selected one. Extra text slides only when this desk earned them."}</div>
-                <div>Slide count: <b style={{ color: "#F5F0E8" }}>{gstOn ? "10 (GST locked)" : deskN}</b> {gstOn ? "" : (slideCount === "auto" ? "— Auto from the anchored receipts on this desk. 3–6. Not a silent 3." : `— pinning ${slideCount} slides`)}</div>
+                <div>Slide count: <b style={{ color: "#F5F0E8" }}>{gstOn ? "10 (GST locked)" : deskN}</b> {gstOn ? "" : (slideCount === "auto" ? "— Auto from the anchored receipts on this desk. 3–10. Not a silent 3." : `— pinning ${slideCount} slides`)}</div>
                 <div>Enrich lookups: {researchOn || newsOn
                   ? <span style={{ color: "#FBBF24" }}>ADDS extra Gemini calls whose bullets get concatenated into Research Anchors — may duplicate matrix anchors</span>
                   : <span style={{ color: "rgba(245,240,232,0.4)" }}>off (recommended when Research Anchors are already populated)</span>}</div>

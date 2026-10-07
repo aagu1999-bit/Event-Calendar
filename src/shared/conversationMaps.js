@@ -175,7 +175,7 @@ export function formatConversationSeedLines(rank) {
     `CONVERSATION_RANK_KEYS: primary=${clean.primary}; secondary=${clean.secondary || "none"}; tertiary=${clean.tertiary || "none"}`,
     `CONVERSATION MAP: primary ${primary.label} — ${primary.talk}`,
     primary.seed,
-    "Cover + News is the starting pair in this talk. Slide count comes from the anchored receipts on this desk (Auto 3–6) — not a default 3, not a 10-slide carousel. Do not write Stat, Spotlight, or 'share this to change the conversation.'",
+    "Cover + News is the starting pair in this talk. Slide count comes from the anchored receipts on this desk (Auto 3–10) — not a default 3, not GST's locked stance arc. Do not write Stat, Spotlight, or 'share this to change the conversation.'",
   ];
   if (clean.secondary) {
     const sec = CONVERSATION_MAPS[clean.secondary];

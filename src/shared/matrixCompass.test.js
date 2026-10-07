@@ -246,7 +246,7 @@ test("coherence prompt reads the LENS strictly and asks for a claim map", () => 
   assert.match(prompt, /CLAIMS MAP/);
   assert.match(prompt, /USE THIS DESK FOR/);
   assert.match(prompt, /Cover \+ News/);
-  assert.match(prompt, /NOT a 10-slide/);
+  assert.match(prompt, /NOT GST's locked 10-slide stance arc/);
   assert.equal(/Economics & Logistics/.test(prompt), false);
   assert.equal(/venue rental/i.test(prompt), false);
 });
@@ -291,8 +291,8 @@ test("normalizeCoherenceResult maps claims, clamps slides, and fills useFor", ()
   assert.equal(normalized.claims[0].anchor, 1);
   assert.equal(normalized.claims[1].support, "unverified");
   assert.equal(normalized.claims[1].anchor, 0);
-  assert.equal(normalized.slideCount, 6);
-  assert.match(normalized.useFor, /Cap at 6 slides/);
+  assert.equal(normalized.slideCount, 10);
+  assert.match(normalized.useFor, /Cap at 10 slides/);
   assert.equal(normalizeCoherenceResult({ verdict: "nope" }), null);
   assert.equal(defaultCoherenceUseFor(3).includes("Cover + News"), true);
 });
@@ -343,9 +343,21 @@ test("slide count is earned from this desk, not a silent 3", () => {
   // Four receipts earn 6. Check's example slideCount:3 must not freeze Auto at 3.
   assert.equal(earnedSlideCount(fourProofs), 6);
   assert.equal(earnedSlideCount(fourProofs, 4), 4);
+  const eightProofs = [
+    fourProofs,
+    "- START — a fifth named Saturday.",
+    "- START — a sixth named corridor.",
+    "- DOCUMENT — a seventh sourced year.",
+    "- JOIN — an eighth parallel room already on the desk.",
+  ].join("\n");
+  assert.equal(countUsableAnchors(eightProofs), 8);
+  assert.equal(earnedSlideCount(eightProofs), 10);
   assert.deepEqual(essaySlideSequence(6), ["cover", "news", "text", "text", "text", "cta"]);
   assert.deepEqual(essaySlideSequence(3), ["cover", "news", "cta"]);
   assert.deepEqual(essaySlideSequence(4), ["cover", "news", "text", "cta"]);
+  assert.equal(essaySlideSequence(10).length, 10);
+  assert.deepEqual(essaySlideSequence(10).slice(0, 2), ["cover", "news"]);
+  assert.equal(essaySlideSequence(10).at(-1), "cta");
 
   const emptyDesk = "POV: locate.\nPOINTED SLIDE COUNT: 5.";
   assert.equal(countUsableAnchors(emptyDesk), 0);

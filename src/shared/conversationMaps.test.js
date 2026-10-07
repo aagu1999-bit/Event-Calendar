@@ -129,7 +129,8 @@ test("seed lines are Cover + News conversation maps, not GST 10", () => {
   assert.match(blob, /CONVERSATION_RANK_KEYS: primary=explainer/);
   assert.match(blob, /CONVERSATION MAP: primary Explainer/);
   assert.match(blob, /Cover \+ News/);
-  assert.match(blob, /10-slide/);
+  assert.match(blob, /Auto 3–10/);
+  assert.match(blob, /GST's locked stance arc/);
   assert.match(blob, /SECONDARY \(Injustice/);
   assert.match(blob, /TERTIARY \(Re-frame/);
   assert.match(blob, /share this to change the conversation/);
