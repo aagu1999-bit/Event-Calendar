@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isListicleHook, hookEvidenceLines, buildHookPrompt, buildLensReframePrompt, buildThesisPrompt, buildCoherencePrompt, normalizeCoherenceResult, formatCoherenceSeedLines, defaultCoherenceUseFor, coherenceInputSignature, describeReframeInputs, lensFreshnessSignature } from "./matrixCompass.js";
+import { isListicleHook, isBrochureCopy, hookEvidenceLines, buildHookPrompt, buildLensReframePrompt, buildThesisPrompt, buildCoherencePrompt, normalizeCoherenceResult, formatCoherenceSeedLines, defaultCoherenceUseFor, coherenceInputSignature, describeReframeInputs, lensFreshnessSignature } from "./matrixCompass.js";
 import { buildSubjectLock, subjectLockPromptLines, lockLensDirective } from "./subjectLock.js";
 
 test("listicle hooks are the Google-vs-CGE failure", () => {
@@ -53,7 +53,9 @@ test("hook prompt authorizes Fuel names and bans the listicle cover", () => {
   assert.match(prompt, /never the cover's guest list/);
   assert.match(prompt, /Newark Tech Week's new professionals and students/);
   assert.match(prompt, /old gatekeepers still set the room/);
+  assert.match(prompt, /spotlights the city's innovations/);
   assert.match(prompt, /Do NOT import African American/);
+  assert.match(prompt, /still set the room/);
   assert.equal(/Prefer the POV's fight \(who programs/.test(prompt), false);
   assert.equal(/No invented proper nouns: do NOT name specific venues, towns/.test(prompt), false);
 });
@@ -190,7 +192,11 @@ test("reframe with only a topic and demographics does not invent a cluster desk"
   assert.equal(/Corridor:/.test(prompt), false);
   assert.equal(/Emotion:/.test(prompt), false);
   assert.match(prompt, /BANNED in the reframe: vibrant/);
+  assert.match(prompt, /burgeoning/);
+  assert.match(prompt, /future potential/);
   assert.match(prompt, /Do NOT recap them as/);
+  assert.match(prompt, /drawing attention to the city's burgeoning/);
+  assert.match(prompt, /GOOD: "Newark Tech Week is a week of sessions in Newark."/);
   const thesis = buildThesisPrompt({ lens: "Newark Tech Week. For young working professionals." });
   assert.match(thesis, /Do NOT import African American/);
   assert.match(thesis, /ORIENT/);
@@ -198,6 +204,18 @@ test("reframe with only a topic and demographics does not invent a cluster desk"
   assert.equal(/Black New Jersey as an intersection/.test(thesis), false);
   assert.match(thesis, /do not recap a showcase/);
   assert.match(thesis, /BANNED: vibrant/);
+  assert.match(thesis, /burgeoning/);
+  assert.match(thesis, /Do not paraphrase a press-release LENS/);
+  assert.match(thesis, /bringing attention to the city's developing technology sector/);
+});
+
+test("chamber-of-commerce LENS, POV, and hook are brochure copy", () => {
+  assert.equal(isBrochureCopy("Newark Tech Week is drawing attention to the city's burgeoning technology sector. This event highlights the innovations and future potential emerging from Newark's tech scene."), true);
+  assert.equal(isBrochureCopy("Newark Tech Week is bringing attention to the city's developing technology sector, highlighting the innovations and future potential from within Newark's tech scene."), true);
+  assert.equal(isBrochureCopy("Newark Tech Week spotlights the city's innovations while the old gatekeepers still set the room."), true);
+  assert.equal(isBrochureCopy("Newark Tech Week is a week of sessions in Newark."), false);
+  assert.equal(isBrochureCopy("Newark Tech Week is in town. The rooms are built for business owners."), false);
+  assert.equal(isBrochureCopy("Cranford retrofitted the downtown. Route 22 still parks the night."), false);
 });
 
 test("reframe omits unclicked corridor and emotion", () => {
