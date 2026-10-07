@@ -30,6 +30,8 @@ import {
   isListicleHook,
   checkArgumentCoherence,
   synthesizeLensReframe,
+  normalizeCoherenceResult,
+  coherenceInputSignature,
   COMPASS_TOPICS,
 } from "./matrixCompass.js";
 import {
@@ -327,14 +329,15 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
   const stringifyInputs = (obj) => JSON.stringify(obj || {});
 
   // Argument Coherence check (Gemini Flash-Lite) state — adversarial
-  // pre-generation critic. Reads hook + POV + anchors and returns
-  // verdict: "coherent" | "thin" | "mismatched" + gaps.
-  // Explicit click only (auto-runs cost too much on every keystroke);
-  // rerun any time the operator has edited enough of the matrix to
-  // want another read.
+  // pre-generation critic. Reads hook + POV + anchors against the
+  // LENS and returns verdict + claim→source map + slide-count advice.
+  // Auto-runs after a successful Fuel land when hook+POV+≥2 anchors
+  // are present; still available as an explicit Re-check. Not a
+  // keystroke watcher — that would burn Flash-Lite on every letter.
   const [checkingCoherence, setCheckingCoherence] = useState(false);
   const [coherenceResult, setCoherenceResult] = useState(null);
   const [coherenceError, setCoherenceError] = useState(null);
+  const [coherenceFromFuel, setCoherenceFromFuel] = useState(false);
   // Track which matrix inputs the last coherence check was run on —
   // if any of them change, the result is stale and we mark it so.
   const [coherenceCheckedAt, setCoherenceCheckedAt] = useState(null);
@@ -375,11 +378,21 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
   const clusterFacets = useMemo(() => facetsForCluster(local.cluster), [local.cluster]);
   const allFacetIds = useMemo(() => clusterFacets.map((f) => f.id), [clusterFacets]);
   const allFacetsOn = clusterFacets.length > 0 && allFacetIds.length > 0 && allFacetIds.every((id) => selectedFacets.includes(id));
+  const resolvedLensForCheck = useMemo(
+    () => resolveEditorialLens({ cluster: local.cluster, override: local.editorial_lens, base: liveLens }),
+    [local.cluster, local.editorial_lens, liveLens]
+  );
+  const liveCheckLens = resolvedLensForCheck.combined || resolvedLensForCheck.base || "";
   const coherenceIsStale = useMemo(() => {
     if (!coherenceResult || !coherenceCheckedAt) return false;
-    const sig = `${local.hook_a_side || ""}|${local.editorial_pov || ""}|${bullets.join("|")}`;
+    const sig = coherenceInputSignature({
+      hook: local.hook_a_side,
+      pov: local.editorial_pov,
+      anchors: bullets,
+      lens: liveCheckLens,
+    });
     return sig !== coherenceCheckedAt;
-  }, [coherenceResult, coherenceCheckedAt, local.hook_a_side, local.editorial_pov, bullets]);
+  }, [coherenceResult, coherenceCheckedAt, local.hook_a_side, local.editorial_pov, bullets, liveCheckLens]);
 
   // Voice Preview (Gemini Flash-Lite) state — renders one sample
   // paragraph in the current voice-params combination so the operator
@@ -456,6 +469,12 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
     setVoicePreviewError(null);
     setVoicePreviewFor("");
     setPreviewingVoice(false);
+    const saved = normalizeCoherenceResult(event?.matrix?.argument_check);
+    setCoherenceResult(saved);
+    setCoherenceCheckedAt(saved?.checkedAt || null);
+    setCoherenceError(null);
+    setCheckingCoherence(false);
+    setCoherenceFromFuel(false);
   }, [event?.id]);
 
   const applyPatch = (patch) => {
@@ -646,6 +665,13 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
     if (bullets.length >= LIMITS.BULLETS_MAX) return;
     applyPatch({ data_points: [...bullets, ""] });
   };
+  const addBulletForClaim = (claimText) => {
+    if (bullets.length >= LIMITS.BULLETS_MAX) return;
+    const claim = String(claimText || "").trim();
+    if (!claim) return;
+    const line = `RECEIPT — UNVERIFIED — ${claim}`.slice(0, LIMITS.BULLET_MAX);
+    applyPatch({ data_points: [...bullets, line] });
+  };
   const removeBullet = (i) => {
     const next = bullets.filter((_, idx) => idx !== i);
     applyPatch({ data_points: next });
@@ -751,6 +777,12 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
         editorial_lens: local.editorial_lens,
         lock: subjectLock.snapshot,
       });
+      const nextHook = String(local.hook_a_side || "").trim();
+      const nextPov = String(patch.editorial_pov || local.editorial_pov || "").trim();
+      const nextAnchors = merged.filter(Boolean);
+      if (nextHook && nextPov && nextAnchors.length >= 2) {
+        void runCoherenceCheck({ hook: nextHook, pov: nextPov, anchors: nextAnchors, fromFuel: true });
+      }
     } catch (err) {
       setResearchError(String(err?.message || err));
     } finally {
@@ -872,50 +904,56 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
   };
 
   // Check Argument Coherence handler — adversarial pre-generation
-  // critic that reads hook + POV + anchors and returns whether the
-  // material can actually support the argument. Answers the
-  // operator's core anxiety: "if the AI cannot put the pieces
-  // together, that needs to be flagged BEFORE the carousel is
-  // generated." Fires as an explicit click (Flash-Lite is cheap
-  // enough that we could auto-run, but on-demand keeps API cost
-  // predictable and gives the operator a clear "I checked" moment).
-  const runCoherenceCheck = async () => {
-    if (checkingCoherence) return;
+  // critic that reads hook + POV + anchors against the LENS. Auto-
+  // runs after Fuel lands (pass overrides so the merged bullets are
+  // what the critic sees — React state has not flushed yet). Still
+  // a warning, not a generation gate.
+  const runCoherenceCheck = async (overrides = {}) => {
+    if (checkingCoherence && !overrides.anchors) return;
     setCoherenceError(null);
     const apiKey = resolveGeminiKey();
     if (!apiKey) {
       setCoherenceError("Paste your Gemini API key in the MediaTool toolbar first.");
       return;
     }
-    const cleanHook = String(local.hook_a_side || "").trim();
-    const cleanPOV = String(local.editorial_pov || "").trim();
-    const cleanAnchors = bullets.filter(Boolean);
+    const cleanHook = String(overrides.hook ?? local.hook_a_side ?? "").trim();
+    const cleanPOV = String(overrides.pov ?? local.editorial_pov ?? "").trim();
+    const cleanAnchors = Array.isArray(overrides.anchors)
+      ? overrides.anchors.map((a) => String(a || "").trim()).filter(Boolean)
+      : bullets.filter(Boolean);
     if (!cleanHook || !cleanPOV || cleanAnchors.length < 2) {
       setCoherenceError("Fill in Hook A-side, Editorial POV, and at least 2 Research Anchors first — those are what the check reads.");
       return;
     }
     setCheckingCoherence(true);
+    setCoherenceFromFuel(!!overrides.fromFuel);
     try {
-      // Pass the RESOLVED cluster directive (base + operator narrowing
-      // combined) so the coherence critic evaluates the argument against
-      // the whole lens, not just the cluster's base directive. Without
-      // this, typing a narrowing into LENS did nothing at check time.
+      // Live LENS only — facet labels + typed Narrowing. Cluster
+      // catalog is not a fallback. Wandering geography / unclicked
+      // syllabus is a mismatch, not support.
       const resolvedLens = resolveEditorialLens({ cluster: local.cluster, override: local.editorial_lens, base: liveLens });
+      const lensLine = resolvedLens.combined || resolvedLens.base || "";
       const result = await checkArgumentCoherence({
         apiKey,
         hook: cleanHook,
         pov: cleanPOV,
         anchors: cleanAnchors,
-        clusterDirective: resolvedLens.combined || resolvedLens.base,
+        clusterDirective: lensLine,
       });
       if (!result) {
         setCoherenceError("Coherence check returned no verdict — Gemini may be rate-limited. Retry.");
         return;
       }
-      setCoherenceResult(result);
-      // Snapshot the signature of the inputs the check ran on so the
-      // UI can mark the result stale if the operator edits after.
-      setCoherenceCheckedAt(`${cleanHook}|${cleanPOV}|${cleanAnchors.join("|")}`);
+      const sig = coherenceInputSignature({
+        hook: cleanHook,
+        pov: cleanPOV,
+        anchors: cleanAnchors,
+        lens: lensLine,
+      });
+      const persisted = { ...result, checkedAt: sig };
+      setCoherenceResult(persisted);
+      setCoherenceCheckedAt(sig);
+      applyPatch({ argument_check: persisted });
     } catch (err) {
       setCoherenceError(String(err?.message || err));
     } finally {
@@ -1372,15 +1410,15 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                 <div><b style={{ color: cream }}>Pills</b> (cluster desk · facets · corridor · locales · join · emotion · demographic) + typed topic  <span style={{ color: faint }}>→ (click ✨ Reframe)</span>  <b style={{ color: "#A78BFA" }}>LENS</b></div>
                 <div><b style={{ color: cream }}>LENS</b>  <span style={{ color: faint }}>→ (click ✨ Draft Thesis)</span>  <b style={{ color: "#A78BFA" }}>editorial_pov</b></div>
                 <div><b style={{ color: cream }}>LENS</b> · POV · Fuel names  <span style={{ color: faint }}>→ (click ✨ Draft Hook)</span>  <b style={{ color: "#A78BFA" }}>hook_a_side</b></div>
-                <div><b style={{ color: cream }}>LENS</b> · POV · Hook · locales as geography  <span style={{ color: faint }}>→ (click 🔮 Fuel Research)</span>  <b style={{ color: "#A78BFA" }}>data_points (anchors)</b></div>
+                <div><b style={{ color: cream }}>LENS</b> · POV · Hook · locales as geography  <span style={{ color: faint }}>→ (click 🔮 Fuel Research)</span>  <b style={{ color: "#A78BFA" }}>data_points (anchors)</b>  <span style={{ color: faint }}>→ (auto) Check</span></div>
                 <div><b style={{ color: cream }}>Distance</b> · Cadence · Stance  <span style={{ color: faint }}>→ (click 🎙 New Preview)</span>  <b style={{ color: "#A78BFA" }}>voice preview (not stored)</b></div>
-                <div><b style={{ color: cream }}>Hook</b> · POV · Anchors · <b style={{ color: "#A78BFA" }}>LENS</b>  <span style={{ color: faint }}>→ (click 🔎 Check argument)</span>  <b style={{ color: "#A78BFA" }}>coherence verdict</b></div>
+                <div><b style={{ color: cream }}>Hook</b> · POV · Anchors · <b style={{ color: "#A78BFA" }}>LENS</b>  <span style={{ color: faint }}>→ (auto after Fuel, or click 🔎 Check)</span>  <b style={{ color: "#A78BFA" }}>claim map · slide advice</b></div>
               </div>
               <div style={{ marginTop: 8, fontSize: "0.6rem", color: "#63B3ED", fontWeight: 700, letterSpacing: "0.06em" }}>
                 Pills feed the LENS (Reframe). Everything after that reads the LENS — not an unclicked cluster, corridor, or emotion. Empty chips do NOT dump the catalog. Select all or pick the topics this piece spends.
               </div>
               <div style={{ marginTop: 10, color: faint, fontStyle: "italic" }}>
-                Values you TYPE (Hook, POV, LENS narrowing, anchors) never trigger synth automatically — the button is always the trigger. That's by design so a stray edit doesn't overwrite a carefully-crafted downstream field. Downstream reads UPSTREAM: LENS/POV/Hook all read the same Cluster+Emotion+Demographic; Fuel Research reads everything above it; Coherence Check reads everything.
+                Values you TYPE (Hook, POV, LENS narrowing, anchors) never trigger synth automatically — the button is always the trigger, except Check, which also re-runs after a successful Fuel land. That's by design so a stray edit doesn't overwrite a carefully-crafted downstream field. Check reads the LENS strictly — unclicked cluster catalog is not the LENS.
               </div>
             </div>
           </details>
@@ -2593,10 +2631,10 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
               ARGUMENT COHERENCE CHECK
               ═════════════════════════════
               Adversarial pre-generation critic — verifies the anchors
-              can actually support the hook + POV before we burn a
-              carousel generation on shaky material. Fires as an
-              explicit click; result renders inline with verdict color
-              (coherent=green, thin=amber, mismatched=red) + gaps. */}
+              can actually support the hook + POV on THIS LENS before
+              we burn a carousel generation. Auto-runs after Fuel;
+              result is a claim→source map + slide-count advice, not
+              a generation gate. */}
           <div style={{ marginTop: 18, borderTop: `1px dashed ${hair}`, paddingTop: 14 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 8 }}>
               <div style={{ fontSize: "0.66rem", color: cream, letterSpacing: "0.06em", fontWeight: 700, textTransform: "uppercase" }}>
@@ -2604,9 +2642,9 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
               </div>
               <button
                 type="button"
-                onClick={runCoherenceCheck}
+                onClick={() => runCoherenceCheck()}
                 disabled={checkingCoherence || !String(local.hook_a_side || "").trim() || !String(local.editorial_pov || "").trim() || bullets.filter(Boolean).length < 2}
-                title="Adversarial pre-gen check: can these anchors support this argument? Runs before you burn a carousel generation."
+                title="Adversarial pre-gen check: can these anchors support this argument on the LENS? Auto-runs after Fuel; Re-check any time."
                 style={{
                   background: checkingCoherence ? "rgba(99,179,237,0.06)" : "rgba(99,179,237,0.14)",
                   color: checkingCoherence ? faint : "#63B3ED",
@@ -2626,7 +2664,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
               </button>
             </div>
             <div style={{ fontSize: "0.62rem", color: faint, marginBottom: 8, lineHeight: 1.5 }}>
-              Reads Hook A-side + Editorial POV + Research Anchors, and returns whether the pieces actually go together — flags a thin or mismatched matrix before generation, not after.
+              Reads Hook + POV + Anchors against the LENS. Maps each claim to an anchor or flags it unverified. After Fuel lands, this runs itself. Slide-count advice is what the desk earned — Cover + News is the starting pair, not a 10-card stretch.
             </div>
             {coherenceError && (
               <div style={{
@@ -2654,7 +2692,11 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
               const icon = v === "coherent" ? "✓" : v === "thin" ? "◑" : "✗";
               const label = v === "coherent" ? "Coherent — argument stands"
                 : v === "thin" ? "Thin — anchors too few or too shallow"
-                : "Mismatched — anchors don't back the hook";
+                : "Mismatched — anchors don't back the hook / LENS";
+              const claims = Array.isArray(coherenceResult.claims) ? coherenceResult.claims : [];
+              const staleNote = coherenceIsStale
+                ? " · (stale — inputs changed since last check)"
+                : (coherenceFromFuel ? " · checked after Fuel" : "");
               return (
                 <div style={{
                   padding: "10px 12px",
@@ -2666,17 +2708,82 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                   lineHeight: 1.6,
                 }}>
                   <div style={{ fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", fontSize: "0.62rem", marginBottom: 6 }}>
-                    {icon} {label}{coherenceIsStale ? " · (stale — inputs changed since last check)" : ""}
+                    {icon} {label}{staleNote}
                   </div>
-                  <div style={{ color: "rgba(245,240,232,0.85)", marginBottom: coherenceResult.gaps.length ? 6 : 0 }}>
+                  <div style={{ color: "rgba(245,240,232,0.85)", marginBottom: 6 }}>
                     {coherenceResult.reason}
                   </div>
-                  {coherenceResult.gaps.length > 0 && (
+                  {(coherenceResult.useFor || coherenceResult.slideCount) ? (
+                    <div style={{
+                      marginBottom: claims.length || (coherenceResult.gaps || []).length ? 8 : 0,
+                      padding: "8px 10px",
+                      background: "rgba(10,10,12,0.45)",
+                      borderRadius: 4,
+                      color: "rgba(245,240,232,0.82)",
+                    }}>
+                      <div style={{ fontSize: "0.58rem", letterSpacing: "0.08em", textTransform: "uppercase", color: textColor, fontWeight: 700, marginBottom: 4 }}>
+                        Use this desk for{coherenceResult.slideCount ? ` · ${coherenceResult.slideCount} pointed slides` : ""}
+                      </div>
+                      <div>{coherenceResult.useFor}</div>
+                    </div>
+                  ) : null}
+                  {claims.length > 0 && (
+                    <div style={{ marginBottom: (coherenceResult.gaps || []).length ? 8 : 0 }}>
+                      <div style={{ fontSize: "0.58rem", letterSpacing: "0.08em", textTransform: "uppercase", color: textColor, fontWeight: 700, marginBottom: 4 }}>
+                        Claim → source
+                      </div>
+                      {claims.map((c, i) => {
+                        const unverified = c.support !== "anchored";
+                        return (
+                          <div key={i} style={{
+                            display: "flex",
+                            alignItems: "flex-start",
+                            justifyContent: "space-between",
+                            gap: 8,
+                            marginTop: 4,
+                            color: "rgba(245,240,232,0.78)",
+                          }}>
+                            <div style={{ flex: 1 }}>
+                              <span style={{ fontSize: "0.58rem", letterSpacing: "0.06em", textTransform: "uppercase", color: faint, marginRight: 6 }}>
+                                {c.from === "pov" ? "POV" : "Hook"}
+                              </span>
+                              {c.claim}
+                              <span style={{ marginLeft: 6, color: unverified ? warn : ready, fontSize: "0.62rem" }}>
+                                {unverified ? "unverified" : `anchor ${c.anchor}`}
+                              </span>
+                            </div>
+                            {unverified && bullets.length < LIMITS.BULLETS_MAX ? (
+                              <button
+                                type="button"
+                                onClick={() => addBulletForClaim(c.claim)}
+                                title="Add a RECEIPT — UNVERIFIED placeholder the next Fuel / Dive can fill"
+                                style={{
+                                  flexShrink: 0,
+                                  background: "transparent",
+                                  color: warn,
+                                  border: `1px dashed ${warn}`,
+                                  borderRadius: 3,
+                                  padding: "2px 6px",
+                                  fontFamily: "inherit",
+                                  fontSize: "0.54rem",
+                                  letterSpacing: "0.08em",
+                                  textTransform: "uppercase",
+                                  fontWeight: 700,
+                                  cursor: "pointer",
+                                }}
+                              >+ Add research anchor</button>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {(coherenceResult.gaps || []).length > 0 && (
                     <div style={{ marginTop: 6 }}>
                       <div style={{ fontSize: "0.58rem", letterSpacing: "0.08em", textTransform: "uppercase", color: textColor, fontWeight: 700, marginBottom: 4 }}>
                         Specific gaps to close before generation
                       </div>
-                      {coherenceResult.gaps.map((g, i) => (
+                      {(coherenceResult.gaps || []).map((g, i) => (
                         <div key={i} style={{ color: "rgba(245,240,232,0.75)", marginTop: 3 }}>
                           — {g}
                         </div>

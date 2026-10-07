@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isListicleHook, hookEvidenceLines, buildHookPrompt, buildLensReframePrompt, buildThesisPrompt } from "./matrixCompass.js";
+import { isListicleHook, hookEvidenceLines, buildHookPrompt, buildLensReframePrompt, buildThesisPrompt, buildCoherencePrompt, normalizeCoherenceResult, formatCoherenceSeedLines, defaultCoherenceUseFor, coherenceInputSignature } from "./matrixCompass.js";
 import { buildSubjectLock, subjectLockPromptLines, lockLensDirective } from "./subjectLock.js";
 
 test("listicle hooks are the Google-vs-CGE failure", () => {
@@ -129,4 +129,80 @@ test("reframe omits unclicked corridor and emotion", () => {
   assert.equal(/Emotion:/.test(prompt), false);
   assert.equal(/whole state/.test(prompt), false);
   assert.match(prompt, /typed topic is the piece/);
+});
+
+test("coherence prompt reads the LENS strictly and asks for a claim map", () => {
+  const prompt = buildCoherencePrompt({
+    hook: "Parkway towns eat the summer influx.",
+    pov: "The influx is a logistics tax, not a vibe.",
+    anchors: [
+      "START — Parkway towns lose the shoulder season to weekend traffic.",
+      "START — A Brooklyn weekender calendar named Asbury without the tax.",
+    ],
+    clusterDirective: "summer shore traffic in Parkway towns",
+  });
+  assert.match(prompt, /LENS IS STRICT/);
+  assert.match(prompt, /NOT the cluster catalog/);
+  assert.match(prompt, /summer shore traffic in Parkway towns/);
+  assert.match(prompt, /CLAIMS MAP/);
+  assert.match(prompt, /USE THIS DESK FOR/);
+  assert.match(prompt, /Cover \+ News/);
+  assert.match(prompt, /NOT a 10-slide/);
+  assert.equal(/Economics & Logistics/.test(prompt), false);
+  assert.equal(/venue rental/i.test(prompt), false);
+});
+
+test("coherence prompt without a LENS does not invent a cluster syllabus", () => {
+  const prompt = buildCoherencePrompt({
+    hook: "The last inbound.",
+    pov: "The train is the gathering.",
+    anchors: ["START — one", "START — two"],
+  });
+  assert.match(prompt, /do not invent a cluster syllabus/);
+});
+
+test("normalizeCoherenceResult maps claims, clamps slides, and fills useFor", () => {
+  const normalized = normalizeCoherenceResult({
+    verdict: "thin",
+    reason: "Only one receipt actually proves the influx tax.",
+    gaps: ["Need a currently-operating Parkway Saturday, not a Brooklyn calendar."],
+    claims: [
+      { claim: "Parkway towns eat the summer influx.", from: "hook", support: "anchored", anchor: 1 },
+      { claim: "The influx is a logistics tax.", from: "pov", support: "unverified", anchor: 9 },
+      { claim: "", from: "hook", support: "anchored", anchor: 1 },
+    ],
+    slideCount: 99,
+  }, { anchors: ["a", "b"] });
+  assert.equal(normalized.verdict, "thin");
+  assert.equal(normalized.claims.length, 2);
+  assert.equal(normalized.claims[0].support, "anchored");
+  assert.equal(normalized.claims[0].anchor, 1);
+  assert.equal(normalized.claims[1].support, "unverified");
+  assert.equal(normalized.claims[1].anchor, 0);
+  assert.equal(normalized.slideCount, 6);
+  assert.match(normalized.useFor, /Cap at 6 slides/);
+  assert.equal(normalizeCoherenceResult({ verdict: "nope" }), null);
+  assert.equal(defaultCoherenceUseFor(3).includes("Cover + News"), true);
+});
+
+test("coherence seed lines tell the writer what the desk can carry", () => {
+  const lines = formatCoherenceSeedLines({
+    verdict: "thin",
+    reason: "One receipt.",
+    claims: [
+      { claim: "Parkway towns eat the summer influx.", from: "hook", support: "anchored", anchor: 1 },
+      { claim: "The tax is unpaid.", from: "pov", support: "unverified", anchor: 0 },
+    ],
+    useFor: "Cover + News. Stay-line on the cover; one receipt in News.",
+    slideCount: 3,
+  });
+  const blob = lines.join("\n");
+  assert.match(blob, /COHERENCE: thin/);
+  assert.match(blob, /USE THIS DESK FOR: Cover \+ News/);
+  assert.match(blob, /POINTED SLIDE COUNT: 3/);
+  assert.match(blob, /UNVERIFIED CLAIMS/);
+  assert.match(blob, /The tax is unpaid/);
+  assert.deepEqual(formatCoherenceSeedLines(null), []);
+  const sig = coherenceInputSignature({ hook: "a", pov: "b", anchors: ["c"], lens: "d" });
+  assert.equal(sig, "a|b|c|d");
 });

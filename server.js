@@ -813,7 +813,7 @@ app.post("/api/matrix/research", express.json({ limit: "128kb" }), async (req, r
       coherenceReason: typeof coherenceReason === "string" ? coherenceReason.trim().slice(0, 400) : "",
       mode: typeof mode === "string" ? mode : "full",
       subjectFacets: Array.isArray(subjectFacets)
-        ? subjectFacets.filter((id) => typeof id === "string" && id.trim()).map((id) => id.trim()).slice(0, 3)
+        ? subjectFacets.filter((id) => typeof id === "string" && id.trim()).map((id) => id.trim()).slice(0, 5)
         : [],
       corridorLocales: Array.isArray(corridorLocales)
         ? corridorLocales.filter((id) => typeof id === "string" && id.trim()).map((id) => id.trim()).slice(0, 3)

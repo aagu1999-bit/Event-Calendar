@@ -755,20 +755,149 @@ export async function synthesizeHook({ apiKey, pov, editorialLens = "", anchors 
 // polishCarousel's refuse mechanism. It answers ONE question: given
 // this hook, this POV, and these anchors, does the argument stand?
 //
-// Returns { verdict, reason, gaps }:
+// Returns { verdict, reason, gaps, claims, useFor, slideCount }:
 //   verdict: "coherent" | "thin" | "mismatched"
 //     - coherent = the anchors carry the argument; generation will succeed
 //     - thin = the anchors are on-topic but too few / too shallow to
-//       carry the argument through 5+ slides without paraphrasing
+//       carry the argument through extra slides without paraphrasing
 //     - mismatched = the anchors don't support (or contradict) the
-//       hook's specific claim; generation will produce a bait-and-switch
+//       hook's specific claim, OR they wandered off the LENS
 //   reason: one-sentence explanation of the verdict
 //   gaps: array of specific missing pieces (each 60-120 chars)
 //     for "thin" and "mismatched" verdicts; empty for "coherent"
+//   claims: pointed claim → source rows (hook|pov × anchored|unverified)
+//   useFor: what this desk can actually carry (Cover + News, not GST 10)
+//   slideCount: pointed slides the desk earned (2–6), not a template length
 //
 // Bounded to one Flash-Lite call so the check is cheap enough to
-// run automatically. Failure returns null; caller treats null as
-// "check unavailable, proceed" — the check is a warning, not a gate.
+// run automatically after Fuel. Failure returns null; caller treats
+// null as "check unavailable, proceed" — the check is a warning, not a gate.
+
+const COHERENCE_FROM = ["hook", "pov"];
+const COHERENCE_SUPPORT = ["anchored", "unverified"];
+
+export function defaultCoherenceUseFor(slideCount) {
+  const n = Math.min(6, Math.max(2, Number(slideCount) || 2));
+  if (n <= 3) {
+    return "Cover + News. Stay-line on the cover; one receipt in News. The desk did not earn a long carousel.";
+  }
+  if (n === 4) {
+    return "Cover + News + one explanatory beat. Cap at 4 slides — pointed claims, not padding.";
+  }
+  return `Cover + News plus ${n - 2} pointed receipts. Cap at ${n} slides — not a 10-card carousel.`;
+}
+
+export function coherenceInputSignature({ hook = "", pov = "", anchors = [], lens = "" } = {}) {
+  const cleanAnchors = Array.isArray(anchors)
+    ? anchors.map((a) => String(a || "").trim()).filter(Boolean)
+    : [];
+  return `${String(hook || "").trim()}|${String(pov || "").trim()}|${cleanAnchors.join("|")}|${String(lens || "").trim()}`;
+}
+
+export function buildCoherencePrompt({ hook, pov, anchors = [], clusterDirective } = {}) {
+  const cleanHook = String(hook || "").trim();
+  const cleanPOV = String(pov || "").trim();
+  const cleanAnchors = Array.isArray(anchors)
+    ? anchors.map((a) => String(a || "").trim()).filter(Boolean)
+    : [];
+  const lensLine = String(clusterDirective || "").trim();
+  return [
+    "ROLE: You are a critical newsroom editor reading a proposed carousel outline BEFORE any slide is written.",
+    "TASK: Answer ONE question — can these anchors support this argument, on THIS LENS?",
+    "",
+    "You are NOT proposing better anchors, NOT rewriting the hook, NOT generating slides. You are answering: given what is on the desk, does the argument stand?",
+    "",
+    "THE ARGUMENT:",
+    `  Hook (cover promise): ${cleanHook}`,
+    `  POV (thesis): ${cleanPOV}`,
+    ...(lensLine ? [`  LENS (this piece — the only frame that counts): ${lensLine}`] : ["  LENS: (none typed — judge hook + POV only; do not invent a cluster syllabus)"]),
+    "",
+    "THE ANCHORS (raw facts the writer will build slides from):",
+    ...cleanAnchors.map((a, i) => `  ${i + 1}. ${a.slice(0, 400)}`),
+    "",
+    "LENS IS STRICT. The LENS is the facet labels and/or the typed Narrowing on screen. It is NOT the cluster catalog. Reciting unclicked cluster topics (Oldenburg, venue permits, bottle service, liquor-cap math) is NOT support unless those words are already in the LENS. If the LENS names a place or facet, an anchor that wanders to another geography or a different spend is unverified — and if the whole desk wandered, the verdict is mismatched.",
+    "",
+    "VERDICTS (pick ONE):",
+    '  "coherent" — the anchors carry the argument ON THE LENS. Different entities, different angles, each proving part of the thesis. Generation will succeed.',
+    '  "thin" — the anchors are on-LENS but too few or too shallow. The writer will have to paraphrase the same fact across extra slides, or write metaphors it can\'t ground. Fixable by adding 1-2 more distinct on-LENS anchors OR compressing to fewer slides.',
+    '  "mismatched" — the anchors don\'t actually support the hook\'s specific claim, one anchor contradicts another, OR the desk wandered off the LENS (wrong place, unclicked catalog syllabus). Generation will produce a bait-and-switch. Fixable by revising the hook OR swapping anchors back onto the LENS.',
+    "",
+    "CLAIMS MAP: extract 1-6 pointed claims the cover/thesis is making. For each: which line it came from (hook or pov), and whether an numbered anchor actually proves it (anchored + 1-based anchor index) or it is still a promise (unverified, anchor 0). A paraphrase of the hook is not a proof. A catalog recitation is not a proof.",
+    "",
+    "USE THIS DESK FOR + SLIDE COUNT: say what this material can actually carry. Cover + News is the starting pair. slideCount is the number of pointed slides the desk earned (2-6), NOT a template length and NOT a 10-slide Instagram carousel. If only two claims are anchored, slideCount is 3 (cover + news + stay) or less — do not recommend stretching.",
+    "",
+    "For 'thin' and 'mismatched': also return 1-3 specific GAPS — each a short (60-120 char) sentence naming what's missing or what's off. Concrete, not vague. Example: 'No anchor names a currently-operating venue — every specific is either historical or a policy metric.' NOT: 'anchors are weak.'",
+    "For 'coherent': return an empty gaps array.",
+    "",
+    "Be adversarial. It is better to flag a thin or off-LENS matrix than to green-light a shaky carousel.",
+    "",
+    'Return ONLY JSON in this exact shape: {"verdict":"coherent|thin|mismatched","reason":"one sentence","gaps":["..."],"claims":[{"claim":"...","from":"hook|pov","support":"anchored|unverified","anchor":1}],"useFor":"what the desk can carry","slideCount":3}',
+  ].join("\n");
+}
+
+export function normalizeCoherenceResult(parsed, { anchors = [] } = {}) {
+  if (!parsed || typeof parsed !== "object") return null;
+  const verdict = ["coherent", "thin", "mismatched"].includes(parsed.verdict) ? parsed.verdict : null;
+  if (!verdict) return null;
+  const anchorCount = Array.isArray(anchors)
+    ? anchors.map((a) => String(a || "").trim()).filter(Boolean).length
+    : 0;
+  const claims = Array.isArray(parsed.claims)
+    ? parsed.claims.map((c) => {
+      if (!c || typeof c !== "object") return null;
+      const claim = String(c.claim || "").trim().slice(0, 220);
+      if (!claim) return null;
+      const from = COHERENCE_FROM.includes(c.from) ? c.from : "hook";
+      let support = COHERENCE_SUPPORT.includes(c.support) ? c.support : "unverified";
+      let anchor = Number.parseInt(c.anchor, 10);
+      if (!Number.isFinite(anchor) || anchor < 1) anchor = 0;
+      if (anchor > 0 && anchorCount > 0 && anchor > anchorCount) {
+        support = "unverified";
+        anchor = 0;
+      }
+      if (support === "anchored" && anchor < 1) support = "unverified";
+      if (support === "unverified") anchor = 0;
+      return { claim, from, support, anchor };
+    }).filter(Boolean).slice(0, 6)
+    : [];
+  const anchoredCount = claims.filter((c) => c.support === "anchored").length;
+  let slideCount = Number.parseInt(parsed.slideCount, 10);
+  if (!Number.isFinite(slideCount)) {
+    slideCount = Math.min(6, Math.max(2, (anchoredCount || 0) + 1));
+  }
+  slideCount = Math.min(6, Math.max(2, slideCount));
+  const useFor = String(parsed.useFor || "").trim().slice(0, 280) || defaultCoherenceUseFor(slideCount);
+  const out = {
+    verdict,
+    reason: String(parsed.reason || "").trim().slice(0, 400),
+    gaps: Array.isArray(parsed.gaps)
+      ? parsed.gaps.map((g) => String(g || "").trim()).filter(Boolean).slice(0, 4)
+      : [],
+    claims,
+    useFor,
+    slideCount,
+  };
+  if (typeof parsed.checkedAt === "string" && parsed.checkedAt.trim()) {
+    out.checkedAt = parsed.checkedAt.trim();
+  }
+  return out;
+}
+
+export function formatCoherenceSeedLines(check) {
+  const normalized = normalizeCoherenceResult(check);
+  if (!normalized) return [];
+  const lines = [
+    `COHERENCE: ${normalized.verdict} — ${normalized.reason || "no reason"}`.trim(),
+    `USE THIS DESK FOR: ${normalized.useFor}`,
+    `POINTED SLIDE COUNT: ${normalized.slideCount}. Cover + News is the starting pair. Do not stretch to a 10-slide carousel.`,
+  ];
+  const unverified = normalized.claims.filter((c) => c.support === "unverified");
+  if (unverified.length) {
+    lines.push(`UNVERIFIED CLAIMS (do not treat as proven): ${unverified.map((c) => c.claim).join("; ")}`);
+  }
+  return lines;
+}
+
 export async function checkArgumentCoherence({ apiKey, hook, pov, anchors = [], clusterDirective } = {}) {
   if (!apiKey || !String(apiKey).trim()) return null;
   const cleanHook = String(hook || "").trim();
@@ -782,33 +911,12 @@ export async function checkArgumentCoherence({ apiKey, hook, pov, anchors = [], 
   if (!cleanHook || !cleanPOV || cleanAnchors.length < 2) return null;
 
   const directiveLine = String(clusterDirective || "").trim();
-
-  const prompt = [
-    "ROLE: You are a critical newsroom editor reading a proposed carousel outline BEFORE any slide is written.",
-    "TASK: Answer ONE question — can these anchors support this argument?",
-    "",
-    "You are NOT proposing better anchors, NOT rewriting the hook, NOT generating slides. You are answering: given what is on the desk, does the argument stand?",
-    "",
-    "THE ARGUMENT:",
-    `  Hook (slide 1 promise): ${cleanHook}`,
-    `  POV (thesis): ${cleanPOV}`,
-    ...(directiveLine ? [`  LENS: ${directiveLine}`] : []),
-    "",
-    "THE ANCHORS (raw facts the writer will build slides from):",
-    ...cleanAnchors.map((a, i) => `  ${i + 1}. ${a.slice(0, 400)}`),
-    "",
-    "VERDICTS (pick ONE):",
-    '  "coherent" — the anchors carry the argument. Different entities, different angles, each proving part of the thesis. Generation will succeed.',
-    '  "thin" — the anchors are on-topic but too few or too shallow. The writer will have to paraphrase the same fact across slides 2-4 to fill the count, or write metaphors it can\'t ground. Fixable by adding 1-2 more distinct anchors OR compressing to fewer slides.',
-    '  "mismatched" — the anchors don\'t actually support the hook\'s specific claim (or one anchor contradicts another). Generation will produce a bait-and-switch — the cover promises one thing, the middle slides deliver another. Fixable by revising the hook OR swapping anchors.',
-    "",
-    "For 'thin' and 'mismatched': also return 1-3 specific GAPS — each a short (60-120 char) sentence naming what's missing or what's off. Concrete, not vague. Example: 'No anchor names a currently-operating venue — every specific is either historical or a policy metric.' NOT: 'anchors are weak.'",
-    "For 'coherent': return an empty gaps array.",
-    "",
-    "Be adversarial. It is better to flag a thin matrix and let the operator strengthen it than to green-light and produce a shaky carousel.",
-    "",
-    'Return ONLY JSON in this exact shape: {"verdict":"coherent|thin|mismatched","reason":"one sentence","gaps":["...","..."]}',
-  ].join("\n");
+  const prompt = buildCoherencePrompt({
+    hook: cleanHook,
+    pov: cleanPOV,
+    anchors: cleanAnchors,
+    clusterDirective: directiveLine,
+  });
 
   const MODEL = "gemini-2.5-flash-lite";
   const URL_BASE = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
@@ -817,15 +925,31 @@ export async function checkArgumentCoherence({ apiKey, hook, pov, anchors = [], 
     generationConfig: {
       responseMimeType: "application/json",
       temperature: 0.3, // Critic — low temp, deterministic verdict
-      maxOutputTokens: 512,
+      maxOutputTokens: 1024,
       responseSchema: {
         type: "object",
         properties: {
           verdict: { type: "string", enum: ["coherent", "thin", "mismatched"] },
           reason: { type: "string", maxLength: 400 },
           gaps: { type: "array", items: { type: "string", maxLength: 220 }, maxItems: 4 },
+          claims: {
+            type: "array",
+            maxItems: 6,
+            items: {
+              type: "object",
+              properties: {
+                claim: { type: "string" },
+                from: { type: "string", enum: ["hook", "pov"] },
+                support: { type: "string", enum: ["anchored", "unverified"] },
+                anchor: { type: "integer" },
+              },
+              required: ["claim", "from", "support"],
+            },
+          },
+          useFor: { type: "string" },
+          slideCount: { type: "integer" },
         },
-        required: ["verdict", "reason"],
+        required: ["verdict", "reason", "claims", "useFor", "slideCount"],
       },
     },
   };
@@ -857,15 +981,7 @@ export async function checkArgumentCoherence({ apiKey, hook, pov, anchors = [], 
     const trimmed = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
     try { parsed = JSON.parse(trimmed); } catch { return null; }
   }
-  const verdict = ["coherent", "thin", "mismatched"].includes(parsed?.verdict) ? parsed.verdict : null;
-  if (!verdict) return null;
-  return {
-    verdict,
-    reason: String(parsed.reason || "").trim().slice(0, 400),
-    gaps: Array.isArray(parsed.gaps)
-      ? parsed.gaps.map((g) => String(g || "").trim()).filter(Boolean).slice(0, 4)
-      : [],
-  };
+  return normalizeCoherenceResult(parsed, { anchors: cleanAnchors });
 }
 
 // Seed topics — the operator's curated beat board. Clicking one auto-

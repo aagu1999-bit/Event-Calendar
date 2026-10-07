@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { composePOV, buildHookPrompt, COMPASS_TOPICS, resolveEditorialLens } from "./matrixCompass.js";
 import { MATRIX_FIELDS, LIMITS } from "./matrixEnums.js";
+import { matrixCompleteness } from "./matrixValidation.js";
 import { eventMatrixToFillSeed } from "./eventMatrixToFillSeed.js";
 import { researchAiModeRequest } from "../../perplexityResearch.js";
 import {
@@ -290,6 +291,7 @@ test("matrix stores the lock fields", () => {
   assert.equal(MATRIX_FIELDS.includes("subject_facets"), true);
   assert.equal(MATRIX_FIELDS.includes("corridor_locales"), true);
   assert.equal(MATRIX_FIELDS.includes("join_facet"), true);
+  assert.equal(MATRIX_FIELDS.includes("argument_check"), true);
   assert.equal(LIMITS.FACETS_MAX, 5);
   assert.equal(LIMITS.LOCALES_MAX, 3);
 });
@@ -310,4 +312,44 @@ test("fill seed with a cluster desk and typed Narrowing does not dump the syllab
   assert.equal(/venue rental/i.test(seed.clusterDirective), false);
   assert.equal(/door economics/i.test(seed.clusterDirective), false);
   assert.equal(/Oldenburg/i.test(seed.clusterDirective), false);
+});
+
+test("completeness ignores argument_check the way it ignores pipeline_status", () => {
+  const empty = matrixCompleteness({});
+  const withCheck = matrixCompleteness({
+    argument_check: { verdict: "coherent", reason: "ok", claims: [], useFor: "Cover + News", slideCount: 3 },
+    pipeline_status: "READY",
+  });
+  assert.equal(withCheck.filled, empty.filled);
+  assert.equal(withCheck.total, empty.total);
+  assert.equal(MATRIX_FIELDS.includes("argument_check"), true);
+});
+
+test("fill seed injects coherence claim map and slide advice, not a 10-slide stretch", () => {
+  const seed = eventMatrixToFillSeed({
+    name: "Parkway piece",
+    matrix: {
+      event_tier: "FEATURE",
+      editorial_lens: "summer shore traffic in Parkway towns",
+      hook_a_side: "Parkway towns eat the summer influx.",
+      editorial_pov: "The influx is a logistics tax, not a vibe.",
+      data_points: ["START — Parkway towns lose the shoulder season."],
+      argument_check: {
+        verdict: "thin",
+        reason: "Only one on-LENS receipt.",
+        claims: [
+          { claim: "Parkway towns eat the summer influx.", from: "hook", support: "anchored", anchor: 1 },
+          { claim: "The influx is a logistics tax.", from: "pov", support: "unverified", anchor: 0 },
+        ],
+        useFor: "Cover + News. Stay-line on the cover; one receipt in News.",
+        slideCount: 3,
+      },
+    },
+  });
+  assert.match(seed.context, /COHERENCE: thin/);
+  assert.match(seed.context, /USE THIS DESK FOR: Cover \+ News/);
+  assert.match(seed.context, /POINTED SLIDE COUNT: 3/);
+  assert.match(seed.context, /UNVERIFIED CLAIMS/);
+  assert.equal(/10-slide GST/i.test(seed.context), false);
+  assert.equal(seed.arrange, false);
 });
