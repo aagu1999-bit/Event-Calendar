@@ -509,7 +509,7 @@ export function lensDiscoveryQueries({ cluster = "", topic = "", subjectFacets =
     `${hook} Black New Jersey opinion OR op-ed OR column site:echonewstv.com OR site:blackinjersey.com OR site:njurbannews.com -njpac -essence`,
     `${hook} "NJ Uncovered" OR njuncovered OR "nj.uncovered" Facebook OR Instagram OR YouTube New Jersey`,
     `${hook} influenced OR influence OR "came from" OR "spread to" New Jersey Baltimore Philadelphia "New York" national`,
-    `${hook} pop culture OR society OR regional OR national trend OR norm site:currentaffairs.org`,
+    `${hook} New Jersey currently operating place OR program OR Saturday -njpac -essence`,
     `${hook} oral history OR "African American Studies" site:rutgers.edu OR site:montclair.edu OR site:princeton.edu`,
   ];
   const byCluster = {
@@ -523,7 +523,7 @@ export function lensDiscoveryQueries({ cluster = "", topic = "", subjectFacets =
     ],
     DIASPORA_INFRASTRUCTURE: [
       "Newark Caribbean African American hall opinion column New Jersey",
-      "who owns versus who programs Newark culture Caribbean African influence",
+      "Newark Jersey City cultural hall currently operating New Jersey",
     ],
     SUBURBAN_THIRD_PLACE: [
       "New Jersey Black suburban gathering opinion column national third place",

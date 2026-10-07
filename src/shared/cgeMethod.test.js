@@ -14,6 +14,7 @@ import {
   contentMethodBlock,
   contentMethodResearchPrompt,
   contentArrangerLines,
+  contentMethodSpineBlock,
   CONTENT_ESSAY_ARC,
   CONTENT_FLYER_SLOTS,
 } from "./cgeMethod.js";
@@ -58,6 +59,8 @@ test("format and append stamp the method marker and extra bullets", () => {
     },
   });
   assert.equal(contextHasMethodBrief(block), true);
+  assert.match(block, /homework from this desk/);
+  assert.equal(/required architecture/.test(block), false);
   assert.match(block, /JOIN: The sister church/);
   assert.match(block, /^- Founded 1979/m);
   const next = appendMethodBriefToContext("POV: a thesis\n- existing bullet", { parsed: {
@@ -91,8 +94,11 @@ test("method homework does not hunt the house fight by default", () => {
     context: "specifically for business owners",
   });
   assert.match(prompt, /HOUSE FIGHT IS OPTIONAL/);
-  assert.match(prompt, /MECHANISM IS OPTIONAL/);
+  assert.match(prompt, /MECHANISM, PATTERN, JOIN, DOCUMENT/);
   assert.match(prompt, /NONE unless this specimen already shows/);
+  assert.match(prompt, /PATTERN: \(NONE unless/);
+  assert.match(prompt, /DOCUMENT: \(NONE unless/);
+  assert.match(prompt, /JOIN: \(NONE unless/);
   assert.match(prompt, /not a CGE default/);
   assert.equal(/same-city other-diaspora site unless/.test(prompt), true);
   assert.equal(/PATTERN: \(the reusable pressure this NJ specimen is an instance of — may be a regional or country-wide norm: memory loss, ownership vs programming/.test(prompt), false);
@@ -105,11 +111,17 @@ test("method block writes an essay, not an Instagram formula", () => {
   assert.match(block, /Sunken Silo and Autodidact/);
   assert.match(block, /find your next gathering spot/);
   assert.match(block, /discover surprising gathering spots/);
+  assert.match(block, /Cover locates/);
+  assert.equal(/Cover states the CONTRAST from THESIS/.test(block), false);
   assert.equal(/every other slide stays on one time/.test(block), false);
   const arranger = contentArrangerLines().join("\n");
   assert.match(arranger, /OPEN A LOOP/);
   assert.match(arranger, /Instagram formula is banned/);
+  assert.match(arranger, /If the desk only locates, Cover \+ News locates/);
   for (const slot of CONTENT_FLYER_SLOTS) {
     assert.match(arranger, new RegExp(slot));
   }
+  const spine = contentMethodSpineBlock().join("\n");
+  assert.match(spine, /If it only locates, outline Cover \+ News/);
+  assert.match(spine, /If the brief only located: two sentences that locate THIS specimen/);
 });

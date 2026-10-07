@@ -76,7 +76,7 @@ export function isPlatformThemeLeak(text, desk = "") {
 // CGE_SUBJECT as a hunt. Thesis/Hook already refuse the graft; these
 // surfaces have to refuse the search.
 export const PLATFORM_THEME_STAY_ON_DESK =
-  "MISSION: CGE is a Black New Jersey cultural publication. Events are the door. Locate THIS specimen, then prove what the desk already claimed. HOUSE FIGHT IS OPTIONAL. African American / Caribbean / African diaspora tension, who owns vs who programs, who actually benefits, whose vision, entrepreneurial spirit, and old gatekeepers are not a hunt. MECHANISM IS OPTIONAL. A named program, statute, Transit Village, liquor cap, SID, Current Affairs 'societal mechanism', access illusion, 'access dictates who', or the unseen hand is not the default hunt. Use a fight or a trick only if the LENS, POV, topic, or a numbered anchor already named it. If this desk is an event plus an audience, stay on that specimen. Do not search or write a house theme to make the brief feel like CGE.";
+  "MISSION: CGE is a Black New Jersey cultural publication. Events are the door. Locate THIS specimen, then prove what the desk already claimed. HOUSE FIGHT IS OPTIONAL. African American / Caribbean / African diaspora tension, who owns vs who programs, who actually benefits, whose vision, entrepreneurial spirit, and old gatekeepers are not a hunt. MECHANISM, PATTERN, FRICTION, JOIN, and DOCUMENT are OPTIONAL. A named program, statute, Transit Village, liquor cap, SID, Current Affairs 'societal mechanism', access illusion, 'access dictates who', the unseen hand, a sideways join, or an official document is not the default hunt. Use a fight, a trick, a pattern, a join, or a document only if the LENS, POV, topic, or a numbered anchor already named it — or research actually found it on THIS specimen. If this desk is an event plus an audience, stay on that specimen. Do not search or write a house theme to complete a kit and make the brief feel like CGE.";
 
 // Injected at the top of writer / spine / arranger prompts when the
 // carousel is Feature-tier or the operator picked Content register.
@@ -105,11 +105,11 @@ export function contentRegisterBlock() {
   return [
     "REGISTER: CONTENT — cultural infrastructure, not a flyer and not a memoir.",
     "- Destination is UNDERSTANDING. Never a sale. Never a listing.",
-    "- The piece is an ESSAY: CONTRAST → CAUSE → EXPLAIN → NEXT. A piece that only names places is a directory. A piece that only names a number is a slogan. Articulation and connection are the quality.",
+    "- The piece is an ESSAY when the desk earned a contrast: CONTRAST → CAUSE → EXPLAIN → NEXT. If the desk only locates, Cover + News locates. Do not invent a paradox, friction, pattern, join, or mechanism to complete the essay kit.",
     "- Hero locates the specimen (who / what / where / when), then names a tension already on the desk. Do not default to ownership vs programming or same-city diaspora tension unless the LENS, POV, or an anchor named it. An event, venue, or night may open the piece; it is not the product.",
     "- Voice: 15% curator, 85% observational + research-grounded. Third-person or restrained editorial-we. 'I' is banned unless a sourced quote needs it. You translate; you are not the subject.",
     "- Depth without heaviness. Curiosity without preachiness. If a line sounds like a seminar, a grant, or a eulogy, rewrite it as a concrete NJ specific — a room, a corridor, a lineage, a number you can vouch for.",
-    "- Underserved questions only. Do not recap the take everyone already has ('nightlife is changing', 'third places matter'). Name the thing the audience has felt but never had a word for.",
+    "- Ask only the question already on the desk. Do not recap the take everyone already has ('nightlife is changing', 'third places matter'). Do not invent 'the thing the audience has felt but never had a word for' — that hunt writes access illusions.",
     "- The specimen stays in New Jersey. A sentence that never names New Jersey is the wrong sentence. A connection that names what Baltimore, Philly, NYC, or a country-wide norm did to this NJ room — or what this NJ room did to the region — is the quality, not a leak. Do not write an adjacent NYC weekender calendar.",
     "- Closer is the NEXT QUESTION the explanation just opened. Never RSVP / don't miss / pull up / this weekend / link in bio / tag a friend / find your next gathering spot / THE ARCHIVE.",
     "- BANNED flyer language (non-negotiable): 'don't miss', 'join us', 'limited spots', 'you won't want to miss', 'pull up', 'RSVP', 'doors at', 'link in bio', 'good vibes', 'movie', 'must-visit', 'hidden gem', 'something for everyone'.",
@@ -125,10 +125,10 @@ export function contentCreativeDirection() {
   return [
     "CREATIVE DIRECTION — Content / Feature (read before writing a single line):",
     "- Do NOT infer an 'event genre' or match nightlife/FOMO/mixer energy. This is not that post.",
-    "- FIRST name the CONTRAST. Then EXPLAIN the cause in a paragraph. Then EXPLAIN each expression with the names inside the paragraph. Then ask the next question. A cover without explanation is still a slogan.",
+    "- Locate who / what / where / when first. Name a CONTRAST only if Fuel already proved two expressions. Then EXPLAIN the cause in a paragraph only if the brief named a pressure. Then EXPLAIN each expression with the names inside the paragraph. Then ask the next question already on the desk. Do not invent a paradox to give the cover a slogan.",
     "- CONNECT. Do not isolate. Sunken Silo and Autodidact belong in the same Route 22 paragraph when they are the same expression. Do not nose-dive the mechanism into a stat card.",
     PLATFORM_THEME_STAY_ON_DESK,
-    "- Cover names the contrast Fuel Research already proved — Strip Malls vs Urban Cafes, Route 22 vs Cranford. Subtitle connects. Never 'is gone'. Never an open loop that withholds the point.",
+    "- Cover names the contrast Fuel Research already proved — Strip Malls vs Urban Cafes, Route 22 vs Cranford. If Fuel only located, the cover locates. Subtitle connects. Never 'is gone'. Never an open loop that withholds the point.",
     "- BANNED cover language: 'discover surprising', 'new gathering spots', 'did your community', 'did you know', 'hidden gems', 'spots you need to know', 'here's why', 'is gone', 'social life is gone'. Those are listings or eulogies. Teach the brief.",
     "- Hook archetypes that fit: a named NJ contrast already in the brief; then→now with a living remnant the desk already named; a single NJ-specific scene detail that implies the larger pattern. Do not default to who-owns-vs-who-programs.",
     "- Do NOT invent unverifiable history, quotes, or venues. If the material is thin, keep the carousel short and specific rather than padding with atmosphere.",
@@ -171,9 +171,9 @@ export function editorialBuildFormulaLines() {
     "  1. FELT SATURDAY — one thing they already see. Cover hook rotates: a QUESTION, a felt Saturday, a then→now. Do not lock the first hook. A question often works. BYOB / a brewery may color the Saturday; they are not the whole hook.",
     "  2. HOMEWORK — official desk + argument desk. Named bars and spots. Not 'room'.",
     "  3. ASK — questions while it builds that thicken ONE idea. Do not dump five names.",
-    "  4. TEACH ONE — the rule in kitchen-table words BEFORE any join. They need the handle first.",
-    "  5. ONE SPECIMEN — one bar or spot that makes the rule real. Not a collage.",
-    "  6. ONE LATERAL — one Saturday they already know (for a liquor cap: BYOB and brewery taprooms). Not a third clerk fact. Not an event brand they have to look up.",
+    "  4. TEACH ONE — only if the brief named a rule, say it in kitchen-table words BEFORE any join. If there is no rule, keep locating the Saturday. Do not invent a handle.",
+    "  5. ONE SPECIMEN — one bar or spot that makes the Saturday (or the rule, if there is one) real. Not a collage.",
+    "  6. ONE LATERAL — one Saturday they already know, and only if the brief named a rule (for a liquor cap: BYOB and brewery taprooms). If the brief did not name a rule, do not invent one. Not a third clerk fact. Not an event brand they have to look up.",
     "  7. NEXT QUESTION — the closer asks what the swipe just made possible. Not the mechanism again as a riddle.",
     "- Do not write these step labels as visible copy.",
   ];

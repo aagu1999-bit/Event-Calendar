@@ -18,6 +18,8 @@ test("cadence rotation is the one-sentence-per-line beat, not a source voice", (
   assert.match(contentCreativeDirection().join("\n"), /is gone/);
   assert.match(contentCreativeDirection().join("\n"), /Strip Malls vs Urban Cafes/);
   assert.match(contentCreativeDirection().join("\n"), /HOUSE FIGHT IS OPTIONAL/);
+  assert.match(contentCreativeDirection().join("\n"), /If Fuel only located, the cover locates/);
+  assert.equal(/FIRST name the CONTRAST/.test(contentCreativeDirection().join("\n")), false);
   assert.equal(/Hook archetypes that fit:[\s\S]*who owns vs who programs/.test(contentCreativeDirection().join("\n")), false);
 });
 
@@ -39,7 +41,7 @@ test("writer platform block does not sit the house fight ABOVE the LENS", () => 
   const block = platformThesisBlock({ mode: "content" }).join("\n");
   assert.match(block, /PUBLICATION IDENTITY/);
   assert.match(block, /HOUSE FIGHT IS OPTIONAL/);
-  assert.match(block, /MECHANISM IS OPTIONAL/);
+  assert.match(block, /MECHANISM, PATTERN, FRICTION, JOIN, and DOCUMENT are OPTIONAL/);
   assert.match(block, /access illusion/);
   assert.match(block, /ORIENT/);
   assert.equal(/this sits ABOVE the cluster lens/.test(block), false);
@@ -48,13 +50,16 @@ test("writer platform block does not sit the house fight ABOVE the LENS", () => 
   assert.match(block, /Current Affairs\) only if THIS desk already named/);
   const hero = contentRegisterBlock().join("\n");
   assert.match(hero, /locates the specimen/);
+  assert.match(hero, /If the desk only locates, Cover \+ News locates/);
   assert.equal(/Hero is a QUESTION about Black New Jersey/.test(hero), false);
+  assert.match(hero, /Do not invent 'the thing the audience has felt but never had a word for'/);
 });
 
 test("editorial build formula is one idea then one sideways Saturday", () => {
   const block = editorialBuildFormulaLines().join("\n");
   assert.match(block, /FELT SATURDAY/);
   assert.match(block, /TEACH ONE/);
+  assert.match(block, /only if the brief named a rule/);
   assert.match(block, /ONE SPECIMEN/);
   assert.match(block, /ONE LATERAL/);
   assert.match(block, /NEXT QUESTION/);

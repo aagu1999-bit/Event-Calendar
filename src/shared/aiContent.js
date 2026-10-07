@@ -202,10 +202,10 @@ export async function researchEvent({ apiKey, topic, context }) {
   return (extractResponseText(data) || "").trim();
 }
 
-// Content / Feature research — NOT event background. Grounded search that
-// has to return a PATTERN, a DOCUMENT, and one SIDEWAYS JOIN. Promo and
-// editorial still use researchEvent (flyer/background). This is the
-// homework step the Content register cannot skip.
+// Content / Feature research — locate THIS specimen. Pattern, document,
+// and join are optional if the specimen already shows them. Promo and
+// editorial still use researchEvent (flyer/background). Skip this pass
+// when Fuel already wrote the brief.
 export async function researchContentMethod({ apiKey, topic, context, clusterDirective = "", clusterLabel = "" } = {}) {
   if (!apiKey) throw new Error("Missing Gemini API key");
   const prompt = contentMethodResearchPrompt({ topic, context, clusterDirective, clusterLabel });
@@ -2988,23 +2988,28 @@ export async function generateNarrativeSpine({ apiKey, topic, context, clusterDi
       "    Use SHOWCASE as the beat label for every peer entry — do NOT invent per-entity labels ('SHOWCASE_A', 'ROSE_PICK'). The identical label is correct; the ENTITY inside each spotlight is what varies.",
       "  - slideAssignments: an array of length equal to slide count. Slide 1 = OVERTURE; every spotlight slide = SHOWCASE; a non-spotlight bridge slide = CONTEXT; last slide = CODA. Peer entries share the same label by design.",
     ] : isContentRegister(mode, isEvergreen) ? [
-      '  - thesis: ONE sentence naming the CONTRAST this carousel teaches. Concrete, not abstract. Not a topic ("Diaspora Infrastructure") and not a flyer line — Strip Malls vs Urban Cafes, not "the commuter town\'s social life is gone."',
-      "  - beats: an ordered array of 4 beats mapping to slides in this order:",
-      "      1. CONTRAST — the two expressions. NO withheld loop. NO 'is gone'.",
-      "      2. CAUSE — how the pressure produced those expressions. Numbers live in this sentence.",
-      "      3. EXPLAIN — one section that makes an expression undeniable. Place-names live inside the paragraph. A second EXPLAIN beat is correct when there are two expressions.",
-      "      4. NEXT — the question the explanation opened. Never a ticket, RSVP, archive kicker, or 'find your next gathering spot'.",
-      `    Outline as ${CONTENT_ESSAY_ARC}.`,
-      "  - slideAssignments: an array of length equal to slide count. Each entry is CONTRAST / CAUSE / EXPLAIN / NEXT. Last slide is NEXT. Spread the middle. Two EXPLAIN slides are correct.",
+      '  - thesis: ONE sentence locating THIS specimen (who / what / where / when). Name a CONTRAST only if Fuel / THESIS / START already proved two expressions. Concrete, not abstract. Not a topic ("Diaspora Infrastructure") and not a flyer line. Do not invent Strip Malls vs Urban Cafes so the brief feels like CGE.',
+      "  - beats: ordered beats mapping to the slides you actually earned:",
+      "      If the brief already named a contrast: CONTRAST → CAUSE → EXPLAIN → NEXT.",
+      "      If the brief only locates: LOCATE (cover) → NEWS (what is on this desk) → NEXT (the question already on the desk).",
+      "      Do not invent CAUSE / MECHANISM / JOIN / FRICTION / PATTERN beats to fill four slots.",
+      "      CONTRAST — the two expressions already proved. NO withheld loop. NO 'is gone'.",
+      "      CAUSE — only if the brief named a pressure. Numbers live in this sentence.",
+      "      EXPLAIN — one section that makes an expression undeniable. Place-names live inside the paragraph.",
+      "      NEXT — the question already on the desk. Never a ticket, RSVP, archive kicker, or 'find your next gathering spot'.",
+      `    Outline as ${CONTENT_ESSAY_ARC} only when the desk earned a contrast. Otherwise Cover + News locates.`,
+      "  - slideAssignments: an array of length equal to slide count. Last slide is NEXT. Do not pad with invented CAUSE slides.",
     ] : [
-      '  - thesis: ONE sentence naming the singular tension this carousel exposes. Concrete, not abstract. Not a topic ("Diaspora Infrastructure") but a claim ("Newark\'s Portuguese social clubs quietly do what commercial nightlife charges $60 a table for").',
-      "  - beats: an ordered array of 4 beats mapping to slides in this order:",
-      "      1. PARADOX — name the specific conflict/paradox this carousel opens. NO stats, NO conclusions. Sets the tension.",
-      "      2. FRICTION — why the obvious answer fails (commercial cost, zoning, cultural gatekeeping, geographic distance).",
-      "      3. MECHANISM — the unseen infrastructure/venue/collective actually solving it. THIS is where a focused metric lands if one exists.",
+      '  - thesis: ONE sentence locating THIS specimen, or naming the singular tension the brief already exposed. Concrete, not abstract. Not a topic ("Diaspora Infrastructure"). Do not invent a hidden machine so the carousel feels like an argument.',
+      "  - beats: ordered beats mapping to the slides you actually earned:",
+      "      If the brief already named a fight or a trick: PARADOX → FRICTION → MECHANISM → GATE.",
+      "      If the brief only locates: LOCATE → NEWS → GATE. Do not invent PARADOX / FRICTION / MECHANISM to fill four slots.",
+      "      1. PARADOX — only if the brief named a conflict. NO stats, NO conclusions.",
+      "      2. FRICTION — only if the brief named why the obvious answer fails.",
+      "      3. MECHANISM — the unseen infrastructure ONLY if the brief already named it. Do not hunt an access illusion.",
       "      4. GATE — the ask: the specific action or keyword access. Never a limp 'link in bio'.",
-      "    If the topic genuinely calls for a different arc (e.g. sonic-history: ORIGIN → BREAK → LEGACY → NOW), use those beats instead — but keep the count at 4 and the shape identical.",
-      "  - slideAssignments: an array of length equal to slide count. Each entry is the beat label (PARADOX/FRICTION/MECHANISM/GATE — or your adapted labels) that this slide serves. Distribute the beats across the slides (typically the last slide is GATE; the beats spread across the middle).",
+      "    If the topic genuinely calls for a different arc (e.g. sonic-history: ORIGIN → BREAK → LEGACY → NOW), use those beats instead — keep the shape honest to the desk, not a forced count of 4.",
+      "  - slideAssignments: an array of length equal to slide count. Last slide is GATE. Distribute only the beats the brief earned.",
     ]),
     ...(spineMode === "showcase" ? [
       "  - bulletRoles: object mapping each context bullet (verbatim, first 60 chars as key) to ONE role: 'proof' (a peer entity that will fill a spotlight slot), 'context' (background on the pattern, may be used in bridge slides or the overture), or 'veto' (doesn't fit the pattern's collection — DISCARD, must NOT appear in any slide). In showcase mode, EVERY spotlight slot expects a distinct proof entity — the ecosystem of peer entries IS the carousel.",
@@ -3015,33 +3020,33 @@ export async function generateNarrativeSpine({ apiKey, topic, context, clusterDi
     ]),
     "",
     "MACRO-COVER MANDATE — this rule OVERRIDES any other bullet-assignment instinct:",
-    "  Slide 1 (COVER) is the UMBRELLA CONTRAST. It names the two expressions the Fuel brief already proved — Strip Malls vs Urban Cafes, Walker's Paradise vs strip-mall geography. Do not open a withheld loop. Do not write 'is gone'.",
+    "  Slide 1 (COVER) locates THIS specimen. If Fuel already proved two expressions, it is the UMBRELLA CONTRAST — Strip Malls vs Urban Cafes, Walker's Paradise vs strip-mall geography. If Fuel only located, the cover locates who / what / where / when. Do not invent a contrast. Do not open a withheld loop. Do not write 'is gone'.",
     "  Slide 1 MUST NOT appear as a value anywhere in proofAssignments — the cover CANNOT be assigned a specific PROOF bullet, EVER. If you assign a run-club bullet to slide 1, the whole carousel gets anchored on that one venue and the reader expects the rest to be about it. That's narrative whiplash when slide 4 introduces a different venue.",
-    "  Cover = named contrast / thesis. Specifics (one cafe, one hall) = slides 2+.",
-    "  A corridor, a score-vs-strip contrast, or two named geographies IS the umbrella. 'Discover surprising new gathering spots' is not — that is a listing.",
-    "  Concretely: if there are 3 proof bullets and 3 content slots (slides 2, 3, and 4), each bullet lands on ONE of those three slides. Slide 1 stays the contrast umbrella, not a generic mush and not one venue. Slide 5 (or wherever CTA sits) is not a content slot.",
+    "  Cover = locate, or a named contrast the brief already proved. Specifics (one cafe, one hall) = slides 2+.",
+    "  A corridor, a score-vs-strip contrast, or two named geographies IS the umbrella when those are on the desk. 'Discover surprising new gathering spots' is not — that is a listing.",
+    "  Concretely: if there are 3 proof bullets and 3 content slots (slides 2, 3, and 4), each bullet lands on ONE of those three slides. Slide 1 stays the locate-or-contrast umbrella, not a generic mush and not one venue. Slide 5 (or wherever CTA sits) is not a content slot.",
     "",
     "ENTITY PRIORITIZATION — the second override:",
     "  Every bullet classified as 'proof' in bulletRoles MUST have an entry in proofAssignments. A proof bullet with no slide assignment is a DROPPED entity — that's how a Asbury Park bullet ends up in the trash while slide 2 gets a filler summary sentence.",
     "  If you have MORE proof-role bullets than available non-cover, non-CTA content slots, DOWNGRADE the excess bullets to 'context' role (not 'proof'). Never leave a proof bullet unassigned.",
     "  If you have FEWER proof bullets than content slots, that's fine — leave the extra slots without proofAssignments and the writer will carry them with framing / context bullets. That's a separate case from dropping a proof.",
-    `  - recommendedSlideCount: the honest number of slides this material can support without repeating facts (integer, between 3 and ${slideCount} inclusive). If the operator picked ${slideCount} slides but you only have 3 proof bullets and no additional systemic tension worth writing about, return 4 or 5, NOT ${slideCount}. This is the editorial compression call — better to ship a tight 4-slide carousel than a stretched 7 that paraphrases the same 3 facts. Only return the operator's full count if the material genuinely earns it (rich proof list, distinct beats, complex mechanism).`,
+    `  - recommendedSlideCount: the honest number of slides this material can support without repeating facts (integer, between 3 and ${slideCount} inclusive). If the operator picked ${slideCount} slides but you only have 3 proof bullets and no additional tension already on the desk, return 4 or 5, NOT ${slideCount}. This is the editorial compression call — better to ship a tight 4-slide carousel than a stretched 7 that paraphrases the same 3 facts. Only return the operator's full count if the material genuinely earns it (rich proof list, distinct beats already on the desk). Do not invent a mechanism to justify more slides.`,
     ...(spineMode === "showcase" ? [
       isContentRegister(mode, isEvergreen)
-        ? "  - causalSynthesis: EXACTLY 2 sentences. Sentence 1 names the PATTERN this collection teaches. Sentence 2 names the JOIN — the document, disappearance, or pressure that makes these peer rooms one thought, not a directory dump. NOT venue-responds-to-liquor-cap unless the bullets actually are that story."
+        ? "  - causalSynthesis: EXACTLY 2 sentences. Sentence 1 names the PATTERN this collection already shows. Sentence 2 names a JOIN only if a document, disappearance, or pressure is already on the desk — otherwise locate the collection. NOT venue-responds-to-liquor-cap unless the bullets actually are that story."
         : "  - causalSynthesis: EXACTLY 2 sentences that model the ECOSYSTEM this collection represents. Sentence 1 names the through-line — what distinguishes THESE entities from adjacent options ('quiet listening rooms that treat vinyl as the headliner, not the atmosphere', 'run clubs that outgrew a hobby and became social infrastructure'). Sentence 2 names one shared TRAIT or SIGNAL the peer entries carry ('curated speaker rigs, low-decibel licensing, small capacities under 100', 'consistent Saturday cadence, a coffee handoff after, a founding operator who runs it as a project not a business'). Concrete pattern → concrete shared trait. NO abstract musing, NO 'this shows how community forms', NO grantwriter register. This is the ecosystem the writer will characterize.",
     ] : isContentRegister(mode, isEvergreen) ? [
-      "  - causalSynthesis: EXACTLY 2 sentences. Sentence 1 names the CONTRAST (the two expressions). Sentence 2 names the CAUSE (how they are the same pressure). Example: 'Strip-mall breweries and urban-core cafes are the same hijack of commercial space. Sprawl plus the liquor cap produced a third-place deficit, so parking lots and coffee counters became the Saturday.' NOT 'venue responds to a rule' unless the bullets actually are that story.",
+      "  - causalSynthesis: EXACTLY 2 sentences. If the brief named a contrast: sentence 1 names the CONTRAST (the two expressions); sentence 2 names the CAUSE (how they are the same pressure). If the brief only located: two sentences that locate THIS specimen. Example when earned: 'Strip-mall breweries and urban-core cafes are the same hijack of commercial space. Sprawl plus the liquor cap produced a third-place deficit, so parking lots and coffee counters became the Saturday.' Do not invent a liquor cap, access illusion, or pressure so the synthesis feels like CGE.",
     ] : [
-      "  - causalSynthesis: EXACTLY 2 sentences that model the causal chain the carousel will dramatize. Sentence 1 names the SYSTEMIC RULE, PRESSURE, or CONSTRAINT the material implies — a policy, a zoning cap, a cost, a demographic shift, an ordinance, a market condition. Sentence 2 names how the specific VENUE / OPERATOR / SOLUTION responds to that pressure. Example: 'State decibel caps make big sound rigs a liability in mixed-use neighborhoods. In response, venues like LoFi pivot to low-decibel, high-margin vinyl nights to keep the crowd without breaking the law.' Concrete rule → concrete response. NO abstract musing, NO 'this shows how culture adapts', NO grantwriter register. This is the completed reasoning the writer will execute against — with this in hand, the writer's job is voice + format, not re-derivation. Rewrite it two or three times in your head before returning; make sure sentence 2 is a direct RESPONSE to the pressure named in sentence 1.",
+      "  - causalSynthesis: EXACTLY 2 sentences. If the brief named a rule: sentence 1 names that SYSTEMIC RULE, PRESSURE, or CONSTRAINT; sentence 2 names how a VENUE / OPERATOR / SOLUTION on THIS desk responds. If the brief only located: two sentences that locate THIS specimen. Do not invent a policy, zoning cap, or unseen hand. Example when earned: 'State decibel caps make big sound rigs a liability in mixed-use neighborhoods. In response, venues like LoFi pivot to low-decibel, high-margin vinyl nights to keep the crowd without breaking the law.' NO abstract musing, NO 'this shows how culture adapts', NO grantwriter register.",
     ]),
     "",
     'Return ONLY JSON in this exact shape:',
     (spineMode === "showcase"
       ? '{"thesis":"...","beats":[{"label":"OVERTURE","description":"..."},{"label":"SHOWCASE","description":"..."},{"label":"CODA","description":"..."}],"slideAssignments":["OVERTURE","SHOWCASE","SHOWCASE","SHOWCASE","SHOWCASE","CODA"],"bulletRoles":{"first 60 chars of bullet":"proof|context|veto"},"proofAssignments":{"first 60 chars of bullet":3},"recommendedSlideCount":6,"causalSynthesis":"Pattern sentence. Join or shared-trait sentence."}'
       : isContentRegister(mode, isEvergreen)
-        ? '{"thesis":"...","beats":[{"label":"CONTRAST","description":"..."},{"label":"CAUSE","description":"..."},{"label":"EXPLAIN","description":"..."},{"label":"NEXT","description":"..."}],"slideAssignments":["CONTRAST","CAUSE","EXPLAIN","EXPLAIN","NEXT"],"bulletRoles":{"first 60 chars of bullet":"proof|context|veto"},"proofAssignments":{"first 60 chars of bullet":3},"recommendedSlideCount":5,"causalSynthesis":"Contrast sentence. Cause sentence."}'
-        : '{"thesis":"...","beats":[{"label":"PARADOX","description":"..."},{"label":"FRICTION","description":"..."},{"label":"MECHANISM","description":"..."},{"label":"GATE","description":"..."}],"slideAssignments":["PARADOX","FRICTION","FRICTION","MECHANISM","MECHANISM","GATE"],"bulletRoles":{"first 60 chars of bullet":"proof|context|veto"},"proofAssignments":{"first 60 chars of bullet":3},"recommendedSlideCount":6,"causalSynthesis":"Systemic-rule sentence. Venue-response sentence."}'
+        ? '{"thesis":"...","beats":[{"label":"LOCATE","description":"..."},{"label":"NEWS","description":"..."},{"label":"NEXT","description":"..."}],"slideAssignments":["LOCATE","NEWS","NEXT"],"bulletRoles":{"first 60 chars of bullet":"proof|context|veto"},"proofAssignments":{"first 60 chars of bullet":3},"recommendedSlideCount":3,"causalSynthesis":"Locate sentence. Locate or earned-cause sentence."}'
+        : '{"thesis":"...","beats":[{"label":"LOCATE","description":"..."},{"label":"NEWS","description":"..."},{"label":"GATE","description":"..."}],"slideAssignments":["LOCATE","NEWS","GATE"],"bulletRoles":{"first 60 chars of bullet":"proof|context|veto"},"proofAssignments":{"first 60 chars of bullet":3},"recommendedSlideCount":3,"causalSynthesis":"Locate sentence. Locate or earned-response sentence."}'
     ),
   ];
   const data = await geminiGenerate(apiKey, {
@@ -4061,7 +4066,7 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
     const isShowcasePeer = spineMode === "showcase" && beatLabel === "SHOWCASE";
     const beatPrefix = beatLabel
       ? (slotType === "cover"
-          ? `>>> BEAT: ${beatLabel} — MACRO-COVER: this slide states the THESIS as a NAMED CONTRAST. Title the two expressions. Subtitle connects. Do NOT write "is gone". Do NOT write category mush ("discover surprising gathering spots"). Do NOT withhold the point so they swipe. Instances are explained on later slides, inside paragraphs — not peeled onto venue cards. <<<\n`
+          ? `>>> BEAT: ${beatLabel} — MACRO-COVER: locate THIS specimen. If this beat is CONTRAST, title the two expressions Fuel already proved. If this beat is LOCATE, name who / what / where / when. Subtitle connects. Do NOT invent a contrast. Do NOT write "is gone". Do NOT write category mush ("discover surprising gathering spots"). Do NOT withhold the point so they swipe. Instances land on later slides, inside paragraphs — not peeled onto venue cards. <<<\n`
           : isShowcasePeer
             ? `>>> BEAT: SHOWCASE — this is a PEER ENTRY in a directory. Slides sharing this label are equal-weight entries in the collection — do NOT position this one as "the next phase" of an argument the previous slide started. Each SHOWCASE slide carries ONE distinct entity from the collection. ${reservedProof ? `Reserved PROOF (entity) for this slide: "${reservedProof}..." — this entity lands HERE and NOWHERE ELSE in the carousel.${timelyClause}` : "NO proof entity is reserved for this slide — do NOT reach for an entity already assigned to another peer slot; carry this entry with a specific from context marked 'context' or leave it lighter than the sibling entries."} <<<\n`
             : `>>> BEAT: ${beatLabel} — this slide advances ONLY this beat, no other.${reservedProof ? ` Reserved PROOF for this slide: "${reservedProof}..." — this bullet lands HERE and NOWHERE ELSE in the carousel.${timelyClause}` : " NO proof bullet is reserved for this slide — do NOT reach for a proof already assigned to another slide; carry the beat with tension, framing, or a specific from context marked 'context' (not 'proof')."} <<<\n`)
@@ -4181,7 +4186,7 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
         "- BANNED sociological fluff still applies: 'the unseen hand', 'the fabric of the community', 'the very essence of', 'at its core', 'speaks to', 'a testament to'. Explain with the brief's names instead.",
       ]
       : [
-        "- ENTITY ISOLATION: Do NOT blend unrelated cities, decades, or venues into a single slide — EXCEPT the JOIN beat, which is required to connect the specimen to one sideways document, parallel room, or disappearance. Every other slide stays one time, one place, one specific. A JOIN slide that only restates the specimen failed. A non-JOIN slide that montages two cities failed.",
+        "- ENTITY ISOLATION: Do NOT blend unrelated cities, decades, or venues into a single slide — EXCEPT a JOIN beat IF the brief already named a sideways document, parallel room, or disappearance. JOIN is optional. If there is no JOIN beat, every slide stays one time, one place, one specific. A JOIN slide that only restates the specimen failed. A non-JOIN slide that montages two cities failed.",
         "- FACT-DENSITY MANDATE: every slide MUST name a specific concrete entity from the material — a transit line, a venue, an intersection, a corridor, a specific ordinance number, a named collective, a specific time-of-day, an actual price point. BANNED sociological fluff: 'the unseen hand', 'access dictates who shows up', 'the fabric of the community', 'the very essence of', 'at its core', 'speaks to', 'a testament to', 'invisible architecture', 'the geography of', 'the way we gather'. These read as academic essay filler and mask the absence of specifics. If your instinct is to write one of those phrases, you're missing a concrete anchor — pull one from the assigned bullet or a context bullet marked 'context', or name the physical place / time / rule the material implies.",
         "- ATOMICITY MANDATE: EACH FIELD CARRIES ONE ATOMIC UNIT. One venue name in spotName, one address in spotMeta, one date in ctaDate, one time in spotTime. If your instinct is to stack Metuchen + Aug 7 + address + Album Club pitch + Crossroads into a single spotMeta separated by `·` or `|`, you're using the WRONG SLOT TYPE for the material and the field will be flagged as a data-dump. Split into multiple slides, or leave the extras out. Rule of thumb: if a field would contain more than TWO `·` separators, or more than ONE date, or BOTH an address AND a date, it's a violation.",
       ]),
@@ -4289,8 +4294,8 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
       ...(narrativeSpine.causalSynthesis ? [
         "",
         isContentRegister(mode, isEvergreen)
-          ? "CAUSAL SYNTHESIS — the completed reasoning behind this carousel (CONTRAST → CAUSE). Your job as writer is VOICE + FORMAT, NOT re-derivation. Do NOT rewrite this reasoning; every slide must be consistent with it. Sentence 1 is the contrast. Sentence 2 is the cause. Explain that connection — do not fall back to a venue card or a stat:"
-          : "CAUSAL SYNTHESIS — the completed causal reasoning behind this carousel. This is the argument, already reasoned out. Your job as writer is VOICE + FORMAT, NOT re-derivation. Do NOT rewrite this reasoning; every slide must be consistent with it, dramatizing the specific rule → response chain named here:",
+          ? "CAUSAL SYNTHESIS — the completed reasoning behind this carousel. Your job as writer is VOICE + FORMAT, NOT re-derivation. Do NOT rewrite this reasoning; every slide must be consistent with it. If it names a contrast, explain that connection. If it only locates, stay on that specimen — do not invent a cause, a venue card, or a stat:"
+          : "CAUSAL SYNTHESIS — the completed reasoning behind this carousel. Your job as writer is VOICE + FORMAT, NOT re-derivation. Do NOT rewrite this reasoning; every slide must be consistent with it. If it names a rule → response, dramatize that chain. If it only locates, stay on that specimen — do not invent a hidden machine:",
         `  ${narrativeSpine.causalSynthesis}`,
       ] : []),
       "",
@@ -4303,13 +4308,18 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
       "Rules that follow from the spine:",
       "- Do not restate the thesis on every slide — the thesis is the frame, not the copy. Each slide advances ONE beat.",
       ...(isContentRegister(mode, isEvergreen) ? [
-        "- A slide labeled CONTRAST names the two expressions. Not 'is gone'. Not a withheld loop.",
-        "- A slide labeled CAUSE articulates how the pressure produced those expressions. The number lives in the paragraph.",
+        "- A slide labeled LOCATE names who / what / where / when. Not a contrast you invented.",
+        "- A slide labeled NEWS is the proving paragraph for what is already on this desk.",
+        "- A slide labeled CONTRAST names the two expressions already on the brief. Not 'is gone'. Not a withheld loop.",
+        "- A slide labeled CAUSE articulates how a pressure the brief already named produced those expressions. The number lives in the paragraph. Do not invent a cause.",
         "- A slide labeled EXPLAIN is a section. Place-names live inside the paragraph. Two names of the same expression is correct.",
-        "- A slide labeled NEXT asks the question the explanation opened. Not an archive door. Not 'find your next gathering spot'.",
+        "- A slide labeled NEXT asks the question already on the desk. Not an archive door. Not 'find your next gathering spot'.",
       ] : [
-        "- A slide labeled PARADOX must NOT contain the metric that belongs to MECHANISM. Hold the number.",
+        "- A slide labeled LOCATE names who / what / where / when. Not a paradox you invented.",
+        "- A slide labeled NEWS is the proving paragraph for what is already on this desk.",
+        "- A slide labeled PARADOX must NOT contain the metric that belongs to MECHANISM. Hold the number. Skip PARADOX if the brief did not name a fight.",
         "- A slide labeled FRICTION must name the OBSTACLE, not the resolution. If you write the resolution here, you've written the wrong beat.",
+        "- A slide labeled MECHANISM is allowed only if the brief already named that infrastructure. Do not hunt an access illusion.",
         "- A slide labeled GATE ends the arc; it is the ask, not another explainer.",
       ]),
       "═════════════════════════════",
@@ -4319,7 +4329,7 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
     ...((topic && topic.trim()) ? [`Carousel topic: ${topic.trim()}`, ""] : []),
     ...(context && context.trim() ? [
       isContentRegister(mode, isEvergreen)
-        ? "Context (research evidence — specimen, pattern, document, join — NOT selling points or lineup). Break this up across slides as the method dictates:"
+        ? "Context (research evidence — locate THIS specimen first. Pattern, document, join only if they are already on the desk — NOT selling points or lineup). Break this up across slides as the method dictates:"
         : "Context (event details, selling points, lineup — break this up across slides as the rules below dictate):",
       context.trim(),
       "",

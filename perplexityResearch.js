@@ -149,7 +149,7 @@ export function researchAiModeRequest(input = {}) {
     "Search the OPEN web. Do not restrict yourself to a 20-site list. Focus every query on New Jersey. The desks come AFTER this brief, to dive the starting points you name.",
     sourceDoctrineForPrompt(),
     "Write the way a good AI search writes when someone asks a pattern question and says 'in NJ': a short thesis, then several real starting points a writer can steal and dive. Cranford + Transit Village + an NJ Monthly downtowns piece is the shape. Four cafe addresses is the failure.",
-    "THESIS: 1–2 sentences. The NJ friction a cold reader already feels + the named thing already moving (a state program, a town that retrofitted, a rule, a disappearance). This is the editorial thesis. Put it in the thesis field.",
+    "THESIS: 1–2 sentences. Locate THIS specimen. A friction, program, or rule only if the LENS, POV, or topic already named it — do not invent one so the brief feels like CGE. Put it in the thesis field.",
     "STARTING POINTS: 5–8 bullets. Each is a named thread to dive later — a program, a town, a corridor, a magazine piece, a tension, a parallel Saturday. Give enough that the operator knows WHY it matters, not just a URL label. Different threads. Not four angles on the same brewery.",
     "Land this desk in New Jersey. A named program, town, or Saturday on THIS specimen is enough. Do not require who-owns-vs-who-programs or diaspora tension unless the LENS, POV, or topic already named that fight. Influence may leave the state. The specimen lands back in New Jersey.",
     PLATFORM_THEME_STAY_ON_DESK,
@@ -212,9 +212,9 @@ export function researchOfficialRequest(input = {}) {
     "PRIMARY RESEARCH LENS: Every candidate must still pass the Analytical lens in the user payload — but a named program that explains the lens is valid even if it names no venue.",
     "BANNED: Timeout, Yelp, TripAdvisor, Eventbrite listicles, 'best of' roundups, residential real-estate listings.",
     String(input.tier || "").toUpperCase() === "FEATURE"
-      ? "FEATURE: prefix each official bullet with 'DOCUMENT — '. A Feature piece without an official document is not ready to speak."
+      ? "FEATURE: prefix an official fact 'DOCUMENT — ' WHEN you found one on THIS specimen. A Feature piece without a document can still locate. Do not hunt a statute so the piece feels ready."
       : "Prefix official facts with 'DOCUMENT — ' when they are a statute, program, number, year, or archive holding.",
-    "OUTPUT: Return 1–3 candidate bullets. Each names ONE program, statute, or filing plus the causal tail. Do not ship four permit facts. New Jersey specific. Never invent.",
+    "OUTPUT: Return 1–3 candidate bullets. Each names one official fact about THIS specimen. A program, statute, or filing plus a causal tail only if you found that on the specimen. A date, agency page, or filing that locates is enough. Do not invent a causal tail. Do not ship four permit facts. New Jersey specific. Never invent.",
     "If you cannot verify at least 1 official NJ-tied fact from official sources, return an empty bullets array.",
     "Output strict JSON with 'bullets' and 'citations'.",
   ];
@@ -244,7 +244,7 @@ export function researchCulturalRequest(input = {}) {
     "BANNED AS THE LENS: Timeout, Yelp, TripAdvisor, Eventbrite, NJPAC, Essence, The Root, WBGO program notes, museum wall text. They may confirm a door is open; they cannot be the cultural source.",
     "BANNED DATA — REAL ESTATE unit counts and developer flyers unless the Topic is housing policy. A Special Improvement District or Transit Village designation is a mechanism, not a condo flyer.",
     ...(String(input.tier || "").toUpperCase() === "FEATURE" ? [
-      "FEATURE / CONTENT METHOD: the NEXT bullet is the join — a question NOT about the same primary entity as the Topic (who the retrofit is for, the Saturday that still feels like the strip, the parallel room). Prefix it 'NEXT — ' or 'JOIN — '.",
+      "FEATURE / CONTENT METHOD: prefix 'NEXT — ' or 'JOIN — ' only if a real next question or sideways room is already visible on THIS specimen. JOIN is optional. A Feature piece that only locates is ready. Do not hunt a parallel room to complete a kit.",
       "A JOIN that is another selling point of the same downtown is invalid.",
     ] : []),
     "OUTPUT: Return 3–4 bullets. Prefix what you actually found: 'START — ' or 'SPECIMEN — ' for a named NJ place or Saturday. 'FRICTION — ' or 'MECHANISM — ' only if the desk already named that pressure or trick — do not invent a MECHANISM line to complete a kit. 'NEXT — ' if a real next question opened. Never invent.",

@@ -278,12 +278,12 @@ const CORRIDOR_ANCHORS = {
 // piece's angle: is this validating what the reader already feels, or
 // naming a pattern they hadn't seen?
 const EMOTION_STANCES = {
-  "Curiosity/Epiphany": "This piece names the pattern the audience has felt but never had a word for.",
+  "Curiosity/Epiphany": "This piece looks again at what is already on this desk until a cold reader can hold it.",
   "Validation/Relatability": "If the reader's own weekends feel like this, they're not imagining it — the shape of it is real.",
-  "Skepticism/Irreverence": "The polished version is a lie; the piece surfaces what actually holds the scene together.",
+  "Skepticism/Irreverence": "The polished version is a lie; the piece surfaces what THIS desk already showed.",
   "Nostalgia/Yearning": "The rooms lost weren't accidents, and the rooms replacing them owe those originals everything.",
-  "Urgency/Insider Access": "This is what the operators already know that the audience doesn't — and the window on acting on it is not open forever.",
-  "Ambition/Sovereignty": "For anyone building the next room, this is the operating system.",
+  "Urgency/Insider Access": "This is what is already moving on this desk — act while the window is still this Saturday.",
+  "Ambition/Sovereignty": "For anyone building the next room, start from what this desk already named.",
 };
 
 // Demographic → short noun phrase that names who the piece is speaking

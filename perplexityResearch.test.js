@@ -45,7 +45,7 @@ test("AI Mode scout is unconstrained NJ search with a thesis and starting points
   assert.match(scout.instructions, /STARTING POINTS/);
   assert.match(scout.instructions, /thesis/i);
   assert.match(scout.instructions, /HOUSE FIGHT IS OPTIONAL/);
-  assert.match(scout.instructions, /MECHANISM IS OPTIONAL/);
+  assert.match(scout.instructions, /MECHANISM, PATTERN, FRICTION, JOIN, and DOCUMENT are OPTIONAL/);
   assert.match(scout.instructions, /Land this desk in New Jersey/);
   assert.equal(/Land Black New Jersey in the thesis or in at least one starting point: who this is for, which Saturday still feels like the strip, who owns vs who programs/.test(scout.instructions), false);
   assert.equal(scout.tools.length, 1);
@@ -90,11 +90,16 @@ test("AI Mode scout is unconstrained NJ search with a thesis and starting points
 test("Feature-tier official desk does not require a named program as the mechanism", () => {
   const official = researchOfficialRequest({ cluster: "DIASPORA_INFRASTRUCTURE", topic: "A Newark hall", tier: "FEATURE" });
   assert.match(official.instructions, /DOCUMENT/);
-  assert.match(official.instructions, /MECHANISM IS OPTIONAL/);
+  assert.match(official.instructions, /MECHANISM, PATTERN, FRICTION, JOIN, and DOCUMENT are OPTIONAL/);
   assert.match(official.instructions, /Do not hunt a program/);
+  assert.match(official.instructions, /without a document can still locate/);
+  assert.equal(/not ready to speak/.test(official.instructions), false);
+  assert.match(official.instructions, /A date, agency page, or filing that locates is enough/);
   assert.ok(official.tools[0].filters.search_domain_filter.includes(".gov"));
   const cultural = researchCulturalRequest({ cluster: "DIASPORA_INFRASTRUCTURE", topic: "A Newark hall", tier: "FEATURE" });
   assert.match(cultural.instructions, /JOIN — |NEXT — |ARGUMENT/);
+  assert.match(cultural.instructions, /JOIN is optional/);
+  assert.equal(/the NEXT bullet is the join/.test(cultural.instructions), false);
   assert.match(cultural.instructions, /do not invent a MECHANISM line/);
   assert.match(cultural.instructions, /Current Affairs only if/);
   assert.ok(cultural.tools[0].filters.search_domain_filter.includes("echonewstv.com"));
