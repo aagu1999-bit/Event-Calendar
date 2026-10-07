@@ -141,4 +141,7 @@ export const MATRIX_FIELDS = [
   "voice_distance",
   "voice_cadence",
   "voice_stance",
+  // Last Coherence check (critic output, not editorial content).
+  // Completeness ignores this the same way it ignores pipeline_status.
+  "argument_check",
 ];

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { researchRequest, researchHypothesisRequest, researchAiModeRequest, researchGapScoutRequest, researchOfficialRequest, researchCulturalRequest, researchLookthroughRequest, researchVerificationRequest, researchDiveRequest, parseResearchResponse } from "./perplexityResearch.js";
+import { researchRequest, researchHypothesisRequest, researchAiModeRequest, researchGapScoutRequest, researchOfficialRequest, researchCulturalRequest, researchLookthroughRequest, researchVerificationRequest, researchDiveRequest, parseResearchResponse, hasFuelResearchSeed } from "./perplexityResearch.js";
 
 test("research uses Agent preset, open NJ web search, and structured output", () => {
   const request = researchRequest({ topic: "Newark", existingBullets: [null, "Existing fact"] });
@@ -125,4 +125,14 @@ test("merged research rules preserve NJ relevance", () => {
   assert.match(request.instructions, /at least 1 verifiable NJ-tied/);
   assert.match(request.instructions, /PRIMARY RESEARCH LENS/);
   assert.equal(parseResearchResponse({ output_text: '{"bullets":["Only one fact"]}' }).code, "empty");
+});
+
+test("Fuel seed does not require a cluster", () => {
+  assert.equal(hasFuelResearchSeed({}), false);
+  assert.equal(hasFuelResearchSeed({ cluster: "" }), false);
+  assert.equal(hasFuelResearchSeed({ cluster: "GATHERING_LOGISTICS" }), true);
+  assert.equal(hasFuelResearchSeed({ topic: "summer shore traffic in Parkway towns" }), true);
+  assert.equal(hasFuelResearchSeed({ lensOverride: "the last inbound" }), true);
+  assert.equal(hasFuelResearchSeed({ pov: "The influx is a logistics tax." }), true);
+  assert.equal(hasFuelResearchSeed({ subjectFacets: ["social-friction"] }), true);
 });

@@ -46,7 +46,7 @@ export function summarizeSlidesForFeedback(slides) {
 // point, not a lock.
 
 import { EVENT_TIERS, DEMOGRAPHIC_PRESETS, LEGACY_DEMOGRAPHIC_ALIASES } from "./matrixEnums.js";
-import { getClusterLabel, resolveEditorialLens, isListicleHook } from "./matrixCompass.js";
+import { getClusterLabel, resolveEditorialLens, isListicleHook, formatCoherenceSeedLines } from "./matrixCompass.js";
 import { buildSubjectLock, lockLensDirective } from "./subjectLock.js";
 import { CONTENT_DEFAULT_VOICE } from "./cgeThesis.js";
 
@@ -188,6 +188,11 @@ export function eventMatrixToFillSeed(event) {
   if (bullets.length) {
     if (contextLines.length) contextLines.push("");
     for (const b of bullets) contextLines.push(`- ${b}`);
+  }
+  const coherenceLines = formatCoherenceSeedLines(m.argument_check);
+  if (coherenceLines.length) {
+    if (contextLines.length) contextLines.push("");
+    contextLines.push(...coherenceLines);
   }
   const context = contextLines.join("\n");
 

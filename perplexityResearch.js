@@ -497,9 +497,22 @@ function mergeDeskCandidates(officialParsed, culturalParsed, lookthroughParsed) 
   return { bullets: [...official, ...cultural, ...lookthrough], citations, desks };
 }
 
+// Cluster is optional. Fuel reads the LENS (typed Narrowing and/or
+// locked facets) plus hook/POV. Empty everything is the only no_seed.
+export function hasFuelResearchSeed(input = {}) {
+  if (String(input.cluster || "").trim()) return true;
+  if (String(input.topic || "").trim()) return true;
+  if (String(input.pov || "").trim()) return true;
+  if (String(input.lensOverride || "").trim()) return true;
+  if (Array.isArray(input.subjectFacets) && input.subjectFacets.some((id) => String(id || "").trim())) return true;
+  return false;
+}
+
 export async function fuelResearchViaPerplexity(input = {}) {
   if (!isPerplexityConfigured()) return { ok: false, code: "not_configured", message: "Configure PERPLEXITY_API_KEY on the server to use Fuel Research." };
-  if (!input.cluster?.trim()) return { ok: false, code: "no_seed", message: "Pick a Cluster before running Fuel Research — it is the primary frame for on-brand research." };
+  if (!hasFuelResearchSeed(input)) {
+    return { ok: false, code: "no_seed", message: "Type a topic in Narrowing, a Hook, or a POV before running Fuel Research — cluster is optional." };
+  }
   try {
     const client = new Perplexity({ apiKey: process.env.PERPLEXITY_API_KEY, timeout: 60_000, maxRetries: 1 });
 
