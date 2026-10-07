@@ -60,6 +60,7 @@ test("format and append stamp the method marker and extra bullets", () => {
   });
   assert.equal(contextHasMethodBrief(block), true);
   assert.match(block, /homework from this desk/);
+  assert.match(block, /numbered operator anchor already named them/);
   assert.equal(/required architecture/.test(block), false);
   assert.match(block, /JOIN: The sister church/);
   assert.match(block, /^- Founded 1979/m);

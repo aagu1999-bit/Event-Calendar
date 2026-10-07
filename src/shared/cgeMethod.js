@@ -110,7 +110,7 @@ export function formatMethodBriefForContext(researched) {
   if (!researched) return "";
   const parsed = researched.parsed || parseMethodBrief(researched.brief || "");
   const lines = [
-    `${METHOD_MARKER} — homework from this desk. PATTERN / MECHANISM / JOIN / DOCUMENT only if research actually found them on this specimen.`,
+    `${METHOD_MARKER} — homework from this desk. PATTERN / MECHANISM / JOIN / DOCUMENT only if the LENS, POV, or a numbered operator anchor already named them.`,
     parsed.specimen ? `SPECIMEN: ${parsed.specimen}` : "",
     parsed.pattern ? `PATTERN: ${parsed.pattern}` : "",
     parsed.mechanism ? `MECHANISM: ${parsed.mechanism}` : "",

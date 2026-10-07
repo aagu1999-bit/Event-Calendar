@@ -34,8 +34,10 @@ import {
   lensFreshnessSignature,
   normalizeCoherenceResult,
   coherenceInputSignature,
+  describeWhatYoullSee,
   COMPASS_TOPICS,
 } from "./matrixCompass.js";
+import { isPlatformThemeLeak } from "./cgeThesis.js";
 import {
   buildSubjectLock,
   sanitizeSubjectLock,
@@ -767,7 +769,10 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
       const thesisLine = typeof j.thesis === "string" ? j.thesis.trim() : "";
       const patch = { data_points: merged };
       if (mode !== "gap-scout" && thesisLine && !(local.editorial_pov || "").trim()) {
-        patch.editorial_pov = thesisLine.slice(0, LIMITS.POV_MAX);
+        const desk = [local.editorial_lens, local.hook_a_side].filter(Boolean).join(" ");
+        if (!isPlatformThemeLeak(thesisLine, desk)) {
+          patch.editorial_pov = thesisLine.slice(0, LIMITS.POV_MAX);
+        }
       }
       applyPatch(patch);
       const incomingCitations = Array.isArray(j.citations) ? j.citations.slice(0, 12) : [];
@@ -802,9 +807,11 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
       });
       const nextHook = String(local.hook_a_side || "").trim();
       const nextPov = String(patch.editorial_pov || local.editorial_pov || "").trim();
+      const lensAsPov = String(local.editorial_lens || "").trim();
       const nextAnchors = merged.filter(Boolean);
-      if (nextHook && nextPov && nextAnchors.length >= 2) {
-        void runCoherenceCheck({ hook: nextHook, pov: nextPov, anchors: nextAnchors, fromFuel: true });
+      const povForCheck = nextPov || lensAsPov;
+      if (nextHook && povForCheck && nextAnchors.length >= 2) {
+        void runCoherenceCheck({ hook: nextHook, pov: povForCheck, anchors: nextAnchors, fromFuel: true });
       }
     } catch (err) {
       setResearchError(String(err?.message || err));
@@ -2706,7 +2713,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
               </button>
             </div>
             <div style={{ fontSize: "0.62rem", color: faint, marginBottom: 8, lineHeight: 1.5 }}>
-              Reads Hook + POV + Anchors against the LENS. Maps each claim to an anchor or flags it unverified. After Fuel lands, this runs itself. Slide-count advice is what the desk earned — Cover + News is the starting pair, not a 10-card stretch.
+              Reads Hook + POV + Anchors against the LENS you typed — not Fuel's THESIS. The top of the result is what Generate will try to make. After Fuel lands, this runs itself. If Fuel hunted a fight the LENS did not name, expect mismatched, not a green light.
             </div>
             {coherenceError && (
               <div style={{
@@ -2739,6 +2746,16 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
               const staleNote = coherenceIsStale
                 ? " · (stale — inputs changed since last check)"
                 : (coherenceFromFuel ? " · checked after Fuel" : "");
+              const talk = CONVERSATION_MAPS[local.conversation_rank?.primary]?.label || "";
+              const plan = describeWhatYoullSee({
+                slideCount: coherenceResult.slideCount,
+                conversationPrimary: talk,
+              });
+              const deskForLeak = [local.editorial_lens, local.hook_a_side].filter(Boolean).join(" ");
+              const wandered = isPlatformThemeLeak(
+                [local.editorial_pov, ...bullets].join("\n"),
+                deskForLeak,
+              );
               return (
                 <div style={{
                   padding: "10px 12px",
@@ -2749,6 +2766,24 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                   color: textColor,
                   lineHeight: 1.6,
                 }}>
+                  <div style={{
+                    marginBottom: 8,
+                    padding: "8px 10px",
+                    background: "rgba(10,10,12,0.55)",
+                    borderRadius: 4,
+                    color: "rgba(245,240,232,0.9)",
+                  }}>
+                    <div style={{ fontSize: "0.58rem", letterSpacing: "0.1em", textTransform: "uppercase", color: textColor, fontWeight: 700, marginBottom: 4 }}>
+                      What you&apos;ll see
+                    </div>
+                    <div style={{ fontWeight: 700 }}>{plan.heading}</div>
+                    <div style={{ color: "rgba(245,240,232,0.72)" }}>{plan.talk}</div>
+                    {wandered ? (
+                      <div style={{ marginTop: 6, color: warn }}>
+                        Fuel named a fight (digital divide / who-benefits / for whom) that your LENS did not. Discard those START lines or Generate will teach that hunt.
+                      </div>
+                    ) : null}
+                  </div>
                   <div style={{ fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", fontSize: "0.62rem", marginBottom: 6 }}>
                     {icon} {label}{staleNote}
                   </div>
