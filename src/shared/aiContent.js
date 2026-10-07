@@ -38,9 +38,6 @@ import {
   contentMethodBlock,
   contentMethodResearchPrompt,
   parseMethodBrief,
-  appendMethodBriefToContext,
-  contextHasMethodBrief,
-  contextHasFuelBrief,
   methodHasJoin,
   contentArrangerLines,
   CONTENT_ESSAY_SLOTS,
@@ -224,21 +221,11 @@ export async function researchContentMethod({ apiKey, topic, context, clusterDir
   };
 }
 
-async function ensureContentMethodBrief({ apiKey, topic, context, clusterDirective, clusterLabel, mode, isEvergreen }) {
-  const ctx = context || "";
-  if (!isContentRegister(mode, isEvergreen)) return { context: ctx, researched: null };
-  if (contextHasMethodBrief(ctx) || contextHasFuelBrief(ctx)) return { context: ctx, researched: null };
-  try {
-    const researched = await researchContentMethod({ apiKey, topic, context: ctx, clusterDirective, clusterLabel });
-    if (researched?.brief) {
-      return { context: appendMethodBriefToContext(ctx, researched), researched };
-    }
-  } catch (e) {
-    if (typeof console !== "undefined") {
-      console.warn("Content method research failed, generating without join brief:", e?.message || e);
-    }
-  }
-  return { context: ctx, researched: null };
+// Feature homework used to auto-run here (SPECIMEN → PATTERN → JOIN)
+// before slides. That filled Digital Equity Gap onto a Tech Week desk.
+// Fuel is the research. Generate locates from what is already on the desk.
+async function ensureContentMethodBrief({ context }) {
+  return { context: context || "", researched: null };
 }
 
 // Pull the REAL source URLs Gemini used out of the grounding metadata so the
@@ -2479,9 +2466,9 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   if (!Array.isArray(sequence) || !sequence.length) throw new Error("Missing template sequence");
   if ((!topic || !topic.trim()) && (!context || !context.trim())) throw new Error("Add a topic or event details first");
 
-  // Content / Feature: run the method research BEFORE thin-input so a
-  // document + join can thicken a 2-bullet matrix into an honest piece.
-  // Skips when the caller already appended a CGE METHOD BRIEF.
+  // Content / Feature: do not auto-run method homework here. Fuel is
+  // the research. A 2-bullet desk stays 2 bullets — do not invent a
+  // join so the piece feels ready.
   const evergreenEarly = isEvergreen || isContentRegister(mode);
   const prepared = await ensureContentMethodBrief({
     apiKey, topic, context, clusterDirective, clusterLabel, mode, isEvergreen: evergreenEarly,

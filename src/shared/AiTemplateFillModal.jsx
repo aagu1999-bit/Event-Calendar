@@ -6,7 +6,7 @@ import { summarizeSlidesForFeedback } from "./eventMatrixToFillSeed.js";
 import { isContentRegister } from "./cgeThesis.js";
 import { parseConversationRankFromContext } from "./conversationMaps.js";
 import { earnedSlideCount, essaySlideSequence } from "./matrixCompass.js";
-import { appendMethodBriefToContext, appendOperatorQuestions, contextHasMethodBrief } from "./cgeMethod.js";
+import { appendMethodBriefToContext, appendOperatorQuestions } from "./cgeMethod.js";
 import {
   interpretBuildTurn,
   formatDraftForContinue,
@@ -387,33 +387,13 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
     setWrongIdx(new Set());
     setBuildLog([]);
     try {
-      // Content / Feature always runs method research (specimen → pattern →
-      // join). Promo/editorial still use the opt-in "look up this event"
-      // background call. Best-effort: if grounding fails, continue.
+      // Fuel is the research. Do not auto-run SPECIMEN → PATTERN → JOIN
+      // at Generate — that pass invented Digital Equity Gap on a Tech
+      // Week desk. Promo/editorial still use the opt-in "look up this
+      // event" background call. An operator question mid-build can
+      // still ask for method homework below.
       let genContext = context;
-      const contentMode = isContentRegister(mode, initialIsEvergreen);
-      // GST arranged path runs its own Stage-1 theory parser — do not also
-      // stack the old Feature method brief on top.
-      if (contentMode && !aiArrange && !contextHasMethodBrief(genContext)) {
-        setBusyLabel("Finding the join…");
-        try {
-          const researched = await researchContentMethod({
-            apiKey, topic, context,
-            clusterDirective: initialClusterDirective,
-            clusterLabel: initialClusterLabel,
-          });
-          if (researched?.brief) {
-            genContext = appendMethodBriefToContext(genContext, researched);
-            setMethodFound({
-              brief: researched.brief,
-              sources: researched.sources,
-              hasJoin: researched.hasJoin,
-            });
-          }
-        } catch (e) {
-          console.warn("Content method research failed, continuing without it:", e?.message || e);
-        }
-      } else if (researchOn) {
+      if (researchOn) {
         setBusyLabel("Researching the event…");
         try {
           const brief = await researchEvent({ apiKey, topic, context });
@@ -1571,7 +1551,7 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
                   </>
                 ) : (
                   <>
-                    <div>0 · <b style={{ color: "#F5F0E8" }}>Research</b> — matrix Research Anchors ({(initialContext.match(/^- /gm) || []).length} bullets){isContentRegister(mode, initialIsEvergreen) ? " + auto method pass (SPECIMEN → PATTERN → JOIN)." : "; Look-up / News-lookup toggles hidden in compact mode"}</div>
+                    <div>0 · <b style={{ color: "#F5F0E8" }}>Research</b> — matrix Research Anchors ({(initialContext.match(/^- /gm) || []).length} bullets). Fuel already ran on the desk. Generate does not auto-hunt PATTERN / JOIN.{isContentRegister(mode, initialIsEvergreen) ? "" : " Look-up / News-lookup toggles hidden in compact mode."}</div>
                     <div>0b · <b style={{ color: "#F5F0E8" }}>Operator turn</b> — a question can look something up, keep building, write over Wrong</div>
                     <div>1 · <b style={{ color: "#F5F0E8" }}>Spine (outline)</b> — {isContentRegister(mode, initialIsEvergreen) ? "Content method" : "slot-mix mode"}</div>
                     <div>2 · <b style={{ color: "#F5F0E8" }}>Structure writer</b> — cluster="{initialClusterLabel || "(none)"}"</div>
