@@ -92,33 +92,33 @@ export const CLUSTER_FACETS = {
 
 export const CORRIDOR_LOCALES = {
   "Urban / Commuter Core": [
-    { id: "newark", label: "Newark", search: "Newark New Jersey gathering nightlife downtown Ironbound", hint: "Essex urban core" },
-    { id: "jersey-city", label: "Jersey City", search: "Jersey City nightlife curfew gathering downtown", hint: "Hudson urban core" },
-    { id: "ironbound", label: "Ironbound", search: "Ironbound Newark restaurants nightlife gathering", hint: "A city-inside-the-city" },
+    { id: "newark", label: "Newark", search: "Newark New Jersey gathering nightlife downtown Ironbound", hint: "Newark · Essex" },
+    { id: "jersey-city", label: "Jersey City", search: "Jersey City nightlife curfew gathering downtown", hint: "Jersey City · Hudson" },
+    { id: "ironbound", label: "Ironbound", search: "Ironbound Newark restaurants nightlife gathering", hint: "Ironbound, Newark" },
   ],
   "Route 1 Central Crossroads": [
-    { id: "route-1", label: "Route 1", search: "Route 1 New Jersey commercial strip gathering Middlesex", hint: "The central commuter belt" },
-    { id: "route-22", label: "Route 22", search: "Route 22 New Jersey strip mall brewery parking lot gathering", hint: "The parking-lot geography" },
-    { id: "industrial-plazas", label: "Industrial plazas", search: "New Jersey industrial plaza brewery warehouse gathering Central Jersey", hint: "Rooms in the logistics landscape" },
-    { id: "new-brunswick", label: "New Brunswick", search: "New Brunswick New Jersey downtown gathering nightlife", hint: "The university city on the belt" },
+    { id: "route-1", label: "Route 1", search: "Route 1 New Jersey commercial strip gathering Middlesex", hint: "Route 1 · Middlesex / Mercer belt" },
+    { id: "route-22", label: "Route 22", search: "Route 22 New Jersey strip mall brewery parking lot gathering", hint: "Route 22" },
+    { id: "industrial-plazas", label: "Industrial plazas", search: "New Jersey industrial plaza brewery warehouse gathering Central Jersey", hint: "Central Jersey industrial plazas" },
+    { id: "new-brunswick", label: "New Brunswick", search: "New Brunswick New Jersey downtown gathering nightlife", hint: "New Brunswick · Middlesex" },
   ],
   "Transit Village Suburbs": [
-    { id: "cranford", label: "Cranford", search: "Cranford NJ Transit Village downtown retrofit walkable", hint: "The named retrofit" },
-    { id: "morristown", label: "Morristown", search: "Morristown NJ downtown gathering Transit Village", hint: "A walkable Morris core" },
-    { id: "westfield", label: "Westfield", search: "Westfield NJ downtown gathering walkable Transit Village", hint: "Union County walkable core" },
-    { id: "moorestown", label: "Moorestown", search: "Moorestown NJ downtown gathering South Jersey Transit Village", hint: "A southern walkable core" },
+    { id: "cranford", label: "Cranford", search: "Cranford NJ Transit Village downtown retrofit walkable", hint: "Cranford · Union" },
+    { id: "morristown", label: "Morristown", search: "Morristown NJ downtown gathering Transit Village", hint: "Morristown · Morris" },
+    { id: "westfield", label: "Westfield", search: "Westfield NJ downtown gathering walkable Transit Village", hint: "Westfield · Union" },
+    { id: "moorestown", label: "Moorestown", search: "Moorestown NJ downtown gathering South Jersey Transit Village", hint: "Moorestown · Burlington" },
   ],
   "Shore / Southern Arteries": [
-    { id: "asbury-park", label: "Asbury Park", search: "Asbury Park New Jersey gathering nightlife downtown", hint: "The shore city that kept a scene" },
-    { id: "atlantic-city", label: "Atlantic City", search: "Atlantic City New Jersey gathering nightlife beyond casino", hint: "Beyond the casino floor" },
-    { id: "parkway-towns", label: "Parkway towns", search: "Garden State Parkway New Jersey shore town gathering summer", hint: "The towns the Parkway sorts" },
-    { id: "wildwood", label: "Wildwood", search: "Wildwood New Jersey boardwalk gathering nightlife", hint: "The southern shore strip" },
+    { id: "asbury-park", label: "Asbury Park", search: "Asbury Park New Jersey gathering nightlife downtown", hint: "Asbury Park · Monmouth" },
+    { id: "atlantic-city", label: "Atlantic City", search: "Atlantic City New Jersey gathering nightlife beyond casino", hint: "Atlantic City · Atlantic" },
+    { id: "parkway-towns", label: "Parkway towns", search: "Garden State Parkway New Jersey shore town gathering summer", hint: "Garden State Parkway towns" },
+    { id: "wildwood", label: "Wildwood", search: "Wildwood New Jersey boardwalk gathering nightlife", hint: "Wildwood · Cape May" },
   ],
   "Decentralized Borderlands": [
-    { id: "pa-line", label: "PA line", search: "New Jersey Pennsylvania border gathering Hunterdon Warren", hint: "Where NJ bleeds into PA" },
-    { id: "ny-line", label: "NY line", search: "New Jersey New York border gathering Bergen Rockland", hint: "Where NJ bleeds into NY" },
-    { id: "hunterdon", label: "Hunterdon", search: "Hunterdon County New Jersey gathering downtown rural", hint: "Decentralized west" },
-    { id: "warren", label: "Warren", search: "Warren County New Jersey gathering downtown rural", hint: "The other west" },
+    { id: "pa-line", label: "PA line", search: "New Jersey Pennsylvania border gathering Hunterdon Warren", hint: "NJ–PA line · Hunterdon / Warren" },
+    { id: "ny-line", label: "NY line", search: "New Jersey New York border gathering Bergen Rockland", hint: "NJ–NY line · Bergen" },
+    { id: "hunterdon", label: "Hunterdon", search: "Hunterdon County New Jersey gathering downtown rural", hint: "Hunterdon County" },
+    { id: "warren", label: "Warren", search: "Warren County New Jersey gathering downtown rural", hint: "Warren County" },
   ],
 };
 
@@ -214,24 +214,12 @@ function englishList(labels) {
   return `${labels.slice(0, -1).join(", ")}, and ${labels[labels.length - 1]}`;
 }
 
-function lowerHint(hint) {
-  const s = String(hint || "").trim();
-  if (!s) return "";
-  return s.charAt(0).toLowerCase() + s.slice(1);
-}
-
-// When the operator picks a facet, that chip IS the LENS this piece
-// sees. The cluster syllabus (Oldenburg + propinquity + friction, or
-// brewery + speakeasy + cafe) stays catalog copy for empty chips.
-// Downstream synths must pass this string as the analytical base —
-// appending a SUBJECT LOCK footnote after the full syllabus is what
-// let Draft Hook name every theory on the chip row.
+// Facet lock is the LABEL only. Catalog spends (Oldenburg, "cost of
+// being outside") live on hover so they cannot beat Narrowing / Hook /
+// POV. Locales never enter this string — places are context, not a lens.
 export function lockLensDirective(lock) {
   if (!lock || !Array.isArray(lock.facets) || lock.facets.length === 0) return "";
-  const focus = lock.facets.map((f) => {
-    const hint = lowerHint(f.hint);
-    return hint ? `${f.label} — ${hint}` : f.label;
-  });
+  const focus = lock.facets.map((f) => f.label);
   const siblingLabels = (CLUSTER_FACETS[lock.clusterKey] || [])
     .filter((f) => !lock.facets.some((sel) => sel.id === f.id))
     .map((f) => f.label.toLowerCase());
@@ -272,12 +260,17 @@ export function buildSubjectLock({
 
   let composeClause = "";
   if (!empty) {
-    const facetBit = facets.length ? `stays on ${englishList(facets.map((f) => f.label.toLowerCase()))}` : "stays on the named geography";
-    const localeBit = locales.length ? ` in ${englishList(locales.map((l) => l.label))}` : "";
+    const place = locales.length ? englishList(locales.map((l) => l.label)) : "";
     const joinBit = join
       ? ` Joined only to ${join.label} — that is the only permitted intersection.`
-      : " Do not mash overlapping topics from the rest of the cluster.";
-    composeClause = `This piece ${facetBit}${localeBit}.${joinBit}`;
+      : (facets.length ? " Do not mash overlapping topics from the rest of the cluster." : "");
+    if (facets.length) {
+      const facetBit = `stays on ${englishList(facets.map((f) => f.label.toLowerCase()))}`;
+      const localeBit = place ? ` in ${place} (place context only)` : "";
+      composeClause = `This piece ${facetBit}${localeBit}.${joinBit}`;
+    } else {
+      composeClause = `This piece is set in ${place} (place context only — not a story spend).${joinBit}`;
+    }
   }
 
   const searches = [
@@ -318,7 +311,7 @@ export function subjectLockPromptLines(lock) {
     lines.push("Locked cluster facets: (none — the whole cluster is in play, still honor locales/join if set).");
   }
   if (lock.locales.length) {
-    lines.push(`Locked corridor locales: ${lock.locales.map((l) => l.label).join("; ")}. Write these places, not an adjacent town in the same corridor.`);
+    lines.push(`Geography context (not a story spend): ${lock.locales.map((l) => l.label).join("; ")}. Search these places; do not turn the town into the thesis.`);
   }
   if (lock.join) {
     lines.push(`JOIN (the only permitted intersection with another cluster): ${lock.join.label} from ${lock.join.clusterLabel}.`);
@@ -330,5 +323,5 @@ export function subjectLockPromptLines(lock) {
 }
 
 export function subjectLockInstruction() {
-  return "If SUBJECT LOCK is in the user payload, the Analytical lens is the locked facets — not the cluster syllabus. Stay on those sub-versions and locales. Do not recite sibling theories from the same cluster (Oldenburg next to social friction, strip-mall speakeasy next to parking-lot brewery). Do not invent an intersection with a different cluster facet unless JOIN names it.";
+  return "If SUBJECT LOCK is in the user payload, the Analytical lens is the locked facet LABELS — not the cluster syllabus and not the catalog hover line. Operator Narrowing / Hook / POV beat any catalog spend. Locales are geography context only; do not turn a town into the thesis. Do not recite sibling theories from the same cluster. Do not invent an intersection with a different cluster facet unless JOIN names it.";
 }

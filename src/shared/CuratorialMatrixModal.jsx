@@ -186,9 +186,11 @@ function CharCounter({ current, max, error }) {
   );
 }
 
-function LockChipRow({ label, hint, options, selected, onToggle, accent, max = 3, optionLabel }) {
+function LockChipRow({ label, hint, options, selected, onToggle, accent, max = 3, optionLabel, hoverPrefix = "Catalog" }) {
+  const [hoverId, setHoverId] = useState(null);
   if (!options.length) return null;
   const picked = Array.isArray(selected) ? selected : [];
+  const hoverOpt = options.find((o) => o.id === hoverId);
   return (
     <div style={{ marginTop: label ? 8 : 4 }}>
       {label ? <div style={{ ...labelStyle, marginBottom: 6 }}>{label}</div> : null}
@@ -202,7 +204,11 @@ function LockChipRow({ label, hint, options, selected, onToggle, accent, max = 3
               type="button"
               disabled={atCap}
               onClick={() => onToggle(opt.id)}
-              title={opt.hint || opt.search || opt.label}
+              onMouseEnter={() => setHoverId(opt.id)}
+              onMouseLeave={() => setHoverId(null)}
+              onFocus={() => setHoverId(opt.id)}
+              onBlur={() => setHoverId(null)}
+              title={opt.hint || opt.label}
               style={{
                 padding: "4px 10px",
                 background: on ? accent.bg : "transparent",
@@ -219,6 +225,20 @@ function LockChipRow({ label, hint, options, selected, onToggle, accent, max = 3
           );
         })}
       </div>
+      {hoverOpt?.hint ? (
+        <div style={{
+          ...hintStyle,
+          marginTop: 6,
+          padding: "6px 10px",
+          background: "rgba(167,139,250,0.08)",
+          border: `1px solid ${whisper}`,
+          borderRadius: 6,
+          color: cream,
+          fontStyle: "normal",
+        }}>
+          {hoverPrefix} · {optionLabel ? optionLabel(hoverOpt) : hoverOpt.label}: {hoverOpt.hint}
+        </div>
+      ) : null}
       {hint ? <div style={hintStyle}>{hint}</div> : null}
     </div>
   );
@@ -942,10 +962,10 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
     }
   };
 
-  // Reframe LENS handler — Gemini narrows the base cluster directive
-  // through the operator's current picks and drops the result into
-  // matrix.editorial_lens. The base directive stays canonical; this
-  // just LAYERS a narrowing on top. Editable inline after fill.
+  // Reframe LENS handler — stitches the topic typed in the Narrowing
+  // box to the chips already selected (facets, locales, join, corridor,
+  // emotion, demographic) and writes the combined angle into
+  // matrix.editorial_lens. Empty topic = pills-only reframe.
   const reframeLens = async () => {
     if (reframingLens) return;
     setLensReframeError(null);
@@ -969,6 +989,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
         demographics: selectedDemographics,
         subjectLock: subjectLockPrompt,
         lensBase: liveLens,
+        operatorTopic: local.editorial_lens,
       });
       if (!reframe) {
         setLensReframeError("Gemini returned an empty reframe. Retry.");
@@ -1508,8 +1529,9 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
               <LockChipRow
                 label="Locales · optional"
                 hint={local.corridor
-                  ? `Empty = the whole corridor. Max ${LIMITS.LOCALES_MAX}. Pin the towns so Fuel doesn't wander.`
+                  ? `Empty = the whole corridor. Max ${LIMITS.LOCALES_MAX}. Places are context for Fuel, not a story spend. Hover a chip for the catalog place-name.`
                   : "Pick a corridor first — locales live inside it."}
+                hoverPrefix="Place"
                 options={localesForCorridor(LEGACY_CORRIDOR_ALIASES[local.corridor] || local.corridor)}
                 selected={selectedLocales}
                 onToggle={toggleLocale}
@@ -1548,8 +1570,9 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
               <LockChipRow
                 label="Facets · optional"
                 hint={local.cluster
-                  ? `Empty = the whole cluster. Max ${LIMITS.FACETS_MAX}. Pick the sub-version so Fuel doesn't mash overlapping topics.`
+                  ? `Empty = the whole cluster. Max ${LIMITS.FACETS_MAX}. Hover a chip for the catalog line — Narrowing / Hook / POV beat that line.`
                   : "Pick a cluster first — facets live inside it."}
+                hoverPrefix="Catalog"
                 options={facetsForCluster(local.cluster)}
                 selected={selectedFacets}
                 onToggle={toggleFacet}
@@ -1589,7 +1612,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                             onClick={reframeLens}
                             disabled={disabled}
                             title={clusterKey
-                              ? "Fire a Gemini Flash-Lite call to reframe the LENS this piece sees (a facet lock, or the cluster syllabus if chips are empty) through Corridor + Emotion + Demographic."
+                              ? "Stitch the topic in this box with the chips you already picked (facets, locales, join, corridor, emotion, demographic). Result replaces this box."
                               : "Pick a Content Cluster first — the base LENS is what the reframe narrows."}
                             style={{
                               background: disabled ? "transparent" : "rgba(167,139,250,0.14)",
@@ -1635,7 +1658,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                     style={{ ...textareaStyle, minHeight: 56, fontSize: "0.78rem" }}
                     value={local.editorial_lens || ""}
                     onChange={(e) => applyPatch({ editorial_lens: e.target.value })}
-                    placeholder="Optional. Narrow the LENS this piece already sees — a corridor-specific pressure, a demographic-relevant framing. Empty = the live LENS alone. Layers under a facet lock; does not restore the cluster syllabus."
+                    placeholder="Type a topic, then ✨ Reframe — it gets stitched to the chips you already picked. Empty = reframe from the chips alone."
                     maxLength={800}
                   />
                   {lensReframeError ? (
@@ -1658,7 +1681,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                       letterSpacing: "0.03em",
                       lineHeight: 1.5,
                     }}>
-                      ◆ This narrowing feeds → Draft Thesis, Draft Hook, Fuel Research, Coherence Check, and the carousel writer. Re-run any downstream synth to pick up your edits.
+                      ◆ Stitched from your topic + chips. Feeds → Draft Thesis, Draft Hook, Fuel Research, Coherence Check, and the carousel writer. Change a chip or the topic and Reframe again.
                     </div>
                   )}
                 </div>
@@ -1689,7 +1712,8 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
               </summary>
               <LockChipRow
                 label=""
-                hint="Empty = stay inside this cluster. A join is the only permitted intersection (e.g. parking-lot brewery joined to liquor cap)."
+                hint="Empty = stay inside this cluster. A join is the only permitted intersection (e.g. parking-lot brewery joined to liquor cap). Hover a chip for the catalog line."
+                hoverPrefix="Catalog"
                 options={joinFacetOptions(local.cluster)}
                 selected={selectedJoin ? [selectedJoin] : []}
                 onToggle={toggleJoin}

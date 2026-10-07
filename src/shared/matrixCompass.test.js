@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isListicleHook, hookEvidenceLines, buildHookPrompt } from "./matrixCompass.js";
+import { isListicleHook, hookEvidenceLines, buildHookPrompt, buildLensReframePrompt } from "./matrixCompass.js";
+import { buildSubjectLock, subjectLockPromptLines, lockLensDirective } from "./subjectLock.js";
 
 test("listicle hooks are the Google-vs-CGE failure", () => {
   assert.equal(isListicleHook("Did your commuter community? Discover surprising new gathering spots"), true);
@@ -42,4 +43,40 @@ test("hook prompt authorizes Fuel names and bans the listicle cover", () => {
   assert.match(prompt, /Curiosity\/Epiphany means name the contrast/);
   assert.match(prompt, /not an Instagram listicle/);
   assert.equal(/No invented proper nouns: do NOT name specific venues, towns/.test(prompt), false);
+});
+
+test("reframe stitches a typed topic to the selected pills", () => {
+  const lock = buildSubjectLock({
+    cluster: "PHILOSOPHY_OF_GATHERING",
+    corridor: "Transit Village Suburbs",
+    subjectFacets: ["social-friction"],
+    corridorLocales: ["cranford"],
+  });
+  const prompt = buildLensReframePrompt({
+    clusterLabel: "Philosophy & Behavioral Psychology of Gathering",
+    baseDirective: lockLensDirective(lock),
+    corridor: "Transit Village Suburbs",
+    emotion: "Curiosity/Epiphany",
+    demographics: ["Young Working Professionals"],
+    subjectLock: { promptLines: subjectLockPromptLines(lock), summary: lock.summary },
+    operatorTopic: "the last inbound from Cranford",
+  });
+  assert.match(prompt, /OPERATOR TOPIC/);
+  assert.match(prompt, /the last inbound from Cranford/);
+  assert.match(prompt, /OPERATOR PILLS/);
+  assert.match(prompt, /Social friction/);
+  assert.match(prompt, /Cranford/);
+  assert.match(prompt, /Young Working Professionals/);
+  assert.match(prompt, /do not throw it out/);
+  assert.match(prompt, /Names the operator typed are authorized/);
+});
+
+test("reframe with an empty box still stitches the pills alone", () => {
+  const prompt = buildLensReframePrompt({
+    clusterLabel: "State & Sonic History",
+    baseDirective: "Anchor the narrative in regional musical legacy.",
+    corridor: "Urban / Commuter Core",
+  });
+  assert.match(prompt, /OPERATOR TOPIC: \(none/);
+  assert.match(prompt, /stitch the pills into a narrowing angle on their own/);
 });

@@ -57,6 +57,7 @@ test("parking-lot brewery on Route 22 does not mash liquor cap or Afrobeats", ()
   });
   assert.match(pov, /parking-lot brewery/i);
   assert.match(pov, /Route 22/);
+  assert.match(pov, /place context only/);
   assert.match(pov, /Do not mash overlapping topics/);
   assert.equal(/outsourced gathering to commercial strips/i.test(pov), false);
 });
@@ -68,13 +69,35 @@ test("one philosophy facet replaces the cluster syllabus in the live LENS", () =
   });
   const lens = lockLensDirective(lock);
   assert.match(lens, /Social friction/i);
-  assert.match(lens, /cost of being outside/i);
+  assert.equal(/cost of being outside/i.test(lens), false);
   assert.match(lens, /third-place void/i);
   assert.match(lens, /propinquity/i);
   assert.equal(/Oldenburg/i.test(lens), false);
   assert.equal(/collective effervescence/i.test(lens), false);
   const empty = lockLensDirective(buildSubjectLock({ cluster: "PHILOSOPHY_OF_GATHERING" }));
   assert.equal(empty, "");
+});
+
+test("locales are geography context, not a story spend", () => {
+  const lock = buildSubjectLock({
+    cluster: "SUBURBAN_THIRD_PLACE",
+    corridor: "Transit Village Suburbs",
+    corridorLocales: ["cranford"],
+  });
+  assert.equal(lockLensDirective(lock), "");
+  assert.match(lock.composeClause, /set in Cranford/);
+  assert.match(lock.composeClause, /place context only/);
+  assert.match(lock.composeClause, /not a story spend/);
+  const lines = subjectLockPromptLines(lock).join("\n");
+  assert.match(lines, /Geography context \(not a story spend\)/);
+  assert.match(lines, /Cranford/);
+  assert.equal(/Locked corridor locales/i.test(lines), false);
+  const cranford = localesForCorridor("Transit Village Suburbs").find((l) => l.id === "cranford");
+  assert.equal(cranford.hint, "Cranford · Union");
+  assert.equal(/named retrofit/i.test(cranford.hint), false);
+  const route22 = localesForCorridor("Route 1 Central Crossroads").find((l) => l.id === "route-22");
+  assert.equal(route22.hint, "Route 22");
+  assert.equal(/parking-lot geography/i.test(route22.hint), false);
 });
 
 test("join is the only permitted intersection", () => {
@@ -159,6 +182,7 @@ test("Fuel Research payload honors the lock and named searches", () => {
   assert.match(scout.input, /SUBJECT LOCK/);
   assert.match(scout.input, /Parking-lot brewery/);
   assert.match(scout.input, /Route 22/);
+  assert.match(scout.input, /Geography context \(not a story spend\)/);
   assert.match(scout.input, /JOIN: none/);
   assert.match(scout.input, /New Jersey parking lot brewery/);
   assert.match(scout.input, /facet lock/);
