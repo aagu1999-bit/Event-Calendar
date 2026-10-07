@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  CONVERSATION_MAPS,
   CONVERSATION_MAP_ORDER,
   suggestConversationRank,
   vetoConversationPrimary,
@@ -17,6 +18,7 @@ import { earnedSlideCount } from "./matrixCompass.js";
 
 test("four conversation maps, not a cluster catalog", () => {
   assert.deepEqual(CONVERSATION_MAP_ORDER, ["injustice", "explainer", "reframe", "microdoc"]);
+  assert.match(CONVERSATION_MAPS.explainer.seed, /If the desk only located, do not invent a mechanism/);
 });
 
 test("liquor-cap vote suggests Injustice primary", () => {

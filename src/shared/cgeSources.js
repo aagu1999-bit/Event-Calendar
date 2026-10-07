@@ -509,7 +509,7 @@ export function lensDiscoveryQueries({ cluster = "", topic = "", subjectFacets =
     `${hook} Black New Jersey opinion OR op-ed OR column site:echonewstv.com OR site:blackinjersey.com OR site:njurbannews.com -njpac -essence`,
     `${hook} "NJ Uncovered" OR njuncovered OR "nj.uncovered" Facebook OR Instagram OR YouTube New Jersey`,
     `${hook} influenced OR influence OR "came from" OR "spread to" New Jersey Baltimore Philadelphia "New York" national`,
-    `${hook} pop culture OR society OR regional OR national trend OR norm site:currentaffairs.org`,
+    `${hook} New Jersey currently operating place OR program OR Saturday -njpac -essence`,
     `${hook} oral history OR "African American Studies" site:rutgers.edu OR site:montclair.edu OR site:princeton.edu`,
   ];
   const byCluster = {
@@ -523,7 +523,7 @@ export function lensDiscoveryQueries({ cluster = "", topic = "", subjectFacets =
     ],
     DIASPORA_INFRASTRUCTURE: [
       "Newark Caribbean African American hall opinion column New Jersey",
-      "who owns versus who programs Newark culture Caribbean African influence",
+      "Newark Jersey City cultural hall currently operating New Jersey",
     ],
     SUBURBAN_THIRD_PLACE: [
       "New Jersey Black suburban gathering opinion column national third place",
@@ -547,7 +547,7 @@ export function sourceDoctrineForPrompt() {
     "SOURCE DOCTRINE — the operator is systematizing Black New Jersey culture without a journalism degree. The desks teach the field. Do not require a famous critic. Require a New Jersey argument you can point at.",
     "DESK A / OFFICIAL: statute, municipal clerk, ABC, census, library catalog, university archive, ownership record. KEEP the bureaucratic language. Gemini will cook; you will not pre-chew a statute into a vibe.",
     "DESK B / ARGUMENT: Black New Jersey press, local opinion, university pages, and independent pages that already asked a Black-NJ question. Echo (oldest Black-owned NJ paper), Front Runner (South Jersey), Five Wards and Public Square (Newark), The Positive Community (Montclair), West Ward Beans, NJ Urban News, Black In Jersey, Anointed (Camden), NJ Uncovered (Facebook / YouTube / Instagram — hunt the PAGE, not a hall site). These count even when they are not the best writing. A Rutgers oral history or an Echo column is how you learn the field. That is not NJPAC season copy and not Essence lifestyle recap. Seed Instagram/Substack/YouTube pages are starting points, not canon. News pages are also how you notice the NEXT question, not only how you source this one.",
-    "ALTITUDE / SOCIETY: Current Affairs and pages like it are allowed for pop-culture and societal understanding — how power, media, and culture work. Same class as Pop Culture Detective. They teach a MECHANISM or a JOIN. They are not the specimen and not the place. Do not write their subject (a Ben Shapiro movie, a campus case) as the CGE piece. Land the mechanism on a Black-NJ room, corridor, or disappearance.",
+    "ALTITUDE / SOCIETY: Current Affairs and pages like it are allowed for pop-culture and societal understanding ONLY when THIS desk already named a reusable trick to learn. Same class as Pop Culture Detective. They are not the specimen and not the place. Do not hunt a MECHANISM, an access illusion, or their subject (a Ben Shapiro movie, a campus case) as the CGE piece. If you land a trick, land it on a Black-NJ room, corridor, or disappearance already on the desk.",
     "INFLUENCE TRAVELS. A lot of these conversations go beyond Jersey walls. Hunt what influenced what: Baltimore club → Jersey club, a national digital trend flattening a Newark room, a Caribbean circuit that does not stop at the Hudson, a country-wide norm this NJ gathering is an instance of. The JOIN may name Baltimore, Philly, NYC, Atlanta, or a national pattern when it is the chain. A Brooklyn weekender calendar is still the wrong subject. A piece that never lands back in New Jersey is the wrong piece.",
     "THE SPECIMEN AND THE DOOR ARE BLACK NEW JERSEY. The pattern and the join may be regional or national. A sentence that never names New Jersey is the wrong sentence. A sentence that only names New Jersey and pretends the trend was born in a vacuum is also the wrong sentence.",
     "LOOK THROUGH leftover local press and apparent halls when the topic would show up there: More Jersey, South Jersey Journal, We Are Jersey Ent, Ark Republic, Shelterforce, Trenton Journal, Jewel Justice, fayemi, ENVERT, Hassan Ghanny — those ARE argument if they asked the question. NJPAC, WBGO, NJ Monthly, Essence, The Root, The Grio, Okayplayer, a museum, NYT/WaPo — open them when they are apparent. They may confirm a door, a date, or that a night existed. They cannot authorize the new question.",

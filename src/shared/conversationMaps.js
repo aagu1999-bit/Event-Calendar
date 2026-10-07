@@ -19,8 +19,8 @@ export const CONVERSATION_MAPS = {
   explainer: {
     key: "explainer",
     label: "Explainer / Fluency",
-    talk: "Make the mechanism legible. Status quo → catalyst → breakdown → what happens next.",
-    seed: "Write as Explainer / Fluency: cover names the mechanism; News breaks it down. Teach a reusable trick, not a vibe.",
+    talk: "Make a named trick legible. Status quo → catalyst → breakdown → what happens next. Only when THIS desk already named that trick.",
+    seed: "Write as Explainer / Fluency: cover names the trick THIS desk already named; News breaks it down. If the desk only located, do not invent a mechanism.",
   },
   reframe: {
     key: "reframe",

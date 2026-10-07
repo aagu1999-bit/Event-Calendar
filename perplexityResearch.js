@@ -149,7 +149,7 @@ export function researchAiModeRequest(input = {}) {
     "Search the OPEN web. Do not restrict yourself to a 20-site list. Focus every query on New Jersey. The desks come AFTER this brief, to dive the starting points you name.",
     sourceDoctrineForPrompt(),
     "Write the way a good AI search writes when someone asks a pattern question and says 'in NJ': a short thesis, then several real starting points a writer can steal and dive. Cranford + Transit Village + an NJ Monthly downtowns piece is the shape. Four cafe addresses is the failure.",
-    "THESIS: 1–2 sentences. The NJ friction a cold reader already feels + the named thing already moving (a state program, a town that retrofitted, a rule, a disappearance). This is the editorial thesis. Put it in the thesis field.",
+    "THESIS: 1–2 sentences. Locate THIS specimen. A friction, program, or rule only if the LENS, POV, or topic already named it — do not invent one so the brief feels like CGE. Put it in the thesis field.",
     "STARTING POINTS: 5–8 bullets. Each is a named thread to dive later — a program, a town, a corridor, a magazine piece, a tension, a parallel Saturday. Give enough that the operator knows WHY it matters, not just a URL label. Different threads. Not four angles on the same brewery.",
     "Land this desk in New Jersey. A named program, town, or Saturday on THIS specimen is enough. Do not require who-owns-vs-who-programs or diaspora tension unless the LENS, POV, or topic already named that fight. Influence may leave the state. The specimen lands back in New Jersey.",
     PLATFORM_THEME_STAY_ON_DESK,
@@ -204,16 +204,17 @@ export function researchOfficialRequest(input = {}) {
   const instructions = [
     "You are DESK A — the OFFICIAL RECORD desk for a Black New Jersey cultural publication.",
     sourceDoctrineForPrompt(),
-    "Search ONLY the official / institutional sources available to you. Find the NAMED PROGRAM or statute that is already the mechanism — Transit Village, an ABC cap, a municipal SID, a clerk filing — not a pile of occupancy codes.",
+    PLATFORM_THEME_STAY_ON_DESK,
+    "Search ONLY the official / institutional sources available to you. Find official facts about THIS specimen if they exist — a named program, a filing, a date, an agency page. A statute (Transit Village, ABC cap, SID) is a MECHANISM only if the LENS, topic, or POV already named that trick. Do not hunt a program to make an event or an access-illusion brief feel like CGE.",
     "If CLOSE THESE GAPS is in the user payload, hunt the official page that closes them — a current designation, a living program, not only the oldest statute.",
     "Cite the desk page. Do not lead with a venue homepage or tourism listing when an official page exists.",
     "KEEP bureaucratic language. Quote the program name, the statute number, the agency, the year. Do not translate a law into a cafe. The writer will cook; you will not pre-chew.",
     "PRIMARY RESEARCH LENS: Every candidate must still pass the Analytical lens in the user payload — but a named program that explains the lens is valid even if it names no venue.",
     "BANNED: Timeout, Yelp, TripAdvisor, Eventbrite listicles, 'best of' roundups, residential real-estate listings.",
     String(input.tier || "").toUpperCase() === "FEATURE"
-      ? "FEATURE: prefix each official bullet with 'DOCUMENT — '. A Feature piece without an official document is not ready to speak."
+      ? "FEATURE: prefix an official fact 'DOCUMENT — ' WHEN you found one on THIS specimen. A Feature piece without a document can still locate. Do not hunt a statute so the piece feels ready."
       : "Prefix official facts with 'DOCUMENT — ' when they are a statute, program, number, year, or archive holding.",
-    "OUTPUT: Return 1–3 candidate bullets. Each names ONE program, statute, or filing plus the causal tail. Do not ship four permit facts. New Jersey specific. Never invent.",
+    "OUTPUT: Return 1–3 candidate bullets. Each names one official fact about THIS specimen. A program, statute, or filing plus a causal tail only if you found that on the specimen. A date, agency page, or filing that locates is enough. Do not invent a causal tail. Do not ship four permit facts. New Jersey specific. Never invent.",
     "If you cannot verify at least 1 official NJ-tied fact from official sources, return an empty bullets array.",
     "Output strict JSON with 'bullets' and 'citations'.",
   ];
@@ -231,21 +232,22 @@ export function researchCulturalRequest(input = {}) {
   const instructions = [
     "You are DESK B — the ARGUMENT desk for a Black New Jersey cultural publication.",
     sourceDoctrineForPrompt(),
+    PLATFORM_THEME_STAY_ON_DESK,
     "Write the research brief a good AI search would write — not a venue list and not four clerk facts.",
-    "Search Black New Jersey press first: Echo News, Front Runner, Five Wards, Public Square, The Positive Community, West Ward Beans, NJ Urban News, Black In Jersey, Anointed, Atlantic City Focus. Then Rutgers / Montclair / Princeton pages, then Current Affairs for a pop-culture or societal MECHANISM, then leftover local press. CGE's own published guide is the house archive. Essence recaps and a Brooklyn weekender calendar still do not authorize.",
-    "Cite those desk pages first. After you have the friction and the named mechanism, you MAY use open web search to find ONE real NJ specimen (Cranford's downtown retrofit, not a collage of cafe homepages).",
+    "Search Black New Jersey press first: Echo News, Front Runner, Five Wards, Public Square, The Positive Community, West Ward Beans, NJ Urban News, Black In Jersey, Anointed, Atlantic City Focus. Then Rutgers / Montclair / Princeton pages, then leftover local press. Current Affairs only if the LENS, POV, or topic already named a reusable trick to learn — not to hunt a societal MECHANISM or an access illusion. CGE's own published guide is the house archive. Essence recaps and a Brooklyn weekender calendar still do not authorize.",
+    "Cite those desk pages first. After you have starting points on THIS specimen, you MAY use open web search to thicken ONE real NJ place (Cranford's downtown retrofit, not a collage of cafe homepages).",
     "If CLOSE THESE GAPS is in the user payload, those holes are the hunt on this desk — a current Saturday, a strip-mall speakeasy, a living reconfiguration. Do not answer them with another archive holding.",
-    "FINDING LOGIC: hunt the PATTERN the way a magazine scout would. Name the NJ friction the reader already feels. Name the program or practice already in motion. Name ONE place that already did it. Then ask the Black-NJ question that specimen opens. Prefer opinion / column / commentary over listings.",
+    "FINDING LOGIC: hunt THIS specimen the way a magazine scout would. Name who / what / where / when. Name ONE place that already did it. Name a program, friction, or reusable trick ONLY if the LENS, POV, or topic already named that pressure. Then ask the Black-NJ question that specimen opens. Prefer opinion / column / commentary over listings. Do not invent an access illusion.",
     "Do not write about Nigerian civic climate or masculinity media criticism. Those accounts are the altitude. Find the equivalent Black-NJ argument for this specimen.",
     "PRIMARY RESEARCH LENS: Every candidate must pass the Analytical lens in the user payload.",
     "TARGET AUDIENCE: the specimen must plausibly serve the Target Audience. A downtown retrofit whose people do not overlap is a DOOR confirmation, not the argument.",
     "BANNED AS THE LENS: Timeout, Yelp, TripAdvisor, Eventbrite, NJPAC, Essence, The Root, WBGO program notes, museum wall text. They may confirm a door is open; they cannot be the cultural source.",
     "BANNED DATA — REAL ESTATE unit counts and developer flyers unless the Topic is housing policy. A Special Improvement District or Transit Village designation is a mechanism, not a condo flyer.",
     ...(String(input.tier || "").toUpperCase() === "FEATURE" ? [
-      "FEATURE / CONTENT METHOD: the NEXT bullet is the join — a question NOT about the same primary entity as the Topic (who the retrofit is for, the Saturday that still feels like the strip, the parallel room). Prefix it 'NEXT — ' or 'JOIN — '.",
+      "FEATURE / CONTENT METHOD: prefix 'NEXT — ' or 'JOIN — ' only if a real next question or sideways room is already visible on THIS specimen. JOIN is optional. A Feature piece that only locates is ready. Do not hunt a parallel room to complete a kit.",
       "A JOIN that is another selling point of the same downtown is invalid.",
     ] : []),
-    "OUTPUT: Return 3–4 bullets in this kit, each prefixed: 'FRICTION — ' (the NJ layout or pressure a cold reader already sees), 'MECHANISM — ' (the named program, statute, or practice already moving), 'SPECIMEN — ' (ONE real NJ place that already did the thing — Cranford, not five cafes), 'NEXT — ' (the question this opens for Black New Jersey). Different jobs, one story. Never invent.",
+    "OUTPUT: Return 3–4 bullets. Prefix what you actually found: 'START — ' or 'SPECIMEN — ' for a named NJ place or Saturday. 'FRICTION — ' or 'MECHANISM — ' only if the desk already named that pressure or trick — do not invent a MECHANISM line to complete a kit. 'NEXT — ' if a real next question opened. Never invent.",
     ...(historicalOverride ? [
       "This cluster is historically anchored: the SPECIMEN may be a closed room if a living remnant or archive still holds it — do not drop history because the door is shut.",
     ] : []),
