@@ -46,6 +46,14 @@ import {
 } from "./subjectLock.js";
 import { validateMatrix, matrixCompleteness, isMatrixReadyForGeneration } from "./matrixValidation.js";
 import { eventMatrixToFillSeed } from "./eventMatrixToFillSeed.js";
+import {
+  CONVERSATION_MAPS,
+  CONVERSATION_MAP_ORDER,
+  sanitizeConversationRank,
+  suggestConversationRank,
+  applyConversationSuggestion,
+  vetoConversationPrimary,
+} from "./conversationMaps.js";
 
 // The Curatorial Matrix editor — dedicated modal (not inline in the row)
 // per operator preference: matrix curation is deep editorial work that
@@ -672,6 +680,19 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
     const line = `RECEIPT — UNVERIFIED — ${claim}`.slice(0, LIMITS.BULLET_MAX);
     applyPatch({ data_points: [...bullets, line] });
   };
+  const setConversationSlot = (slot, key) => {
+    const now = sanitizeConversationRank(local.conversation_rank);
+    const next = { ...now, locked: true };
+    if (next[slot] === key) {
+      next[slot] = "";
+    } else {
+      for (const s of ["primary", "secondary", "tertiary"]) {
+        if (next[s] === key) next[s] = "";
+      }
+      next[slot] = key;
+    }
+    applyPatch({ conversation_rank: sanitizeConversationRank(next) });
+  };
   const removeBullet = (i) => {
     const next = bullets.filter((_, idx) => idx !== i);
     applyPatch({ data_points: next });
@@ -933,12 +954,15 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
       // syllabus is a mismatch, not support.
       const resolvedLens = resolveEditorialLens({ cluster: local.cluster, override: local.editorial_lens, base: liveLens });
       const lensLine = resolvedLens.combined || resolvedLens.base || "";
+      const liveRank = sanitizeConversationRank(local.conversation_rank);
+      const primaryTalk = liveRank.primary ? CONVERSATION_MAPS[liveRank.primary]?.label : "";
       const result = await checkArgumentCoherence({
         apiKey,
         hook: cleanHook,
         pov: cleanPOV,
         anchors: cleanAnchors,
         clusterDirective: lensLine,
+        conversationPrimary: primaryTalk,
       });
       if (!result) {
         setCoherenceError("Coherence check returned no verdict — Gemini may be rate-limited. Retry.");
@@ -953,7 +977,15 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
       const persisted = { ...result, checkedAt: sig };
       setCoherenceResult(persisted);
       setCoherenceCheckedAt(sig);
-      applyPatch({ argument_check: persisted });
+      const suggestion = suggestConversationRank({
+        hook: cleanHook,
+        pov: cleanPOV,
+        anchors: cleanAnchors,
+        lens: lensLine,
+        argumentCheck: persisted,
+      });
+      const nextRank = applyConversationSuggestion(liveRank, suggestion);
+      applyPatch({ argument_check: persisted, conversation_rank: nextRank });
     } catch (err) {
       setCoherenceError(String(err?.message || err));
     } finally {
@@ -1412,7 +1444,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                 <div><b style={{ color: cream }}>LENS</b> · POV · Fuel names  <span style={{ color: faint }}>→ (click ✨ Draft Hook)</span>  <b style={{ color: "#A78BFA" }}>hook_a_side</b></div>
                 <div><b style={{ color: cream }}>LENS</b> · POV · Hook · locales as geography  <span style={{ color: faint }}>→ (click 🔮 Fuel Research)</span>  <b style={{ color: "#A78BFA" }}>data_points (anchors)</b>  <span style={{ color: faint }}>→ (auto) Check</span></div>
                 <div><b style={{ color: cream }}>Distance</b> · Cadence · Stance  <span style={{ color: faint }}>→ (click 🎙 New Preview)</span>  <b style={{ color: "#A78BFA" }}>voice preview (not stored)</b></div>
-                <div><b style={{ color: cream }}>Hook</b> · POV · Anchors · <b style={{ color: "#A78BFA" }}>LENS</b>  <span style={{ color: faint }}>→ (auto after Fuel, or click 🔎 Check)</span>  <b style={{ color: "#A78BFA" }}>claim map · slide advice</b></div>
+                <div><b style={{ color: cream }}>Hook</b> · POV · Anchors · <b style={{ color: "#A78BFA" }}>LENS</b>  <span style={{ color: faint }}>→ (auto after Fuel, or click 🔎 Check)</span>  <b style={{ color: "#A78BFA" }}>claim map · slide advice</b>  <span style={{ color: faint }}>→ conversation rank</span></div>
               </div>
               <div style={{ marginTop: 8, fontSize: "0.6rem", color: "#63B3ED", fontWeight: 700, letterSpacing: "0.06em" }}>
                 Pills feed the LENS (Reframe). Everything after that reads the LENS — not an unclicked cluster, corridor, or emotion. Empty chips do NOT dump the catalog. Select all or pick the topics this piece spends.
@@ -2841,6 +2873,114 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
               );
             })()}
           </div>
+
+          {(() => {
+            const rank = sanitizeConversationRank(local.conversation_rank);
+            const veto = vetoConversationPrimary({
+              primary: rank.primary,
+              hook: local.hook_a_side,
+              pov: local.editorial_pov,
+              anchors: bullets,
+              argumentCheck: coherenceResult,
+            });
+            const suggestedDiffers = rank.suggestedPrimary && rank.suggestedPrimary !== rank.primary;
+            const slotStyle = (on) => ({
+              background: on ? "rgba(99,179,237,0.16)" : "transparent",
+              color: on ? cream : muted,
+              border: `1px solid ${on ? feature : whisper}`,
+              borderRadius: 4,
+              padding: "5px 8px",
+              fontFamily: "inherit",
+              fontSize: "0.58rem",
+              letterSpacing: "0.06em",
+              textTransform: "uppercase",
+              fontWeight: 700,
+              cursor: "pointer",
+              textAlign: "left",
+            });
+            return (
+              <div style={{ marginTop: 18, borderTop: `1px dashed ${hair}`, paddingTop: 14 }}>
+                <div style={{ fontSize: "0.66rem", color: cream, letterSpacing: "0.06em", fontWeight: 700, textTransform: "uppercase", marginBottom: 8 }}>
+                  Conversation map · rank after Fuel
+                </div>
+                <div style={{ fontSize: "0.62rem", color: faint, marginBottom: 10, lineHeight: 1.5 }}>
+                  What kind of talk this is — not which cluster drawer, not a 10-slide carousel. One primary. Secondary only if a claim already has a pointed source. Tertiary is caption or parked. Fuel still hunts the LENS.
+                </div>
+                {rank.suggestedReason ? (
+                  <div style={{ fontSize: "0.68rem", color: "rgba(245,240,232,0.78)", marginBottom: 8, lineHeight: 1.5 }}>
+                    {rank.locked ? "Suggested (locked yours): " : "Suggested: "}{rank.suggestedReason}
+                    {suggestedDiffers ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const suggestion = suggestConversationRank({
+                            hook: local.hook_a_side,
+                            pov: local.editorial_pov,
+                            anchors: bullets,
+                            lens: liveCheckLens,
+                            argumentCheck: coherenceResult,
+                          });
+                          applyPatch({ conversation_rank: { ...suggestion, locked: true } });
+                        }}
+                        style={{
+                          marginLeft: 8,
+                          background: "transparent",
+                          color: feature,
+                          border: `1px solid ${feature}`,
+                          borderRadius: 3,
+                          padding: "2px 6px",
+                          fontFamily: "inherit",
+                          fontSize: "0.54rem",
+                          letterSpacing: "0.08em",
+                          textTransform: "uppercase",
+                          fontWeight: 700,
+                          cursor: "pointer",
+                        }}
+                      >Apply suggestion</button>
+                    ) : null}
+                  </div>
+                ) : null}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+                  {["primary", "secondary", "tertiary"].map((slot) => (
+                    <div key={slot}>
+                      <div style={{ fontSize: "0.54rem", letterSpacing: "0.1em", textTransform: "uppercase", color: faint, fontWeight: 700, marginBottom: 6 }}>
+                        {slot === "primary" ? "Primary · the talk" : slot === "secondary" ? "Secondary · pointed only" : "Tertiary · parked"}
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        {CONVERSATION_MAP_ORDER.map((key) => {
+                          const map = CONVERSATION_MAPS[key];
+                          const on = rank[slot] === key;
+                          return (
+                            <button
+                              key={key}
+                              type="button"
+                              title={map.talk}
+                              onClick={() => setConversationSlot(slot, key)}
+                              style={slotStyle(on)}
+                            >{map.label}</button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {veto ? (
+                  <div style={{
+                    marginTop: 10,
+                    padding: "8px 10px",
+                    background: warnBg,
+                    border: `1px solid rgba(251,191,36,0.32)`,
+                    borderRadius: 6,
+                    fontSize: "0.68rem",
+                    color: warn,
+                    lineHeight: 1.5,
+                  }}>
+                    ⚠ Check veto: {veto.reason} Pick a map the desk can carry, or add a pointed receipt.
+                  </div>
+                ) : null}
+              </div>
+            );
+          })()}
 
         </div>
 

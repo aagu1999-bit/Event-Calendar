@@ -152,6 +152,19 @@ test("coherence prompt reads the LENS strictly and asks for a claim map", () => 
   assert.equal(/venue rental/i.test(prompt), false);
 });
 
+test("coherence prompt vetoes a conversation map the desk cannot carry", () => {
+  const prompt = buildCoherencePrompt({
+    hook: "Discover surprising gathering spots",
+    pov: "A Saturday of mixers.",
+    anchors: ["START — doors at 10", "START — DJ set"],
+    conversationPrimary: "Injustice / Hook-Led",
+  });
+  assert.match(prompt, /CONVERSATION MAP PRIMARY/);
+  assert.match(prompt, /Injustice \/ Hook-Led/);
+  assert.match(prompt, /festival listings/);
+  assert.match(prompt, /as a cluster syllabus/);
+});
+
 test("coherence prompt without a LENS does not invent a cluster syllabus", () => {
   const prompt = buildCoherencePrompt({
     hook: "The last inbound.",

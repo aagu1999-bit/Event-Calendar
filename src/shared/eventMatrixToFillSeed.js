@@ -47,6 +47,7 @@ export function summarizeSlidesForFeedback(slides) {
 
 import { EVENT_TIERS, DEMOGRAPHIC_PRESETS, LEGACY_DEMOGRAPHIC_ALIASES } from "./matrixEnums.js";
 import { getClusterLabel, resolveEditorialLens, isListicleHook, formatCoherenceSeedLines } from "./matrixCompass.js";
+import { formatConversationSeedLines } from "./conversationMaps.js";
 import { buildSubjectLock, lockLensDirective } from "./subjectLock.js";
 import { CONTENT_DEFAULT_VOICE } from "./cgeThesis.js";
 
@@ -193,6 +194,11 @@ export function eventMatrixToFillSeed(event) {
   if (coherenceLines.length) {
     if (contextLines.length) contextLines.push("");
     contextLines.push(...coherenceLines);
+  }
+  const conversationLines = formatConversationSeedLines(m.conversation_rank);
+  if (conversationLines.length) {
+    if (contextLines.length) contextLines.push("");
+    contextLines.push(...conversationLines);
   }
   const context = contextLines.join("\n");
 

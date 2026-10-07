@@ -144,4 +144,7 @@ export const MATRIX_FIELDS = [
   // Last Coherence check (critic output, not editorial content).
   // Completeness ignores this the same way it ignores pipeline_status.
   "argument_check",
+  // Ranked conversation map (Injustice / Explainer / Re-frame /
+  // Micro-doc). Completeness ignores it — empty is a valid skip.
+  "conversation_rank",
 ];
