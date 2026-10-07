@@ -12,6 +12,7 @@ import {
   enforceMicroCopyRules,
   gstCopyToSlots,
 } from "./gstPipeline.js";
+import { conversationWriterBlock, formatConversationSeedLines } from "./conversationMaps.js";
 
 test("GST design tokens lock a 10-role arc", () => {
   assert.equal(GST_DESIGN_TOKENS.slideRoles.length, GST_SLIDE_COUNT);
@@ -80,4 +81,12 @@ test("gstCopyToSlots maps the 10-slide GST arc onto MediaTool types", () => {
   assert.equal(slides[8].type, "text");
   assert.equal(slides[9].type, "cta");
   assert.ok(!/\*\*/.test(slides[0].headline));
+});
+
+test("GST still has 10 roles, but a ranked map outranks who-benefits stance", () => {
+  assert.equal(GST_DESIGN_TOKENS.slideRoles.length, 10);
+  const block = conversationWriterBlock(formatConversationSeedLines({ primary: "explainer" }).join("\n")).join("\n");
+  assert.match(block, /outranks GST/);
+  assert.match(block, /Explainer/);
+  assert.match(block, /do not invent who-owns/);
 });

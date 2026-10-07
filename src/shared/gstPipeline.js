@@ -18,6 +18,7 @@
 // STAGE 4 — Design tokens (layout contract for Figma/Canva — not a write path yet)
 
 import { extractJson, extractResponseText } from "./aiJson.js";
+import { conversationWriterBlock } from "./conversationMaps.js";
 
 const MODEL = "gemini-2.5-flash-lite";
 const URL_BASE = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
@@ -104,7 +105,7 @@ const GST_VOICE = [
   "THREE GEARS — every carousel must turn all three:",
   "  1. PATTERN — name the repeating structure (not one club, not one bad night).",
   "  2. TEACH — hand the reader a reusable lens for the next town / room / clip.",
-  "  3. STANCE — land. Who benefits. Who's blocked. What the system is doing. No both-sides fog.",
+  "  3. STANCE — land the talk THIS brief already named. Who benefits / who's blocked only if the conversation map is Injustice or the desk already named that fight. No both-sides fog.",
   "",
   "CHARGE + STAKES:",
   "  - CHARGE = the felt heat that stops the thumb (shut Saturday, frozen tap, same three rooms).",
@@ -183,7 +184,9 @@ export function extractScanPath(text) {
 }
 
 function subjectBlock(topic, context) {
+  const mapBlock = conversationWriterBlock(context);
   return [
+    ...mapBlock,
     topic && topic.trim() ? `TOPIC: ${topic.trim()}` : "",
     context && context.trim() ? `SOURCE MATERIAL:\n${context.trim()}` : "",
   ]
@@ -208,7 +211,7 @@ export async function stage1CriticalTheory({ apiKey, topic, context }) {
     "Return JSON ONLY:",
     JSON.stringify({
       trope: "name the repeating formula in 3-8 words (PATTERN)",
-      powerStructure: "who benefits / who is blocked — one sentence (feeds STANCE)",
+      powerStructure: "the pressure THIS desk named — one sentence (feeds STANCE). Who benefits / who is blocked only if the conversation map is Injustice or SOURCE MATERIAL already said that",
       academicLens: "urban planning / gender / class / media studies lens in a few words",
       teachLens: "one reusable way of seeing the reader should leave with — portable to the next town/room/clip (TEACH)",
       stance: "the side you take, said plain — not both-sides, not 'it's complicated' (STANCE)",

@@ -170,6 +170,7 @@ export function formatConversationSeedLines(rank) {
   if (!clean.primary) return [];
   const primary = CONVERSATION_MAPS[clean.primary];
   const lines = [
+    `CONVERSATION_RANK_KEYS: primary=${clean.primary}; secondary=${clean.secondary || "none"}; tertiary=${clean.tertiary || "none"}`,
     `CONVERSATION MAP: primary ${primary.label} — ${primary.talk}`,
     primary.seed,
     "Cover + News in this talk. Do not stretch to a 10-slide carousel. Do not write Stat, Spotlight, or 'share this to change the conversation.'",
@@ -183,6 +184,58 @@ export function formatConversationSeedLines(rank) {
     lines.push(`TERTIARY (${ter.label}): caption or parked. No slide. Fuel does not hunt this.`);
   }
   return lines;
+}
+
+export function parseConversationRankFromContext(text) {
+  const s = String(text || "");
+  const keyed = s.match(/CONVERSATION_RANK_KEYS:\s*primary=([a-z]+);\s*secondary=([a-z]+|none);\s*tertiary=([a-z]+|none)/i);
+  if (keyed) {
+    const none = (v) => (!v || v.toLowerCase() === "none" ? "" : v);
+    return sanitizeConversationRank({
+      primary: none(keyed[1]),
+      secondary: none(keyed[2]),
+      tertiary: none(keyed[3]),
+    });
+  }
+  const labeled = s.match(/CONVERSATION MAP:\s*primary\s+([^—\n]+)/i);
+  if (!labeled) return sanitizeConversationRank({});
+  const blob = labeled[1].trim().toLowerCase();
+  const primary = CONVERSATION_MAP_ORDER.find((key) => blob.includes(CONVERSATION_MAPS[key].label.split(" / ")[0].toLowerCase()));
+  return sanitizeConversationRank({ primary: primary || "" });
+}
+
+// Writer / GST block. Ranked maps outrank GST's default who-benefits stance.
+export function conversationWriterBlock(rankOrText) {
+  const rank = typeof rankOrText === "string"
+    ? parseConversationRankFromContext(rankOrText)
+    : sanitizeConversationRank(rankOrText);
+  const lines = formatConversationSeedLines(rank);
+  if (!lines.length) return [];
+  return [
+    "═════════════════════════════",
+    "CONVERSATION MAP — operator-selected. This is the talk. It outranks GST's default who-benefits stance and any cluster drawer.",
+    ...lines,
+    "PRIMARY is the piece. Write Cover + News in that talk. SECONDARY colors one pointed source already on the desk — do not hunt a second syllabus. TERTIARY is caption or parked: no slide, Fuel does not hunt it.",
+    "If primary is Explainer, Re-frame, or Micro-doc: do not invent who-owns / who-benefits / diaspora to make the brief feel like CGE or GST.",
+    "If primary is Injustice: stance is who paid / the rule — only from SOURCE MATERIAL already on the desk.",
+    "═════════════════════════════",
+    "",
+  ];
+}
+
+// Cover + News in the ranked talk. Extra text slides only if a count is pinned.
+export function conversationSlideSequence(rankOrText, targetCount = null) {
+  const rank = typeof rankOrText === "string"
+    ? parseConversationRankFromContext(rankOrText)
+    : sanitizeConversationRank(rankOrText);
+  if (!rank.primary) return null;
+  const n = (typeof targetCount === "number" && targetCount > 0)
+    ? Math.min(6, Math.max(3, Math.round(targetCount)))
+    : 3;
+  const seq = ["cover", "news"];
+  for (let i = 0; i < n - 3; i += 1) seq.push("text");
+  seq.push("cta");
+  return seq;
 }
 
 export function applyConversationSuggestion(current, suggestion) {
