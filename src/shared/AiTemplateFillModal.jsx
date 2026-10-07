@@ -107,7 +107,13 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
   const [regenIdx, setRegenIdx] = useState(null);
   const [rejectPromptOpen, setRejectPromptOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
-  const [feedbackSaved, setFeedbackSaved] = useState(null); // "rejected" | "approved" | null
+  const [feedbackSaved, setFeedbackSaved] = useState(null); // "rejected" | "approved" | "wiped" | null
+  const [rejectedMem, setRejectedMem] = useState(() => (
+    Array.isArray(initialRejectedDrafts) ? initialRejectedDrafts.slice() : []
+  ));
+  const [approvedMem, setApprovedMem] = useState(() => (
+    Array.isArray(initialApprovedDrafts) ? initialApprovedDrafts.slice() : []
+  ));
   // Questions typed while a piece is being built. Research (if any) runs
   // first, then we pause so the operator can ask what came up before
   // slides write. Same box stays live during the look-up.
@@ -283,8 +289,8 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
         voiceParams: initialVoiceParams,
         behavioralTags: initialBehavioralTags,
         isEvergreen: initialIsEvergreen,
-        rejectedDrafts: initialRejectedDrafts,
-        approvedDrafts: initialApprovedDrafts,
+        rejectedDrafts: rejectedMem,
+        approvedDrafts: approvedMem,
       });
       setPickedTemplate({
         id: arranged.gst ? "gst-pipeline" : "ai-arranged",
@@ -362,8 +368,8 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
       // Feedback memory — previous Reject / Approve entries for
       // THIS matrix. buildTemplatePrompt injects them as
       // don't-reproduce and hold-the-bar blocks.
-      rejectedDrafts: initialRejectedDrafts,
-      approvedDrafts: initialApprovedDrafts,
+      rejectedDrafts: rejectedMem,
+      approvedDrafts: approvedMem,
     });
     setSlides(result);
   };
@@ -458,8 +464,8 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
       voiceParams: initialVoiceParams,
       behavioralTags: initialBehavioralTags,
       isEvergreen: initialIsEvergreen,
-      rejectedDrafts: initialRejectedDrafts,
-      approvedDrafts: initialApprovedDrafts,
+      rejectedDrafts: rejectedMem,
+      approvedDrafts: approvedMem,
     });
     setSlides(result);
   };
@@ -491,8 +497,8 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
         isEvergreen: initialIsEvergreen,
         keywordTrigger: null,
         spine: false,
-        rejectedDrafts: initialRejectedDrafts,
-        approvedDrafts: initialApprovedDrafts,
+        rejectedDrafts: rejectedMem,
+        approvedDrafts: approvedMem,
       });
       const fresh = Array.isArray(result) && result[0] ? result[0] : null;
       if (!fresh) throw new Error(`No rewrite returned for slide ${idx + 1}`);
@@ -546,8 +552,8 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
       let genContext = pendingWrite?.genContext || context;
       genContext = appendSavedTeaching(genContext, {
         voice,
-        approvedDrafts: initialApprovedDrafts,
-        rejectedDrafts: initialRejectedDrafts,
+        approvedDrafts: approvedMem,
+        rejectedDrafts: rejectedMem,
         lessons: sessionLessons,
       });
 
@@ -625,18 +631,19 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
     onClose();
   };
 
-  // ─── FEEDBACK MEMORY: Reject + Approve ──────────────────────
-  // Reject: capture a 1-line reason, save a compact digest of the whole
-  // draft to matrix.rejected_drafts, close modal. Approve: save digest to
-  // matrix.approved_drafts, then push as normal. Both write via the
-  // onSaveFeedback callback wired at the mount site (matrix modal has
-  // the eventId and updateEventMatrix in scope).
+  // ─── FEEDBACK MEMORY: Reject / Teach / Wipe ─────────────────
+  // Reject: capture a 1-line reason, save a compact digest, close.
+  // Teach the bar: save digest to approved_drafts without pushing.
+  // Wipe: empty both banks. Push to canvas does NOT write memory —
+  // looking at a draft used to train the writer to copy it.
   const handleReject = () => {
     if (!Array.isArray(slides) || !slides.length) return;
     if (typeof onSaveFeedback !== "function") return;
     const reason = rejectReason.trim() || "(no reason given)";
     const digest = summarizeSlidesForFeedback(slides);
-    onSaveFeedback("reject", { at: new Date().toISOString(), reason, digest });
+    const entry = { at: new Date().toISOString(), reason, digest };
+    onSaveFeedback("reject", entry);
+    setRejectedMem((prev) => [...prev, entry].slice(-3));
     setFeedbackSaved("rejected");
     setRejectPromptOpen(false);
     setRejectReason("");
@@ -644,14 +651,22 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
     setTimeout(() => onClose(), 600);
   };
 
-  const handleApprove = () => {
+  const handleTeachBar = () => {
     if (!Array.isArray(slides) || !slides.length) return;
-    if (typeof onSaveFeedback === "function") {
-      const digest = summarizeSlidesForFeedback(slides);
-      onSaveFeedback("approve", { at: new Date().toISOString(), digest });
-    }
-    // Approve = save + push. Fall through to the normal push flow.
-    handlePush();
+    if (typeof onSaveFeedback !== "function") return;
+    const digest = summarizeSlidesForFeedback(slides);
+    const entry = { at: new Date().toISOString(), digest };
+    onSaveFeedback("approve", entry);
+    setApprovedMem((prev) => [...prev, entry].slice(-3));
+    setFeedbackSaved("approved");
+  };
+
+  const handleWipeFeedback = () => {
+    if (typeof onSaveFeedback !== "function") return;
+    onSaveFeedback("wipe");
+    setRejectedMem([]);
+    setApprovedMem([]);
+    setFeedbackSaved("wiped");
   };
 
   // Re-roll a SINGLE slot, keeping every other slide as-is. Reuses the
@@ -689,8 +704,8 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
         prevVersion && `PREVIOUS VERSION OF THIS SLIDE (make the new one clearly DIFFERENT — fresh angle/wording, not a rephrase — while still bridging the neighbors):\n${prevVersion}`,
       ].filter(Boolean).join("\n\n"), {
         voice,
-        approvedDrafts: initialApprovedDrafts,
-        rejectedDrafts: initialRejectedDrafts,
+        approvedDrafts: approvedMem,
+        rejectedDrafts: rejectedMem,
         lessons: sessionLessons,
       }), operatorQuestions);
       const result = await generateTemplateFill({
@@ -1569,8 +1584,31 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
                 <div>Behavioral tags: {initialBehavioralTags && (initialBehavioralTags.emotion || (initialBehavioralTags.demographics && initialBehavioralTags.demographics.length))
                   ? `${initialBehavioralTags.emotion || "—"}${initialBehavioralTags.demographics && initialBehavioralTags.demographics.length ? ` · ${initialBehavioralTags.demographics.join(", ")}` : ""}`
                   : <span style={{ color: "rgba(245,240,232,0.4)" }}>(unset)</span>}</div>
-                <div>Feedback memory: {initialRejectedDrafts.length} rejected · {initialApprovedDrafts.length} approved
-                  {initialRejectedDrafts.length ? ` · writer will avoid: "${(initialRejectedDrafts[initialRejectedDrafts.length - 1]?.reason || "").slice(0, 80)}"` : ""}</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <span>Feedback memory: {rejectedMem.length} rejected · {approvedMem.length} approved
+                    {rejectedMem.length ? ` · writer will avoid: "${(rejectedMem[rejectedMem.length - 1]?.reason || "").slice(0, 80)}"` : ""}
+                    {approvedMem.length && !rejectedMem.length ? " · writer will copy the last accepted shape" : ""}
+                    {!rejectedMem.length && !approvedMem.length ? " · empty — Generate will not copy old accepts" : ""}</span>
+                  {typeof onSaveFeedback === "function" && (rejectedMem.length > 0 || approvedMem.length > 0) ? (
+                    <button
+                      type="button"
+                      onClick={handleWipeFeedback}
+                      title="Clear rejected and approved drafts for this event so Generate stops copying those shapes"
+                      style={{
+                        padding: "3px 8px",
+                        borderRadius: 3,
+                        cursor: "pointer",
+                        fontSize: "0.55rem",
+                        fontWeight: 800,
+                        letterSpacing: 0.08,
+                        textTransform: "uppercase",
+                        background: "rgba(251,113,133,0.16)",
+                        color: "#FB7185",
+                        border: "1px solid rgba(251,113,133,0.45)",
+                      }}
+                    >Wipe</button>
+                  ) : null}
+                </div>
                 <div>Cluster directive: {initialClusterDirective ? "loaded (writer will treat as voice/framing block)" : <span style={{ color: "rgba(245,240,232,0.4)" }}>(none)</span>}</div>
               </div>
               {/* CONFLICTS + OVERRIDES — where this window changes something */}
@@ -1956,6 +1994,34 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
                 ✓ Rejection saved to matrix memory. The next generation for this event will avoid the failure mode.
               </div>
             )}
+            {feedbackSaved === "approved" && (
+              <div style={{
+                marginBottom: 10, padding: "9px 12px",
+                background: "rgba(52,211,153,0.08)",
+                border: "1px solid rgba(52,211,153,0.32)",
+                borderRadius: 5,
+                fontSize: "0.72rem",
+                color: "#34D399",
+                letterSpacing: 0.3,
+                lineHeight: 1.4,
+              }}>
+                ✓ Shape saved as the bar. Push still just sends slides to the canvas — it does not teach.
+              </div>
+            )}
+            {feedbackSaved === "wiped" && (
+              <div style={{
+                marginBottom: 10, padding: "9px 12px",
+                background: "rgba(99,179,237,0.08)",
+                border: "1px solid rgba(99,179,237,0.32)",
+                borderRadius: 5,
+                fontSize: "0.72rem",
+                color: "#63B3ED",
+                letterSpacing: 0.3,
+                lineHeight: 1.4,
+              }}>
+                ✓ Feedback memory wiped on this event. Generate will not copy the old accepts.
+              </div>
+            )}
             {/* Reject reason prompt — inline; renders in place of the button row */}
             {rejectPromptOpen ? (
               <div style={{
@@ -2032,7 +2098,7 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
                 </div>
               </div>
             ) : (
-              <div style={{ display: "flex", gap: 8 }}>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 {typeof onSaveFeedback === "function" && (
                   <button
                     onClick={() => setRejectPromptOpen(true)}
@@ -2053,8 +2119,49 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
                     }}
                   >👎 Reject &amp; learn</button>
                 )}
+                {typeof onSaveFeedback === "function" && (
+                  <button
+                    onClick={handleTeachBar}
+                    title="Save this shape as the bar the writer should match. Does not push to the canvas."
+                    style={{
+                      padding: "12px 14px",
+                      background: "transparent",
+                      color: "#34D399",
+                      border: "1px solid rgba(52,211,153,0.4)",
+                      borderRadius: 4,
+                      fontSize: "0.68rem",
+                      fontWeight: 800,
+                      letterSpacing: 1,
+                      textTransform: "uppercase",
+                      cursor: "pointer",
+                      fontFamily: "'Syne',sans-serif",
+                      whiteSpace: "nowrap",
+                    }}
+                  >👍 This is the bar</button>
+                )}
+                {typeof onSaveFeedback === "function" && (rejectedMem.length > 0 || approvedMem.length > 0) ? (
+                  <button
+                    type="button"
+                    onClick={handleWipeFeedback}
+                    title="Clear rejected and approved drafts for this event"
+                    style={{
+                      padding: "12px 14px",
+                      background: "transparent",
+                      color: "#63B3ED",
+                      border: "1px solid rgba(99,179,237,0.4)",
+                      borderRadius: 4,
+                      fontSize: "0.68rem",
+                      fontWeight: 800,
+                      letterSpacing: 1,
+                      textTransform: "uppercase",
+                      cursor: "pointer",
+                      fontFamily: "'Syne',sans-serif",
+                      whiteSpace: "nowrap",
+                    }}
+                  >Wipe memory</button>
+                ) : null}
                 <button
-                  onClick={typeof onSaveFeedback === "function" ? handleApprove : handlePush}
+                  onClick={handlePush}
                   style={{
                     flex: 1,
                     padding: "12px 18px",
@@ -2069,7 +2176,7 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
                     cursor: "pointer",
                     fontFamily: "'Syne',sans-serif",
                   }}
-                >{typeof onSaveFeedback === "function" ? "👍 " : ""}→ Push {keptIdx.size} of {slides.length} slides to carousel</button>
+                >→ Push {keptIdx.size} of {slides.length} slides to carousel</button>
               </div>
             )}
           </>

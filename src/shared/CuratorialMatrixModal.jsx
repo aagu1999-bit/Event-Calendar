@@ -3092,12 +3092,16 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
           }}
           onSaveFeedback={(kind, entry) => {
             // Persist to matrix.rejected_drafts / approved_drafts.
-            // Cap at 3 each, FIFO. Updates flow through the store's
+            // Cap at 3 each, FIFO. Wipe empties both banks so Generate
+            // stops copying old accepts. Updates flow through the store's
             // updateEventMatrix action which persists to the server
             // via the existing upsertEvent path.
             const currentMatrix = event?.matrix || {};
             const patch = {};
-            if (kind === "reject") {
+            if (kind === "wipe") {
+              patch.rejected_drafts = [];
+              patch.approved_drafts = [];
+            } else if (kind === "reject") {
               const prior = Array.isArray(currentMatrix.rejected_drafts) ? currentMatrix.rejected_drafts : [];
               patch.rejected_drafts = [...prior, entry].slice(-3);
             } else if (kind === "approve") {
@@ -3106,6 +3110,9 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
             }
             if (Object.keys(patch).length && event?.id != null && typeof updateEventMatrix === "function") {
               updateEventMatrix(event.id, patch);
+            }
+            if (kind === "wipe") {
+              setAiFillOverlaySeed((prev) => (prev ? { ...prev, rejectedDrafts: [], approvedDrafts: [] } : prev));
             }
           }}
         />
