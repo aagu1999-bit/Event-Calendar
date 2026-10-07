@@ -215,7 +215,10 @@ test("Fuel Research payload honors the lock and named searches", () => {
   });
   assert.equal(/SUBJECT LOCK —/.test(unlocked.input), false);
   assert.equal(/cluster identity/.test(unlocked.input), false);
+  assert.equal(/Editorial Cluster desk/.test(unlocked.input), false);
+  assert.equal(/Target Audience/.test(unlocked.input), false);
   assert.equal(/deficit of walkable/i.test(unlocked.input), false);
+  assert.match(unlocked.input, /Geography context \(not a story spend\)/);
 });
 
 test("Fuel on a philosophy facet does not ingest Oldenburg or sibling searches", () => {
@@ -244,9 +247,9 @@ test("hook prompt and fill seed carry the lock", () => {
     subjectLock: { promptLines: subjectLockPromptLines(lock) },
     lensBase: lockLensDirective(lock),
   });
-  assert.match(prompt, /SUBJECT LOCK/);
   assert.match(prompt, /Parking-lot brewery/);
-  assert.match(prompt, /facet lock replaces the cluster syllabus/);
+  assert.match(prompt, /dropdowns are not inputs/);
+  assert.equal(/Curiosity\/Epiphany/.test(prompt), false);
   assert.equal(/deficit of walkable social infrastructure/i.test(prompt), false);
 
   const seed = eventMatrixToFillSeed({

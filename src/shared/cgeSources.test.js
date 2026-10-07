@@ -136,6 +136,13 @@ test("countSourceClasses, named cluster searches, and argument hunts", () => {
   assert.ok(suburban.some((q) => /Transit Village|Cranford|retrofit/i.test(q)));
   assert.equal(suburban.some((q) => /occupancy|park permit/i.test(q)), false);
   const hunts = lensDiscoveryQueries({ cluster: "NIGHTLIFE_DILEMMA", topic: "A Saturday room" });
+  assert.equal(hunts.some((q) => /Newark nightlife opinion/i.test(q)), false);
+  const lockedHunts = lensDiscoveryQueries({
+    cluster: "NIGHTLIFE_DILEMMA",
+    topic: "A Saturday room",
+    subjectFacets: ["early-curfew"],
+  });
+  assert.ok(lockedHunts.some((q) => /Newark nightlife opinion/i.test(q)));
   assert.ok(hunts.some((q) => /opinion|op-ed|column/i.test(q)));
   assert.ok(hunts.some((q) => /njpac|essence/i.test(q)));
   assert.ok(hunts.some((q) => /rutgers\.edu|montclair\.edu|princeton\.edu/i.test(q)));

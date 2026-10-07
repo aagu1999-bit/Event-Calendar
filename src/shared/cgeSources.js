@@ -501,9 +501,10 @@ export function coherenceGapPromptLines({ gaps = [], reason = "" } = {}) {
 // COLUMN and the PAGE inside Black New Jersey, then the influence
 // chain that left the state. Opinion and news that argue count.
 // An adjacent NYC weekender calendar does not.
-export function lensDiscoveryQueries({ cluster = "", topic = "" } = {}) {
+export function lensDiscoveryQueries({ cluster = "", topic = "", subjectFacets = [] } = {}) {
   const hook = String(topic || "").trim() || "Black New Jersey gathering";
   const key = String(cluster || "").toUpperCase().replace(/\s+/g, "_");
+  const facetsOn = Array.isArray(subjectFacets) && subjectFacets.some((id) => String(id || "").trim());
   const base = [
     `${hook} Black New Jersey opinion OR op-ed OR column site:echonewstv.com OR site:blackinjersey.com OR site:njurbannews.com -njpac -essence`,
     `${hook} "NJ Uncovered" OR njuncovered OR "nj.uncovered" Facebook OR Instagram OR YouTube New Jersey`,
@@ -538,7 +539,7 @@ export function lensDiscoveryQueries({ cluster = "", topic = "" } = {}) {
       "Newark daytime gathering opinion column New Jersey",
     ],
   };
-  return [...base, ...(byCluster[key] || [])].slice(0, 6);
+  return [...base, ...(facetsOn ? (byCluster[key] || []) : [])].slice(0, 6);
 }
 
 export function sourceDoctrineForPrompt() {

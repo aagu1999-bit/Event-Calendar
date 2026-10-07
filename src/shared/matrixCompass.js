@@ -363,56 +363,41 @@ function joinDemographics(list) {
 // dependency on the Gemini helper when consumers only need the
 // static clusters + composePOV. Callers pass an apiKey; empty
 // apiKey → throw so the caller can surface a clear error UI.
-export async function synthesizeThesis({ apiKey, cluster, corridor, emotion, demographics = [], editorialLens = "", subjectLock = null, lensBase = "" } = {}) {
-  if (!apiKey || !String(apiKey).trim()) {
-    throw new Error("Missing Gemini API key");
-  }
-  const clusterKey = resolveClusterKey(cluster);
-  const clusterLabel = clusterKey ? CONTENT_CLUSTERS[clusterKey].label : "(none — cluster is optional)";
-  const clusterDirective = String(lensBase || "").trim();
-  const cleanLens = String(editorialLens || "").trim();
-  if (!clusterDirective && !cleanLens) {
-    throw new Error("Type a topic in Narrowing or pick facets (Select all if you want the whole desk) — that is the LENS.");
-  }
-  const demoList = Array.isArray(demographics)
-    ? demographics.filter((d) => typeof d === "string" && d.trim()).map((d) => d.trim())
-    : [];
-
-  const prompt = [
+export function buildThesisPrompt({ lens = "" } = {}) {
+  const cleanLens = String(lens || "").trim();
+  return [
     "ROLE: You are an executive editor at a cultural infrastructure platform for Black New Jersey. Events are the door, not the product.",
-    "TASK: The operator has picked four combinatorial variables. Synthesize them into a single, cohesive 1–2 sentence Editorial POV.",
+    "TASK: Write a single, cohesive 1–2 sentence Editorial POV from the LENS below. Cluster, corridor, emotion, and demographic only count if they were already stitched into this LENS via Reframe. Do not invent a dropdown you cannot see.",
     "",
-    "CGE PLATFORM THESIS (always in force, ABOVE the cluster):",
+    "CGE PLATFORM THESIS (always in force, ABOVE the LENS):",
     `  Subject: ${CGE_SUBJECT}`,
     `  Thesis: ${CGE_THESIS_SHORT}`,
     `  Voice: ${CGE_VOICE_RATIO}`,
-    "  The cluster is the analytical door into that thesis. Do not collapse the POV into generic gathering-magazine copy (third places, liquor caps, 150-cap rooms) unless the cluster + bullets actually are that story.",
+    "  Do not collapse the POV into generic gathering-magazine copy (third places, liquor caps, 150-cap rooms) unless the LENS actually is that story.",
     "",
-    "THE VARIABLES:",
-    `- Content Cluster: ${clusterLabel}${clusterKey ? " (desk — not a syllabus unless facets are locked)" : ""}`,
-    `- Cluster Analytical Lens (facet labels if locked; empty = do not recite the catalog): ${clusterDirective || "(none — typed Narrowing is the piece)"}`,
-    ...(cleanLens ? [`- LENS Narrowing (operator's per-piece override — LAYERS UNDER the base; the thesis MUST honor BOTH the base lens AND this narrowing): ${cleanLens}`] : []),
-    `- Corridor (geography): ${corridor || "(not set — write for the whole state)"}`,
-    `- Target Emotion (reader stance): ${emotion || "(not set — default to Curiosity/Epiphany)"}`,
-    `- Target Demographic (audience): ${demoList.length ? demoList.join(", ") : "(not set — write broadly)"}`,
-    ...(Array.isArray(subjectLock?.promptLines) && subjectLock.promptLines.length ? ["", ...subjectLock.promptLines] : []),
+    "THE LENS (the only editorial input for this piece):",
+    cleanLens || "(empty — do not write)",
     "",
     "CONSTRAINTS:",
-    "1. Do NOT just list the variables. Find the underlying cultural TENSION that connects the specific geography to the specific sociological topic. If no natural tension exists between the picks, name what would have to be true for one to matter, then write from that.",
-    "2. No Proper Nouns: do NOT invent specific venue names, town names, ordinance names, statute years, or era labels the operator did not supply. Keep the thesis structural and geographically agnostic so it applies to the entire named Corridor, not one town within it. If you name a specific NJ policy, it must be one that necessarily applies to the whole Corridor.",
+    "1. Write FROM the LENS. Do not add a cluster syllabus, a corridor spend, an emotion stance, or an audience frame that is not already in the LENS.",
+    "2. No Proper Nouns: do NOT invent specific venue names, town names, ordinance names, statute years, or era labels the LENS did not supply. Names already in the LENS are authorized.",
     "3. No filler, no introductory remarks, no 'this piece argues that…' scaffolding, no grantwriter register.",
-    "4. The demographic is the AUDIENCE — write the thesis so it lands with THEM. It's not the subject of the piece, it's who's reading it.",
-    "5. Length: EXACTLY 1–2 sentences of punchy, opinionated thesis text. Second sentence, when present, extends the tension into a payoff or a wager; it never restates sentence 1.",
-    // ANTI-META-WRITING — the synthesizer was leaking its own task
-    // description into the output ("This piece validates…", "This
-    // post explores…"). The POV is a THESIS ABOUT THE WORLD, not
-    // metadata about the article that quotes it. Ban all self-
-    // reference outright.
-    "6. NO META-WRITING: You are strictly banned from referring to the content, the carousel, the piece, the post, the article, or the reader. Never use phrases like 'This piece explores', 'This post shows', 'This validates', 'The reader learns', or any variant. State the cultural thesis as an objective, standalone fact — as if you were writing the pull-quote a magazine sets in 48pt, not the editor's memo that explains it.",
-    "7. SUBJECT LOCK: If SUBJECT LOCK lines appear above, write ONLY about those sub-versions and locales. Adjacent cluster topics are out of bounds unless JOIN names them. Do not mash a brewery piece into liquor-cap math or Afrobeats residencies because they share a ZIP.",
+    "4. Length: EXACTLY 1–2 sentences of punchy, opinionated thesis text. Second sentence, when present, extends the tension into a payoff or a wager; it never restates sentence 1.",
+    "5. NO META-WRITING: You are strictly banned from referring to the content, the carousel, the piece, the post, the article, or the reader. Never use phrases like 'This piece explores', 'This post shows', 'This validates', 'The reader learns', or any variant. State the cultural thesis as an objective, standalone fact — as if you were writing the pull-quote a magazine sets in 48pt, not the editor's memo that explains it.",
     "",
     'Return ONLY JSON in this exact shape: {"thesis": "..."}',
   ].join("\n");
+}
+
+export async function synthesizeThesis({ apiKey, editorialLens = "", lensBase = "" } = {}) {
+  if (!apiKey || !String(apiKey).trim()) {
+    throw new Error("Missing Gemini API key");
+  }
+  const resolved = resolveEditorialLens({ override: editorialLens, base: lensBase });
+  if (!resolved.combined) {
+    throw new Error("Type a topic in Narrowing or pick facets (Select all if you want the whole desk) — that is the LENS.");
+  }
+  const prompt = buildThesisPrompt({ lens: resolved.combined });
 
   // Hit the Gemini endpoint directly rather than importing from
   // gemini.js — that helper's geminiGenerate isn't exported, and
@@ -494,20 +479,22 @@ export function buildLensReframePrompt({
     : [];
   const topic = String(operatorTopic || "").trim();
   const lockSummary = String(subjectLock?.summary || "").trim();
+  const pillLines = [];
+  if (clusterLabel) pillLines.push(`  Cluster desk: ${clusterLabel}`);
+  if (corridor) pillLines.push(`  Corridor: ${corridor}`);
+  if (emotion) pillLines.push(`  Emotion: ${emotion}`);
+  if (demoList.length) pillLines.push(`  Demographic: ${demoList.join(", ")}`);
+  if (lockSummary) pillLines.push(`  Subject lock: ${lockSummary}`);
   return [
-    "ROLE: You are a senior editor at a regional culture magazine covering New Jersey. Cluster is optional — a desk of named topics, not a required syllabus. Your job is to stitch the operator's typed topic to the pills they already selected. Do NOT invent a cluster syllabus they did not lock.",
+    "ROLE: You are a senior editor at a regional culture magazine covering New Jersey. Cluster is optional — a desk of named topics, not a required syllabus. Your job is to stitch the operator's typed topic to the pills they already selected. Unclicked pills are omitted — do NOT invent a cluster, corridor, emotion, or audience that was not selected. Do NOT invent a cluster syllabus they did not lock.",
     "TASK: Write a 1-3 sentence reframed LENS that keeps the typed topic (if any) and combines it with the selected pills. Do NOT drop the topic. Do NOT drop a chip. Do NOT drift into a cluster catalog they did not pick.",
     "",
     "BASE DIRECTIVE (facet lock if any — don't contradict it; empty means the topic + pills ARE the piece):",
-    `  Cluster: ${clusterLabel || "(none — cluster is optional)"}`,
+    ...(clusterLabel ? [`  Cluster desk: ${clusterLabel}`] : []),
     `  Directive: ${baseDirective || "(none — do not recite a cluster catalog)"}`,
     "",
-    "OPERATOR PILLS (already selected — stitch these with the topic; do not drop a chip):",
-    `  Cluster: ${clusterLabel || "(none — optional desk)"}`,
-    `  Corridor: ${corridor || "(none — whole state)"}`,
-    `  Emotion: ${emotion || "(none)"}`,
-    `  Demographic: ${demoList.length ? demoList.join(", ") : "(none)"}`,
-    `  Subject lock: ${lockSummary || "(none — no facet lock; do not dump the cluster syllabus)"}`,
+    "OPERATOR PILLS (already selected — stitch these with the topic; do not drop a chip. Unset pills are omitted):",
+    ...(pillLines.length ? pillLines : ["  (none — typed topic is the piece)"]),
     ...(Array.isArray(subjectLock?.promptLines) && subjectLock.promptLines.length ? ["", ...subjectLock.promptLines] : []),
     "",
     topic
@@ -517,7 +504,7 @@ export function buildLensReframePrompt({
     "CONSTRAINTS:",
     "1. NARROW, DO NOT REPLACE. The base directive is what THIS piece sees. If it is a facet lock, do not widen back to sibling facets or the cluster syllabus. If it is empty, do not invent a cluster syllabus — the typed topic and pills are the piece.",
     "2. TOPIC + PILLS. If an OPERATOR TOPIC is present, the reframe must keep that named subject and combine it with the selected pills. Do not replace the topic with a generic cluster recitation.",
-    "3. GROUND IN THE CORRIDOR + AUDIENCE when those pills are set.",
+    "3. GROUND IN A CORRIDOR OR AUDIENCE only when that pill is listed above. If it is omitted, do not invent statewide coverage or a default reader stance.",
     "4. NO META-WRITING. Do not refer to the piece, the carousel, or the reader. State the narrowing as an editorial angle, not as memo scaffolding.",
     "5. NO INVENTED SPECIFICS beyond the base directive, the pills, and the operator topic. Names the operator typed are authorized.",
     "6. LENGTH: 1 to 3 sentences. Reads as an angle, not a paragraph.",
@@ -648,38 +635,28 @@ export function hookEvidenceLines(anchors = []) {
 
 export function buildHookPrompt({
   pov,
-  emotion,
-  demographics = [],
   editorialLens = "",
   anchors = [],
-  subjectLock = null,
   lensBase = "",
 } = {}) {
   const cleanPOV = String(pov || "").trim();
-  const cleanEmotion = String(emotion || "").trim();
   const cleanLens = String(editorialLens || "").trim();
   const cleanBase = String(lensBase || "").trim();
-  const demoList = Array.isArray(demographics)
-    ? demographics.filter((d) => typeof d === "string" && d.trim()).map((d) => d.trim())
-    : [];
   const evidence = hookEvidenceLines(anchors);
   return [
     "ROLE: You write magazine cover lines for a Black New Jersey cultural publication. You are not an Instagram listicle copywriter.",
     "TASK: Write one 10-to-18 word cover line that NAMES THE CONTRAST the brief already proved.",
     "",
-    "THE INPUTS:",
-    `- The Core Argument: ${cleanPOV}`,
-    ...(cleanBase ? [`- Analytical lens (this piece — a facet lock replaces the cluster syllabus): ${cleanBase}`] : []),
-    ...(cleanLens ? [`- LENS Narrowing: ${cleanLens}`] : []),
+    "THE INPUTS (LENS then POV then Fuel — not dropdowns):",
+    `- The Core Argument (POV, drafted from the LENS): ${cleanPOV}`,
+    ...(cleanBase ? [`- Analytical lens (facet lock labels): ${cleanBase}`] : []),
+    ...(cleanLens ? [`- LENS Narrowing (this piece): ${cleanLens}`] : []),
     ...(evidence.length
       ? [
         "- Fuel starting points (authorized proper nouns — use at least one named road, town, retrofit, or geography from these lines):",
         ...evidence.map((line) => `  • ${line}`),
       ]
       : ["- Fuel starting points: (none — stay inside the POV; do not invent a town or road.)"]),
-    `- The Voice/Emotion: ${cleanEmotion || "(not set — use a neutral curious register)"}`,
-    `- The Audience: ${demoList.length ? demoList.join(", ") : "(not set — write for the general reader)"}`,
-    ...(Array.isArray(subjectLock?.promptLines) && subjectLock.promptLines.length ? ["", ...subjectLock.promptLines] : []),
     "",
     "QUALITY BAR — Google AI Mode, not a listing:",
     "  GOOD: \"Walker's Paradise vs the strip-mall geography Route 22 actually built.\"",
@@ -687,28 +664,26 @@ export function buildHookPrompt({
     "  FAILED: \"Did your commuter community? Discover surprising new gathering spots.\"",
     "",
     "STRICT CONSTRAINTS:",
-    '1. Emotion sets TONE only. Curiosity/Epiphany means name the contrast the brief proved — Walkable vs strip, Route 22 vs a Cranford retrofit, parking-lot hub vs downtown. Do NOT pose a vague "did you know" or "discover surprising spots" observation.',
-    "2. Audience sets vocabulary. Speak to them. Do not sound like a marketer.",
+    "1. Write FROM the POV and LENS. Do not invent a tone, audience, cluster syllabus, or corridor spend that is not already in those inputs. Unclicked dropdowns are not inputs.",
+    '2. Name the contrast the brief proved. Do NOT pose a vague "did you know" or "discover surprising spots" observation.',
     '3. No listicle tropes: NEVER "Discover surprising", "new gathering spots", "Did your community", "Did you know", "Here\'s why", "The real reason", "hidden gems", "spots you need to know", "Let\'s talk about", "You won\'t believe", "The truth is", "Everything you know is wrong".',
     "4. Proper nouns: you MAY and SHOULD name towns, roads, corridors, and patterns that already appear in the POV, LENS, or Fuel starting points. Do NOT invent names that are not there.",
-    "4b. If the analytical lens is a facet lock, do not name sibling theories or the rest of the cluster syllabus even if the POV still lists them. Stay on the locked sub-version.",
     "5. Format: one sentence. No quotes, no preamble, no framing.",
     "",
     'Return ONLY JSON in this exact shape: {"hook": "..."}',
   ].join("\n");
 }
 
-export async function synthesizeHook({ apiKey, cluster, pov, emotion, demographics = [], editorialLens = "", anchors = [], subjectLock = null, lensBase = "" } = {}) {
+export async function synthesizeHook({ apiKey, pov, editorialLens = "", anchors = [], lensBase = "" } = {}) {
   if (!apiKey || !String(apiKey).trim()) {
     throw new Error("Missing Gemini API key");
   }
-  void cluster;
   const cleanPOV = String(pov || "").trim();
   if (!cleanPOV) {
     throw new Error("Write or draft an Editorial POV first — the hook is the POV compressed into a scroll-stopper.");
   }
 
-  const prompt = buildHookPrompt({ pov: cleanPOV, emotion, demographics, editorialLens, anchors, subjectLock, lensBase });
+  const prompt = buildHookPrompt({ pov: cleanPOV, editorialLens, anchors, lensBase });
 
   const MODEL = "gemini-2.5-flash-lite";
   const URL_BASE = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
@@ -794,7 +769,7 @@ export async function synthesizeHook({ apiKey, cluster, pov, emotion, demographi
 // Bounded to one Flash-Lite call so the check is cheap enough to
 // run automatically. Failure returns null; caller treats null as
 // "check unavailable, proceed" — the check is a warning, not a gate.
-export async function checkArgumentCoherence({ apiKey, hook, pov, anchors = [], cluster, clusterDirective } = {}) {
+export async function checkArgumentCoherence({ apiKey, hook, pov, anchors = [], clusterDirective } = {}) {
   if (!apiKey || !String(apiKey).trim()) return null;
   const cleanHook = String(hook || "").trim();
   const cleanPOV = String(pov || "").trim();
@@ -806,9 +781,7 @@ export async function checkArgumentCoherence({ apiKey, hook, pov, anchors = [], 
   // ready for the coherence question yet.
   if (!cleanHook || !cleanPOV || cleanAnchors.length < 2) return null;
 
-  const clusterKey = resolveClusterKey(cluster);
-  const clusterLine = clusterKey ? CONTENT_CLUSTERS[clusterKey].label : "";
-  const directiveLine = clusterDirective || (clusterKey ? CONTENT_CLUSTERS[clusterKey].directive : "") || "";
+  const directiveLine = String(clusterDirective || "").trim();
 
   const prompt = [
     "ROLE: You are a critical newsroom editor reading a proposed carousel outline BEFORE any slide is written.",
@@ -819,8 +792,7 @@ export async function checkArgumentCoherence({ apiKey, hook, pov, anchors = [], 
     "THE ARGUMENT:",
     `  Hook (slide 1 promise): ${cleanHook}`,
     `  POV (thesis): ${cleanPOV}`,
-    ...(clusterLine ? [`  Editorial cluster: ${clusterLine}`] : []),
-    ...(directiveLine ? [`  Cluster lens: ${directiveLine}`] : []),
+    ...(directiveLine ? [`  LENS: ${directiveLine}`] : []),
     "",
     "THE ANCHORS (raw facts the writer will build slides from):",
     ...cleanAnchors.map((a, i) => `  ${i + 1}. ${a.slice(0, 400)}`),
