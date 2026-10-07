@@ -33,6 +33,7 @@ import {
   coherenceGapPromptLines,
   sourceDoctrineForPrompt,
 } from "./src/shared/cgeSources.js";
+import { PLATFORM_THEME_STAY_ON_DESK } from "./src/shared/cgeThesis.js";
 
 export function isPerplexityConfigured() {
   return !!process.env.PERPLEXITY_API_KEY?.trim();
@@ -150,7 +151,8 @@ export function researchAiModeRequest(input = {}) {
     "Write the way a good AI search writes when someone asks a pattern question and says 'in NJ': a short thesis, then several real starting points a writer can steal and dive. Cranford + Transit Village + an NJ Monthly downtowns piece is the shape. Four cafe addresses is the failure.",
     "THESIS: 1–2 sentences. The NJ friction a cold reader already feels + the named thing already moving (a state program, a town that retrofitted, a rule, a disappearance). This is the editorial thesis. Put it in the thesis field.",
     "STARTING POINTS: 5–8 bullets. Each is a named thread to dive later — a program, a town, a corridor, a magazine piece, a tension, a parallel Saturday. Give enough that the operator knows WHY it matters, not just a URL label. Different threads. Not four angles on the same brewery.",
-    "Land Black New Jersey in the thesis or in at least one starting point: who this is for, which Saturday still feels like the strip, who owns vs who programs. Influence may leave the state. The specimen lands back in New Jersey.",
+    "Land this desk in New Jersey. A named program, town, or Saturday on THIS specimen is enough. Do not require who-owns-vs-who-programs or diaspora tension unless the LENS, POV, or topic already named that fight. Influence may leave the state. The specimen lands back in New Jersey.",
+    PLATFORM_THEME_STAY_ON_DESK,
     "PRIMARY RESEARCH LENS: honor the Analytical lens, but do not shrink the brief to clerk facts that only satisfy the lens. The lens is the door. The brief is the map.",
     subjectLockInstruction(),
     "If CLOSE THESE GAPS is in the user payload, those holes are the hunt. Prefer currently-operating NJ examples when the gap asks for current. Do not pad with another historical program.",

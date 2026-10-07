@@ -1485,9 +1485,9 @@ export async function designSequence({ apiKey, topic, context, mode, targetCount
       ...editorialBuildFormulaLines(),
     ] : []),
     ...(mode === "content" ? [
-      "WRITE IT AS CONTENT (content). The hero is a QUESTION about Black New Jersey — memory, ownership vs",
-      "programming, same-city diaspora tension, what quietly disappeared. An event or room may open the piece;",
-      "it is not the product.",
+      "WRITE IT AS CONTENT (content). Locate the specimen (who / what / where / when), then name a tension already on the desk.",
+      "Do not default to memory, ownership vs programming, or same-city diaspora tension unless the LENS, POV, or an anchor named it.",
+      "An event or room may open the piece; it is not the product.",
       `BANNED slot types: ${CONTENT_FLYER_SLOTS.join(", ")}. A venue or a number inside the brief is not permission to pick those slots.`,
       "Prefer: cover → text → text → text → cta. Each text slide is a connecting paragraph, not a manifesto and not a venue card.",
       "The CTA is the NEXT QUESTION the explanation opened. Never RSVP / pull up / this weekend / find your next gathering spot / THE ARCHIVE.",

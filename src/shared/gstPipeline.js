@@ -94,8 +94,9 @@ export const GST_BANNED_PHRASES = [
 const GST_VOICE = [
   "You write like wearegst (Goldsmiths Street Society) and Pop Culture Detective,",
   "for Central Group Events — Black New Jersey cultural infrastructure.",
-  "Pop culture and local nightlife are the TROJAN HORSE. The real subject is power,",
-  "class, licensing scarcity, third-place erosion, who owns vs who programs culture.",
+  "Pop culture and local nightlife are the TROJAN HORSE. The real subject is the",
+  "pressure THIS brief already named — power, class, a rule, a room — not a default",
+  "who-owns-vs-who-programs hunt when the desk never said that.",
   "",
   "OMNISCIENT STANCE: float above the specimen. See the map. Read it out loud.",
   "You are not a reviewer and not a neutral newsroom. You teach a lens and take a side.",

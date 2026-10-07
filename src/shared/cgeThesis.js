@@ -66,6 +66,12 @@ export function isPlatformThemeLeak(text, desk = "") {
   return PLATFORM_THEME_LEAKS.some(({ re, needle }) => re.test(hay) && !onDesk.includes(needle));
 }
 
+// Shared line for Fuel, method homework, and Generate. Do not dump
+// CGE_SUBJECT as a hunt. Thesis/Hook already refuse the graft; these
+// surfaces have to refuse the search.
+export const PLATFORM_THEME_STAY_ON_DESK =
+  "HOUSE FIGHT IS OPTIONAL. African American / Caribbean / African diaspora tension, who owns vs who programs, who actually benefits, whose vision, entrepreneurial spirit, and old gatekeepers are publication identity — not a hunt. Use them only if the LENS, POV, topic, or a numbered anchor already named that fight. If this desk is an event plus an audience, stay on that specimen. Do not search or write the house theme to make the brief feel like CGE.";
+
 // Injected at the top of writer / spine / arranger prompts when the
 // carousel is Feature-tier or the operator picked Content register.
 export function platformThesisBlock({ mode, isEvergreen } = {}) {
@@ -73,6 +79,7 @@ export function platformThesisBlock({ mode, isEvergreen } = {}) {
   return [
     "═════════════════════════════",
     "CGE is a Black New Jersey cultural publication. Events are the door, not the product.",
+    PLATFORM_THEME_STAY_ON_DESK,
     "PUBLICATION IDENTITY — not a fight to paste in. Do NOT import African American / Caribbean / African diaspora tension, who owns vs who programs, or who actually benefits unless the LENS, POV, or a numbered anchor already named that fight.",
     "If this piece's LENS is an event plus an audience, ORIENT (who / what / where / when) and stop. Do not invent a CGE theme to sound serious.",
     "",
@@ -114,9 +121,10 @@ export function contentCreativeDirection() {
     "- Do NOT infer an 'event genre' or match nightlife/FOMO/mixer energy. This is not that post.",
     "- FIRST name the CONTRAST. Then EXPLAIN the cause in a paragraph. Then EXPLAIN each expression with the names inside the paragraph. Then ask the next question. A cover without explanation is still a slogan.",
     "- CONNECT. Do not isolate. Sunken Silo and Autodidact belong in the same Route 22 paragraph when they are the same expression. Do not nose-dive the mechanism into a stat card.",
+    PLATFORM_THEME_STAY_ON_DESK,
     "- Cover names the contrast Fuel Research already proved — Strip Malls vs Urban Cafes, Route 22 vs Cranford. Subtitle connects. Never 'is gone'. Never an open loop that withholds the point.",
     "- BANNED cover language: 'discover surprising', 'new gathering spots', 'did your community', 'did you know', 'hidden gems', 'spots you need to know', 'here's why', 'is gone', 'social life is gone'. Those are listings or eulogies. Teach the brief.",
-    "- Hook archetypes that fit: a named NJ contrast; a pointed question nobody else is asking; then→now with a living remnant; a counter-intuitive claim about who owns vs who programs; a single NJ-specific scene detail that implies the larger pattern.",
+    "- Hook archetypes that fit: a named NJ contrast already in the brief; then→now with a living remnant the desk already named; a single NJ-specific scene detail that implies the larger pattern. Do not default to who-owns-vs-who-programs.",
     "- Do NOT invent unverifiable history, quotes, or venues. If the material is thin, keep the carousel short and specific rather than padding with atmosphere.",
     "- Rotate away from gathering-magazine defaults (150-cap rooms, liquor caps, run clubs) unless THIS piece's cluster and bullets actually are about that.",
     ...cadenceRotationLines(),

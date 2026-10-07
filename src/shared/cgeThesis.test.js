@@ -17,6 +17,8 @@ test("cadence rotation is the one-sentence-per-line beat, not a source voice", (
   assert.match(contentCreativeDirection().join("\n"), /discover surprising/);
   assert.match(contentCreativeDirection().join("\n"), /is gone/);
   assert.match(contentCreativeDirection().join("\n"), /Strip Malls vs Urban Cafes/);
+  assert.match(contentCreativeDirection().join("\n"), /HOUSE FIGHT IS OPTIONAL/);
+  assert.equal(/Hook archetypes that fit:[\s\S]*who owns vs who programs/.test(contentCreativeDirection().join("\n")), false);
 });
 
 test("house fight is a leak unless the LENS already named it", () => {
@@ -31,6 +33,7 @@ test("house fight is a leak unless the LENS already named it", () => {
 test("writer platform block does not sit the house fight ABOVE the LENS", () => {
   const block = platformThesisBlock({ mode: "content" }).join("\n");
   assert.match(block, /PUBLICATION IDENTITY/);
+  assert.match(block, /HOUSE FIGHT IS OPTIONAL/);
   assert.match(block, /ORIENT/);
   assert.equal(/this sits ABOVE the cluster lens/.test(block), false);
   assert.equal(/Black New Jersey as an intersection/.test(block), false);

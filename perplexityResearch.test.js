@@ -44,6 +44,9 @@ test("AI Mode scout is unconstrained NJ search with a thesis and starting points
   assert.match(scout.instructions, /Google AI Mode|open web|OPEN web/i);
   assert.match(scout.instructions, /STARTING POINTS/);
   assert.match(scout.instructions, /thesis/i);
+  assert.match(scout.instructions, /HOUSE FIGHT IS OPTIONAL/);
+  assert.match(scout.instructions, /Land this desk in New Jersey/);
+  assert.equal(/Land Black New Jersey in the thesis or in at least one starting point: who this is for, which Saturday still feels like the strip, who owns vs who programs/.test(scout.instructions), false);
   assert.equal(scout.tools.length, 1);
   assert.equal(scout.tools[0].filters, undefined);
   assert.match(scout.input, /Transit Village|Cranford|retrofit/i);
