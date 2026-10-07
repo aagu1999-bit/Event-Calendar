@@ -187,6 +187,7 @@ export default function BrandKit() {
   const setVoice = useBrandStore((s) => s.setVoice);
   const addExemplar = useBrandStore((s) => s.addExemplar);
   const removeExemplar = useBrandStore((s) => s.removeExemplar);
+  const clearExemplars = useBrandStore((s) => s.clearExemplars);
   const setSlotPrompt = useBrandStore((s) => s.setSlotPrompt);
   const resetToDefaults = useBrandStore((s) => s.resetToDefaults);
 
@@ -508,6 +509,29 @@ export default function BrandKit() {
               />
 
               <Label>Past captions ({voice.exemplars.length})</Label>
+              {voice.exemplars.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (typeof window !== "undefined" && !window.confirm("Clear every saved Brand Voice caption? Generate will stop copying them.")) return;
+                    clearExemplars();
+                  }}
+                  style={{
+                    marginLeft: 8,
+                    padding: "2px 8px",
+                    background: "transparent",
+                    border: "1px solid rgba(251,113,133,0.4)",
+                    color: "#FB7185",
+                    borderRadius: 3,
+                    fontSize: "0.58rem",
+                    letterSpacing: "0.08em",
+                    textTransform: "uppercase",
+                    fontWeight: 800,
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                  }}
+                >Clear all</button>
+              )}
               {voice.exemplars.length > 0 && (
                 <div style={{ marginBottom: 10 }}>
                   {voice.exemplars.map((cap, i) => (

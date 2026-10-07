@@ -663,9 +663,14 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
 
   const handleWipeFeedback = () => {
     if (typeof onSaveFeedback !== "function") return;
+    const ok = typeof window !== "undefined"
+      ? window.confirm("Wipe approved and rejected drafts on EVERY event, plus Brand Voice saved captions? Generate will stop copying those shapes. This cannot undo.")
+      : true;
+    if (!ok) return;
     onSaveFeedback("wipe");
     setRejectedMem([]);
     setApprovedMem([]);
+    setSessionLessons([]);
     setFeedbackSaved("wiped");
   };
 
@@ -1588,12 +1593,12 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
                   <span>Feedback memory: {rejectedMem.length} rejected · {approvedMem.length} approved
                     {rejectedMem.length ? ` · writer will avoid: "${(rejectedMem[rejectedMem.length - 1]?.reason || "").slice(0, 80)}"` : ""}
                     {approvedMem.length && !rejectedMem.length ? " · writer will copy the last accepted shape" : ""}
-                    {!rejectedMem.length && !approvedMem.length ? " · empty — Generate will not copy old accepts" : ""}</span>
-                  {typeof onSaveFeedback === "function" && (rejectedMem.length > 0 || approvedMem.length > 0) ? (
+                    {!rejectedMem.length && !approvedMem.length ? " · this desk is empty — Wipe all still clears every other event" : ""}</span>
+                  {typeof onSaveFeedback === "function" ? (
                     <button
                       type="button"
                       onClick={handleWipeFeedback}
-                      title="Clear rejected and approved drafts for this event so Generate stops copying those shapes"
+                      title="Clear approved/rejected drafts on every event, plus Brand Voice captions"
                       style={{
                         padding: "3px 8px",
                         borderRadius: 3,
@@ -1606,7 +1611,7 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
                         color: "#FB7185",
                         border: "1px solid rgba(251,113,133,0.45)",
                       }}
-                    >Wipe</button>
+                    >Wipe all memory</button>
                   ) : null}
                 </div>
                 <div>Cluster directive: {initialClusterDirective ? "loaded (writer will treat as voice/framing block)" : <span style={{ color: "rgba(245,240,232,0.4)" }}>(none)</span>}</div>
@@ -2019,7 +2024,7 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
                 letterSpacing: 0.3,
                 lineHeight: 1.4,
               }}>
-                ✓ Feedback memory wiped on this event. Generate will not copy the old accepts.
+                ✓ Feedback memory wiped on every event, plus Brand Voice captions. Generate will not copy the old accepts.
               </div>
             )}
             {/* Reject reason prompt — inline; renders in place of the button row */}
@@ -2139,11 +2144,11 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
                     }}
                   >👍 This is the bar</button>
                 )}
-                {typeof onSaveFeedback === "function" && (rejectedMem.length > 0 || approvedMem.length > 0) ? (
+                {typeof onSaveFeedback === "function" ? (
                   <button
                     type="button"
                     onClick={handleWipeFeedback}
-                    title="Clear rejected and approved drafts for this event"
+                    title="Clear approved/rejected drafts on every event, plus Brand Voice captions"
                     style={{
                       padding: "12px 14px",
                       background: "transparent",
@@ -2158,7 +2163,7 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
                       fontFamily: "'Syne',sans-serif",
                       whiteSpace: "nowrap",
                     }}
-                  >Wipe memory</button>
+                  >Wipe all memory</button>
                 ) : null}
                 <button
                   onClick={handlePush}

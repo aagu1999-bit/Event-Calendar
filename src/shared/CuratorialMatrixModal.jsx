@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
-import { useEventsStore, useCarouselSeedStore } from "../store.js";
+import { useEventsStore, useCarouselSeedStore, useBrandStore } from "../store.js";
 import { AiTemplateFillModal } from "./AiTemplateFillModal.jsx";
 import {
   EVENT_TIERS, EVENT_TIER_ORDER,
@@ -47,7 +47,7 @@ import {
   getFacet,
 } from "./subjectLock.js";
 import { validateMatrix, matrixCompleteness, isMatrixReadyForGeneration } from "./matrixValidation.js";
-import { eventMatrixToFillSeed } from "./eventMatrixToFillSeed.js";
+import { eventMatrixToFillSeed, stripFeedbackMemoryFromEvents } from "./eventMatrixToFillSeed.js";
 import {
   CONVERSATION_MAPS,
   CONVERSATION_MAP_ORDER,
@@ -265,7 +265,9 @@ export function CuratorialMatrixModal(props) {
 
 function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, apiKey = "", onAiFillAccept = null }) {
   const updateEventMatrix = useEventsStore((s) => s.updateEventMatrix);
+  const updateEvents = useEventsStore((s) => s.updateEvents);
   const upsertEvent = useEventsStore((s) => s.upsertEvent);
+  const clearExemplars = useBrandStore((s) => s.clearExemplars);
   const syncError = useEventsStore((s) => s.syncError);
   const setCarouselSeed = useCarouselSeedStore((s) => s.setSeed);
   const navigate = useNavigate();
@@ -3092,16 +3094,20 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
           }}
           onSaveFeedback={(kind, entry) => {
             // Persist to matrix.rejected_drafts / approved_drafts.
-            // Cap at 3 each, FIFO. Wipe empties both banks so Generate
-            // stops copying old accepts. Updates flow through the store's
-            // updateEventMatrix action which persists to the server
-            // via the existing upsertEvent path.
+            // Cap at 3 each, FIFO. Wipe empties both banks on EVERY
+            // event plus Brand Voice captions so Generate stops copying
+            // old accepts from any desk.
             const currentMatrix = event?.matrix || {};
             const patch = {};
             if (kind === "wipe") {
-              patch.rejected_drafts = [];
-              patch.approved_drafts = [];
-            } else if (kind === "reject") {
+              if (typeof updateEvents === "function") {
+                updateEvents((events) => stripFeedbackMemoryFromEvents(events));
+              }
+              if (typeof clearExemplars === "function") clearExemplars();
+              setAiFillOverlaySeed((prev) => (prev ? { ...prev, rejectedDrafts: [], approvedDrafts: [] } : prev));
+              return;
+            }
+            if (kind === "reject") {
               const prior = Array.isArray(currentMatrix.rejected_drafts) ? currentMatrix.rejected_drafts : [];
               patch.rejected_drafts = [...prior, entry].slice(-3);
             } else if (kind === "approve") {
@@ -3110,9 +3116,6 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
             }
             if (Object.keys(patch).length && event?.id != null && typeof updateEventMatrix === "function") {
               updateEventMatrix(event.id, patch);
-            }
-            if (kind === "wipe") {
-              setAiFillOverlaySeed((prev) => (prev ? { ...prev, rejectedDrafts: [], approvedDrafts: [] } : prev));
             }
           }}
         />

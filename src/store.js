@@ -367,6 +367,9 @@ Return JSON ONLY in this exact shape:
       removeExemplar: (idx) => set((s) => ({
         voice: { ...s.voice, exemplars: s.voice.exemplars.filter((_, i) => i !== idx) },
       })),
+      clearExemplars: () => set((s) => ({
+        voice: { ...s.voice, exemplars: [] },
+      })),
       resetToDefaults: () => set({
         palette: { background: "#0a0a0a", text: "#F5F0E8", accent: "#E5BC4F" },
         alternateColors: false,

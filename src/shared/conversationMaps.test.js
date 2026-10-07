@@ -12,7 +12,7 @@ import {
   conversationWriterBlock,
   conversationSlideSequence,
 } from "./conversationMaps.js";
-import { eventMatrixToFillSeed, wipeFeedbackMemoryPatch } from "./eventMatrixToFillSeed.js";
+import { eventMatrixToFillSeed, wipeFeedbackMemoryPatch, stripFeedbackMemoryFromEvents, countFeedbackMemory } from "./eventMatrixToFillSeed.js";
 import { MATRIX_FIELDS } from "./matrixEnums.js";
 import { earnedSlideCount } from "./matrixCompass.js";
 
@@ -182,6 +182,24 @@ test("wipe feedback memory clears both banks", () => {
   });
   assert.deepEqual(wiped.rejectedDrafts, []);
   assert.deepEqual(wiped.approvedDrafts, []);
+});
+
+test("stripFeedbackMemoryFromEvents wipes every desk, leaves others intact", () => {
+  const events = [
+    { id: 1, name: "A", matrix: { rejected_drafts: [{ reason: "hunt" }], approved_drafts: [{ digest: [] }], hook_a_side: "keep" } },
+    { id: 2, name: "B", matrix: { approved_drafts: [{ digest: ["text"] }] } },
+    { id: 3, name: "C", matrix: { hook_a_side: "only hook" } },
+    { id: 4, name: "D" },
+  ];
+  assert.deepEqual(countFeedbackMemory(events), { events: 2, rejected: 1, approved: 2 });
+  const next = stripFeedbackMemoryFromEvents(events);
+  assert.deepEqual(next[0].matrix.rejected_drafts, []);
+  assert.deepEqual(next[0].matrix.approved_drafts, []);
+  assert.equal(next[0].matrix.hook_a_side, "keep");
+  assert.deepEqual(next[1].matrix.approved_drafts, []);
+  assert.equal(next[2].matrix.hook_a_side, "only hook");
+  assert.equal(next[3].name, "D");
+  assert.deepEqual(countFeedbackMemory(next), { events: 0, rejected: 0, approved: 0 });
 });
 
 test("fill seed splits homework off the proof pile", () => {
