@@ -30,6 +30,7 @@ import {
   isListicleHook,
   checkArgumentCoherence,
   synthesizeLensReframe,
+  describeReframeInputs,
   normalizeCoherenceResult,
   coherenceInputSignature,
   COMPASS_TOPICS,
@@ -1037,6 +1038,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
         emotion: local.target_emotion,
         demographics: [...selectedDemographics].sort(),
         lock: subjectLock.snapshot,
+        topic: hasTopic,
       });
     } catch (err) {
       setLensReframeError(String(err?.message || err));
@@ -1707,7 +1709,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                 ⚠️ {lensReframeError}
               </div>
             ) : null}
-            {renderStalenessChip("LENS narrowing", lensSnapshot, lensStale, "pills (cluster · corridor · emotion · demographic · lock)")}
+            {renderStalenessChip("LENS narrowing", lensSnapshot, lensStale, describeReframeInputs(lensSnapshot))}
             {String(local.editorial_lens || "").trim() && (
               <div style={{
                 fontSize: "0.6rem",

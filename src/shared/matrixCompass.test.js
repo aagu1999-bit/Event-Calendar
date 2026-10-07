@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isListicleHook, hookEvidenceLines, buildHookPrompt, buildLensReframePrompt, buildThesisPrompt, buildCoherencePrompt, normalizeCoherenceResult, formatCoherenceSeedLines, defaultCoherenceUseFor, coherenceInputSignature } from "./matrixCompass.js";
+import { isListicleHook, hookEvidenceLines, buildHookPrompt, buildLensReframePrompt, buildThesisPrompt, buildCoherencePrompt, normalizeCoherenceResult, formatCoherenceSeedLines, defaultCoherenceUseFor, coherenceInputSignature, describeReframeInputs } from "./matrixCompass.js";
 import { buildSubjectLock, subjectLockPromptLines, lockLensDirective } from "./subjectLock.js";
 
 test("listicle hooks are the Google-vs-CGE failure", () => {
@@ -117,6 +117,43 @@ test("reframe works without a cluster — typed topic is the piece", () => {
   assert.equal(/Emotion:/.test(prompt), false);
   assert.equal(/Demographic:/.test(prompt), false);
   assert.match(prompt, /Corridor: Shore \/ Southern Arteries/);
+});
+
+test("reframe chip names only the pills that were actually selected", () => {
+  assert.equal(describeReframeInputs({
+    topic: true,
+    demographics: ["Young Working Professionals", "student", "business owners"],
+  }), "typed topic · demographic");
+  assert.equal(/cluster|corridor|emotion/.test(describeReframeInputs({
+    topic: true,
+    demographics: ["student"],
+  })), false);
+  assert.match(describeReframeInputs({
+    cluster: "GATHERING_LOGISTICS",
+    corridor: "Shore / Southern Arteries",
+    emotion: "Curiosity/Epiphany",
+    lock: { facets: ["venue-splits"] },
+  }), /cluster desk · corridor · emotion · facets/);
+});
+
+test("reframe with only a topic and demographics does not invent a cluster desk", () => {
+  const prompt = buildLensReframePrompt({
+    clusterLabel: "",
+    baseDirective: "",
+    demographics: ["Young Working Professionals", "student", "business owners"],
+    operatorTopic: "Newark Tech Week",
+  });
+  assert.match(prompt, /Newark Tech Week/);
+  assert.match(prompt, /Demographic: Young Working Professionals, student, business owners/);
+  assert.equal(/Cluster desk:/.test(prompt), false);
+  assert.equal(/Corridor:/.test(prompt), false);
+  assert.equal(/Emotion:/.test(prompt), false);
+  assert.match(prompt, /BANNED in the reframe: vibrant/);
+  assert.match(prompt, /Do NOT recap them as/);
+  const thesis = buildThesisPrompt({ lens: "Newark Tech Week. For young working professionals." });
+  assert.match(thesis, /who actually benefits/);
+  assert.match(thesis, /do not recap a showcase/);
+  assert.match(thesis, /BANNED: vibrant/);
 });
 
 test("reframe omits unclicked corridor and emotion", () => {
