@@ -24,6 +24,7 @@ test("house fight is a leak unless the LENS already named it", () => {
   assert.equal(isPlatformThemeLeak("The Black diaspora's entrepreneurial spirit is navigating new digital frontiers.", lens), true);
   assert.equal(isPlatformThemeLeak("This influx prompts a closer look at whose vision is being prioritized.", lens), true);
   assert.equal(isPlatformThemeLeak("Newark Tech Week gathers business owners for a week of sessions in the city.", lens), false);
+  assert.equal(isPlatformThemeLeak("The new class filled Newark Tech Week. The old gatekeepers still set the room.", lens), true);
   assert.equal(isPlatformThemeLeak("Same-city diaspora rooms keep two calendars.", "same-city diasporas on one ZIP"), false);
 });
 

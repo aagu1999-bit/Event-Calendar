@@ -52,7 +52,20 @@ test("hook prompt authorizes Fuel names and bans the listicle cover", () => {
   assert.match(prompt, /question-mark cover/);
   assert.match(prompt, /never the cover's guest list/);
   assert.match(prompt, /Newark Tech Week's new professionals and students/);
+  assert.match(prompt, /old gatekeepers still set the room/);
+  assert.match(prompt, /Do NOT import African American/);
+  assert.equal(/Prefer the POV's fight \(who programs/.test(prompt), false);
   assert.equal(/No invented proper nouns: do NOT name specific venues, towns/.test(prompt), false);
+});
+
+test("hook prompt on an orienting POV does not demand a who-programs fight", () => {
+  const prompt = buildHookPrompt({
+    pov: "Newark Tech Week is in town this week. The rooms are built for business owners.",
+    editorialLens: "Newark Tech Week, specifically for business owners.",
+  });
+  assert.match(prompt, /If the POV only orients/);
+  assert.match(prompt, /do not invent a fight/);
+  assert.match(prompt, /do not add a house fight/);
 });
 
 test("hook and thesis ignore unclicked cluster, corridor, emotion, demographic", () => {
