@@ -485,6 +485,40 @@ export function describeReframeInputs(inputs = {}) {
   return parts.length ? parts.join(" · ") : "typed topic";
 }
 
+// Freshness for the LENS chip / Draft Hook gate. `topic` is chip-only
+// (whether Reframe read a typed Narrowing box) — it is NOT a live pill.
+// Comparing the full snapshot (with topic) to live pills (without it)
+// marked LENS STALE on every successful Reframe, so Draft Hook refused.
+export function lensFreshnessSignature({
+  cluster,
+  corridor,
+  emotion,
+  demographics = [],
+  lock,
+} = {}) {
+  const demos = (Array.isArray(demographics) ? demographics : [])
+    .map((d) => String(d || "").trim())
+    .filter(Boolean)
+    .sort();
+  const facets = Array.isArray(lock?.facets)
+    ? [...lock.facets].map((f) => String(f || "").trim()).filter(Boolean).sort()
+    : [];
+  const locales = Array.isArray(lock?.locales)
+    ? [...lock.locales].map((l) => String(l || "").trim()).filter(Boolean).sort()
+    : [];
+  return JSON.stringify({
+    cluster: String(cluster || "").trim(),
+    corridor: String(corridor || "").trim(),
+    emotion: String(emotion || "").trim(),
+    demographics: demos,
+    lock: {
+      facets,
+      locales,
+      join: String(lock?.join || "").trim(),
+    },
+  });
+}
+
 export function buildLensReframePrompt({
   clusterLabel,
   baseDirective,
