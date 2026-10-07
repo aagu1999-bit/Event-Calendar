@@ -12,6 +12,7 @@ import {
   OPERATOR_QUESTIONS_MARKER,
   appendOperatorQuestions,
   contentMethodBlock,
+  contentMethodResearchPrompt,
   contentArrangerLines,
   CONTENT_ESSAY_ARC,
   CONTENT_FLYER_SLOTS,
@@ -82,6 +83,17 @@ test("appendOperatorQuestions is a no-op when blank and stamps the marker when a
   assert.match(next, /Old places stay/);
   assert.match(next, /BYOB hall/);
   assert.match(next, /everyday wording/);
+});
+
+test("method homework does not hunt the house fight by default", () => {
+  const prompt = contentMethodResearchPrompt({
+    topic: "Newark Tech Week",
+    context: "specifically for business owners",
+  });
+  assert.match(prompt, /HOUSE FIGHT IS OPTIONAL/);
+  assert.match(prompt, /not a CGE default/);
+  assert.equal(/same-city other-diaspora site unless/.test(prompt), true);
+  assert.equal(/PATTERN: \(the reusable pressure this NJ specimen is an instance of — may be a regional or country-wide norm: memory loss, ownership vs programming/.test(prompt), false);
 });
 
 test("method block writes an essay, not an Instagram formula", () => {
