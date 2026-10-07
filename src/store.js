@@ -101,7 +101,7 @@ export const useRegularsStore = create(
 // Categories:
 //   palette        — brand colors (background, text, accent)
 //   alternateColors — whether to swap bg/accent every other slide
-//   fontPairKey    — default Syne+DM Sans, etc. (matches MediaTool's FONT_PAIRS)
+//   fontPairKey    — default Bebas+Inter, etc. (matches MediaTool's FONT_PAIRS)
 //   creator        — the brand's identity: name, handle, watermark text, URL
 //   defaults       — category tag presets, region (for Cover/News templates)
 //   voice          — Phase 2: voice description + exemplar captions (Gemini)
@@ -122,7 +122,7 @@ export const useBrandStore = create(
       alternateBgKey: "purple",
 
       // Typography — matches FONT_PAIRS keys in MediaTool
-      fontPairKey: "default",     // "default" | "bold" | "serif" | "modern"
+      fontPairKey: "default",     // "default" | "syne" | "serif" | "modern" ("bold" still reads as Bebas)
 
       // Creator / brand identity — watermarks read from here
       creator: {
