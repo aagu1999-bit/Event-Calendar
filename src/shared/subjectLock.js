@@ -5,12 +5,15 @@
 // operator had no way to say "this piece is the parking-lot brewery
 // on Route 22, not the rest of Suburban Third-Place mashed together."
 //
-// Empty picks keep today's whole-cluster / whole-corridor behavior.
-// Picked facets/locales become the SUBJECT LOCK that thesis, hook,
-// Fuel Research, and the fill seed all have to honor.
+// Empty facets = the cluster is a desk (facet catalog), not the
+// syllabus. Select all or pick the topics this piece spends.
+// Locales are geography context, not a story spend.
+// Picked facets become the SUBJECT LOCK that thesis, hook, Fuel,
+// and the fill seed honor. Narrowing does not require a cluster.
 //
-// Caps: 1–3 cluster facets, 0–3 corridor locales, 0–1 join facet
-// from another cluster. Changing cluster/corridor sanitizes stale ids.
+// Caps: every facet in the current cluster, 0–3 corridor locales,
+// 0–1 join facet from another cluster. Changing cluster/corridor
+// sanitizes stale ids.
 
 import { resolveClusterKey, CONTENT_CLUSTERS } from "./matrixCompass.js";
 
@@ -185,16 +188,19 @@ export function sanitizeSubjectLock({
   subjectFacets,
   corridorLocales,
   joinFacet,
-  facetsMax = 3,
+  facetsMax,
   localesMax = 3,
 } = {}) {
   const clusterKey = resolveClusterKey(cluster);
-  const allowedFacet = new Set((CLUSTER_FACETS[clusterKey] || []).map((f) => f.id));
+  const allowedList = CLUSTER_FACETS[clusterKey] || [];
+  const allowedFacet = new Set(allowedList.map((f) => f.id));
   const allowedLocale = new Set((CORRIDOR_LOCALES[String(corridor || "").trim()] || []).map((l) => l.id));
+  const facetCap = allowedList.length;
+  const keep = Number.isFinite(facetsMax) ? Math.min(facetsMax, facetCap) : facetCap;
 
   const subject_facets = normalizeIds(subjectFacets)
     .filter((id) => allowedFacet.has(id))
-    .slice(0, facetsMax);
+    .slice(0, keep);
 
   const corridor_locales = normalizeIds(corridorLocales)
     .filter((id) => allowedLocale.has(id))
@@ -308,7 +314,7 @@ export function subjectLockPromptLines(lock) {
   if (lock.facets.length) {
     lines.push(`Locked cluster facets: ${lock.facets.map((f) => f.label).join("; ")}.`);
   } else {
-    lines.push("Locked cluster facets: (none — the whole cluster is in play, still honor locales/join if set).");
+    lines.push("Locked cluster facets: (none — cluster is a desk, not the syllabus. Do not recite the catalog. Operator Narrowing is the piece.)");
   }
   if (lock.locales.length) {
     lines.push(`Geography context (not a story spend): ${lock.locales.map((l) => l.label).join("; ")}. Search these places; do not turn the town into the thesis.`);
@@ -323,5 +329,5 @@ export function subjectLockPromptLines(lock) {
 }
 
 export function subjectLockInstruction() {
-  return "If SUBJECT LOCK is in the user payload, the Analytical lens is the locked facet LABELS — not the cluster syllabus and not the catalog hover line. Operator Narrowing / Hook / POV beat any catalog spend. Locales are geography context only; do not turn a town into the thesis. Do not recite sibling theories from the same cluster. Do not invent an intersection with a different cluster facet unless JOIN names it.";
+  return "If SUBJECT LOCK is in the user payload, the Analytical lens is the locked facet LABELS — not the cluster syllabus and not the catalog hover line. Empty facets mean the cluster is a desk, not a spend; do not recite the catalog. Operator Narrowing / Hook / POV beat any catalog spend. Locales are geography context only; do not turn a town into the thesis. Do not invent an intersection with a different cluster facet unless JOIN names it.";
 }

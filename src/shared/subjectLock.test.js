@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { composePOV, buildHookPrompt, COMPASS_TOPICS } from "./matrixCompass.js";
+import { composePOV, buildHookPrompt, COMPASS_TOPICS, resolveEditorialLens } from "./matrixCompass.js";
 import { MATRIX_FIELDS, LIMITS } from "./matrixEnums.js";
 import { eventMatrixToFillSeed } from "./eventMatrixToFillSeed.js";
 import { researchAiModeRequest } from "../../perplexityResearch.js";
@@ -15,7 +15,7 @@ import {
   CLUSTER_FACETS,
 } from "./subjectLock.js";
 
-test("empty lock keeps whole-cluster behavior", () => {
+test("empty facets do not dump the cluster syllabus into LENS or POV", () => {
   const lock = buildSubjectLock({
     cluster: "SUBURBAN_THIRD_PLACE",
     corridor: "Route 1 Central Crossroads",
@@ -24,8 +24,17 @@ test("empty lock keeps whole-cluster behavior", () => {
   assert.equal(lock.summary, "");
   assert.deepEqual(lock.searches, []);
   assert.deepEqual(subjectLockPromptLines(lock), []);
+  assert.equal(lockLensDirective(lock), "");
   const pov = composePOV({ cluster: "SUBURBAN_THIRD_PLACE", corridor: "Route 1 Central Crossroads" });
-  assert.equal(pov.includes("This piece stays on"), false);
+  assert.equal(pov, "");
+  const resolved = resolveEditorialLens({
+    cluster: "GATHERING_LOGISTICS",
+    override: "summer shore traffic in Parkway towns",
+    base: lockLensDirective(lock),
+  });
+  assert.equal(resolved.base, "");
+  assert.match(resolved.combined, /summer shore traffic in Parkway towns/);
+  assert.equal(/venue rental/i.test(resolved.combined), false);
 });
 
 test("parking-lot brewery on Route 22 does not mash liquor cap or Afrobeats", () => {
@@ -60,6 +69,17 @@ test("parking-lot brewery on Route 22 does not mash liquor cap or Afrobeats", ()
   assert.match(pov, /place context only/);
   assert.match(pov, /Do not mash overlapping topics/);
   assert.equal(/outsourced gathering to commercial strips/i.test(pov), false);
+});
+
+test("select-all logistics facets lock every topic without the catalog syllabus", () => {
+  const ids = facetsForCluster("GATHERING_LOGISTICS").map((f) => f.id);
+  const lock = buildSubjectLock({ cluster: "GATHERING_LOGISTICS", subjectFacets: ids });
+  const lens = lockLensDirective(lock);
+  assert.match(lens, /Venue splits/);
+  assert.match(lens, /Door economics/);
+  assert.match(lens, /Do not widen past this lock/);
+  assert.equal(/venue rental splits/i.test(lens), false);
+  assert.equal(/raw operational math/i.test(lens), false);
 });
 
 test("one philosophy facet replaces the cluster syllabus in the live LENS", () => {
@@ -136,7 +156,7 @@ test("join from the same cluster is dropped", () => {
   assert.equal(next.join_facet, "");
 });
 
-test("caps stay at three facets and three locales", () => {
+test("sanitize can keep every facet in the cluster; locales still cap at three", () => {
   const suburban = facetsForCluster("SUBURBAN_THIRD_PLACE").map((f) => f.id);
   const locales = localesForCorridor("Transit Village Suburbs").map((l) => l.id);
   const next = sanitizeSubjectLock({
@@ -145,7 +165,8 @@ test("caps stay at three facets and three locales", () => {
     subjectFacets: suburban,
     corridorLocales: locales,
   });
-  assert.equal(next.subject_facets.length, LIMITS.FACETS_MAX);
+  assert.equal(next.subject_facets.length, suburban.length);
+  assert.ok(suburban.length >= 3);
   assert.equal(next.corridor_locales.length, LIMITS.LOCALES_MAX);
 });
 
@@ -193,7 +214,8 @@ test("Fuel Research payload honors the lock and named searches", () => {
     topic: "suburban commercial strip retrofit",
   });
   assert.equal(/SUBJECT LOCK —/.test(unlocked.input), false);
-  assert.match(unlocked.input, /cluster identity/);
+  assert.equal(/cluster identity/.test(unlocked.input), false);
+  assert.equal(/deficit of walkable/i.test(unlocked.input), false);
 });
 
 test("Fuel on a philosophy facet does not ingest Oldenburg or sibling searches", () => {
@@ -265,6 +287,24 @@ test("matrix stores the lock fields", () => {
   assert.equal(MATRIX_FIELDS.includes("subject_facets"), true);
   assert.equal(MATRIX_FIELDS.includes("corridor_locales"), true);
   assert.equal(MATRIX_FIELDS.includes("join_facet"), true);
-  assert.equal(LIMITS.FACETS_MAX, 3);
+  assert.equal(LIMITS.FACETS_MAX, 5);
   assert.equal(LIMITS.LOCALES_MAX, 3);
+});
+
+test("fill seed with a cluster desk and typed Narrowing does not dump the syllabus", () => {
+  const seed = eventMatrixToFillSeed({
+    name: "Parkway piece",
+    matrix: {
+      event_tier: "FEATURE",
+      cluster: "GATHERING_LOGISTICS",
+      corridor: "Shore / Southern Arteries",
+      corridor_locales: ["parkway-towns"],
+      editorial_lens: "summer shore traffic in Parkway towns",
+      hook_a_side: "Parkway towns eat the summer influx.",
+    },
+  });
+  assert.match(seed.clusterDirective, /summer shore traffic in Parkway towns/);
+  assert.equal(/venue rental/i.test(seed.clusterDirective), false);
+  assert.equal(/door economics/i.test(seed.clusterDirective), false);
+  assert.equal(/Oldenburg/i.test(seed.clusterDirective), false);
 });

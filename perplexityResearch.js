@@ -26,7 +26,6 @@ import {
   countSourceClasses,
   argumentDeskEmpty,
   preferDeskSources,
-  clusterSearchQueries,
   lensDiscoveryQueries,
   apparentLookthroughDomains,
   lookthroughSearchQueries,
@@ -92,7 +91,7 @@ function buildUserPayload({ cluster = "", topic = "", pov = "", existingBullets 
   if (clusterDirective) {
     userLines.push(lock.facets.length
       ? `Analytical lens (facet lock — this piece, not the cluster syllabus): ${clusterDirective}`
-      : `Analytical lens (base — cluster identity): ${clusterDirective}`);
+      : `Analytical lens (no facet lock — cluster is a desk, not a syllabus; do not recite the catalog): ${clusterDirective}`);
   }
   if (narrowingClause) userLines.push(`Analytical lens NARROWING (operator override for THIS piece — layers under the live LENS; does not restore the cluster syllabus): ${narrowingClause}`);
   const lockLines = subjectLockPromptLines(lock);
@@ -115,7 +114,6 @@ function buildUserPayload({ cluster = "", topic = "", pov = "", existingBullets 
   const named = [
     ...lock.searches,
     ...coherenceGapSearches({ gaps: coherenceGaps, topic: workingTitle }),
-    ...(lock.facets.length ? [] : clusterSearchQueries(cluster)),
     ...(Array.isArray(extraSearches) ? extraSearches : []),
   ];
   if (named.length) {

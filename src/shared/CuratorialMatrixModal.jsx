@@ -23,7 +23,6 @@ import {
 import {
   CONTENT_CLUSTER_LIST,
   resolveClusterKey,
-  getClusterDirective,
   resolveEditorialLens,
   getClusterDefaultPOV,
   getVoicePreviewSubject,
@@ -186,14 +185,19 @@ function CharCounter({ current, max, error }) {
   );
 }
 
-function LockChipRow({ label, hint, options, selected, onToggle, accent, max = 3, optionLabel, hoverPrefix = "Catalog" }) {
+function LockChipRow({ label, hint, options, selected, onToggle, accent, max = 3, optionLabel, hoverPrefix = "Catalog", actions = null }) {
   const [hoverId, setHoverId] = useState(null);
   if (!options.length) return null;
   const picked = Array.isArray(selected) ? selected : [];
   const hoverOpt = options.find((o) => o.id === hoverId);
   return (
     <div style={{ marginTop: label ? 8 : 4 }}>
-      {label ? <div style={{ ...labelStyle, marginBottom: 6 }}>{label}</div> : null}
+      {label ? (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
+          <div style={{ ...labelStyle, marginBottom: 0 }}>{label}</div>
+          {actions}
+        </div>
+      ) : (actions ? <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>{actions}</div> : null)}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
         {options.map((opt) => {
           const on = picked.includes(opt.id);
@@ -367,9 +371,12 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
   // Live LENS this piece sees. A picked facet replaces the cluster
   // syllabus so Draft Hook cannot recite every theory on the chip row.
   const liveLens = useMemo(
-    () => lockLensDirective(subjectLock) || getClusterDirective(local.cluster),
-    [subjectLock, local.cluster]
+    () => lockLensDirective(subjectLock),
+    [subjectLock]
   );
+  const clusterFacets = useMemo(() => facetsForCluster(local.cluster), [local.cluster]);
+  const allFacetIds = useMemo(() => clusterFacets.map((f) => f.id), [clusterFacets]);
+  const allFacetsOn = clusterFacets.length > 0 && allFacetIds.length > 0 && allFacetIds.every((id) => selectedFacets.includes(id));
   const coherenceIsStale = useMemo(() => {
     if (!coherenceResult || !coherenceCheckedAt) return false;
     const sig = `${local.hook_a_side || ""}|${local.editorial_pov || ""}|${bullets.join("|")}`;
@@ -813,9 +820,9 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
       setSynthError("Paste your Gemini API key in the MediaTool toolbar first.");
       return;
     }
-    const clusterKey = resolveClusterKey(local.cluster);
-    if (!clusterKey) {
-      setSynthError("Pick a Content Cluster first — it anchors the LENS the synthesizer works through.");
+    const hasLens = !!(liveLens || String(local.editorial_lens || "").trim());
+    if (!hasLens) {
+      setSynthError("Type a topic in Narrowing or pick facets (Select all if you want the whole desk) — that is the LENS.");
       return;
     }
     setSynthesizing(true);
@@ -865,11 +872,6 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
     const apiKey = resolveGeminiKey();
     if (!apiKey) {
       setHookError("Paste your Gemini API key in the MediaTool toolbar first.");
-      return;
-    }
-    const clusterKey = resolveClusterKey(local.cluster);
-    if (!clusterKey) {
-      setHookError("Pick a Content Cluster first — the LENS anchors the hook synthesis.");
       return;
     }
     if (!String(local.editorial_pov || "").trim()) {
@@ -974,9 +976,13 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
       setLensReframeError("Paste your Gemini API key in the MediaTool toolbar first.");
       return;
     }
-    const clusterKey = resolveClusterKey(local.cluster);
-    if (!clusterKey) {
-      setLensReframeError("Pick a Content Cluster first — the base LENS is what the reframe narrows.");
+    const hasTopic = !!String(local.editorial_lens || "").trim();
+    const hasPills = !!(
+      local.cluster || local.corridor || selectedFacets.length || selectedLocales.length
+      || selectedJoin || local.target_emotion || selectedDemographics.length
+    );
+    if (!hasTopic && !hasPills) {
+      setLensReframeError("Type a topic or pick a chip first — Reframe stitches those, and cluster is optional.");
       return;
     }
     setReframingLens(true);
@@ -1138,8 +1144,15 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
   const toggleFacet = (id) => {
     const next = selectedFacets.includes(id)
       ? selectedFacets.filter((v) => v !== id)
-      : [...selectedFacets, id].slice(0, LIMITS.FACETS_MAX);
+      : [...selectedFacets, id].slice(0, Math.max(clusterFacets.length, 1));
     applyLockPatch({ subject_facets: next });
+  };
+  const selectAllFacets = () => {
+    if (!allFacetIds.length) return;
+    applyLockPatch({ subject_facets: allFacetIds });
+  };
+  const clearFacets = () => {
+    applyLockPatch({ subject_facets: [] });
   };
   const toggleLocale = (id) => {
     const next = selectedLocales.includes(id)
@@ -1452,7 +1465,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                 Nothing auto-cascades — every downstream field is written by a manual synth button. When you change an upstream field after synthesizing a downstream, the downstream goes stale and shows a "⚠ STALE" chip below it.
               </div>
               <div style={{ marginTop: 8, fontFamily: "'JetBrains Mono', monospace", fontSize: "0.62rem", lineHeight: 1.75 }}>
-                <div><b style={{ color: cream }}>Cluster</b> · Facets · Corridor · Locales · Join · Emotion · Demographic  <span style={{ color: faint }}>→ (click ✨ Reframe LENS)</span>  <b style={{ color: "#A78BFA" }}>editorial_lens (narrowing)</b></div>
+                <div><b style={{ color: cream }}>Narrowing (typed topic)</b> · optional Cluster desk · Facets (Select all or pick) · Corridor · Locales · Join · Emotion · Demographic  <span style={{ color: faint }}>→ (click ✨ Reframe LENS)</span>  <b style={{ color: "#A78BFA" }}>editorial_lens (narrowing)</b></div>
                 <div><b style={{ color: cream }}>Cluster</b> · Facets · Corridor · Locales · Join · Emotion · Demographic · <b style={{ color: "#A78BFA" }}>LENS narrowing</b>  <span style={{ color: faint }}>→ (click ✨ Draft Thesis)</span>  <b style={{ color: "#A78BFA" }}>editorial_pov</b></div>
                 <div><b style={{ color: cream }}>Cluster</b> · Facets · Join · POV · Emotion · Demographic · <b style={{ color: "#A78BFA" }}>LENS narrowing</b>  <span style={{ color: faint }}>→ (click ✨ Draft Hook)</span>  <b style={{ color: "#A78BFA" }}>hook_a_side</b></div>
                 <div><b style={{ color: cream }}>Cluster</b> · Facets · Corridor · Locales · Join · POV · Hook · Tier · <b style={{ color: "#A78BFA" }}>LENS</b> · Demographic  <span style={{ color: faint }}>→ (click 🔮 Fuel Research)</span>  <b style={{ color: "#A78BFA" }}>data_points (anchors)</b></div>
@@ -1460,7 +1473,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                 <div><b style={{ color: cream }}>Hook</b> · POV · Anchors · Cluster + <b style={{ color: "#A78BFA" }}>LENS narrowing</b>  <span style={{ color: faint }}>→ (click 🔎 Check argument)</span>  <b style={{ color: "#A78BFA" }}>coherence verdict</b></div>
               </div>
               <div style={{ marginTop: 8, fontSize: "0.6rem", color: "#63B3ED", fontWeight: 700, letterSpacing: "0.06em" }}>
-                A picked facet REPLACES the cluster LENS for this piece. Empty chips keep the syllabus. Downstream synths read the LENS on screen, not the parked catalog.
+                Trickle-down (Draft Thesis, Draft Hook, Fuel, Check, carousel) reads the LENS on screen: locked facet labels, or typed Narrowing if no facets. Empty chips do NOT dump the cluster syllabus. Cluster is an optional desk — Select all or pick the topics this piece spends.
               </div>
               <div style={{ marginTop: 10, color: faint, fontStyle: "italic" }}>
                 Values you TYPE (Hook, POV, LENS narrowing, anchors) never trigger synth automatically — the button is always the trigger. That's by design so a stray edit doesn't overwrite a carefully-crafted downstream field. Downstream reads UPSTREAM: LENS/POV/Hook all read the same Cluster+Emotion+Demographic; Fuel Research reads everything above it; Coherence Check reads everything.
@@ -1570,125 +1583,168 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
               <LockChipRow
                 label="Facets · optional"
                 hint={local.cluster
-                  ? `Empty = the whole cluster. Max ${LIMITS.FACETS_MAX}. Hover a chip for the catalog line — Narrowing / Hook / POV beat that line.`
-                  : "Pick a cluster first — facets live inside it."}
+                  ? "Empty = cluster is a desk, not the syllabus. Select all or pick the topics this piece spends. Hover a chip for the catalog line — Narrowing / Hook / POV beat that line."
+                  : "Optional. Pick a cluster to see named topics, or skip it — Narrowing below is the piece."}
                 hoverPrefix="Catalog"
-                options={facetsForCluster(local.cluster)}
+                options={clusterFacets}
                 selected={selectedFacets}
                 onToggle={toggleFacet}
-                max={LIMITS.FACETS_MAX}
+                max={clusterFacets.length}
                 accent={{ bg: orbitBg, border: orbit, color: orbit }}
+                actions={local.cluster && clusterFacets.length ? (
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button
+                      type="button"
+                      onClick={allFacetsOn ? clearFacets : selectAllFacets}
+                      title={allFacetsOn ? "Clear topic chips — cluster stays a desk, not a syllabus" : "Lock every topic in this desk"}
+                      style={{
+                        background: allFacetsOn ? "rgba(167,139,250,0.14)" : "transparent",
+                        border: `1px solid ${allFacetsOn ? orbit : whisper}`,
+                        color: allFacetsOn ? orbit : muted,
+                        borderRadius: 4,
+                        padding: "2px 8px",
+                        fontFamily: "inherit",
+                        fontSize: "0.56rem",
+                        letterSpacing: "0.08em",
+                        textTransform: "uppercase",
+                        fontWeight: 700,
+                        cursor: "pointer",
+                      }}
+                    >{allFacetsOn ? "Clear topics" : "Select all"}</button>
+                    {!allFacetsOn && selectedFacets.length > 0 ? (
+                      <button
+                        type="button"
+                        onClick={clearFacets}
+                        title="Clear selected topics"
+                        style={{
+                          background: "transparent",
+                          border: `1px solid ${whisper}`,
+                          color: muted,
+                          borderRadius: 4,
+                          padding: "2px 8px",
+                          fontFamily: "inherit",
+                          fontSize: "0.56rem",
+                          letterSpacing: "0.08em",
+                          textTransform: "uppercase",
+                          fontWeight: 700,
+                          cursor: "pointer",
+                        }}
+                      >Clear</button>
+                    ) : null}
+                  </div>
+                ) : null}
               />
               {liveLens ? (
                 <div style={{ marginTop: 8 }}>
-                  {/* Live LENS this piece sees. A facet chip replaces
-                      the cluster syllabus so the operator can tell
-                      what Draft Hook / Fuel will actually drink. */}
                   <div style={{ ...hintStyle, color: muted, fontStyle: "italic", lineHeight: 1.55, marginBottom: 8 }}>
                     <span style={{ color: orbit, fontStyle: "normal", fontWeight: 700, letterSpacing: "0.06em" }}>◆ LENS</span>{" "}
                     {liveLens}
                   </div>
-                  {subjectLock.facets.length > 0 && (
-                    <div style={{ ...hintStyle, marginTop: -4, marginBottom: 8 }}>
-                      Locked to {subjectLock.summary}. Cluster syllabus is parked until you clear the chips.
-                    </div>
-                  )}
-                  {/* Operator override textarea + Reframe/Reset buttons.
-                      Empty = base directive alone reaches Perplexity +
-                      Gemini. Populated = layers as a narrowing under
-                      the base (both remain in prompts). Editable
-                      free-text; freeze-rule respected via applyPatch. */}
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 4 }}>
-                    <label style={{ ...labelStyle, marginBottom: 0 }}>
-                      Narrowing · optional
-                    </label>
-                    <div style={{ display: "flex", gap: 6 }}>
-                      {(() => {
-                        const clusterKey = resolveClusterKey(local.cluster);
-                        const disabled = reframingLens || !clusterKey;
-                        return (
-                          <button
-                            type="button"
-                            onClick={reframeLens}
-                            disabled={disabled}
-                            title={clusterKey
-                              ? "Stitch the topic in this box with the chips you already picked (facets, locales, join, corridor, emotion, demographic). Result replaces this box."
-                              : "Pick a Content Cluster first — the base LENS is what the reframe narrows."}
-                            style={{
-                              background: disabled ? "transparent" : "rgba(167,139,250,0.14)",
-                              border: `1px solid ${disabled ? whisper : orbit}`,
-                              color: disabled ? faint : orbit,
-                              borderRadius: 4,
-                              padding: "3px 10px",
-                              fontFamily: "inherit",
-                              fontSize: "0.58rem",
-                              letterSpacing: "0.1em",
-                              textTransform: "uppercase",
-                              fontWeight: 700,
-                              cursor: disabled ? "not-allowed" : "pointer",
-                            }}
-                          >
-                            {reframingLens ? "…Reframing" : String(local.editorial_lens || "").trim() ? "✨ Rereframe" : "✨ Reframe LENS"}
-                          </button>
-                        );
-                      })()}
-                      {String(local.editorial_lens || "").trim() ? (
-                        <button
-                          type="button"
-                          onClick={() => applyPatch({ editorial_lens: undefined })}
-                          title="Clear the narrowing — the LENS this piece sees (facet lock or cluster syllabus) reaches downstream prompts alone."
-                          style={{
-                            background: "transparent",
-                            border: `1px solid ${whisper}`,
-                            color: muted,
-                            borderRadius: 4,
-                            padding: "3px 10px",
-                            fontFamily: "inherit",
-                            fontSize: "0.58rem",
-                            letterSpacing: "0.1em",
-                            textTransform: "uppercase",
-                            fontWeight: 700,
-                            cursor: "pointer",
-                          }}
-                        >↺ Reset</button>
-                      ) : null}
-                    </div>
+                  <div style={{ ...hintStyle, marginTop: -4, marginBottom: 8 }}>
+                    Locked to {subjectLock.summary}. Catalog syllabus is parked. Downstream reads this LENS, then Narrowing.
                   </div>
-                  <textarea
-                    style={{ ...textareaStyle, minHeight: 56, fontSize: "0.78rem" }}
-                    value={local.editorial_lens || ""}
-                    onChange={(e) => applyPatch({ editorial_lens: e.target.value })}
-                    placeholder="Type a topic, then ✨ Reframe — it gets stitched to the chips you already picked. Empty = reframe from the chips alone."
-                    maxLength={800}
-                  />
-                  {lensReframeError ? (
-                    <div style={{
-                      fontSize: "0.66rem",
-                      color: warn,
-                      marginTop: 4,
-                      letterSpacing: "0.02em",
-                      lineHeight: 1.5,
-                    }}>
-                      ⚠️ {lensReframeError}
-                    </div>
-                  ) : null}
-                  {renderStalenessChip("LENS narrowing", lensSnapshot, lensStale, "cluster · corridor · emotion · demographic")}
-                  {String(local.editorial_lens || "").trim() && (
-                    <div style={{
-                      fontSize: "0.6rem",
-                      marginTop: 4,
-                      color: "#63B3ED",
-                      letterSpacing: "0.03em",
-                      lineHeight: 1.5,
-                    }}>
-                      ◆ Stitched from your topic + chips. Feeds → Draft Thesis, Draft Hook, Fuel Research, Coherence Check, and the carousel writer. Change a chip or the topic and Reframe again.
-                    </div>
-                  )}
                 </div>
               ) : (
-                <div style={hintStyle}>Editorial axis · locks the AI's analytical lens for research + carousel copy</div>
+                <div style={{ ...hintStyle, marginTop: 8 }}>
+                  {local.cluster
+                    ? "◆ LENS Cluster is a desk. Pick facets or Select all — or type a topic in Narrowing. Downstream reads Narrowing, not the catalog syllabus."
+                    : "◆ LENS Cluster is optional. Type a topic in Narrowing — Draft Thesis, Draft Hook, Fuel, and the writer read that LENS."}
+                </div>
               )}
             </div>
+          </div>
+
+          <div style={{ marginTop: 4 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 4 }}>
+              <label style={{ ...labelStyle, marginBottom: 0 }}>
+                Narrowing · optional
+              </label>
+              <div style={{ display: "flex", gap: 6 }}>
+                {(() => {
+                  const hasTopic = !!String(local.editorial_lens || "").trim();
+                  const hasPills = !!(
+                    local.cluster || local.corridor || selectedFacets.length || selectedLocales.length
+                    || selectedJoin || local.target_emotion || selectedDemographics.length
+                  );
+                  const disabled = reframingLens || (!hasTopic && !hasPills);
+                  return (
+                    <button
+                      type="button"
+                      onClick={reframeLens}
+                      disabled={disabled}
+                      title={disabled && !reframingLens
+                        ? "Type a topic or pick a chip first — cluster is optional."
+                        : "Stitch the topic in this box with the chips you already picked. Cluster is optional. Result replaces this box."}
+                      style={{
+                        background: disabled ? "transparent" : "rgba(167,139,250,0.14)",
+                        border: `1px solid ${disabled ? whisper : orbit}`,
+                        color: disabled ? faint : orbit,
+                        borderRadius: 4,
+                        padding: "3px 10px",
+                        fontFamily: "inherit",
+                        fontSize: "0.58rem",
+                        letterSpacing: "0.1em",
+                        textTransform: "uppercase",
+                        fontWeight: 700,
+                        cursor: disabled ? "not-allowed" : "pointer",
+                      }}
+                    >
+                      {reframingLens ? "…Reframing" : hasTopic ? "✨ Rereframe" : "✨ Reframe LENS"}
+                    </button>
+                  );
+                })()}
+                {String(local.editorial_lens || "").trim() ? (
+                  <button
+                    type="button"
+                    onClick={() => applyPatch({ editorial_lens: undefined })}
+                    title="Clear the narrowing — if facets are locked, that LENS still reaches downstream; otherwise the piece has no syllabus dump."
+                    style={{
+                      background: "transparent",
+                      border: `1px solid ${whisper}`,
+                      color: muted,
+                      borderRadius: 4,
+                      padding: "3px 10px",
+                      fontFamily: "inherit",
+                      fontSize: "0.58rem",
+                      letterSpacing: "0.1em",
+                      textTransform: "uppercase",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                  >↺ Reset</button>
+                ) : null}
+              </div>
+            </div>
+            <textarea
+              style={{ ...textareaStyle, minHeight: 56, fontSize: "0.78rem" }}
+              value={local.editorial_lens || ""}
+              onChange={(e) => applyPatch({ editorial_lens: e.target.value })}
+              placeholder="Type a topic, then ✨ Reframe — stitches to the chips you picked. Cluster is optional. Empty = reframe from the chips alone."
+              maxLength={800}
+            />
+            {lensReframeError ? (
+              <div style={{
+                fontSize: "0.66rem",
+                color: warn,
+                marginTop: 4,
+                letterSpacing: "0.02em",
+                lineHeight: 1.5,
+              }}>
+                ⚠️ {lensReframeError}
+              </div>
+            ) : null}
+            {renderStalenessChip("LENS narrowing", lensSnapshot, lensStale, "cluster · corridor · emotion · demographic")}
+            {String(local.editorial_lens || "").trim() && (
+              <div style={{
+                fontSize: "0.6rem",
+                marginTop: 4,
+                color: "#63B3ED",
+                letterSpacing: "0.03em",
+                lineHeight: 1.5,
+              }}>
+                ◆ This is the LENS downstream reads (with any locked facet labels). Feeds → Draft Thesis, Draft Hook, Fuel Research, Coherence Check, and the carousel writer.
+              </div>
+            )}
           </div>
 
           {resolveClusterKey(local.cluster) ? (
@@ -2024,11 +2080,10 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
               {/* Draft Hook — fires Gemini Flash-Lite to compress the
                   current POV plus Fuel START lines into a cover that
                   names the NJ contrast the brief already proved.
-                  Disabled without both a cluster AND a POV. */}
+                  Disabled without a POV. Cluster is optional. */}
               {(() => {
-                const clusterKey = resolveClusterKey(local.cluster);
                 const hasPOV = !!String(local.editorial_pov || "").trim();
-                const disabled = draftingHook || !clusterKey || !hasPOV;
+                const disabled = draftingHook || !hasPOV;
                 const label = draftingHook
                   ? "…Drafting"
                   : String(local.hook_a_side || "").trim()
@@ -2040,11 +2095,9 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                     onClick={draftHook}
                     disabled={disabled}
                     title={
-                      !clusterKey
-                        ? "Pick a Content Cluster first — the LENS anchors the hook synthesis."
-                        : !hasPOV
-                          ? "Draft or write an Editorial POV first — the hook is the POV compressed into a scroll-stopper."
-                          : "Compress the POV plus Fuel START points into a cover that names the contrast — not a listicle."
+                      !hasPOV
+                        ? "Draft or write an Editorial POV first — the hook is the POV compressed into a scroll-stopper."
+                        : "Compress the POV plus Fuel START points into a cover that names the contrast — not a listicle."
                     }
                     style={{
                       background: disabled ? "transparent" : "rgba(229,188,79,0.14)",
@@ -2131,8 +2184,8 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                   Shown always so the operator can regenerate when
                   the current thesis feels forced or off-tone. */}
               {(() => {
-                const clusterKey = resolveClusterKey(local.cluster);
-                const disabled = synthesizing || !clusterKey;
+                const hasLens = !!(liveLens || String(local.editorial_lens || "").trim());
+                const disabled = synthesizing || !hasLens;
                 const label = synthesizing
                   ? "…Synthesizing"
                   : String(local.editorial_pov || "").trim()
@@ -2143,9 +2196,9 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                     type="button"
                     onClick={draftThesis}
                     disabled={disabled}
-                    title={clusterKey
-                      ? "Fire a Gemini Flash-Lite call to synthesize a cohesive editorial thesis from the current cluster + corridor + emotion + demographics"
-                      : "Pick a Content Cluster first — it anchors the LENS the synthesizer works through."}
+                    title={hasLens
+                      ? "Synthesize a thesis from the LENS on screen (locked facets and/or typed Narrowing) plus corridor, emotion, demographic"
+                      : "Type a topic in Narrowing or pick facets first — that is the LENS."}
                     style={{
                       background: disabled ? "transparent" : "rgba(167,139,250,0.14)",
                       border: `1px solid ${disabled ? whisper : orbit}`,
@@ -2169,7 +2222,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
               style={textareaStyle}
               value={local.editorial_pov || ""}
               onChange={(e) => applyPatch({ editorial_pov: e.target.value })}
-              placeholder="Why does this space / event matter? The curatorial thesis the AI carousel prompt reads as brand-perspective context. Pick a cluster above and this pre-fills — editable."
+              placeholder="Why does this space / event matter? The curatorial thesis the carousel reads. Draft Thesis uses the LENS on screen (Narrowing and/or locked facets) — cluster is optional."
               maxLength={LIMITS.POV_MAX + 100}
             />
             <CharCounter current={(local.editorial_pov || "").length} max={LIMITS.POV_MAX} error={errorsByField.editorial_pov} />
@@ -2197,11 +2250,10 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
               <button
                 type="button"
                 onClick={() => fuelResearch("full")}
-                disabled={researching || !local.cluster}
+                disabled={researching}
                 title={
                   researching ? "Researching…"
-                  : !local.cluster ? "Pick a cluster first — Perplexity needs an editorial frame"
-                  : "Ask Perplexity for an NJ-focused brief and starting points to dive"
+                  : "Ask Perplexity for an NJ-focused brief and starting points to dive. Reads the LENS on screen (Narrowing and/or locked facets). Cluster is optional."
                 }
                 style={{
                   background: researching ? "rgba(167,139,250,0.06)" : "rgba(167,139,250,0.14)",
@@ -2214,8 +2266,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                   letterSpacing: "0.14em",
                   textTransform: "uppercase",
                   fontWeight: 700,
-                  cursor: researching || !local.cluster ? "not-allowed" : "pointer",
-                  opacity: !local.cluster ? 0.5 : 1,
+                  cursor: researching ? "not-allowed" : "pointer",
                 }}
               >
                 {researching ? "🔮 Researching…" : "🔮 Fuel Research"}
@@ -2729,8 +2780,8 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                       <button
                         type="button"
                         onClick={() => fuelResearch("gap-scout")}
-                        disabled={researching || !local.cluster}
-                        title={!local.cluster ? "Pick a cluster first" : "Google-search these gaps for specific NJ pieces. Dive those next."}
+                        disabled={researching}
+                        title="Google-search these gaps for specific NJ pieces. Dive those next."
                         style={{
                           marginTop: 10,
                           background: researching ? "rgba(167,139,250,0.06)" : "rgba(167,139,250,0.16)",
@@ -2743,7 +2794,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                           letterSpacing: "0.12em",
                           textTransform: "uppercase",
                           fontWeight: 700,
-                          cursor: researching || !local.cluster ? "not-allowed" : "pointer",
+                          cursor: researching ? "not-allowed" : "pointer",
                         }}
                       >
                         {researching ? "🔮 Searching gaps…" : "🔮 Google these gaps"}

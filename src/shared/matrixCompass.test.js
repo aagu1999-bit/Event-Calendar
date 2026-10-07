@@ -80,3 +80,16 @@ test("reframe with an empty box still stitches the pills alone", () => {
   assert.match(prompt, /OPERATOR TOPIC: \(none/);
   assert.match(prompt, /stitch the pills into a narrowing angle on their own/);
 });
+
+test("reframe works without a cluster — typed topic is the piece", () => {
+  const prompt = buildLensReframePrompt({
+    clusterLabel: "",
+    baseDirective: "",
+    corridor: "Shore / Southern Arteries",
+    operatorTopic: "summer shore traffic in Parkway towns",
+  });
+  assert.match(prompt, /cluster is optional/i);
+  assert.match(prompt, /summer shore traffic in Parkway towns/);
+  assert.match(prompt, /do not recite a cluster catalog/i);
+  assert.equal(/Economics & Logistics/i.test(prompt), false);
+});

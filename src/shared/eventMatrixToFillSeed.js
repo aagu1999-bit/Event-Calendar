@@ -46,7 +46,7 @@ export function summarizeSlidesForFeedback(slides) {
 // point, not a lock.
 
 import { EVENT_TIERS, DEMOGRAPHIC_PRESETS, LEGACY_DEMOGRAPHIC_ALIASES } from "./matrixEnums.js";
-import { getClusterLabel, getClusterDefaultPOV, resolveEditorialLens, isListicleHook } from "./matrixCompass.js";
+import { getClusterLabel, resolveEditorialLens, isListicleHook } from "./matrixCompass.js";
 import { buildSubjectLock, lockLensDirective } from "./subjectLock.js";
 import { CONTENT_DEFAULT_VOICE } from "./cgeThesis.js";
 
@@ -137,12 +137,10 @@ export function eventMatrixToFillSeed(event) {
     joinFacet: m.join_facet,
   });
   const lockDirective = lockLensDirective(lock);
-  // POV fallback: when the operator leaves Editorial POV blank, use the
-  // cluster's brand-voice default POV from the Compass Bank so the Editor
-  // pass has at least a thesis to work from. A facet lock parks that
-  // default — Oldenburg must not leak into a social-friction piece.
+  // Typed POV only. Empty facets must not dump the cluster default
+  // (Oldenburg, venue-split math) into generation — cluster is a desk.
   const typedPOV = String(m.editorial_pov || "").trim();
-  const pov = typedPOV || (lock.facets.length ? "" : getClusterDefaultPOV(m.cluster));
+  const pov = typedPOV;
   const bullets = Array.isArray(m.data_points)
     ? m.data_points.map((b) => String(b || "").trim()).filter(Boolean)
     : [];
@@ -165,9 +163,8 @@ export function eventMatrixToFillSeed(event) {
   // so it reads as a voice/framing constraint rather than one line
   // buried under academic research bullets. We surface it as its own
   // seed field instead.
-  // Resolved LENS: base cluster directive + optional per-matrix
-  // narrowing (matrix.editorial_lens). Base stays canonical; the
-  // narrowing layers on top with a labeled clause.
+  // Resolved LENS: facet lock (if any) + optional per-matrix
+  // narrowing. Empty chips do not restore the cluster syllabus.
   const { base: clusterDirectiveBase, override: lensOverride, combined: clusterDirective } = resolveEditorialLens({
     cluster: m.cluster,
     override: m.editorial_lens,

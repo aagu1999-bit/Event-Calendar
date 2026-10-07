@@ -302,16 +302,16 @@ const DEMOGRAPHIC_PHRASES = {
 };
 
 // Compose a two-sentence editorial POV from the operator's dimension
-// picks. Sentence 1: cluster's defaultPOV (the thesis skeleton).
+// picks. Sentence 1: the facet-lock LENS (thesisOverride). Empty
+// chips do not dump the cluster defaultPOV — cluster is a desk.
 // Sentence 2: corridor anchor + demographic wedge + emotion stance.
-// Any missing dimension is elided gracefully — the composed POV still
-// reads if only cluster is set. Returns "" if there's not even a
-// cluster to build on.
+// Returns "" when there is no facet lock to build on.
 export function composePOV({ cluster, corridor, emotion, demographics, lockSentence = "", thesisOverride = "" } = {}) {
-  const clusterKey = resolveClusterKey(cluster);
-  if (!clusterKey) return "";
-  const thesis = String(thesisOverride || "").trim() || CONTENT_CLUSTERS[clusterKey].defaultPOV || "";
+  // Sentence 1 is the facet lock (or nothing). Empty chips do NOT
+  // dump the cluster default POV — cluster is a desk, not a syllabus.
+  const thesis = String(thesisOverride || "").trim();
   if (!thesis) return "";
+  void cluster;
 
   const anchor = corridor ? CORRIDOR_ANCHORS[corridor] : "";
   const stance = emotion ? EMOTION_STANCES[emotion] : "";
@@ -368,12 +368,12 @@ export async function synthesizeThesis({ apiKey, cluster, corridor, emotion, dem
     throw new Error("Missing Gemini API key");
   }
   const clusterKey = resolveClusterKey(cluster);
-  if (!clusterKey) {
-    throw new Error("Pick a Content Cluster first — it anchors the LENS the synthesizer works through.");
-  }
-  const clusterLabel = CONTENT_CLUSTERS[clusterKey].label;
-  const clusterDirective = String(lensBase || "").trim() || CONTENT_CLUSTERS[clusterKey].directive;
+  const clusterLabel = clusterKey ? CONTENT_CLUSTERS[clusterKey].label : "(none — cluster is optional)";
+  const clusterDirective = String(lensBase || "").trim();
   const cleanLens = String(editorialLens || "").trim();
+  if (!clusterDirective && !cleanLens) {
+    throw new Error("Type a topic in Narrowing or pick facets (Select all if you want the whole desk) — that is the LENS.");
+  }
   const demoList = Array.isArray(demographics)
     ? demographics.filter((d) => typeof d === "string" && d.trim()).map((d) => d.trim())
     : [];
@@ -389,8 +389,8 @@ export async function synthesizeThesis({ apiKey, cluster, corridor, emotion, dem
     "  The cluster is the analytical door into that thesis. Do not collapse the POV into generic gathering-magazine copy (third places, liquor caps, 150-cap rooms) unless the cluster + bullets actually are that story.",
     "",
     "THE VARIABLES:",
-    `- Content Cluster: ${clusterLabel}`,
-    `- Cluster Analytical Lens (this piece — a facet lock replaces the cluster syllabus): ${clusterDirective}`,
+    `- Content Cluster: ${clusterLabel}${clusterKey ? " (desk — not a syllabus unless facets are locked)" : ""}`,
+    `- Cluster Analytical Lens (facet labels if locked; empty = do not recite the catalog): ${clusterDirective || "(none — typed Narrowing is the piece)"}`,
     ...(cleanLens ? [`- LENS Narrowing (operator's per-piece override — LAYERS UNDER the base; the thesis MUST honor BOTH the base lens AND this narrowing): ${cleanLens}`] : []),
     `- Corridor (geography): ${corridor || "(not set — write for the whole state)"}`,
     `- Target Emotion (reader stance): ${emotion || "(not set — default to Curiosity/Epiphany)"}`,
@@ -495,19 +495,19 @@ export function buildLensReframePrompt({
   const topic = String(operatorTopic || "").trim();
   const lockSummary = String(subjectLock?.summary || "").trim();
   return [
-    "ROLE: You are a senior editor at a regional culture magazine covering New Jersey. Your job is NOT to replace the cluster's editorial identity — that's the base directive below. Your job is to NARROW the base directive by stitching the operator's typed topic to the pills they already selected.",
-    "TASK: Write a 1-3 sentence reframed LENS that keeps the typed topic (if any) and combines it with the selected pills. Do NOT drop the topic. Do NOT drop a chip. Do NOT drift into a different cluster's territory.",
+    "ROLE: You are a senior editor at a regional culture magazine covering New Jersey. Cluster is optional — a desk of named topics, not a required syllabus. Your job is to stitch the operator's typed topic to the pills they already selected. Do NOT invent a cluster syllabus they did not lock.",
+    "TASK: Write a 1-3 sentence reframed LENS that keeps the typed topic (if any) and combines it with the selected pills. Do NOT drop the topic. Do NOT drop a chip. Do NOT drift into a cluster catalog they did not pick.",
     "",
-    "BASE DIRECTIVE (this stays the anchor — don't contradict it):",
-    `  Cluster: ${clusterLabel}`,
-    `  Directive: ${baseDirective}`,
+    "BASE DIRECTIVE (facet lock if any — don't contradict it; empty means the topic + pills ARE the piece):",
+    `  Cluster: ${clusterLabel || "(none — cluster is optional)"}`,
+    `  Directive: ${baseDirective || "(none — do not recite a cluster catalog)"}`,
     "",
     "OPERATOR PILLS (already selected — stitch these with the topic; do not drop a chip):",
-    `  Cluster: ${clusterLabel || "(none)"}`,
+    `  Cluster: ${clusterLabel || "(none — optional desk)"}`,
     `  Corridor: ${corridor || "(none — whole state)"}`,
     `  Emotion: ${emotion || "(none)"}`,
     `  Demographic: ${demoList.length ? demoList.join(", ") : "(none)"}`,
-    `  Subject lock: ${lockSummary || "(none — whole cluster)"}`,
+    `  Subject lock: ${lockSummary || "(none — no facet lock; do not dump the cluster syllabus)"}`,
     ...(Array.isArray(subjectLock?.promptLines) && subjectLock.promptLines.length ? ["", ...subjectLock.promptLines] : []),
     "",
     topic
@@ -515,13 +515,13 @@ export function buildLensReframePrompt({
       : "OPERATOR TOPIC: (none — stitch the pills into a narrowing angle on their own.)",
     "",
     "CONSTRAINTS:",
-    "1. NARROW, DO NOT REPLACE. The base directive is what THIS piece sees. If it is a facet lock, do not widen back to sibling facets or the cluster syllabus. If it is the whole-cluster directive, stay inside that cluster.",
+    "1. NARROW, DO NOT REPLACE. The base directive is what THIS piece sees. If it is a facet lock, do not widen back to sibling facets or the cluster syllabus. If it is empty, do not invent a cluster syllabus — the typed topic and pills are the piece.",
     "2. TOPIC + PILLS. If an OPERATOR TOPIC is present, the reframe must keep that named subject and combine it with the selected pills. Do not replace the topic with a generic cluster recitation.",
     "3. GROUND IN THE CORRIDOR + AUDIENCE when those pills are set.",
     "4. NO META-WRITING. Do not refer to the piece, the carousel, or the reader. State the narrowing as an editorial angle, not as memo scaffolding.",
     "5. NO INVENTED SPECIFICS beyond the base directive, the pills, and the operator topic. Names the operator typed are authorized.",
     "6. LENGTH: 1 to 3 sentences. Reads as an angle, not a paragraph.",
-    "7. SUBJECT LOCK: If SUBJECT LOCK lines appear above, the reframe must name those sub-versions. Do not widen back to the whole cluster, and do not import a different cluster's territory unless JOIN names it.",
+    "7. SUBJECT LOCK: If SUBJECT LOCK lines appear above, the reframe must name those sub-versions. Do not widen to unselected facets, and do not import a different cluster's territory unless JOIN names it. Empty facets are not permission to recite the catalog.",
     "",
     'Return ONLY JSON in this exact shape: {"reframe": "..."}',
   ].join("\n");
@@ -532,11 +532,8 @@ export async function synthesizeLensReframe({ apiKey, cluster, corridor, emotion
     throw new Error("Missing Gemini API key");
   }
   const clusterKey = resolveClusterKey(cluster);
-  if (!clusterKey) {
-    throw new Error("Pick a Content Cluster first — the base LENS is what the reframe narrows.");
-  }
-  const clusterLabel = CONTENT_CLUSTERS[clusterKey].label;
-  const baseDirective = String(lensBase || "").trim() || CONTENT_CLUSTERS[clusterKey].directive;
+  const clusterLabel = clusterKey ? CONTENT_CLUSTERS[clusterKey].label : "";
+  const baseDirective = String(lensBase || "").trim();
   const prompt = buildLensReframePrompt({
     clusterLabel,
     baseDirective,
@@ -594,15 +591,16 @@ export async function synthesizeLensReframe({ apiKey, cluster, corridor, emotion
   return reframe.slice(0, 800);
 }
 
-// Compose the resolved LENS block for downstream prompts. When the
-// operator has typed or generated an editorial_lens override, layer
-// it as narrowing under the base directive (both remain visible).
-// When empty, return just the base. Callers use this instead of
-// getClusterDirective when they need the full resolved LENS.
+// Compose the resolved LENS block for downstream prompts. Base is
+// the facet lock (if any). Override is typed Narrowing. Empty base
+// does NOT restore the cluster syllabus — Narrowing is the piece.
 export function resolveEditorialLens({ cluster, override, base } = {}) {
-  const baseDirective = String(base || "").trim() || getClusterDirective(cluster);
+  // No silent fallback to the cluster syllabus. Empty chips mean
+  // cluster is a desk; the typed Narrowing (override) IS the LENS.
+  void cluster;
+  const baseDirective = String(base || "").trim();
   const clean = String(override || "").trim();
-  if (!baseDirective) return { base: "", override: "", combined: clean };
+  if (!baseDirective) return { base: "", override: clean, combined: clean };
   if (!clean) return { base: baseDirective, override: "", combined: baseDirective };
   return {
     base: baseDirective,
@@ -704,10 +702,7 @@ export async function synthesizeHook({ apiKey, cluster, pov, emotion, demographi
   if (!apiKey || !String(apiKey).trim()) {
     throw new Error("Missing Gemini API key");
   }
-  const clusterKey = resolveClusterKey(cluster);
-  if (!clusterKey) {
-    throw new Error("Pick a Content Cluster first — the LENS anchors the hook synthesis.");
-  }
+  void cluster;
   const cleanPOV = String(pov || "").trim();
   if (!cleanPOV) {
     throw new Error("Write or draft an Editorial POV first — the hook is the POV compressed into a scroll-stopper.");
