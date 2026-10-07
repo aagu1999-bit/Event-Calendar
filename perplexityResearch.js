@@ -26,7 +26,6 @@ import {
   countSourceClasses,
   argumentDeskEmpty,
   preferDeskSources,
-  clusterSearchQueries,
   lensDiscoveryQueries,
   apparentLookthroughDomains,
   lookthroughSearchQueries,
@@ -78,23 +77,20 @@ function buildUserPayload({ cluster = "", topic = "", pov = "", existingBullets 
   const narrowingClause = resolvedLens.override;
   const workingTitle = String(topic || "").trim();
   const povLine = String(pov || "").trim();
-  const demoList = Array.isArray(demographics)
-    ? demographics.filter((d) => typeof d === "string" && d.trim()).map((d) => d.trim())
-    : [];
-  const demoLine = demoList.length ? demoList.join(", ") : "";
+  const place = String(corridor || "").trim();
+  void demographics;
   const userLines = [
     `Topic: ${workingTitle || "(none)"}.`,
-    `Corridor: ${String(corridor || "").trim() || "(none)"}.`,
-    `Editorial Cluster: ${clusterLabel || "(none)"}.`,
-    `Target Audience (who these venues must serve): ${demoLine || "(none specified — infer from cluster)"}.`,
     `Brand thesis: ${povLine || "N/A"}.`,
   ];
-  if (clusterDirective) {
-    userLines.push(lock.facets.length
-      ? `Analytical lens (facet lock — this piece, not the cluster syllabus): ${clusterDirective}`
-      : `Analytical lens (base — cluster identity): ${clusterDirective}`);
+  if (place) userLines.push(`Geography context (not a story spend): ${place}.`);
+  if (lock.facets.length && clusterLabel) {
+    userLines.push(`Editorial Cluster desk (topics locked): ${clusterLabel}.`);
   }
-  if (narrowingClause) userLines.push(`Analytical lens NARROWING (operator override for THIS piece — layers under the live LENS; does not restore the cluster syllabus): ${narrowingClause}`);
+  if (clusterDirective) {
+    userLines.push(`Analytical lens (facet lock — this piece, not the cluster syllabus): ${clusterDirective}`);
+  }
+  if (narrowingClause) userLines.push(`Analytical lens (LENS this piece — pills only count if they were Reframed into this text): ${narrowingClause}`);
   const lockLines = subjectLockPromptLines(lock);
   if (lockLines.length) {
     userLines.push("");
@@ -115,7 +111,6 @@ function buildUserPayload({ cluster = "", topic = "", pov = "", existingBullets 
   const named = [
     ...lock.searches,
     ...coherenceGapSearches({ gaps: coherenceGaps, topic: workingTitle }),
-    ...(lock.facets.length ? [] : clusterSearchQueries(cluster)),
     ...(Array.isArray(extraSearches) ? extraSearches : []),
   ];
   if (named.length) {
