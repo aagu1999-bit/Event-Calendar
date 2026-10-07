@@ -186,9 +186,11 @@ function CharCounter({ current, max, error }) {
   );
 }
 
-function LockChipRow({ label, hint, options, selected, onToggle, accent, max = 3, optionLabel }) {
+function LockChipRow({ label, hint, options, selected, onToggle, accent, max = 3, optionLabel, hoverPrefix = "Catalog" }) {
+  const [hoverId, setHoverId] = useState(null);
   if (!options.length) return null;
   const picked = Array.isArray(selected) ? selected : [];
+  const hoverOpt = options.find((o) => o.id === hoverId);
   return (
     <div style={{ marginTop: label ? 8 : 4 }}>
       {label ? <div style={{ ...labelStyle, marginBottom: 6 }}>{label}</div> : null}
@@ -202,7 +204,11 @@ function LockChipRow({ label, hint, options, selected, onToggle, accent, max = 3
               type="button"
               disabled={atCap}
               onClick={() => onToggle(opt.id)}
-              title={opt.hint || opt.search || opt.label}
+              onMouseEnter={() => setHoverId(opt.id)}
+              onMouseLeave={() => setHoverId(null)}
+              onFocus={() => setHoverId(opt.id)}
+              onBlur={() => setHoverId(null)}
+              title={opt.hint || opt.label}
               style={{
                 padding: "4px 10px",
                 background: on ? accent.bg : "transparent",
@@ -219,6 +225,20 @@ function LockChipRow({ label, hint, options, selected, onToggle, accent, max = 3
           );
         })}
       </div>
+      {hoverOpt?.hint ? (
+        <div style={{
+          ...hintStyle,
+          marginTop: 6,
+          padding: "6px 10px",
+          background: "rgba(167,139,250,0.08)",
+          border: `1px solid ${whisper}`,
+          borderRadius: 6,
+          color: cream,
+          fontStyle: "normal",
+        }}>
+          {hoverPrefix} · {optionLabel ? optionLabel(hoverOpt) : hoverOpt.label}: {hoverOpt.hint}
+        </div>
+      ) : null}
       {hint ? <div style={hintStyle}>{hint}</div> : null}
     </div>
   );
@@ -1509,8 +1529,9 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
               <LockChipRow
                 label="Locales · optional"
                 hint={local.corridor
-                  ? `Empty = the whole corridor. Max ${LIMITS.LOCALES_MAX}. Pin the towns so Fuel doesn't wander.`
+                  ? `Empty = the whole corridor. Max ${LIMITS.LOCALES_MAX}. Places are context for Fuel, not a story spend. Hover a chip for the catalog place-name.`
                   : "Pick a corridor first — locales live inside it."}
+                hoverPrefix="Place"
                 options={localesForCorridor(LEGACY_CORRIDOR_ALIASES[local.corridor] || local.corridor)}
                 selected={selectedLocales}
                 onToggle={toggleLocale}
@@ -1549,8 +1570,9 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
               <LockChipRow
                 label="Facets · optional"
                 hint={local.cluster
-                  ? `Empty = the whole cluster. Max ${LIMITS.FACETS_MAX}. Pick the sub-version so Fuel doesn't mash overlapping topics.`
+                  ? `Empty = the whole cluster. Max ${LIMITS.FACETS_MAX}. Hover a chip for the catalog line — Narrowing / Hook / POV beat that line.`
                   : "Pick a cluster first — facets live inside it."}
+                hoverPrefix="Catalog"
                 options={facetsForCluster(local.cluster)}
                 selected={selectedFacets}
                 onToggle={toggleFacet}
@@ -1690,7 +1712,8 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
               </summary>
               <LockChipRow
                 label=""
-                hint="Empty = stay inside this cluster. A join is the only permitted intersection (e.g. parking-lot brewery joined to liquor cap)."
+                hint="Empty = stay inside this cluster. A join is the only permitted intersection (e.g. parking-lot brewery joined to liquor cap). Hover a chip for the catalog line."
+                hoverPrefix="Catalog"
                 options={joinFacetOptions(local.cluster)}
                 selected={selectedJoin ? [selectedJoin] : []}
                 onToggle={toggleJoin}

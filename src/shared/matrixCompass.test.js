@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { isListicleHook, hookEvidenceLines, buildHookPrompt, buildLensReframePrompt } from "./matrixCompass.js";
-import { buildSubjectLock, subjectLockPromptLines } from "./subjectLock.js";
+import { buildSubjectLock, subjectLockPromptLines, lockLensDirective } from "./subjectLock.js";
 
 test("listicle hooks are the Google-vs-CGE failure", () => {
   assert.equal(isListicleHook("Did your commuter community? Discover surprising new gathering spots"), true);
@@ -54,7 +54,7 @@ test("reframe stitches a typed topic to the selected pills", () => {
   });
   const prompt = buildLensReframePrompt({
     clusterLabel: "Philosophy & Behavioral Psychology of Gathering",
-    baseDirective: "This piece is locked to Social friction — the cost of being outside.",
+    baseDirective: lockLensDirective(lock),
     corridor: "Transit Village Suburbs",
     emotion: "Curiosity/Epiphany",
     demographics: ["Young Working Professionals"],
