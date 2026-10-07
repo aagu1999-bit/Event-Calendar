@@ -42,6 +42,7 @@ import {
   localesForCorridor,
   joinFacetOptions,
   subjectLockPromptLines,
+  lockLensDirective,
   getFacet,
 } from "./subjectLock.js";
 import { validateMatrix, matrixCompleteness, isMatrixReadyForGeneration } from "./matrixValidation.js";
@@ -342,6 +343,12 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
   const subjectLockPrompt = useMemo(
     () => ({ promptLines: subjectLockPromptLines(subjectLock), summary: subjectLock.summary, empty: subjectLock.empty }),
     [subjectLock]
+  );
+  // Live LENS this piece sees. A picked facet replaces the cluster
+  // syllabus so Draft Hook cannot recite every theory on the chip row.
+  const liveLens = useMemo(
+    () => lockLensDirective(subjectLock) || getClusterDirective(local.cluster),
+    [subjectLock, local.cluster]
   );
   const coherenceIsStale = useMemo(() => {
     if (!coherenceResult || !coherenceCheckedAt) return false;
@@ -801,6 +808,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
         demographics: selectedDemographics,
         editorialLens: local.editorial_lens,
         subjectLock: subjectLockPrompt,
+        lensBase: liveLens,
       });
       if (!thesis) {
         setSynthError("Gemini returned an empty thesis. Retry.");
@@ -859,6 +867,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
         editorialLens: local.editorial_lens,
         anchors: bullets,
         subjectLock: subjectLockPrompt,
+        lensBase: liveLens,
       });
       if (!hook) {
         setHookError("Gemini returned an empty hook. Retry.");
@@ -909,7 +918,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
       // combined) so the coherence critic evaluates the argument against
       // the whole lens, not just the cluster's base directive. Without
       // this, typing a narrowing into LENS did nothing at check time.
-      const resolvedLens = resolveEditorialLens({ cluster: local.cluster, override: local.editorial_lens });
+      const resolvedLens = resolveEditorialLens({ cluster: local.cluster, override: local.editorial_lens, base: liveLens });
       const result = await checkArgumentCoherence({
         apiKey,
         hook: cleanHook,
@@ -959,6 +968,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
         emotion: local.target_emotion,
         demographics: selectedDemographics,
         subjectLock: subjectLockPrompt,
+        lensBase: liveLens,
       });
       if (!reframe) {
         setLensReframeError("Gemini returned an empty reframe. Retry.");
@@ -1069,6 +1079,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
       emotion: local.target_emotion,
       demographics: selectedDemographics,
       lockSentence: subjectLock.composeClause,
+      thesisOverride: lockLensDirective(subjectLock),
     });
     if (!nextAuto) return;
     const currentPOV = String(local.editorial_pov || "").trim();
@@ -1428,7 +1439,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                 <div><b style={{ color: cream }}>Hook</b> · POV · Anchors · Cluster + <b style={{ color: "#A78BFA" }}>LENS narrowing</b>  <span style={{ color: faint }}>→ (click 🔎 Check argument)</span>  <b style={{ color: "#A78BFA" }}>coherence verdict</b></div>
               </div>
               <div style={{ marginTop: 8, fontSize: "0.6rem", color: "#63B3ED", fontWeight: 700, letterSpacing: "0.06em" }}>
-                Subject lock (facets · locales · join) pins the sub-version before Draft Thesis / Fuel Research. Empty chips keep today's whole-cluster behavior. A join is the only permitted intersection with another cluster.
+                A picked facet REPLACES the cluster LENS for this piece. Empty chips keep the syllabus. Downstream synths read the LENS on screen, not the parked catalog.
               </div>
               <div style={{ marginTop: 10, color: faint, fontStyle: "italic" }}>
                 Values you TYPE (Hook, POV, LENS narrowing, anchors) never trigger synth automatically — the button is always the trigger. That's by design so a stray edit doesn't overwrite a carefully-crafted downstream field. Downstream reads UPSTREAM: LENS/POV/Hook all read the same Cluster+Emotion+Demographic; Fuel Research reads everything above it; Coherence Check reads everything.
@@ -1545,16 +1556,20 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                 max={LIMITS.FACETS_MAX}
                 accent={{ bg: orbitBg, border: orbit, color: orbit }}
               />
-              {getClusterDirective(local.cluster) ? (
+              {liveLens ? (
                 <div style={{ marginTop: 8 }}>
-                  {/* Base directive — hardcoded per cluster, canonical
-                      anchor for cluster identity. Always visible so the
-                      operator sees what the cluster is "about" before
-                      layering an override. */}
+                  {/* Live LENS this piece sees. A facet chip replaces
+                      the cluster syllabus so the operator can tell
+                      what Draft Hook / Fuel will actually drink. */}
                   <div style={{ ...hintStyle, color: muted, fontStyle: "italic", lineHeight: 1.55, marginBottom: 8 }}>
                     <span style={{ color: orbit, fontStyle: "normal", fontWeight: 700, letterSpacing: "0.06em" }}>◆ LENS</span>{" "}
-                    {getClusterDirective(local.cluster)}
+                    {liveLens}
                   </div>
+                  {subjectLock.facets.length > 0 && (
+                    <div style={{ ...hintStyle, marginTop: -4, marginBottom: 8 }}>
+                      Locked to {subjectLock.summary}. Cluster syllabus is parked until you clear the chips.
+                    </div>
+                  )}
                   {/* Operator override textarea + Reframe/Reset buttons.
                       Empty = base directive alone reaches Perplexity +
                       Gemini. Populated = layers as a narrowing under
@@ -1574,7 +1589,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                             onClick={reframeLens}
                             disabled={disabled}
                             title={clusterKey
-                              ? "Fire a Gemini Flash-Lite call to reframe the LENS through the current Corridor + Emotion + Demographic. Layers as a narrowing under the base — base stays canonical."
+                              ? "Fire a Gemini Flash-Lite call to reframe the LENS this piece sees (a facet lock, or the cluster syllabus if chips are empty) through Corridor + Emotion + Demographic."
                               : "Pick a Content Cluster first — the base LENS is what the reframe narrows."}
                             style={{
                               background: disabled ? "transparent" : "rgba(167,139,250,0.14)",
@@ -1598,7 +1613,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                         <button
                           type="button"
                           onClick={() => applyPatch({ editorial_lens: undefined })}
-                          title="Clear the narrowing — base cluster directive alone reaches downstream prompts."
+                          title="Clear the narrowing — the LENS this piece sees (facet lock or cluster syllabus) reaches downstream prompts alone."
                           style={{
                             background: "transparent",
                             border: `1px solid ${whisper}`,
@@ -1620,7 +1635,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                     style={{ ...textareaStyle, minHeight: 56, fontSize: "0.78rem" }}
                     value={local.editorial_lens || ""}
                     onChange={(e) => applyPatch({ editorial_lens: e.target.value })}
-                    placeholder="Optional. Narrow the base LENS through the specific angle this piece needs — a policy category, a corridor-specific pressure, a demographic-relevant framing. Empty = base directive alone. Never rewrites the base; layers under it."
+                    placeholder="Optional. Narrow the LENS this piece already sees — a corridor-specific pressure, a demographic-relevant framing. Empty = the live LENS alone. Layers under a facet lock; does not restore the cluster syllabus."
                     maxLength={800}
                   />
                   {lensReframeError ? (

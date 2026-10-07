@@ -47,7 +47,7 @@ export function summarizeSlidesForFeedback(slides) {
 
 import { EVENT_TIERS, DEMOGRAPHIC_PRESETS, LEGACY_DEMOGRAPHIC_ALIASES } from "./matrixEnums.js";
 import { getClusterLabel, getClusterDefaultPOV, resolveEditorialLens, isListicleHook } from "./matrixCompass.js";
-import { buildSubjectLock } from "./subjectLock.js";
+import { buildSubjectLock, lockLensDirective } from "./subjectLock.js";
 import { CONTENT_DEFAULT_VOICE } from "./cgeThesis.js";
 
 // Register (mode) mapping — matches the state variable `mode` in
@@ -129,12 +129,20 @@ export function eventMatrixToFillSeed(event) {
   if (!event) return null;
   const m = event.matrix || {};
   const hookA = String(m.hook_a_side || "").trim();
+  const lock = buildSubjectLock({
+    cluster: m.cluster,
+    corridor: m.corridor,
+    subjectFacets: m.subject_facets,
+    corridorLocales: m.corridor_locales,
+    joinFacet: m.join_facet,
+  });
+  const lockDirective = lockLensDirective(lock);
   // POV fallback: when the operator leaves Editorial POV blank, use the
   // cluster's brand-voice default POV from the Compass Bank so the Editor
-  // pass has at least a thesis to work from. Empty string when the cluster
-  // itself doesn't resolve.
+  // pass has at least a thesis to work from. A facet lock parks that
+  // default — Oldenburg must not leak into a social-friction piece.
   const typedPOV = String(m.editorial_pov || "").trim();
-  const pov = typedPOV || getClusterDefaultPOV(m.cluster);
+  const pov = typedPOV || (lock.facets.length ? "" : getClusterDefaultPOV(m.cluster));
   const bullets = Array.isArray(m.data_points)
     ? m.data_points.map((b) => String(b || "").trim()).filter(Boolean)
     : [];
@@ -163,19 +171,13 @@ export function eventMatrixToFillSeed(event) {
   const { base: clusterDirectiveBase, override: lensOverride, combined: clusterDirective } = resolveEditorialLens({
     cluster: m.cluster,
     override: m.editorial_lens,
+    base: lockDirective || undefined,
   });
   // clusterDirectiveBase is preserved as a distinct seed field so
   // downstream consumers (Perplexity, spine) can quote the base
   // separately from the narrowing when useful.
   void clusterDirectiveBase; void lensOverride;
   const clusterLabel = m.cluster ? (getClusterLabel(m.cluster) || m.cluster) : "";
-  const lock = buildSubjectLock({
-    cluster: m.cluster,
-    corridor: m.corridor,
-    subjectFacets: m.subject_facets,
-    corridorLocales: m.corridor_locales,
-    joinFacet: m.join_facet,
-  });
   const contextLines = [];
   if (pov) contextLines.push(`POV: ${pov}`);
   if (!lock.empty) {

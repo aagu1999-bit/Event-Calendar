@@ -12,11 +12,12 @@
 // If the dive fails, the scout brief still ships (phase: "scout").
 // That brief is the product. The desks are homework on it.
 import Perplexity from "@perplexity-ai/perplexity_ai";
-import { getClusterDirective, getClusterLabel, isHistoricalCluster, resolveEditorialLens } from "./src/shared/matrixCompass.js";
+import { getClusterLabel, isHistoricalCluster, resolveEditorialLens } from "./src/shared/matrixCompass.js";
 import {
   buildSubjectLock,
   subjectLockPromptLines,
   subjectLockInstruction,
+  lockLensDirective,
 } from "./src/shared/subjectLock.js";
 import {
   OFFICIAL_SEARCH_DOMAINS,
@@ -60,7 +61,19 @@ const BULLETS_RESPONSE_SCHEMA = {
 // matrix dimensions. Only the instructions differ.
 function buildUserPayload({ cluster = "", topic = "", pov = "", existingBullets = [], tier = "", corridor = "", demographics = [], lensOverride = "", extraSearches = [], coherenceGaps = [], coherenceReason = "", subjectFacets = [], corridorLocales = [], joinFacet = "" } = {}) {
   const clusterLabel = getClusterLabel(cluster) || String(cluster || "").trim();
-  const resolvedLens = resolveEditorialLens({ cluster, override: lensOverride });
+  const lock = buildSubjectLock({
+    cluster,
+    corridor,
+    subjectFacets,
+    corridorLocales,
+    joinFacet,
+  });
+  const lockDirective = lockLensDirective(lock);
+  const resolvedLens = resolveEditorialLens({
+    cluster,
+    override: lensOverride,
+    base: lockDirective || undefined,
+  });
   const clusterDirective = resolvedLens.base;
   const narrowingClause = resolvedLens.override;
   const workingTitle = String(topic || "").trim();
@@ -69,13 +82,6 @@ function buildUserPayload({ cluster = "", topic = "", pov = "", existingBullets 
     ? demographics.filter((d) => typeof d === "string" && d.trim()).map((d) => d.trim())
     : [];
   const demoLine = demoList.length ? demoList.join(", ") : "";
-  const lock = buildSubjectLock({
-    cluster,
-    corridor,
-    subjectFacets,
-    corridorLocales,
-    joinFacet,
-  });
   const userLines = [
     `Topic: ${workingTitle || "(none)"}.`,
     `Corridor: ${String(corridor || "").trim() || "(none)"}.`,
@@ -83,8 +89,12 @@ function buildUserPayload({ cluster = "", topic = "", pov = "", existingBullets 
     `Target Audience (who these venues must serve): ${demoLine || "(none specified — infer from cluster)"}.`,
     `Brand thesis: ${povLine || "N/A"}.`,
   ];
-  if (clusterDirective) userLines.push(`Analytical lens (base — cluster identity): ${clusterDirective}`);
-  if (narrowingClause) userLines.push(`Analytical lens NARROWING (operator override for THIS piece — narrows the base to a specific angle, does NOT replace it; every fact must satisfy BOTH clauses): ${narrowingClause}`);
+  if (clusterDirective) {
+    userLines.push(lock.facets.length
+      ? `Analytical lens (facet lock — this piece, not the cluster syllabus): ${clusterDirective}`
+      : `Analytical lens (base — cluster identity): ${clusterDirective}`);
+  }
+  if (narrowingClause) userLines.push(`Analytical lens NARROWING (operator override for THIS piece — layers under the live LENS; does not restore the cluster syllabus): ${narrowingClause}`);
   const lockLines = subjectLockPromptLines(lock);
   if (lockLines.length) {
     userLines.push("");
@@ -105,7 +115,7 @@ function buildUserPayload({ cluster = "", topic = "", pov = "", existingBullets 
   const named = [
     ...lock.searches,
     ...coherenceGapSearches({ gaps: coherenceGaps, topic: workingTitle }),
-    ...clusterSearchQueries(cluster),
+    ...(lock.facets.length ? [] : clusterSearchQueries(cluster)),
     ...(Array.isArray(extraSearches) ? extraSearches : []),
   ];
   if (named.length) {

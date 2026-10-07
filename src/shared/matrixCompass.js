@@ -307,10 +307,10 @@ const DEMOGRAPHIC_PHRASES = {
 // Any missing dimension is elided gracefully — the composed POV still
 // reads if only cluster is set. Returns "" if there's not even a
 // cluster to build on.
-export function composePOV({ cluster, corridor, emotion, demographics, lockSentence = "" } = {}) {
+export function composePOV({ cluster, corridor, emotion, demographics, lockSentence = "", thesisOverride = "" } = {}) {
   const clusterKey = resolveClusterKey(cluster);
   if (!clusterKey) return "";
-  const thesis = CONTENT_CLUSTERS[clusterKey].defaultPOV || "";
+  const thesis = String(thesisOverride || "").trim() || CONTENT_CLUSTERS[clusterKey].defaultPOV || "";
   if (!thesis) return "";
 
   const anchor = corridor ? CORRIDOR_ANCHORS[corridor] : "";
@@ -363,7 +363,7 @@ function joinDemographics(list) {
 // dependency on the Gemini helper when consumers only need the
 // static clusters + composePOV. Callers pass an apiKey; empty
 // apiKey → throw so the caller can surface a clear error UI.
-export async function synthesizeThesis({ apiKey, cluster, corridor, emotion, demographics = [], editorialLens = "", subjectLock = null } = {}) {
+export async function synthesizeThesis({ apiKey, cluster, corridor, emotion, demographics = [], editorialLens = "", subjectLock = null, lensBase = "" } = {}) {
   if (!apiKey || !String(apiKey).trim()) {
     throw new Error("Missing Gemini API key");
   }
@@ -372,7 +372,7 @@ export async function synthesizeThesis({ apiKey, cluster, corridor, emotion, dem
     throw new Error("Pick a Content Cluster first — it anchors the LENS the synthesizer works through.");
   }
   const clusterLabel = CONTENT_CLUSTERS[clusterKey].label;
-  const clusterDirective = CONTENT_CLUSTERS[clusterKey].directive;
+  const clusterDirective = String(lensBase || "").trim() || CONTENT_CLUSTERS[clusterKey].directive;
   const cleanLens = String(editorialLens || "").trim();
   const demoList = Array.isArray(demographics)
     ? demographics.filter((d) => typeof d === "string" && d.trim()).map((d) => d.trim())
@@ -390,7 +390,7 @@ export async function synthesizeThesis({ apiKey, cluster, corridor, emotion, dem
     "",
     "THE VARIABLES:",
     `- Content Cluster: ${clusterLabel}`,
-    `- Cluster Analytical Lens (base): ${clusterDirective}`,
+    `- Cluster Analytical Lens (this piece — a facet lock replaces the cluster syllabus): ${clusterDirective}`,
     ...(cleanLens ? [`- LENS Narrowing (operator's per-piece override — LAYERS UNDER the base; the thesis MUST honor BOTH the base lens AND this narrowing): ${cleanLens}`] : []),
     `- Corridor (geography): ${corridor || "(not set — write for the whole state)"}`,
     `- Target Emotion (reader stance): ${emotion || "(not set — default to Curiosity/Epiphany)"}`,
@@ -480,7 +480,7 @@ export async function synthesizeThesis({ apiKey, cluster, corridor, emotion, dem
 //
 // Same client-side Gemini Flash-Lite architecture as synthesizeThesis
 // and synthesizeHook. Explicit button click only.
-export async function synthesizeLensReframe({ apiKey, cluster, corridor, emotion, demographics = [], subjectLock = null } = {}) {
+export async function synthesizeLensReframe({ apiKey, cluster, corridor, emotion, demographics = [], subjectLock = null, lensBase = "" } = {}) {
   if (!apiKey || !String(apiKey).trim()) {
     throw new Error("Missing Gemini API key");
   }
@@ -489,7 +489,7 @@ export async function synthesizeLensReframe({ apiKey, cluster, corridor, emotion
     throw new Error("Pick a Content Cluster first — the base LENS is what the reframe narrows.");
   }
   const clusterLabel = CONTENT_CLUSTERS[clusterKey].label;
-  const baseDirective = CONTENT_CLUSTERS[clusterKey].directive;
+  const baseDirective = String(lensBase || "").trim() || CONTENT_CLUSTERS[clusterKey].directive;
   const demoList = Array.isArray(demographics)
     ? demographics.filter((d) => typeof d === "string" && d.trim()).map((d) => d.trim())
     : [];
@@ -509,7 +509,7 @@ export async function synthesizeLensReframe({ apiKey, cluster, corridor, emotion
     ...(Array.isArray(subjectLock?.promptLines) && subjectLock.promptLines.length ? ["", ...subjectLock.promptLines] : []),
     "",
     "CONSTRAINTS:",
-    "1. NARROW, DO NOT REPLACE. The base directive is the cluster's editorial identity. Your reframe is a specific angle inside that identity. If your reframe reads like a different cluster's directive (e.g., Nightlife Dilemma reframed to sound like Regional Demographics), you've overreached. Stay inside the cluster.",
+    "1. NARROW, DO NOT REPLACE. The base directive is what THIS piece sees. If it is a facet lock, do not widen back to sibling facets or the cluster syllabus. If it is the whole-cluster directive, stay inside that cluster — do not drift into a different cluster's territory.",
     "2. GROUND IN THE CORRIDOR + AUDIENCE. The reframe should name what SPECIFICALLY matters about this cluster for this corridor's readers of this demographic. Example: Policy Mechanics through Urban / Commuter Core + Young Working Professionals + Ambition might narrow the base directive from liquor licenses toward rent-cap ordinances, transit-funding formulas, and workforce-housing policy — still Policy Mechanics, but the SPECIFIC policies these readers actually care about.",
     "3. NO META-WRITING. Do not refer to the piece, the carousel, or the reader. State the narrowing as an editorial angle, not as memo scaffolding.",
     "4. NO INVENTED SPECIFICS. Do not name specific ordinances, statutes, venues, or towns the base directive didn't already mention. Stay at the level of CATEGORIES (rent ordinances, transit formulas, permit thresholds) — the writer will source the specifics.",
@@ -571,15 +571,15 @@ export async function synthesizeLensReframe({ apiKey, cluster, corridor, emotion
 // it as narrowing under the base directive (both remain visible).
 // When empty, return just the base. Callers use this instead of
 // getClusterDirective when they need the full resolved LENS.
-export function resolveEditorialLens({ cluster, override } = {}) {
-  const baseDirective = getClusterDirective(cluster);
+export function resolveEditorialLens({ cluster, override, base } = {}) {
+  const baseDirective = String(base || "").trim() || getClusterDirective(cluster);
   const clean = String(override || "").trim();
   if (!baseDirective) return { base: "", override: "", combined: clean };
   if (!clean) return { base: baseDirective, override: "", combined: baseDirective };
   return {
     base: baseDirective,
     override: clean,
-    combined: `${baseDirective}\n\nOPERATOR NARROWING — this piece narrows the cluster's frame through the current Corridor + Emotion + Demographic picks: ${clean}`,
+    combined: `${baseDirective}\n\nOPERATOR NARROWING — this piece narrows the LENS this piece already sees (a facet lock replaces the cluster syllabus): ${clean}`,
   };
 }
 
@@ -627,10 +627,12 @@ export function buildHookPrompt({
   editorialLens = "",
   anchors = [],
   subjectLock = null,
+  lensBase = "",
 } = {}) {
   const cleanPOV = String(pov || "").trim();
   const cleanEmotion = String(emotion || "").trim();
   const cleanLens = String(editorialLens || "").trim();
+  const cleanBase = String(lensBase || "").trim();
   const demoList = Array.isArray(demographics)
     ? demographics.filter((d) => typeof d === "string" && d.trim()).map((d) => d.trim())
     : [];
@@ -641,6 +643,7 @@ export function buildHookPrompt({
     "",
     "THE INPUTS:",
     `- The Core Argument: ${cleanPOV}`,
+    ...(cleanBase ? [`- Analytical lens (this piece — a facet lock replaces the cluster syllabus): ${cleanBase}`] : []),
     ...(cleanLens ? [`- LENS Narrowing: ${cleanLens}`] : []),
     ...(evidence.length
       ? [
@@ -662,13 +665,14 @@ export function buildHookPrompt({
     "2. Audience sets vocabulary. Speak to them. Do not sound like a marketer.",
     '3. No listicle tropes: NEVER "Discover surprising", "new gathering spots", "Did your community", "Did you know", "Here\'s why", "The real reason", "hidden gems", "spots you need to know", "Let\'s talk about", "You won\'t believe", "The truth is", "Everything you know is wrong".',
     "4. Proper nouns: you MAY and SHOULD name towns, roads, corridors, and patterns that already appear in the POV, LENS, or Fuel starting points. Do NOT invent names that are not there.",
+    "4b. If the analytical lens is a facet lock, do not name sibling theories or the rest of the cluster syllabus even if the POV still lists them. Stay on the locked sub-version.",
     "5. Format: one sentence. No quotes, no preamble, no framing.",
     "",
     'Return ONLY JSON in this exact shape: {"hook": "..."}',
   ].join("\n");
 }
 
-export async function synthesizeHook({ apiKey, cluster, pov, emotion, demographics = [], editorialLens = "", anchors = [], subjectLock = null } = {}) {
+export async function synthesizeHook({ apiKey, cluster, pov, emotion, demographics = [], editorialLens = "", anchors = [], subjectLock = null, lensBase = "" } = {}) {
   if (!apiKey || !String(apiKey).trim()) {
     throw new Error("Missing Gemini API key");
   }
@@ -681,7 +685,7 @@ export async function synthesizeHook({ apiKey, cluster, pov, emotion, demographi
     throw new Error("Write or draft an Editorial POV first — the hook is the POV compressed into a scroll-stopper.");
   }
 
-  const prompt = buildHookPrompt({ pov: cleanPOV, emotion, demographics, editorialLens, anchors, subjectLock });
+  const prompt = buildHookPrompt({ pov: cleanPOV, emotion, demographics, editorialLens, anchors, subjectLock, lensBase });
 
   const MODEL = "gemini-2.5-flash-lite";
   const URL_BASE = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
