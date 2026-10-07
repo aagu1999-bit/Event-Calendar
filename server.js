@@ -795,7 +795,7 @@ app.get("/api/matrix/perplexity-status", (_req, res) => {
 
 app.post("/api/matrix/research", express.json({ limit: "128kb" }), async (req, res) => {
   try {
-    const { cluster, topic, pov, existingBullets, tier, corridor, demographics, lensOverride, coherenceGaps, coherenceReason, mode } = req.body || {};
+    const { cluster, topic, pov, existingBullets, tier, corridor, demographics, lensOverride, coherenceGaps, coherenceReason, mode, subjectFacets, corridorLocales, joinFacet } = req.body || {};
     const result = await perplexityResearch.fuelResearchViaPerplexity({
       cluster: typeof cluster === "string" ? cluster : "",
       topic: typeof topic === "string" ? topic : "",
@@ -812,6 +812,13 @@ app.post("/api/matrix/research", express.json({ limit: "128kb" }), async (req, r
         : [],
       coherenceReason: typeof coherenceReason === "string" ? coherenceReason.trim().slice(0, 400) : "",
       mode: typeof mode === "string" ? mode : "full",
+      subjectFacets: Array.isArray(subjectFacets)
+        ? subjectFacets.filter((id) => typeof id === "string" && id.trim()).map((id) => id.trim()).slice(0, 3)
+        : [],
+      corridorLocales: Array.isArray(corridorLocales)
+        ? corridorLocales.filter((id) => typeof id === "string" && id.trim()).map((id) => id.trim()).slice(0, 3)
+        : [],
+      joinFacet: typeof joinFacet === "string" ? joinFacet.trim().slice(0, 80) : "",
     });
     if (!result.ok) {
       const statusByCode = { not_configured: 501, no_seed: 400, auth: 401, rate_limit: 429, upstream: 502, bad_response: 502, empty: 422, verification_dropped_all: 422, timeout: 504, network: 502 };

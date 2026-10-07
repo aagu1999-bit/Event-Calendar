@@ -106,6 +106,8 @@ export const LIMITS = {
   BULLETS_MIN: 1,     // at least one data point to mark Ready
   BULLETS_MAX: 8,     // thesis + starting points a writer can dive; trim before the carousel if it overloads
   TRIGGER_MAX: 20,    // DM trigger — short and shoutable
+  FACETS_MAX: 3,      // subject-lock cluster facets (empty = whole cluster)
+  LOCALES_MAX: 3,     // subject-lock corridor locales (empty = whole corridor)
 };
 
 // Every matrix field name the store knows about — used by completeness
@@ -115,6 +117,12 @@ export const MATRIX_FIELDS = [
   "event_tier",
   "corridor",
   "cluster",
+  // Subject lock — named sub-versions. Empty = whole cluster / corridor
+  // (today's behavior). Picked chips pin Fuel + thesis + hook so
+  // overlapping topics don't mash (brewery + liquor cap + Afrobeats).
+  "subject_facets",
+  "corridor_locales",
+  "join_facet",
   // Per-matrix LENS override. Empty = use the cluster's base directive
   // alone; populated = layer as a narrowing clause under the base.
   // Editable inline; freeze-rule respected same as editorial_pov.

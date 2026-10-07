@@ -307,7 +307,7 @@ const DEMOGRAPHIC_PHRASES = {
 // Any missing dimension is elided gracefully — the composed POV still
 // reads if only cluster is set. Returns "" if there's not even a
 // cluster to build on.
-export function composePOV({ cluster, corridor, emotion, demographics } = {}) {
+export function composePOV({ cluster, corridor, emotion, demographics, lockSentence = "" } = {}) {
   const clusterKey = resolveClusterKey(cluster);
   if (!clusterKey) return "";
   const thesis = CONTENT_CLUSTERS[clusterKey].defaultPOV || "";
@@ -333,7 +333,9 @@ export function composePOV({ cluster, corridor, emotion, demographics } = {}) {
   if (stance) s2Parts.push(stance);
 
   const s2 = s2Parts.join(" ").trim();
-  return s2 ? `${thesis} ${s2}` : thesis;
+  const body = s2 ? `${thesis} ${s2}` : thesis;
+  const lock = String(lockSentence || "").trim();
+  return lock ? `${body} ${lock}` : body;
 }
 
 // English list join for the demographic phrases in sentence 2.
@@ -361,7 +363,7 @@ function joinDemographics(list) {
 // dependency on the Gemini helper when consumers only need the
 // static clusters + composePOV. Callers pass an apiKey; empty
 // apiKey → throw so the caller can surface a clear error UI.
-export async function synthesizeThesis({ apiKey, cluster, corridor, emotion, demographics = [], editorialLens = "" } = {}) {
+export async function synthesizeThesis({ apiKey, cluster, corridor, emotion, demographics = [], editorialLens = "", subjectLock = null } = {}) {
   if (!apiKey || !String(apiKey).trim()) {
     throw new Error("Missing Gemini API key");
   }
@@ -393,6 +395,7 @@ export async function synthesizeThesis({ apiKey, cluster, corridor, emotion, dem
     `- Corridor (geography): ${corridor || "(not set — write for the whole state)"}`,
     `- Target Emotion (reader stance): ${emotion || "(not set — default to Curiosity/Epiphany)"}`,
     `- Target Demographic (audience): ${demoList.length ? demoList.join(", ") : "(not set — write broadly)"}`,
+    ...(Array.isArray(subjectLock?.promptLines) && subjectLock.promptLines.length ? ["", ...subjectLock.promptLines] : []),
     "",
     "CONSTRAINTS:",
     "1. Do NOT just list the variables. Find the underlying cultural TENSION that connects the specific geography to the specific sociological topic. If no natural tension exists between the picks, name what would have to be true for one to matter, then write from that.",
@@ -406,6 +409,7 @@ export async function synthesizeThesis({ apiKey, cluster, corridor, emotion, dem
     // metadata about the article that quotes it. Ban all self-
     // reference outright.
     "6. NO META-WRITING: You are strictly banned from referring to the content, the carousel, the piece, the post, the article, or the reader. Never use phrases like 'This piece explores', 'This post shows', 'This validates', 'The reader learns', or any variant. State the cultural thesis as an objective, standalone fact — as if you were writing the pull-quote a magazine sets in 48pt, not the editor's memo that explains it.",
+    "7. SUBJECT LOCK: If SUBJECT LOCK lines appear above, write ONLY about those sub-versions and locales. Adjacent cluster topics are out of bounds unless JOIN names them. Do not mash a brewery piece into liquor-cap math or Afrobeats residencies because they share a ZIP.",
     "",
     'Return ONLY JSON in this exact shape: {"thesis": "..."}',
   ].join("\n");
@@ -476,7 +480,7 @@ export async function synthesizeThesis({ apiKey, cluster, corridor, emotion, dem
 //
 // Same client-side Gemini Flash-Lite architecture as synthesizeThesis
 // and synthesizeHook. Explicit button click only.
-export async function synthesizeLensReframe({ apiKey, cluster, corridor, emotion, demographics = [] } = {}) {
+export async function synthesizeLensReframe({ apiKey, cluster, corridor, emotion, demographics = [], subjectLock = null } = {}) {
   if (!apiKey || !String(apiKey).trim()) {
     throw new Error("Missing Gemini API key");
   }
@@ -502,6 +506,7 @@ export async function synthesizeLensReframe({ apiKey, cluster, corridor, emotion
     `  Corridor: ${corridor || "(not set — write for the whole state)"}`,
     `  Target Emotion: ${emotion || "(not set — default to Curiosity/Epiphany)"}`,
     `  Target Demographic: ${demoList.length ? demoList.join(", ") : "(not set — write broadly)"}`,
+    ...(Array.isArray(subjectLock?.promptLines) && subjectLock.promptLines.length ? ["", ...subjectLock.promptLines] : []),
     "",
     "CONSTRAINTS:",
     "1. NARROW, DO NOT REPLACE. The base directive is the cluster's editorial identity. Your reframe is a specific angle inside that identity. If your reframe reads like a different cluster's directive (e.g., Nightlife Dilemma reframed to sound like Regional Demographics), you've overreached. Stay inside the cluster.",
@@ -509,6 +514,7 @@ export async function synthesizeLensReframe({ apiKey, cluster, corridor, emotion
     "3. NO META-WRITING. Do not refer to the piece, the carousel, or the reader. State the narrowing as an editorial angle, not as memo scaffolding.",
     "4. NO INVENTED SPECIFICS. Do not name specific ordinances, statutes, venues, or towns the base directive didn't already mention. Stay at the level of CATEGORIES (rent ordinances, transit formulas, permit thresholds) — the writer will source the specifics.",
     "5. LENGTH: 1 to 3 sentences. Reads as an angle, not a paragraph.",
+    "6. SUBJECT LOCK: If SUBJECT LOCK lines appear above, the reframe must name those sub-versions. Do not widen back to the whole cluster, and do not import a different cluster's territory unless JOIN names it.",
     "",
     'Return ONLY JSON in this exact shape: {"reframe": "..."}',
   ].join("\n");
@@ -620,6 +626,7 @@ export function buildHookPrompt({
   demographics = [],
   editorialLens = "",
   anchors = [],
+  subjectLock = null,
 } = {}) {
   const cleanPOV = String(pov || "").trim();
   const cleanEmotion = String(emotion || "").trim();
@@ -643,6 +650,7 @@ export function buildHookPrompt({
       : ["- Fuel starting points: (none — stay inside the POV; do not invent a town or road.)"]),
     `- The Voice/Emotion: ${cleanEmotion || "(not set — use a neutral curious register)"}`,
     `- The Audience: ${demoList.length ? demoList.join(", ") : "(not set — write for the general reader)"}`,
+    ...(Array.isArray(subjectLock?.promptLines) && subjectLock.promptLines.length ? ["", ...subjectLock.promptLines] : []),
     "",
     "QUALITY BAR — Google AI Mode, not a listing:",
     "  GOOD: \"Walker's Paradise vs the strip-mall geography Route 22 actually built.\"",
@@ -660,7 +668,7 @@ export function buildHookPrompt({
   ].join("\n");
 }
 
-export async function synthesizeHook({ apiKey, cluster, pov, emotion, demographics = [], editorialLens = "", anchors = [] } = {}) {
+export async function synthesizeHook({ apiKey, cluster, pov, emotion, demographics = [], editorialLens = "", anchors = [], subjectLock = null } = {}) {
   if (!apiKey || !String(apiKey).trim()) {
     throw new Error("Missing Gemini API key");
   }
@@ -673,7 +681,7 @@ export async function synthesizeHook({ apiKey, cluster, pov, emotion, demographi
     throw new Error("Write or draft an Editorial POV first — the hook is the POV compressed into a scroll-stopper.");
   }
 
-  const prompt = buildHookPrompt({ pov: cleanPOV, emotion, demographics, editorialLens, anchors });
+  const prompt = buildHookPrompt({ pov: cleanPOV, emotion, demographics, editorialLens, anchors, subjectLock });
 
   const MODEL = "gemini-2.5-flash-lite";
   const URL_BASE = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
@@ -884,6 +892,8 @@ export const COMPASS_TOPICS = [
     suggestedHook: "Why Central Jersey's wealthiest commuter belt lacks organic gathering spaces.",
     targetEmotion: "Validation/Relatability",
     demographics: ["Young Working Professionals", "Corporate-to-Creative Hybrids"],
+    facets: ["walkable-vs-strip"],
+    locales: ["route-1"],
   },
   {
     id: "TOPIC-02",
@@ -893,6 +903,7 @@ export const COMPASS_TOPICS = [
     suggestedHook: "How suburban breweries accidentally became the default community centers for 20-and-30-somethings.",
     targetEmotion: "Curiosity/Epiphany",
     demographics: ["Young Working Professionals", "Creatives & DJs"],
+    facets: ["parking-lot-brewery"],
   },
   {
     id: "TOPIC-04",
@@ -902,6 +913,7 @@ export const COMPASS_TOPICS = [
     suggestedHook: "Why daytime coffee shops are renting floor space to underground creative mixers.",
     targetEmotion: "Urgency/Insider Access",
     demographics: ["Creatives & DJs", "Corporate-to-Creative Hybrids"],
+    facets: ["accidental-cafe"],
   },
 
   // Diaspora Infrastructure
@@ -913,6 +925,8 @@ export const COMPASS_TOPICS = [
     suggestedHook: "How diaspora creatives built an independent scene outside Manhattan's shadow.",
     targetEmotion: "Ambition/Sovereignty",
     demographics: ["Diaspora Networks", "Creatives & DJs"],
+    facets: ["newark-jc-pipeline"],
+    locales: ["newark", "jersey-city"],
   },
   {
     id: "TOPIC-17",
@@ -922,6 +936,7 @@ export const COMPASS_TOPICS = [
     suggestedHook: "Mapping the residency nights and DJ collectives owning Central and North Jersey sound systems.",
     targetEmotion: "Urgency/Insider Access",
     demographics: ["Diaspora Networks", "Sonic Purists"],
+    facets: ["afrobeats-corridor"],
   },
   {
     id: "TOPIC-18",
@@ -931,6 +946,7 @@ export const COMPASS_TOPICS = [
     suggestedHook: "The rooms are full. Who owns the night, and who just booked it?",
     targetEmotion: "Skepticism/Irreverence",
     demographics: ["Diaspora Networks", "Creatives & DJs"],
+    facets: ["owns-vs-programs"],
   },
   {
     id: "TOPIC-19",
@@ -940,6 +956,7 @@ export const COMPASS_TOPICS = [
     suggestedHook: "African American, Caribbean, and African scenes sharing a ZIP code — and not always a room.",
     targetEmotion: "Curiosity/Epiphany",
     demographics: ["Diaspora Networks"],
+    facets: ["same-city-diasporas"],
   },
   {
     id: "TOPIC-20",
@@ -949,6 +966,7 @@ export const COMPASS_TOPICS = [
     suggestedHook: "The hall still opens on Sunday. The memory that used to fill it does not automatically transfer.",
     targetEmotion: "Nostalgia/Yearning",
     demographics: ["Diaspora Networks", "Young Working Professionals"],
+    facets: ["memory-transfer"],
   },
 
   // Nightlife Dilemma & Sound Curation
@@ -960,6 +978,7 @@ export const COMPASS_TOPICS = [
     suggestedHook: "Why cavernous commercial clubs are closing and intimate 150-cap rooms are winning.",
     targetEmotion: "Skepticism/Irreverence",
     demographics: ["Sonic Purists", "Young Working Professionals"],
+    facets: ["mega-club-collapse"],
   },
   {
     id: "TOPIC-32",
@@ -969,6 +988,7 @@ export const COMPASS_TOPICS = [
     suggestedHook: "Why low-volume, hi-fi vinyl bars are attracting burnout professionals.",
     targetEmotion: "Curiosity/Epiphany",
     demographics: ["Low-Decibel / Alcohol-Conscious", "Corporate-to-Creative Hybrids"],
+    facets: ["hi-fi-listening"],
   },
 
   // Daytime Play & Kinetic Wellness
@@ -980,6 +1000,7 @@ export const COMPASS_TOPICS = [
     suggestedHook: "Why grown professionals will pay to run relay races, play tug-of-war, and touch grass together.",
     targetEmotion: "Nostalgia/Yearning",
     demographics: ["Kinetic / Adult Play", "Young Working Professionals"],
+    facets: ["adult-field-day"],
   },
   {
     id: "TOPIC-47",
@@ -989,6 +1010,7 @@ export const COMPASS_TOPICS = [
     suggestedHook: "How weekly 5K meetups replaced Hinge and Tinder for fitness-minded millennials.",
     targetEmotion: "Validation/Relatability",
     demographics: ["Kinetic / Adult Play", "Young Working Professionals"],
+    facets: ["run-club"],
   },
 
   // State & Sonic History
@@ -1000,6 +1022,8 @@ export const COMPASS_TOPICS = [
     suggestedHook: "How a Newark motel ballroom in 1979 birthed the Jersey Sound and rivaled NYC's Paradise Garage.",
     targetEmotion: "Nostalgia/Yearning",
     demographics: ["Sonic Purists", "Diaspora Networks"],
+    facets: ["club-zanzibar"],
+    locales: ["newark"],
   },
   {
     id: "TOPIC-92",
@@ -1009,6 +1033,7 @@ export const COMPASS_TOPICS = [
     suggestedHook: "Which Jersey rooms are keeping a lineage, and which are renting the aesthetic?",
     targetEmotion: "Skepticism/Irreverence",
     demographics: ["Sonic Purists", "Diaspora Networks"],
+    facets: ["preserved-vs-performed"],
   },
 
   // Policy Mechanics & Municipal Architecture
@@ -1020,6 +1045,7 @@ export const COMPASS_TOPICS = [
     suggestedHook: "Why New Jersey's $1M liquor license quota shaped every dining room you sit in.",
     targetEmotion: "Curiosity/Epiphany",
     demographics: ["Young Working Professionals", "Creatives & DJs"],
+    facets: ["liquor-cap"],
   },
   {
     id: "TOPIC-99",
@@ -1029,6 +1055,7 @@ export const COMPASS_TOPICS = [
     suggestedHook: "Why 564 separate municipal governments create 564 different sets of noise, parking, and permit rules.",
     targetEmotion: "Skepticism/Irreverence",
     demographics: ["Corporate-to-Creative Hybrids"],
+    facets: ["home-rule"],
   },
 
   // Philosophy of Gathering
@@ -1040,5 +1067,6 @@ export const COMPASS_TOPICS = [
     suggestedHook: "Why the human brain deteriorates when restricted solely to home and work.",
     targetEmotion: "Validation/Relatability",
     demographics: ["Young Working Professionals", "Low-Decibel / Alcohol-Conscious"],
+    facets: ["third-place-void"],
   },
 ];
