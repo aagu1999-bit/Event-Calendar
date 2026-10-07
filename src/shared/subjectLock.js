@@ -214,6 +214,34 @@ function englishList(labels) {
   return `${labels.slice(0, -1).join(", ")}, and ${labels[labels.length - 1]}`;
 }
 
+function lowerHint(hint) {
+  const s = String(hint || "").trim();
+  if (!s) return "";
+  return s.charAt(0).toLowerCase() + s.slice(1);
+}
+
+// When the operator picks a facet, that chip IS the LENS this piece
+// sees. The cluster syllabus (Oldenburg + propinquity + friction, or
+// brewery + speakeasy + cafe) stays catalog copy for empty chips.
+// Downstream synths must pass this string as the analytical base —
+// appending a SUBJECT LOCK footnote after the full syllabus is what
+// let Draft Hook name every theory on the chip row.
+export function lockLensDirective(lock) {
+  if (!lock || !Array.isArray(lock.facets) || lock.facets.length === 0) return "";
+  const focus = lock.facets.map((f) => {
+    const hint = lowerHint(f.hint);
+    return hint ? `${f.label} — ${hint}` : f.label;
+  });
+  const siblingLabels = (CLUSTER_FACETS[lock.clusterKey] || [])
+    .filter((f) => !lock.facets.some((sel) => sel.id === f.id))
+    .map((f) => f.label.toLowerCase());
+  const leaveBit = siblingLabels.length
+    ? ` Leave ${englishList(siblingLabels)} off this piece unless JOIN names them.`
+    : " Do not widen past this lock.";
+  const joinBit = lock.join ? ` Joined only to ${lock.join.label}.` : "";
+  return `This piece is locked to ${englishList(focus)}. Ground here. Do not recite the rest of the cluster syllabus.${leaveBit}${joinBit}`;
+}
+
 export function buildSubjectLock({
   cluster,
   corridor,
@@ -302,5 +330,5 @@ export function subjectLockPromptLines(lock) {
 }
 
 export function subjectLockInstruction() {
-  return "If SUBJECT LOCK is in the user payload, stay on those sub-versions and locales. Do not invent an intersection with a different cluster facet (liquor cap mashed into a brewery piece, Afrobeats mashed into a strip-mall speakeasy) unless JOIN names it.";
+  return "If SUBJECT LOCK is in the user payload, the Analytical lens is the locked facets — not the cluster syllabus. Stay on those sub-versions and locales. Do not recite sibling theories from the same cluster (Oldenburg next to social friction, strip-mall speakeasy next to parking-lot brewery). Do not invent an intersection with a different cluster facet unless JOIN names it.";
 }

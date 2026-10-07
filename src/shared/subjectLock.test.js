@@ -11,6 +11,7 @@ import {
   localesForCorridor,
   joinFacetOptions,
   subjectLockPromptLines,
+  lockLensDirective,
   CLUSTER_FACETS,
 } from "./subjectLock.js";
 
@@ -52,10 +53,28 @@ test("parking-lot brewery on Route 22 does not mash liquor cap or Afrobeats", ()
     cluster: "SUBURBAN_THIRD_PLACE",
     corridor: "Route 1 Central Crossroads",
     lockSentence: lock.composeClause,
+    thesisOverride: lockLensDirective(lock),
   });
   assert.match(pov, /parking-lot brewery/i);
   assert.match(pov, /Route 22/);
   assert.match(pov, /Do not mash overlapping topics/);
+  assert.equal(/outsourced gathering to commercial strips/i.test(pov), false);
+});
+
+test("one philosophy facet replaces the cluster syllabus in the live LENS", () => {
+  const lock = buildSubjectLock({
+    cluster: "PHILOSOPHY_OF_GATHERING",
+    subjectFacets: ["social-friction"],
+  });
+  const lens = lockLensDirective(lock);
+  assert.match(lens, /Social friction/i);
+  assert.match(lens, /cost of being outside/i);
+  assert.match(lens, /third-place void/i);
+  assert.match(lens, /propinquity/i);
+  assert.equal(/Oldenburg/i.test(lens), false);
+  assert.equal(/collective effervescence/i.test(lens), false);
+  const empty = lockLensDirective(buildSubjectLock({ cluster: "PHILOSOPHY_OF_GATHERING" }));
+  assert.equal(empty, "");
 });
 
 test("join is the only permitted intersection", () => {
@@ -142,12 +161,28 @@ test("Fuel Research payload honors the lock and named searches", () => {
   assert.match(scout.input, /Route 22/);
   assert.match(scout.input, /JOIN: none/);
   assert.match(scout.input, /New Jersey parking lot brewery/);
+  assert.match(scout.input, /facet lock/);
+  assert.equal(/strip mall speakeasy hidden bar/i.test(scout.input), false);
   const unlocked = researchAiModeRequest({
     cluster: "SUBURBAN_THIRD_PLACE",
     corridor: "Transit Village Suburbs",
     topic: "suburban commercial strip retrofit",
   });
   assert.equal(/SUBJECT LOCK —/.test(unlocked.input), false);
+  assert.match(unlocked.input, /cluster identity/);
+});
+
+test("Fuel on a philosophy facet does not ingest Oldenburg or sibling searches", () => {
+  const scout = researchAiModeRequest({
+    cluster: "PHILOSOPHY_OF_GATHERING",
+    topic: "social friction",
+    subjectFacets: ["social-friction"],
+  });
+  assert.match(scout.input, /Social friction/);
+  assert.match(scout.input, /facet lock/);
+  assert.equal(/Oldenburg/i.test(scout.input), false);
+  assert.equal(/collective effervescence/i.test(scout.input), false);
+  assert.equal(/third place public library/i.test(scout.input), false);
 });
 
 test("hook prompt and fill seed carry the lock", () => {
@@ -161,9 +196,12 @@ test("hook prompt and fill seed carry the lock", () => {
     pov: "Suburban New Jersey outsourced gathering to the parking lot.",
     emotion: "Curiosity/Epiphany",
     subjectLock: { promptLines: subjectLockPromptLines(lock) },
+    lensBase: lockLensDirective(lock),
   });
   assert.match(prompt, /SUBJECT LOCK/);
   assert.match(prompt, /Parking-lot brewery/);
+  assert.match(prompt, /facet lock replaces the cluster syllabus/);
+  assert.equal(/deficit of walkable social infrastructure/i.test(prompt), false);
 
   const seed = eventMatrixToFillSeed({
     name: "The brewery piece",
@@ -180,6 +218,23 @@ test("hook prompt and fill seed carry the lock", () => {
   assert.match(seed.context, /SUBJECT LOCK/);
   assert.match(seed.context, /Parking-lot brewery/);
   assert.match(seed.context, /Route 22/);
+  assert.match(seed.clusterDirective, /Parking-lot brewery/);
+  assert.equal(/deficit of walkable social infrastructure/i.test(seed.clusterDirective), false);
+});
+
+test("fill seed on social friction does not carry the Oldenburg default POV", () => {
+  const seed = eventMatrixToFillSeed({
+    name: "Friction piece",
+    matrix: {
+      event_tier: "FEATURE",
+      cluster: "PHILOSOPHY_OF_GATHERING",
+      subject_facets: ["social-friction"],
+      hook_a_side: "The cost of being outside is the gathering problem.",
+    },
+  });
+  assert.match(seed.clusterDirective, /Social friction/);
+  assert.equal(/Oldenburg/i.test(seed.clusterDirective), false);
+  assert.equal(/Oldenburg/i.test(seed.context || ""), false);
 });
 
 test("matrix stores the lock fields", () => {
