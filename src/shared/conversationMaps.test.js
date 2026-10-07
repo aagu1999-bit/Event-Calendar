@@ -12,7 +12,7 @@ import {
   conversationWriterBlock,
   conversationSlideSequence,
 } from "./conversationMaps.js";
-import { eventMatrixToFillSeed } from "./eventMatrixToFillSeed.js";
+import { eventMatrixToFillSeed, wipeFeedbackMemoryPatch } from "./eventMatrixToFillSeed.js";
 import { MATRIX_FIELDS } from "./matrixEnums.js";
 import { earnedSlideCount } from "./matrixCompass.js";
 
@@ -153,6 +153,35 @@ test("fill seed injects the conversation map and stores the field", () => {
   assert.match(seed.context, /Cover \+ News/);
   assert.match(seed.context, /not a default 3/);
   assert.equal(seed.arrange, false);
+});
+
+test("wipe feedback memory clears both banks", () => {
+  assert.deepEqual(wipeFeedbackMemoryPatch(), { rejected_drafts: [], approved_drafts: [] });
+  const dirty = eventMatrixToFillSeed({
+    name: "Parkway piece",
+    matrix: {
+      event_tier: "FEATURE",
+      hook_a_side: "Parkway towns eat the summer influx.",
+      editorial_pov: "The influx is a logistics tax.",
+      data_points: ["START — weekend traffic."],
+      rejected_drafts: [{ reason: "digital divide hunt", digest: [] }],
+      approved_drafts: [{ digest: [{ idx: 1, type: "text", digest: "manifesto in news chair" }] }],
+    },
+  });
+  assert.equal(dirty.rejectedDrafts.length, 1);
+  assert.equal(dirty.approvedDrafts.length, 1);
+  const wiped = eventMatrixToFillSeed({
+    name: "Parkway piece",
+    matrix: {
+      event_tier: "FEATURE",
+      hook_a_side: "Parkway towns eat the summer influx.",
+      editorial_pov: "The influx is a logistics tax.",
+      data_points: ["START — weekend traffic."],
+      ...wipeFeedbackMemoryPatch(),
+    },
+  });
+  assert.deepEqual(wiped.rejectedDrafts, []);
+  assert.deepEqual(wiped.approvedDrafts, []);
 });
 
 test("fill seed splits homework off the proof pile", () => {

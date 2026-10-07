@@ -269,6 +269,12 @@ export function eventMatrixToFillSeed(event) {
     approvedDrafts: Array.isArray(m.approved_drafts) ? m.approved_drafts.slice(-3) : [],
   };
 }
+
+// Empty both banks. Push used to write every accept into approved_drafts,
+// so a desk that kept bad carousels to look at them now teaches that shape.
+export function wipeFeedbackMemoryPatch() {
+  return { rejected_drafts: [], approved_drafts: [] };
+}
 // Reference DEMOGRAPHIC_PRESETS to keep the import for future use
 // (typed narrowing on unknown demographics) without unused-var warns.
 void DEMOGRAPHIC_PRESETS;
