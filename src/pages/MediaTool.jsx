@@ -3499,7 +3499,7 @@ export default function MediaTool() {
       setAiFillSeed({
         topic: seed.topic,
         context: seed.context || "",
-        arrange: seed.arrange !== false,
+        arrange: !!seed.arrange,
         register: seed.register || null,
         templateId: seed.templateId || null,
         clusterDirective: seed.clusterDirective || "",

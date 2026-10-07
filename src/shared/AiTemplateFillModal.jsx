@@ -61,7 +61,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
   const [letAiPick, setLetAiPick] = useState(false);
   // Cultural / editorial / content default onto the GST 10-slide pipeline.
   // Promo keeps the flyer arranger. Operator can still untoggle.
-  const [aiArrange, setAiArrange] = useState(mode !== "promo");
+  const [aiArrange, setAiArrange] = useState(false);
   // Connect-the-dots mode — a thesis + several real-news "dots" welded into one
   // evidence carousel. dotsDiscover lets the AI propose the thread itself.
   const [dotsMode, setDotsMode] = useState(false);
@@ -70,7 +70,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
   // is the answer (verdict) + the CTA. Turns coverage into problem→solution promo.
   const [dotsAnchor, setDotsAnchor] = useState("");
   // GST locks 10 slides when AI arranges (non-promo). Promo still uses auto/pin.
-  const [slideCount, setSlideCount] = useState(mode === "promo" ? "auto" : "10");
+  const [slideCount, setSlideCount] = useState("auto");
   // Letter / manifesto mode — write the whole carousel as one continuous
   // first-person letter (the @summerblockfest structure), thought carrying
   // slide to slide, instead of standalone cards.
@@ -231,6 +231,17 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
   const enrichCount = (researchOn ? 1 : 0) + (newsOn ? 1 : 0);
   // Dots with "find the thread" or an anchor event needs no thesis typed; everything else needs a topic/context.
   const canGenerate = (dotsMode && (dotsDiscover || !!dotsAnchor.trim())) || !!topic.trim() || !!context.trim();
+  const gstOn = aiArrange && mode !== "promo";
+  const setGstOn = (on) => {
+    setAiArrange(!!on);
+    if (on) {
+      setLetAiPick(false);
+      setDotsMode(false);
+      setSlideCount("10");
+    } else {
+      setSlideCount("auto");
+    }
+  };
   const liveTurn = interpretBuildTurn({
     questions: operatorQuestions,
     hasSlides: slides.length > 0,
@@ -1080,7 +1091,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
       >
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
           <h2 style={{ fontSize: "1.15rem", fontFamily: "'Syne',sans-serif", fontWeight: 700, letterSpacing: 1, margin: 0 }}>
-            ✨ AI Fill Template
+            {compactMode ? "Preview · generate" : "✨ AI Fill Template"}
           </h2>
           <button
             onClick={onClose}
@@ -1089,9 +1100,54 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
           >×</button>
         </div>
 
+        {compactMode && mode !== "promo" && (
+          <div style={{
+            position: "sticky", top: 0, zIndex: 3,
+            margin: "0 0 14px", padding: "12px 12px 10px",
+            background: gstOn ? "rgba(229,188,79,0.12)" : "rgba(99,179,237,0.10)",
+            border: `1px solid ${gstOn ? "rgba(229,188,79,0.45)" : "rgba(99,179,237,0.4)"}`,
+            borderRadius: 6,
+          }}>
+            <div style={{ fontSize: "0.58rem", letterSpacing: 1.4, textTransform: "uppercase", fontWeight: 800, color: gstOn ? "#E5BC4F" : "#63B3ED", marginBottom: 8 }}>
+              GST 10-slide arc
+            </div>
+            <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+              <button
+                type="button"
+                onClick={() => setGstOn(false)}
+                style={{
+                  flex: 1, padding: "10px 8px", borderRadius: 5, cursor: "pointer",
+                  fontFamily: "'Syne',sans-serif", fontSize: "0.78rem", fontWeight: 800,
+                  background: !gstOn ? "rgba(99,179,237,0.28)" : "transparent",
+                  color: !gstOn ? "#F5F0E8" : "rgba(245,240,232,0.45)",
+                  border: `1px solid ${!gstOn ? "rgba(99,179,237,0.7)" : "rgba(245,240,232,0.12)"}`,
+                }}
+              >Off · Cover + News</button>
+              <button
+                type="button"
+                onClick={() => setGstOn(true)}
+                style={{
+                  flex: 1, padding: "10px 8px", borderRadius: 5, cursor: "pointer",
+                  fontFamily: "'Syne',sans-serif", fontSize: "0.78rem", fontWeight: 800,
+                  background: gstOn ? "rgba(229,188,79,0.28)" : "transparent",
+                  color: gstOn ? "#E5BC4F" : "rgba(245,240,232,0.45)",
+                  border: `1px solid ${gstOn ? "rgba(229,188,79,0.7)" : "rgba(245,240,232,0.12)"}`,
+                }}
+              >On · always 10 slides</button>
+            </div>
+            <div style={{ fontSize: "0.62rem", color: "rgba(245,240,232,0.7)", lineHeight: 1.45 }}>
+              {gstOn
+                ? "Generate will run GST. Auto / 4 / 5 do not change the length. Ranked Injustice / Explainer / Re-frame / Micro-doc still name the talk."
+                : "Generate will not run GST. If you ranked a conversation map after Fuel, this writes Cover + News in that talk."}
+            </div>
+          </div>
+        )}
+
+        {!compactMode && (
         <div style={{ fontSize: "0.66rem", color: "rgba(245,240,232,0.55)", marginBottom: 12, lineHeight: 1.45 }}>
           Type a topic + context; Gemini writes every slide as one coherent story. Let it pick or arrange the layout, or choose a template. Per-slot rules from <strong>/brand → Slide Content Rules</strong> apply.
         </div>
+        )}
 
         {/* Generation Mode picker — hidden in compact mode. GST lives
             next to Register so Feature Preview can turn it off. */}
@@ -1315,28 +1371,18 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
           </div>
         )}
 
-        {mode !== "promo" && (
+        {mode !== "promo" && !compactMode && (
           <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.72rem", color: aiArrange ? "#E5BC4F" : "rgba(245,240,232,0.7)", cursor: "pointer", marginBottom: 8, padding: "7px 9px", background: aiArrange ? "rgba(229,188,79,0.08)" : "transparent", border: "1px solid " + (aiArrange ? "rgba(229,188,79,0.35)" : "rgba(245,240,232,0.08)"), borderRadius: 4 }}>
             <input
               type="checkbox"
               checked={aiArrange}
-              onChange={(e) => {
-                const on = e.target.checked;
-                setAiArrange(on);
-                if (on) {
-                  setLetAiPick(false);
-                  setDotsMode(false);
-                  setSlideCount("10");
-                } else {
-                  setSlideCount("auto");
-                }
-              }}
+              onChange={(e) => setGstOn(e.target.checked)}
             />
             <span style={{ fontWeight: 700, letterSpacing: 0.5 }}>
               🪄 GST cultural pipeline (10 slides)
             </span>
             <span style={{ marginLeft: "auto", fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: 0.5 }}>
-              {aiArrange ? "on — 10-slide stance arc" : "off — Cover + News in the ranked map"}
+              {gstOn ? "on — 10-slide stance arc" : "off — Cover + News in the ranked map"}
             </span>
           </label>
         )}
@@ -1484,7 +1530,7 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
               {/* NODE PLAN — every stage the writer will pass through */}
               <div style={{ marginBottom: 8 }}>
                 <div style={{ fontSize: "0.55rem", letterSpacing: 1.2, textTransform: "uppercase", fontWeight: 700, color: "rgba(99,179,237,0.7)", marginBottom: 3 }}>Nodes that will run</div>
-                {aiArrange && mode !== "promo" ? (
+                {gstOn ? (
                   <>
                     <div>1 · <b style={{ color: "#F5F0E8" }}>Critical Theory Parser</b> — pattern + teach + stance under charge/stakes (omniscient, not plot review)</div>
                     <div>2 · <b style={{ color: "#F5F0E8" }}>10-Slide Storyboard</b> — hook (charge) → anatomy (pattern) → cases (stakes) → epiphany (teach) → CTA (stance)</div>
@@ -1519,8 +1565,13 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
               {/* CONFLICTS + OVERRIDES — where this window changes something */}
               <div style={{ marginBottom: 4 }}>
                 <div style={{ fontSize: "0.55rem", letterSpacing: 1.2, textTransform: "uppercase", fontWeight: 700, color: "rgba(99,179,237,0.7)", marginBottom: 3 }}>What THIS window adds / overrides</div>
-                <div>GST 10: <b style={{ color: "#F5F0E8" }}>{aiArrange && mode !== "promo" ? "on" : "off"}</b> {aiArrange && mode !== "promo" ? "— 10-slide stance arc. Ranked conversation map still names the talk." : "— Cover + News in the ranked conversation map (Injustice / Explainer / Re-frame / Micro-doc) if you selected one."}</div>
-                <div>Slide count: <b style={{ color: "#F5F0E8" }}>{aiArrange && mode !== "promo" ? "10 (GST locked)" : slideCount}</b> {aiArrange && mode !== "promo" ? "" : (slideCount === "auto" ? "— Cover + News (3) if a map is ranked, else the template" : `— pinning ${slideCount} slides`)}</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
+                  <span>GST 10: <b style={{ color: "#F5F0E8" }}>{gstOn ? "on" : "off"}</b></span>
+                  <button type="button" onClick={() => setGstOn(false)} style={{ padding: "3px 8px", borderRadius: 3, cursor: "pointer", fontSize: "0.55rem", fontWeight: 800, letterSpacing: 0.08, textTransform: "uppercase", background: !gstOn ? "rgba(99,179,237,0.25)" : "transparent", color: !gstOn ? "#63B3ED" : "rgba(245,240,232,0.45)", border: `1px solid ${!gstOn ? "rgba(99,179,237,0.5)" : "rgba(245,240,232,0.12)"}` }}>Off</button>
+                  <button type="button" onClick={() => setGstOn(true)} style={{ padding: "3px 8px", borderRadius: 3, cursor: "pointer", fontSize: "0.55rem", fontWeight: 800, letterSpacing: 0.08, textTransform: "uppercase", background: gstOn ? "rgba(229,188,79,0.22)" : "transparent", color: gstOn ? "#E5BC4F" : "rgba(245,240,232,0.45)", border: `1px solid ${gstOn ? "rgba(229,188,79,0.5)" : "rgba(245,240,232,0.12)"}` }}>On</button>
+                </div>
+                <div>{gstOn ? "— 10-slide stance arc. Ranked conversation map still names the talk." : "— Cover + News in the ranked conversation map (Injustice / Explainer / Re-frame / Micro-doc) if you selected one."}</div>
+                <div>Slide count: <b style={{ color: "#F5F0E8" }}>{gstOn ? "10 (GST locked)" : slideCount}</b> {gstOn ? "" : (slideCount === "auto" ? "— Cover + News (3) if a map is ranked, else the template" : `— pinning ${slideCount} slides`)}</div>
                 <div>Enrich lookups: {researchOn || newsOn
                   ? <span style={{ color: "#FBBF24" }}>ADDS extra Gemini calls whose bullets get concatenated into Research Anchors — may duplicate matrix anchors</span>
                   : <span style={{ color: "rgba(245,240,232,0.4)" }}>off (recommended when Research Anchors are already populated)</span>}</div>
