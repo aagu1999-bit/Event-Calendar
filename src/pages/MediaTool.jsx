@@ -159,11 +159,14 @@ const setActiveBgPrint = (b) => { _bgPrint = b; };
 const setActiveBrand = (b) => { _brand = { ..._brand, ...b }; };
 
 const FONT_PAIRS = {
-  default: { name: "Syne + DM Sans", display: "Syne", body: "DM Sans" },
+  default: { name: "Bebas + Inter", display: "Bebas Neue", body: "Inter" },
+  // Persist alias — older Brand Kit / snapshots that saved "bold" stay Bebas.
   bold:    { name: "Bebas + Inter", display: "Bebas Neue", body: "Inter" },
+  syne:    { name: "Syne + DM Sans", display: "Syne", body: "DM Sans" },
   serif:   { name: "Playfair + Inter", display: "Playfair Display", body: "Inter" },
   modern:  { name: "Space Grotesk + Inter", display: "Space Grotesk", body: "Inter" },
 };
+const FONT_PAIR_PICKER = ["default", "syne", "serif", "modern"];
 
 function drawTexture(ctx, W, H, color, alpha, startY = 0) {
   // The background print obeys BOTH toggles: the master watermark switch AND
@@ -3572,7 +3575,7 @@ export default function MediaTool() {
     setFontTick((t) => t + 1);
   }, [brandCreator.logoText, brandCreator.brandName, brandCreator.handle, brandCreator.url]);
   useEffect(() => {
-    const pair = FONT_PAIRS[fontPairKey];
+    const pair = FONT_PAIRS[fontPairKey] || FONT_PAIRS.default;
     setActiveFonts(pair.display, pair.body);
     // Request multiple weights — Google Fonts returns whatever's available
     // for the font. Bebas Neue ships only 400; Space Grotesk maxes at 700.
@@ -5984,12 +5987,15 @@ export default function MediaTool() {
             >▦ BG</button>
           </div>
           <select
-            value={fontPairKey}
+            value={FONT_PAIR_PICKER.includes(fontPairKey) ? fontPairKey : "default"}
             onChange={e=>setFontPairKey(e.target.value)}
             title="Choose a font pair · loads from Google Fonts"
             style={{padding:"6px 10px",borderRadius:"5px",fontSize:"0.6rem",fontWeight:700,cursor:"pointer",border:"2px solid rgba(245,240,232,0.1)",background:"transparent",color:"rgba(245,240,232,0.7)",fontFamily:"'Syne',sans-serif",letterSpacing:"1px",textTransform:"uppercase",outline:"none"}}
           >
-            {Object.entries(FONT_PAIRS).map(([k,p])=><option key={k} value={k} style={{color:"#000"}}>{p.name}</option>)}
+            {FONT_PAIR_PICKER.map((k) => {
+              const p = FONT_PAIRS[k];
+              return <option key={k} value={k} style={{color:"#000"}}>{p.name}</option>;
+            })}
           </select>
           </div>
         </div>

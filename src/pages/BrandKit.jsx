@@ -67,8 +67,8 @@ function SlotReferenceHint({ slot }) {
 // Listed here as display names so the user picks by what they see, not
 // by the internal slug.
 const FONT_PAIR_OPTIONS = [
-  { key: "default", name: "Syne + DM Sans", display: "Syne", body: "DM Sans" },
-  { key: "bold",    name: "Bebas + Inter", display: "Bebas Neue", body: "Inter" },
+  { key: "default", name: "Bebas + Inter", display: "Bebas Neue", body: "Inter" },
+  { key: "syne",    name: "Syne + DM Sans", display: "Syne", body: "DM Sans" },
   { key: "serif",   name: "Playfair + Inter", display: "Playfair Display", body: "Inter" },
   { key: "modern",  name: "Space Grotesk + Inter", display: "Space Grotesk", body: "Inter" },
 ];
@@ -193,7 +193,8 @@ export default function BrandKit() {
   const [exemplarDraft, setExemplarDraft] = useState("");
   const [tagDraft, setTagDraft] = useState("");
 
-  const fp = FONT_PAIR_OPTIONS.find((p) => p.key === fontPairKey) || FONT_PAIR_OPTIONS[0];
+  const resolvedFontKey = FONT_PAIR_OPTIONS.some((p) => p.key === fontPairKey) ? fontPairKey : "default";
+  const fp = FONT_PAIR_OPTIONS.find((p) => p.key === resolvedFontKey) || FONT_PAIR_OPTIONS[0];
 
   return (
     <div style={{
@@ -360,7 +361,7 @@ export default function BrandKit() {
             <Section title="Typography">
               <Label>Default font pair</Label>
               <select
-                value={fontPairKey}
+                value={resolvedFontKey}
                 onChange={(e) => setFontPairKey(e.target.value)}
                 style={{ ...inputStyle, marginBottom: 14 }}
               >
