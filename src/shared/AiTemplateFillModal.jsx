@@ -4,7 +4,8 @@ import { useBrandStore, useCarouselTemplatesStore, BUILTIN_CAROUSEL_TEMPLATES } 
 import { generateTemplateFill, pickTemplate, generateArrangedCarousel, researchEvent, researchContentMethod, researchNews, connectDots, dotsPlanToSlides, readFlyer } from "./aiContent.js";
 import { summarizeSlidesForFeedback } from "./eventMatrixToFillSeed.js";
 import { isContentRegister } from "./cgeThesis.js";
-import { conversationSlideSequence, parseConversationRankFromContext } from "./conversationMaps.js";
+import { parseConversationRankFromContext } from "./conversationMaps.js";
+import { earnedSlideCount, essaySlideSequence } from "./matrixCompass.js";
 import { appendMethodBriefToContext, appendOperatorQuestions, contextHasMethodBrief } from "./cgeMethod.js";
 import {
   interpretBuildTurn,
@@ -214,6 +215,8 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
   // When either AI mode is on, the AI chooses the layout, so the manual
   // Template dropdown is inert (greyed) and its slide count no longer applies.
   const aiChoosesLayout = letAiPick || aiArrange || dotsMode;
+  const pinnedNow = slideCount === "auto" ? null : parseInt(slideCount, 10);
+  const deskN = earnedSlideCount(context, Number.isFinite(pinnedNow) ? pinnedNow : null);
   // Label for the Generate button — must reflect what will actually run.
   const genLabel = slides.length
     ? "↻ Regenerate"
@@ -223,8 +226,8 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
         ? (mode === "promo"
           ? (slideCount === "auto" ? "✨ Design + generate" : `✨ Generate ${slideCount} slides`)
           : "✨ GST generate (10)")
-      : compactMode && parseConversationRankFromContext(context).primary
-        ? "✨ Generate Cover + News"
+      : compactMode
+        ? `✨ Generate ${deskN} slides from this desk`
         : letAiPick
           ? "✨ Let AI pick + generate"
           : `✨ Generate ${template?.sequence?.length || 0} slides`;
@@ -309,20 +312,26 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
       setPickedTemplate(pick.template);
       setPickReasoning(pick.reasoning);
     }
-    // Phase 2: fill the picked/chosen template. A ranked conversation
-    // map (Injustice / Explainer / Re-frame / Micro-doc) is Cover + News
-    // in that talk — not GST 10, not a leftover insight template dump.
+    // Phase 2: fill from this desk. Length is Check's pointed count /
+    // usable receipts, not a silent 3 and not GST 10. A ranked map
+    // names the talk; it does not freeze the carousel at Cover + News.
     const pinnedCount = slideCount === "auto" ? null : parseInt(slideCount, 10);
-    const mapSeq = conversationSlideSequence(genContext, Number.isFinite(pinnedCount) ? pinnedCount : null);
-    const sequence = mapSeq || useTemplate.sequence;
-    if (mapSeq) {
+    const n = earnedSlideCount(genContext, Number.isFinite(pinnedCount) ? pinnedCount : null);
+    const hasMap = !!parseConversationRankFromContext(genContext).primary;
+    const deskSeq = (hasMap || compactMode) ? essaySlideSequence(n) : null;
+    const sequence = deskSeq || useTemplate.sequence;
+    if (deskSeq) {
       setPickedTemplate({
-        id: "conversation-cover-news",
-        name: "Cover + News (ranked conversation map)",
-        sequence: mapSeq,
+        id: hasMap ? "conversation-cover-news" : "desk-essay",
+        name: hasMap
+          ? `Cover + News in ranked talk · ${n} slides from this desk`
+          : `${n} slides from this desk`,
+        sequence: deskSeq,
         custom: true,
       });
-      setPickReasoning("Operator-ranked conversation map. Cover + News in that talk. GST is off.");
+      setPickReasoning(hasMap
+        ? `Ranked conversation map names the talk. Length is ${n} from this desk's receipts, not a default 3.`
+        : `GST off. Length is ${n} from this desk's anchored receipts.`);
     }
     setBusyLabel(`Filling ${sequence.length} slides…`);
     const result = await generateTemplateFill({
@@ -332,8 +341,8 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
       context: genContext,
       voice,
       slotPrompts,
-      templateMeta: mapSeq
-        ? { name: "Cover + News (ranked conversation map)", keyMove: "Cover names the talk; News carries the receipt. Secondary colors one pointed source. Tertiary stays parked." }
+      templateMeta: deskSeq
+        ? { name: `${n} slides from this desk`, keyMove: "Cover locates. News carries one receipt. Extra text slides only for extra anchored receipts. Omit unverified claims and open gaps. Do not invent homework onto slides." }
         : useTemplate,
       mode,
       letterMode,
@@ -1122,7 +1131,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
                   color: !gstOn ? "#F5F0E8" : "rgba(245,240,232,0.45)",
                   border: `1px solid ${!gstOn ? "rgba(99,179,237,0.7)" : "rgba(245,240,232,0.12)"}`,
                 }}
-              >Off · Cover + News</button>
+              >Off · from this desk</button>
               <button
                 type="button"
                 onClick={() => setGstOn(true)}
@@ -1138,7 +1147,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
             <div style={{ fontSize: "0.62rem", color: "rgba(245,240,232,0.7)", lineHeight: 1.45 }}>
               {gstOn
                 ? "Generate will run GST. Auto / 4 / 5 do not change the length. Ranked Injustice / Explainer / Re-frame / Micro-doc still name the talk."
-                : "Generate will not run GST. If you ranked a conversation map after Fuel, this writes Cover + News in that talk."}
+                : `Generate will not run GST. Length is ${deskN} from the copy on this desk (anchored START / THESIS / SPECIMEN lines). Pin 3–6 if you want a different count. Ranked maps name the talk. Unverified claims stay off the slides.`}
             </div>
           </div>
         )}
@@ -1199,7 +1208,29 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
         )}
         {aiArrange && mode !== "promo" && (
           <div style={{ fontSize: "0.62rem", color: "rgba(245,240,232,0.5)", margin: "-2px 0 12px", padding: "0 2px", lineHeight: 1.45 }}>
-            GST is a fixed 10-slide arc (hook → anatomy → cases → teach → stance). Auto / 4 / 5 do not resize it. Turn GST off to write Cover + News in the conversation map you ranked.
+            GST is a fixed 10-slide arc. Auto / 4 / 5 do not resize it. Turn GST off — length then comes from this desk's receipts.
+          </div>
+        )}
+        {!gstOn && compactMode && mode !== "promo" && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, padding: "8px 10px", background: "rgba(99,179,237,0.06)", border: "1px solid rgba(99,179,237,0.22)", borderRadius: 4 }}>
+            <span style={{ fontSize: "0.65rem", color: "rgba(245,240,232,0.7)", letterSpacing: 0.5, fontWeight: 700 }}>How many slides?</span>
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+              {["auto", "3", "4", "5", "6"].map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => setSlideCount(c)}
+                  title={c === "auto" ? `From this desk: ${earnedSlideCount(context)} slides` : `Pin ${c} slides`}
+                  style={{
+                    padding: "4px 10px", borderRadius: 4, cursor: "pointer",
+                    fontSize: "0.62rem", fontWeight: 700, fontFamily: "'Syne',sans-serif",
+                    background: slideCount === c ? "rgba(99,179,237,0.22)" : "rgba(245,240,232,0.04)",
+                    color: slideCount === c ? "#63B3ED" : "rgba(245,240,232,0.5)",
+                    border: slideCount === c ? "1px solid rgba(99,179,237,0.5)" : "1px solid transparent",
+                  }}
+                >{c === "auto" ? `Auto · ${earnedSlideCount(context)}` : c}</button>
+              ))}
+            </div>
           </div>
         )}
 
@@ -1382,7 +1413,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
               🪄 GST cultural pipeline (10 slides)
             </span>
             <span style={{ marginLeft: "auto", fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: 0.5 }}>
-              {gstOn ? "on — 10-slide stance arc" : "off — Cover + News in the ranked map"}
+              {gstOn ? "on — 10-slide stance arc" : "off — length from this desk"}
             </span>
           </label>
         )}
@@ -1570,8 +1601,8 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
                   <button type="button" onClick={() => setGstOn(false)} style={{ padding: "3px 8px", borderRadius: 3, cursor: "pointer", fontSize: "0.55rem", fontWeight: 800, letterSpacing: 0.08, textTransform: "uppercase", background: !gstOn ? "rgba(99,179,237,0.25)" : "transparent", color: !gstOn ? "#63B3ED" : "rgba(245,240,232,0.45)", border: `1px solid ${!gstOn ? "rgba(99,179,237,0.5)" : "rgba(245,240,232,0.12)"}` }}>Off</button>
                   <button type="button" onClick={() => setGstOn(true)} style={{ padding: "3px 8px", borderRadius: 3, cursor: "pointer", fontSize: "0.55rem", fontWeight: 800, letterSpacing: 0.08, textTransform: "uppercase", background: gstOn ? "rgba(229,188,79,0.22)" : "transparent", color: gstOn ? "#E5BC4F" : "rgba(245,240,232,0.45)", border: `1px solid ${gstOn ? "rgba(229,188,79,0.5)" : "rgba(245,240,232,0.12)"}` }}>On</button>
                 </div>
-                <div>{gstOn ? "— 10-slide stance arc. Ranked conversation map still names the talk." : "— Cover + News in the ranked conversation map (Injustice / Explainer / Re-frame / Micro-doc) if you selected one."}</div>
-                <div>Slide count: <b style={{ color: "#F5F0E8" }}>{gstOn ? "10 (GST locked)" : slideCount}</b> {gstOn ? "" : (slideCount === "auto" ? "— Cover + News (3) if a map is ranked, else the template" : `— pinning ${slideCount} slides`)}</div>
+                <div>{gstOn ? "— 10-slide stance arc. Ranked conversation map still names the talk." : "— Cover + News in the ranked conversation map (Injustice / Explainer / Re-frame / Micro-doc) if you selected one. Extra text slides only when this desk earned them."}</div>
+                <div>Slide count: <b style={{ color: "#F5F0E8" }}>{gstOn ? "10 (GST locked)" : deskN}</b> {gstOn ? "" : (slideCount === "auto" ? "— Auto from the anchored receipts on this desk. 3–6. Not a silent 3." : `— pinning ${slideCount} slides`)}</div>
                 <div>Enrich lookups: {researchOn || newsOn
                   ? <span style={{ color: "#FBBF24" }}>ADDS extra Gemini calls whose bullets get concatenated into Research Anchors — may duplicate matrix anchors</span>
                   : <span style={{ color: "rgba(245,240,232,0.4)" }}>off (recommended when Research Anchors are already populated)</span>}</div>

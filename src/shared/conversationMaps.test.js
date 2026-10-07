@@ -13,6 +13,7 @@ import {
 } from "./conversationMaps.js";
 import { eventMatrixToFillSeed } from "./eventMatrixToFillSeed.js";
 import { MATRIX_FIELDS } from "./matrixEnums.js";
+import { earnedSlideCount } from "./matrixCompass.js";
 
 test("four conversation maps, not a cluster catalog", () => {
   assert.deepEqual(CONVERSATION_MAP_ORDER, ["injustice", "explainer", "reframe", "microdoc"]);
@@ -147,7 +148,46 @@ test("fill seed injects the conversation map and stores the field", () => {
   });
   assert.match(seed.context, /CONVERSATION MAP: primary Explainer/);
   assert.match(seed.context, /Cover \+ News/);
+  assert.match(seed.context, /not a default 3/);
   assert.equal(seed.arrange, false);
+});
+
+test("fill seed splits homework off the proof pile", () => {
+  const seed = eventMatrixToFillSeed({
+    name: "Parkway piece",
+    matrix: {
+      event_tier: "FEATURE",
+      hook_a_side: "Parkway towns eat the summer influx.",
+      editorial_pov: "The influx is a logistics tax.",
+      data_points: [
+        "START — Parkway towns lose the shoulder season.",
+        "START — A currently-operating Saturday still pays the tax.",
+        "MECHANISM — weekend traffic eats the split.",
+        "SPECIMEN — a Parkway operator named the influx.",
+        "RECEIPT — UNVERIFIED: the tax is unpaid",
+        "GAP — a currently-operating Saturday operator quote",
+      ],
+      argument_check: {
+        verdict: "thin",
+        reason: "One claim is still a promise.",
+        gaps: ["Need a currently-operating Parkway Saturday quote."],
+        claims: [
+          { claim: "Parkway towns eat the summer influx.", from: "hook", support: "anchored", anchor: 1 },
+          { claim: "The tax is unpaid.", from: "pov", support: "unverified", anchor: 0 },
+        ],
+        useFor: "Cover + News plus pointed receipts.",
+        slideCount: 3,
+      },
+    },
+  });
+  assert.match(seed.context, /ANCHORED FACTS \(write from these\)/);
+  assert.match(seed.context, /START — Parkway towns lose the shoulder season/);
+  assert.match(seed.context, /HOMEWORK — NOT PROOF/);
+  assert.match(seed.context, /RECEIPT — UNVERIFIED: the tax is unpaid/);
+  assert.match(seed.context, /GAP — a currently-operating Saturday operator quote/);
+  assert.match(seed.context, /UNVERIFIED CLAIMS — OMIT FROM EVERY SLIDE/);
+  assert.match(seed.context, /OPEN GAPS — homework, not copy/);
+  assert.equal(earnedSlideCount(seed.context), 6);
 });
 
 test("ranked maps parse from seed and become Cover + News, not GST 10", () => {
@@ -161,7 +201,17 @@ test("ranked maps parse from seed and become Cover + News, not GST 10", () => {
   assert.equal(parsed.secondary, "injustice");
   assert.equal(parsed.tertiary, "reframe");
   assert.deepEqual(conversationSlideSequence(parsed), ["cover", "news", "cta"]);
+  assert.deepEqual(conversationSlideSequence(`${seed}\nPOINTED SLIDE COUNT: 5.`), ["cover", "news", "text", "text", "cta"]);
   assert.deepEqual(conversationSlideSequence(parsed, 5), ["cover", "news", "text", "text", "cta"]);
+  const richDesk = [
+    seed,
+    "POINTED SLIDE COUNT: 3.",
+    "- START — Parkway towns lose the shoulder season.",
+    "- START — A currently-operating Saturday still pays the tax.",
+    "- MECHANISM — weekend traffic eats the split.",
+    "- SPECIMEN — a Parkway operator named the influx.",
+  ].join("\n");
+  assert.deepEqual(conversationSlideSequence(richDesk), ["cover", "news", "text", "text", "text", "cta"]);
   assert.equal(conversationSlideSequence({}), null);
   const writer = conversationWriterBlock(parsed).join("\n");
   assert.match(writer, /outranks GST/);

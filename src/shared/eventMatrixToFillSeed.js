@@ -46,7 +46,7 @@ export function summarizeSlidesForFeedback(slides) {
 // point, not a lock.
 
 import { EVENT_TIERS, DEMOGRAPHIC_PRESETS, LEGACY_DEMOGRAPHIC_ALIASES } from "./matrixEnums.js";
-import { getClusterLabel, resolveEditorialLens, isListicleHook, formatCoherenceSeedLines } from "./matrixCompass.js";
+import { getClusterLabel, resolveEditorialLens, isListicleHook, formatCoherenceSeedLines, isHomeworkAnchor } from "./matrixCompass.js";
 import { formatConversationSeedLines } from "./conversationMaps.js";
 import { buildSubjectLock, lockLensDirective } from "./subjectLock.js";
 import { CONTENT_DEFAULT_VOICE } from "./cgeThesis.js";
@@ -188,7 +188,17 @@ export function eventMatrixToFillSeed(event) {
   }
   if (bullets.length) {
     if (contextLines.length) contextLines.push("");
-    for (const b of bullets) contextLines.push(`- ${b}`);
+    const usable = bullets.filter((b) => !isHomeworkAnchor(b));
+    const homework = bullets.filter((b) => isHomeworkAnchor(b));
+    if (usable.length) {
+      contextLines.push("ANCHORED FACTS (write from these):");
+      for (const b of usable) contextLines.push(`- ${b}`);
+    }
+    if (homework.length) {
+      if (usable.length) contextLines.push("");
+      contextLines.push("HOMEWORK — NOT PROOF. Do not write these as facts. Unverified claims and open gaps stay off the slides:");
+      for (const b of homework) contextLines.push(`- ${b}`);
+    }
   }
   const coherenceLines = formatCoherenceSeedLines(m.argument_check);
   if (coherenceLines.length) {
