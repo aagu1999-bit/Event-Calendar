@@ -16,10 +16,10 @@ import { contentMethodSpineBlock } from "./cgeMethod.js";
 // competing voice rules.
 
 export const CGE_SUBJECT =
-  "Black New Jersey as an intersection — African American, Caribbean, and African diaspora communities living alongside, overlapping with, and sometimes tensing against each other in the same cities. The specimen lands in New Jersey. The conversation may travel: what influenced what, region-wide and country-wide. An adjacent NYC weekender calendar is the wrong subject. A national trend that shaped this NJ room is the join.";
+  "Black New Jersey. Events are the door, not the product. The specimen is whatever THIS desk named — a week, a room, a corridor, a Saturday, a disappearance. Land in New Jersey. Influence may travel. An adjacent NYC weekender calendar is the wrong subject.";
 
 export const CGE_THESIS_SHORT =
-  "New Jersey's Black cultural infrastructure is shape-shifting under memory loss, generational disconnect, economic pressure, and global digital exposure. The new looks vibrant, but it sits on a foundation most people don't see. CGE asks what is being preserved, what is being performed, who owns the culture versus who programs it, and who actually benefits.";
+  "CGE locates Black New Jersey on the ground and does the reading until a claim can be proved. Who / what / where / when first. A contrast, a rule, or a reusable trick only if THIS desk already named it and a receipt can carry it. Do not invent a hidden machine, an access illusion, or who-benefits to sound like a magazine.";
 
 export const CGE_VOICE_RATIO =
   "About 15% curator, 85% observational and research-grounded. You are a thoughtful cultural translator who does the reading and asks the harder question so the audience understands their own community more clearly. Do not center yourself. Depth without heaviness. Curiosity without preachiness. Specificity to New Jersey is the moat.";
@@ -28,7 +28,7 @@ export const CGE_DOOR =
   "Events are the entry point, not the product. The closer is a door into a directory, guide, or archive that makes overlooked Black history and culture in New Jersey accessible to everyday people — not the intellectually intense museum crowd, not an RSVP, not a ticket push, not 'pull up this weekend'.";
 
 export const CGE_HOMEWORK =
-  "You are systematizing this field without a journalism degree. Do the reading: the official record, Black NJ press (Echo, Front Runner, Five Wards, Public Square, The Positive Community, NJ Uncovered on Facebook/YouTube/Instagram), a Rutgers/Montclair/Princeton holding, and a societal page (Current Affairs and pages like it) for the mechanism. News is also how you notice the next question. Influence may leave the state. Land back in New Jersey.";
+  "You are systematizing this field without a journalism degree. Do the reading: the official record when THIS specimen has one, Black NJ press (Echo, Front Runner, Five Wards, Public Square, The Positive Community, NJ Uncovered on Facebook/YouTube/Instagram), a Rutgers/Montclair/Princeton holding if this desk needs it. A societal page (Current Affairs) only if THIS desk already named a reusable trick to learn — not to hunt an access illusion. News is also how you notice the next question. Influence may leave the state. Land back in New Jersey.";
 
 // Feature / Content default voice — Reporter × Rolling is the 15/85 split
 // in Distance × Cadence. Stance stays unset so observation carries tone
@@ -59,6 +59,10 @@ const PLATFORM_THEME_LEAKS = [
   { re: /\bgatekeepers?\b/i, needle: "gatekeeper" },
   { re: /\bstill set the room\b/i, needle: "still set the room" },
   { re: /\bold guard\b/i, needle: "old guard" },
+  { re: /\baccess dictates\b/i, needle: "access dictates" },
+  { re: /\baccess illusions?\b/i, needle: "access illusion" },
+  { re: /\billusion of access\b/i, needle: "illusion of access" },
+  { re: /\bunseen hand\b/i, needle: "unseen hand" },
 ];
 
 export function isPlatformThemeLeak(text, desk = "") {
@@ -72,7 +76,7 @@ export function isPlatformThemeLeak(text, desk = "") {
 // CGE_SUBJECT as a hunt. Thesis/Hook already refuse the graft; these
 // surfaces have to refuse the search.
 export const PLATFORM_THEME_STAY_ON_DESK =
-  "HOUSE FIGHT IS OPTIONAL. African American / Caribbean / African diaspora tension, who owns vs who programs, who actually benefits, whose vision, entrepreneurial spirit, and old gatekeepers are publication identity — not a hunt. Use them only if the LENS, POV, topic, or a numbered anchor already named that fight. If this desk is an event plus an audience, stay on that specimen. Do not search or write the house theme to make the brief feel like CGE.";
+  "MISSION: CGE is a Black New Jersey cultural publication. Events are the door. Locate THIS specimen, then prove what the desk already claimed. HOUSE FIGHT IS OPTIONAL. African American / Caribbean / African diaspora tension, who owns vs who programs, who actually benefits, whose vision, entrepreneurial spirit, and old gatekeepers are not a hunt. MECHANISM IS OPTIONAL. A named program, statute, Transit Village, liquor cap, SID, Current Affairs 'societal mechanism', access illusion, 'access dictates who', or the unseen hand is not the default hunt. Use a fight or a trick only if the LENS, POV, topic, or a numbered anchor already named it. If this desk is an event plus an audience, stay on that specimen. Do not search or write a house theme to make the brief feel like CGE.";
 
 // Injected at the top of writer / spine / arranger prompts when the
 // carousel is Feature-tier or the operator picked Content register.
@@ -89,7 +93,7 @@ export function platformThesisBlock({ mode, isEvergreen } = {}) {
     `THE DOOR: ${CGE_DOOR}`,
     `HOMEWORK: ${CGE_HOMEWORK}`,
     "",
-    "You are not making event content. You are using a gathering, a room, a lineage, or a disappearance as the entry point into what THIS desk already named. Ask the underserved question that is on the desk — not the house question everyone at CGE already knows. Name what influenced what when the LENS already opened that join. Then bring it home.",
+    "You are not making event content. You are using a gathering, a room, a lineage, or a disappearance as the entry point into what THIS desk already named. Ask the underserved question that is on the desk — not a mechanism, access illusion, or house question CGE already knows. Name what influenced what when the LENS already opened that join. Then bring it home.",
     "═════════════════════════════",
     "",
   ];

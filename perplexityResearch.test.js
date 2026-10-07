@@ -45,6 +45,7 @@ test("AI Mode scout is unconstrained NJ search with a thesis and starting points
   assert.match(scout.instructions, /STARTING POINTS/);
   assert.match(scout.instructions, /thesis/i);
   assert.match(scout.instructions, /HOUSE FIGHT IS OPTIONAL/);
+  assert.match(scout.instructions, /MECHANISM IS OPTIONAL/);
   assert.match(scout.instructions, /Land this desk in New Jersey/);
   assert.equal(/Land Black New Jersey in the thesis or in at least one starting point: who this is for, which Saturday still feels like the strip, who owns vs who programs/.test(scout.instructions), false);
   assert.equal(scout.tools.length, 1);
@@ -86,12 +87,16 @@ test("AI Mode scout is unconstrained NJ search with a thesis and starting points
   assert.equal(/STARTING POINTS: 5–8/.test(gapScout.instructions), false);
 });
 
-test("Feature-tier official desk still hunts the named program", () => {
+test("Feature-tier official desk does not require a named program as the mechanism", () => {
   const official = researchOfficialRequest({ cluster: "DIASPORA_INFRASTRUCTURE", topic: "A Newark hall", tier: "FEATURE" });
   assert.match(official.instructions, /DOCUMENT/);
+  assert.match(official.instructions, /MECHANISM IS OPTIONAL/);
+  assert.match(official.instructions, /Do not hunt a program/);
   assert.ok(official.tools[0].filters.search_domain_filter.includes(".gov"));
   const cultural = researchCulturalRequest({ cluster: "DIASPORA_INFRASTRUCTURE", topic: "A Newark hall", tier: "FEATURE" });
   assert.match(cultural.instructions, /JOIN — |NEXT — |ARGUMENT/);
+  assert.match(cultural.instructions, /do not invent a MECHANISM line/);
+  assert.match(cultural.instructions, /Current Affairs only if/);
   assert.ok(cultural.tools[0].filters.search_domain_filter.includes("echonewstv.com"));
   assert.equal(cultural.tools[0].filters.search_domain_filter.includes("njpac.org"), false);
 });

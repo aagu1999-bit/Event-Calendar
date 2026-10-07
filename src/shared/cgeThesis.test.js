@@ -30,6 +30,8 @@ test("house fight is a leak unless the LENS already named it", () => {
   assert.equal(isPlatformThemeLeak("Newark Tech Week spotlights the city's innovations while the old gatekeepers still set the room.", lens), true);
   assert.equal(isPlatformThemeLeak("The week is in town. They still set the room.", lens), true);
   assert.equal(isPlatformThemeLeak("The old guard still books the week.", lens), true);
+  assert.equal(isPlatformThemeLeak("Access dictates who shows up at Tech Week.", lens), true);
+  assert.equal(isPlatformThemeLeak("The unseen hand still scripts the rooms.", lens), true);
   assert.equal(isPlatformThemeLeak("Same-city diaspora rooms keep two calendars.", "same-city diasporas on one ZIP"), false);
 });
 
@@ -37,10 +39,13 @@ test("writer platform block does not sit the house fight ABOVE the LENS", () => 
   const block = platformThesisBlock({ mode: "content" }).join("\n");
   assert.match(block, /PUBLICATION IDENTITY/);
   assert.match(block, /HOUSE FIGHT IS OPTIONAL/);
+  assert.match(block, /MECHANISM IS OPTIONAL/);
+  assert.match(block, /access illusion/);
   assert.match(block, /ORIENT/);
   assert.equal(/this sits ABOVE the cluster lens/.test(block), false);
   assert.equal(/Black New Jersey as an intersection/.test(block), false);
   assert.equal(/who actually benefits/.test(block), true);
+  assert.match(block, /Current Affairs\) only if THIS desk already named/);
   const hero = contentRegisterBlock().join("\n");
   assert.match(hero, /locates the specimen/);
   assert.equal(/Hero is a QUESTION about Black New Jersey/.test(hero), false);

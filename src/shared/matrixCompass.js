@@ -371,7 +371,7 @@ export function buildThesisPrompt({ lens = "" } = {}) {
     "  CGE covers Black New Jersey. Events are the door, not the product.",
     `  Voice: ${CGE_VOICE_RATIO}`,
     "  Do NOT import African American / Caribbean / African diaspora tension, who owns vs who programs, who actually benefits, whose vision is being prioritized, or 'entrepreneurial spirit' unless those words or that fight are already in the LENS.",
-    "  If the LENS is an event name plus an audience, ORIENT: who / what / where / when. Name one contrast only if the LENS already contains it. Do not invent a CGE theme to sound serious.",
+    "  If the LENS is an event name plus an audience, ORIENT: who / what / where / when. Name one contrast only if the LENS already contains it. Do not invent a CGE theme, an access illusion, or a hidden mechanism to sound serious.",
     "  Do not collapse the POV into generic gathering-magazine copy (third places, liquor caps, 150-cap rooms) unless the LENS actually is that story.",
     "  Do not paraphrase a press-release LENS. A flyer that 'highlights innovations' is not an angle — locate anyway.",
     "",

@@ -91,6 +91,8 @@ test("method homework does not hunt the house fight by default", () => {
     context: "specifically for business owners",
   });
   assert.match(prompt, /HOUSE FIGHT IS OPTIONAL/);
+  assert.match(prompt, /MECHANISM IS OPTIONAL/);
+  assert.match(prompt, /NONE unless this specimen already shows/);
   assert.match(prompt, /not a CGE default/);
   assert.equal(/same-city other-diaspora site unless/.test(prompt), true);
   assert.equal(/PATTERN: \(the reusable pressure this NJ specimen is an instance of — may be a regional or country-wide norm: memory loss, ownership vs programming/.test(prompt), false);
