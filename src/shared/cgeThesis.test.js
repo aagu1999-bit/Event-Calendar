@@ -35,6 +35,11 @@ test("house fight is a leak unless the LENS already named it", () => {
   assert.equal(isPlatformThemeLeak("Access dictates who shows up at Tech Week.", lens), true);
   assert.equal(isPlatformThemeLeak("The unseen hand still scripts the rooms.", lens), true);
   assert.equal(isPlatformThemeLeak("Same-city diaspora rooms keep two calendars.", "same-city diasporas on one ZIP"), false);
+  assert.equal(isPlatformThemeLeak("A substantial share of households still lack internet access.", lens), true);
+  assert.equal(isPlatformThemeLeak("The sharper question is innovation for whom.", lens), true);
+  assert.equal(isPlatformThemeLeak("Who gets to define innovation when broadband lags.", lens), true);
+  assert.equal(isPlatformThemeLeak("Newark's digital-inclusion work includes a municipally run Fiber network.", lens), true);
+  assert.equal(isPlatformThemeLeak("The digital divide is the test of Tech Week's promise.", "digital divide on this desk"), false);
 });
 
 test("writer platform block does not sit the house fight ABOVE the LENS", () => {

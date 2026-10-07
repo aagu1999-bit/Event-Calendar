@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isListicleHook, isBrochureCopy, hookEvidenceLines, buildHookPrompt, buildLensReframePrompt, buildThesisPrompt, buildCoherencePrompt, normalizeCoherenceResult, formatCoherenceSeedLines, defaultCoherenceUseFor, coherenceInputSignature, describeReframeInputs, lensFreshnessSignature, earnedSlideCount, essaySlideSequence, countUsableAnchors, countEarnedBeats, isHomeworkAnchor } from "./matrixCompass.js";
+import { isListicleHook, isBrochureCopy, hookEvidenceLines, buildHookPrompt, buildLensReframePrompt, buildThesisPrompt, buildCoherencePrompt, normalizeCoherenceResult, formatCoherenceSeedLines, defaultCoherenceUseFor, coherenceInputSignature, describeReframeInputs, lensFreshnessSignature, earnedSlideCount, essaySlideSequence, countUsableAnchors, countEarnedBeats, isHomeworkAnchor, reconcileSlideCountWithUseFor, describeWhatYoullSee } from "./matrixCompass.js";
 import { buildSubjectLock, subjectLockPromptLines, lockLensDirective } from "./subjectLock.js";
 
 test("listicle hooks are the Google-vs-CGE failure", () => {
@@ -247,6 +247,8 @@ test("coherence prompt reads the LENS strictly and asks for a claim map", () => 
   assert.match(prompt, /USE THIS DESK FOR/);
   assert.match(prompt, /Cover \+ News/);
   assert.match(prompt, /NOT GST's locked 10-slide stance arc/);
+  assert.match(prompt, /LENS WINS/);
+  assert.match(prompt, /slideCount MUST MATCH useFor/);
   assert.match(prompt, /NOT one slide per START line/);
   assert.equal(/Economics & Logistics/.test(prompt), false);
   assert.equal(/venue rental/i.test(prompt), false);
@@ -296,6 +298,17 @@ test("normalizeCoherenceResult maps claims, clamps slides, and fills useFor", ()
   assert.match(normalized.useFor, /Cap at 10 slides/);
   assert.equal(normalizeCoherenceResult({ verdict: "nope" }), null);
   assert.equal(defaultCoherenceUseFor(3).includes("Cover + News"), true);
+  const stay = normalizeCoherenceResult({
+    verdict: "coherent",
+    reason: "The week is on the desk.",
+    useFor: "Cover + News + Stay",
+    slideCount: 8,
+  }, { anchors: ["a", "b"] });
+  assert.equal(stay.slideCount, 3);
+  assert.equal(reconcileSlideCountWithUseFor("Cover + News + Stay", 8), 3);
+  const plan = describeWhatYoullSee({ slideCount: 3, conversationPrimary: "Re-frame / Archive" });
+  assert.equal(plan.heading, "Cover → News → closer · 3 slides");
+  assert.match(plan.talk, /Re-frame \/ Archive/);
 });
 
 test("coherence seed lines tell the writer what the desk can carry", () => {

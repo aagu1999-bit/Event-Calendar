@@ -950,7 +950,8 @@ export function buildCoherencePrompt({ hook, pov, anchors = [], clusterDirective
     "",
     "CLAIMS MAP: extract 1-6 pointed claims the cover/thesis is making. For each: which line it came from (hook or pov), and whether an numbered anchor actually proves it (anchored + 1-based anchor index) or it is still a promise (unverified, anchor 0). A paraphrase of the hook is not a proof. A catalog recitation is not a proof.",
     "",
-    "USE THIS DESK FOR + SLIDE COUNT: say what this material can actually carry. Cover + News is the starting pair. slideCount is how many slides the desk earned (2-10) after reading the argument, NOT one slide per START line and NOT the cap because Fuel returned a pile. Eight starting points that all locate the same week are still 3 (cover + news + closer). Extra slides only for distinct beats that cannot share a News paragraph (a named rule, a document, a join already on the desk). NOT a template length and NOT GST's locked 10-slide stance arc.",
+    "USE THIS DESK FOR + SLIDE COUNT: say what this material can actually carry. Cover + News is the starting pair. slideCount MUST MATCH useFor. 'Cover + News + Stay' is 3. Do not return slideCount 8 next to Cover + News. slideCount is how many slides the desk earned (2-10) after reading the OPERATOR's LENS / hook / POV, NOT Fuel's THESIS line, NOT one slide per START line, NOT the cap because Fuel returned a pile. Eight starting points that all locate the same week are still 3. Extra slides only for distinct beats the LENS already named. NOT GST's locked 10-slide stance arc.",
+    "LENS WINS. If the operator's LENS / hook / POV locates a week, a room, and an audience, and Fuel hunted who-benefits, digital divide, household internet, or 'innovation for whom', the verdict is mismatched — those anchors wandered off the LENS. A true Newark statistic is not support for a Tech Week-for-business-owners desk. Name the wander in gaps. Do not green-light the hunt as coherent.",
     "",
     "For 'thin' and 'mismatched': also return 1-3 specific GAPS — each a short (60-120 char) sentence naming what's missing or what's off. Concrete, not vague. Example: 'No anchor names a currently-operating venue — every specific is either historical or a policy metric.' NOT: 'anchors are weak.'",
     "For 'coherent': return an empty gaps array.",
@@ -993,6 +994,7 @@ export function normalizeCoherenceResult(parsed, { anchors = [] } = {}) {
   }
   slideCount = Math.min(DESK_SLIDE_MAX, Math.max(2, slideCount));
   const useFor = String(parsed.useFor || "").trim().slice(0, 280) || defaultCoherenceUseFor(slideCount);
+  slideCount = reconcileSlideCountWithUseFor(useFor, slideCount);
   const out = {
     verdict,
     reason: String(parsed.reason || "").trim().slice(0, 400),
@@ -1031,6 +1033,33 @@ const HOMEWORK_ANCHOR = /^(?:[-•*]\s+)?(?:RECEIPT\s*—\s*UNVERIFIED|GAP\s*—
 
 export function isHomeworkAnchor(line) {
   return HOMEWORK_ANCHOR.test(String(line || "").trim());
+}
+
+export function reconcileSlideCountWithUseFor(useFor, slideCount) {
+  const u = String(useFor || "");
+  const n = Number(slideCount);
+  const count = Number.isFinite(n) ? n : DESK_SLIDE_MIN;
+  if (/cover \+ news/i.test(u) && /\bstay\b/i.test(u) && !/\bplus\b/.test(u)) {
+    return DESK_SLIDE_MIN;
+  }
+  if (/^cover \+ news\b/i.test(u.trim()) && !/\bplus\b|\bextra\b|\bexplanatory\b/i.test(u)) {
+    return Math.min(count, DESK_SLIDE_MIN);
+  }
+  return Math.min(DESK_SLIDE_MAX, Math.max(2, count));
+}
+
+export function describeWhatYoullSee({ slideCount, conversationPrimary = "" } = {}) {
+  const n = clampDeskSlides(Number(slideCount) || DESK_SLIDE_MIN);
+  const seq = essaySlideSequence(n);
+  const labels = seq.map((t) => (
+    t === "cover" ? "Cover" : t === "news" ? "News" : t === "cta" ? "closer" : "text"
+  ));
+  const talk = String(conversationPrimary || "").trim();
+  return {
+    n,
+    heading: `${labels.join(" → ")} · ${n} slides`,
+    talk: talk ? `Talk: ${talk}` : "Talk: not ranked yet",
+  };
 }
 
 export function parsePointedSlideCount(text) {

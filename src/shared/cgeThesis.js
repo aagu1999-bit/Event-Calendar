@@ -63,6 +63,13 @@ const PLATFORM_THEME_LEAKS = [
   { re: /\baccess illusions?\b/i, needle: "access illusion" },
   { re: /\billusion of access\b/i, needle: "illusion of access" },
   { re: /\bunseen hand\b/i, needle: "unseen hand" },
+  { re: /\bdigital divide\b/i, needle: "digital divide" },
+  { re: /\bdigital equity\b/i, needle: "digital equity" },
+  { re: /\bdigital access\b/i, needle: "digital access" },
+  { re: /\bdigital[- ]inclusion\b/i, needle: "digital inclusion" },
+  { re: /\black(?:s|ed|ing)? (?:home )?internet\b/i, needle: "lack internet" },
+  { re: /\bfor whom\b/i, needle: "for whom" },
+  { re: /\bwho gets to\b/i, needle: "who gets to" },
 ];
 
 export function isPlatformThemeLeak(text, desk = "") {
@@ -76,7 +83,7 @@ export function isPlatformThemeLeak(text, desk = "") {
 // CGE_SUBJECT as a hunt. Thesis/Hook already refuse the graft; these
 // surfaces have to refuse the search.
 export const PLATFORM_THEME_STAY_ON_DESK =
-  "MISSION: CGE is a Black New Jersey cultural publication. Events are the door. Locate THIS specimen, then prove what the desk already claimed. HOUSE FIGHT IS OPTIONAL. African American / Caribbean / African diaspora tension, who owns vs who programs, who actually benefits, whose vision, entrepreneurial spirit, and old gatekeepers are not a hunt. MECHANISM, PATTERN, FRICTION, JOIN, and DOCUMENT are OPTIONAL. A named program, statute, Transit Village, liquor cap, SID, Current Affairs 'societal mechanism', access illusion, 'access dictates who', the unseen hand, a sideways join, or an official document is not the default hunt. Use a fight, a trick, a pattern, a join, or a document only if the LENS, POV, topic, or a numbered anchor already named it — or research actually found it on THIS specimen. If this desk is an event plus an audience, stay on that specimen. Do not search or write a house theme to complete a kit and make the brief feel like CGE.";
+  "MISSION: CGE is a Black New Jersey cultural publication. Events are the door. Locate THIS specimen, then prove what the desk already claimed. HOUSE FIGHT IS OPTIONAL. African American / Caribbean / African diaspora tension, who owns vs who programs, who actually benefits, whose vision, entrepreneurial spirit, and old gatekeepers are not a hunt. MECHANISM, PATTERN, FRICTION, JOIN, and DOCUMENT are OPTIONAL. A named program, statute, Transit Village, liquor cap, SID, Current Affairs 'societal mechanism', access illusion, 'access dictates who', the unseen hand, a sideways join, an official document, a city digital-divide statistic, household internet, or 'innovation for whom' is not the default hunt. Use a fight, a trick, a pattern, a join, or a document only if the LENS, POV, topic, or a numbered operator anchor already named it. A fact that is true of Newark is not THIS specimen unless the desk named that fight. If this desk is an event plus an audience, stay on that specimen. Do not search or write a house theme to complete a kit and make the brief feel like CGE.";
 
 // Injected at the top of writer / spine / arranger prompts when the
 // carousel is Feature-tier or the operator picked Content register.
