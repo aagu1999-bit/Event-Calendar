@@ -950,7 +950,7 @@ export function buildCoherencePrompt({ hook, pov, anchors = [], clusterDirective
     "",
     "CLAIMS MAP: extract 1-6 pointed claims the cover/thesis is making. For each: which line it came from (hook or pov), and whether an numbered anchor actually proves it (anchored + 1-based anchor index) or it is still a promise (unverified, anchor 0). A paraphrase of the hook is not a proof. A catalog recitation is not a proof.",
     "",
-    "USE THIS DESK FOR + SLIDE COUNT: say what this material can actually carry. Cover + News is the starting pair. slideCount is the number of pointed slides the desk earned (2-10), NOT a template length and NOT GST's locked 10-slide stance arc. If only two claims are anchored, slideCount is 3 (cover + news + stay) or less — do not recommend stretching.",
+    "USE THIS DESK FOR + SLIDE COUNT: say what this material can actually carry. Cover + News is the starting pair. slideCount is how many slides the desk earned (2-10) after reading the argument, NOT one slide per START line and NOT the cap because Fuel returned a pile. Eight starting points that all locate the same week are still 3 (cover + news + closer). Extra slides only for distinct beats that cannot share a News paragraph (a named rule, a document, a join already on the desk). NOT a template length and NOT GST's locked 10-slide stance arc.",
     "",
     "For 'thin' and 'mismatched': also return 1-3 specific GAPS — each a short (60-120 char) sentence naming what's missing or what's off. Concrete, not vague. Example: 'No anchor names a currently-operating venue — every specific is either historical or a policy metric.' NOT: 'anchors are weak.'",
     "For 'coherent': return an empty gaps array.",
@@ -1060,19 +1060,39 @@ export function countUsableAnchors(context) {
   return n;
 }
 
-// Auto length from THIS desk's copy, not a silent 3 and not GST 10.
-// Operator pin wins. Else countable START / THESIS / SPECIMEN receipts
-// (1 proof → 3, 8 proofs → 10). Check's pointed count is only a fallback
-// when the desk has no countable receipts — a JSON example of slideCount:3
-// must not freeze a richer Fuel set.
+const EXTRA_BEAT = /^(?:MECHANISM|FRICTION|DOCUMENT|ARGUMENT|JOIN|NEXT)\s*—/i;
+
+// Extra beats that cannot share the News paragraph. A pile of START /
+// THESIS / SPECIMEN lines still locates — that is Cover + News, not
+// one slide per Fuel bullet.
+export function countEarnedBeats(context) {
+  const lines = String(context || "").split(/\n/);
+  let n = 0;
+  for (const line of lines) {
+    const raw = String(line || "").trim();
+    if (!raw) continue;
+    const bullet = raw.replace(/^[-•*]\s+/, "");
+    if (isHomeworkAnchor(raw) || isHomeworkAnchor(bullet)) continue;
+    if (EXTRA_BEAT.test(bullet)) n += 1;
+  }
+  return n;
+}
+
+function clampDeskSlides(n) {
+  return Math.min(DESK_SLIDE_MAX, Math.max(DESK_SLIDE_MIN, n));
+}
+
+// Auto length: Check's pointed count is the analysis. A Fuel pile of
+// START lines is not. Operator pin wins. Else Check. Else Cover + News
+// (3) plus one extra text slide per earned beat already on the desk.
 export function earnedSlideCount(context, pinned = null) {
   if (typeof pinned === "number" && Number.isFinite(pinned) && pinned > 0) {
-    return Math.min(DESK_SLIDE_MAX, Math.max(DESK_SLIDE_MIN, Math.round(pinned)));
+    return clampDeskSlides(Math.round(pinned));
   }
-  const proofs = countUsableAnchors(context);
-  if (proofs > 0) return Math.min(DESK_SLIDE_MAX, Math.max(DESK_SLIDE_MIN, proofs + 2));
   const pointed = parsePointedSlideCount(context);
-  if (pointed) return Math.min(DESK_SLIDE_MAX, Math.max(DESK_SLIDE_MIN, pointed));
+  if (pointed) return clampDeskSlides(pointed);
+  const extras = countEarnedBeats(context);
+  if (extras > 0) return clampDeskSlides(DESK_SLIDE_MIN + extras);
   return DESK_SLIDE_MIN;
 }
 

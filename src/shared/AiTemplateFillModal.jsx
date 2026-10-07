@@ -1127,7 +1127,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
             <div style={{ fontSize: "0.62rem", color: "rgba(245,240,232,0.7)", lineHeight: 1.45 }}>
               {gstOn
                 ? "Generate will run GST. Auto / 4 / 5 do not change the length. Ranked Injustice / Explainer / Re-frame / Micro-doc still name the talk."
-                : `Generate will not run GST. Length is ${deskN} from the copy on this desk (anchored START / THESIS / SPECIMEN lines). Pin 3–10 if you want a different count. Ranked maps name the talk. Unverified claims stay off the slides.`}
+                : `Generate will not run GST. Length is ${deskN}: Check's pointed count if Check ran, otherwise Cover + News plus extra beats already on the desk — not one slide per Fuel START, not the cap. Pin 3–10 to override. Ranked maps name the talk. Unverified claims stay off the slides.`}
             </div>
           </div>
         )}
@@ -1582,7 +1582,7 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
                   <button type="button" onClick={() => setGstOn(true)} style={{ padding: "3px 8px", borderRadius: 3, cursor: "pointer", fontSize: "0.55rem", fontWeight: 800, letterSpacing: 0.08, textTransform: "uppercase", background: gstOn ? "rgba(229,188,79,0.22)" : "transparent", color: gstOn ? "#E5BC4F" : "rgba(245,240,232,0.45)", border: `1px solid ${gstOn ? "rgba(229,188,79,0.5)" : "rgba(245,240,232,0.12)"}` }}>On</button>
                 </div>
                 <div>{gstOn ? "— 10-slide stance arc. Ranked conversation map still names the talk." : "— Cover + News in the ranked conversation map (Injustice / Explainer / Re-frame / Micro-doc) if you selected one. Extra text slides only when this desk earned them."}</div>
-                <div>Slide count: <b style={{ color: "#F5F0E8" }}>{gstOn ? "10 (GST locked)" : deskN}</b> {gstOn ? "" : (slideCount === "auto" ? "— Auto from the anchored receipts on this desk. 3–10. Not a silent 3." : `— pinning ${slideCount} slides`)}</div>
+                <div>Slide count: <b style={{ color: "#F5F0E8" }}>{gstOn ? "10 (GST locked)" : deskN}</b> {gstOn ? "" : (slideCount === "auto" ? "— Auto from Check's pointed count, or Cover + News plus earned beats. Not the cap. Not one slide per START line." : `— pinning ${slideCount} slides`)}</div>
                 <div>Enrich lookups: {researchOn || newsOn
                   ? <span style={{ color: "#FBBF24" }}>ADDS extra Gemini calls whose bullets get concatenated into Research Anchors — may duplicate matrix anchors</span>
                   : <span style={{ color: "rgba(245,240,232,0.4)" }}>off (recommended when Research Anchors are already populated)</span>}</div>

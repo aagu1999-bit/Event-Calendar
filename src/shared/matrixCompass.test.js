@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isListicleHook, isBrochureCopy, hookEvidenceLines, buildHookPrompt, buildLensReframePrompt, buildThesisPrompt, buildCoherencePrompt, normalizeCoherenceResult, formatCoherenceSeedLines, defaultCoherenceUseFor, coherenceInputSignature, describeReframeInputs, lensFreshnessSignature, earnedSlideCount, essaySlideSequence, countUsableAnchors, isHomeworkAnchor } from "./matrixCompass.js";
+import { isListicleHook, isBrochureCopy, hookEvidenceLines, buildHookPrompt, buildLensReframePrompt, buildThesisPrompt, buildCoherencePrompt, normalizeCoherenceResult, formatCoherenceSeedLines, defaultCoherenceUseFor, coherenceInputSignature, describeReframeInputs, lensFreshnessSignature, earnedSlideCount, essaySlideSequence, countUsableAnchors, countEarnedBeats, isHomeworkAnchor } from "./matrixCompass.js";
 import { buildSubjectLock, subjectLockPromptLines, lockLensDirective } from "./subjectLock.js";
 
 test("listicle hooks are the Google-vs-CGE failure", () => {
@@ -247,6 +247,7 @@ test("coherence prompt reads the LENS strictly and asks for a claim map", () => 
   assert.match(prompt, /USE THIS DESK FOR/);
   assert.match(prompt, /Cover \+ News/);
   assert.match(prompt, /NOT GST's locked 10-slide stance arc/);
+  assert.match(prompt, /NOT one slide per START line/);
   assert.equal(/Economics & Logistics/.test(prompt), false);
   assert.equal(/venue rental/i.test(prompt), false);
 });
@@ -340,18 +341,43 @@ test("slide count is earned from this desk, not a silent 3", () => {
     "POINTED SLIDE COUNT: 3. Cover + News is the starting pair.",
   ].join("\n");
   assert.equal(countUsableAnchors(fourProofs), 4);
-  // Four receipts earn 6. Check's example slideCount:3 must not freeze Auto at 3.
-  assert.equal(earnedSlideCount(fourProofs), 6);
+  assert.equal(countEarnedBeats(fourProofs), 1);
+  // Check's pointed count is the analysis — a Fuel pile does not override it.
+  assert.equal(earnedSlideCount(fourProofs), 3);
   assert.equal(earnedSlideCount(fourProofs, 4), 4);
+
+  const startPile = [
+    "POV: Newark Tech Week is in town for business owners.",
+    "- START — the week is in Newark.",
+    "- START — sessions for operators.",
+    "- START — a named hall.",
+    "- START — a named date.",
+    "- START — a partner calendar.",
+    "- START — another session track.",
+    "- START — a seventh starting point.",
+    "- START — an eighth starting point.",
+  ].join("\n");
+  assert.equal(countUsableAnchors(startPile) >= 8, true);
+  assert.equal(countEarnedBeats(startPile), 0);
+  assert.equal(earnedSlideCount(startPile), 3);
+
+  const withBeats = [
+    startPile,
+    "- DOCUMENT — a sourced year on this specimen.",
+    "- JOIN — a parallel room already on the desk.",
+  ].join("\n");
+  assert.equal(countEarnedBeats(withBeats), 2);
+  assert.equal(earnedSlideCount(withBeats), 5);
+
   const eightProofs = [
-    fourProofs,
+    fourProofs.replace(/POINTED SLIDE COUNT: 3[^\n]*/, ""),
     "- START — a fifth named Saturday.",
     "- START — a sixth named corridor.",
     "- DOCUMENT — a seventh sourced year.",
     "- JOIN — an eighth parallel room already on the desk.",
   ].join("\n");
-  assert.equal(countUsableAnchors(eightProofs), 8);
-  assert.equal(earnedSlideCount(eightProofs), 10);
+  assert.equal(countEarnedBeats(eightProofs), 3);
+  assert.equal(earnedSlideCount(eightProofs), 6);
   assert.deepEqual(essaySlideSequence(6), ["cover", "news", "text", "text", "text", "cta"]);
   assert.deepEqual(essaySlideSequence(3), ["cover", "news", "cta"]);
   assert.deepEqual(essaySlideSequence(4), ["cover", "news", "text", "cta"]);

@@ -190,7 +190,7 @@ test("fill seed splits homework off the proof pile", () => {
   assert.match(seed.context, /GAP — a currently-operating Saturday operator quote/);
   assert.match(seed.context, /UNVERIFIED CLAIMS — OMIT FROM EVERY SLIDE/);
   assert.match(seed.context, /OPEN GAPS — homework, not copy/);
-  assert.equal(earnedSlideCount(seed.context), 6);
+  assert.equal(earnedSlideCount(seed.context), 3);
 });
 
 test("ranked maps parse from seed and become Cover + News, not GST 10", () => {
@@ -214,7 +214,7 @@ test("ranked maps parse from seed and become Cover + News, not GST 10", () => {
     "- MECHANISM — weekend traffic eats the split.",
     "- SPECIMEN — a Parkway operator named the influx.",
   ].join("\n");
-  assert.deepEqual(conversationSlideSequence(richDesk), ["cover", "news", "text", "text", "text", "cta"]);
+  assert.deepEqual(conversationSlideSequence(richDesk), ["cover", "news", "cta"]);
   assert.equal(conversationSlideSequence({}), null);
   const writer = conversationWriterBlock(parsed).join("\n");
   assert.match(writer, /outranks GST/);
