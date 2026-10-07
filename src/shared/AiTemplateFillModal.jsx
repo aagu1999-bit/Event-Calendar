@@ -4,6 +4,7 @@ import { useBrandStore, useCarouselTemplatesStore, BUILTIN_CAROUSEL_TEMPLATES } 
 import { generateTemplateFill, pickTemplate, generateArrangedCarousel, researchEvent, researchContentMethod, researchNews, connectDots, dotsPlanToSlides, readFlyer } from "./aiContent.js";
 import { summarizeSlidesForFeedback } from "./eventMatrixToFillSeed.js";
 import { isContentRegister } from "./cgeThesis.js";
+import { conversationSlideSequence, parseConversationRankFromContext } from "./conversationMaps.js";
 import { appendMethodBriefToContext, appendOperatorQuestions, contextHasMethodBrief } from "./cgeMethod.js";
 import {
   interpretBuildTurn,
@@ -159,11 +160,15 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
       setCompressionEvent(null);
       setSavedIdx(new Set());
       setMode(initialRegister || "editorial");
-      setAiArrange((initialRegister || "editorial") !== "promo");
+      // Honor the seed. Feature Preview sends arrange:false — do not force
+      // GST 10 just because compact mode hid the toggle. Orbit still opts in.
+      setAiArrange(!!initialArrange);
       setDotsMode(false);
       setDotsDiscover(false);
       setDotsAnchor("");
-      setSlideCount((initialRegister || "editorial") === "promo" ? "auto" : "10");
+      setSlideCount(
+        !!initialArrange && (initialRegister || "editorial") !== "promo" ? "10" : "auto",
+      );
       setNewsOn(false);
       setNewsFound(null);
       setMethodFound(null);
@@ -182,10 +187,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
       // seeded open also flips on "AI arranges" so it designs a full carousel.
       if (initialTopic) setTopic(initialTopic);
       if (initialContext) setContext(initialContext);
-      // Compact mode = always "AI arranges" (the matrix-driven path).
-      // The Generation Mode picker is hidden in compact mode; forcing
-      // aiArrange here keeps the downstream generation logic wired up.
-      if (initialArrange || compactMode) setAiArrange(true);
+      if (initialArrange) setAiArrange(true);
       // Seeded register overrides the reset default ("editorial") — used
       // when a caller (Matrix modal's Preview Carousel) already knows
       // which mode fits the record's tier + emotion. Whitelist to the
@@ -221,6 +223,8 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
         ? (mode === "promo"
           ? (slideCount === "auto" ? "✨ Design + generate" : `✨ Generate ${slideCount} slides`)
           : "✨ GST generate (10)")
+      : compactMode && parseConversationRankFromContext(context).primary
+        ? "✨ Generate Cover + News"
         : letAiPick
           ? "✨ Let AI pick + generate"
           : `✨ Generate ${template?.sequence?.length || 0} slides`;
@@ -294,16 +298,32 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
       setPickedTemplate(pick.template);
       setPickReasoning(pick.reasoning);
     }
-    // Phase 2: fill the picked/chosen template.
-    setBusyLabel(`Filling ${useTemplate.sequence.length} slides…`);
+    // Phase 2: fill the picked/chosen template. A ranked conversation
+    // map (Injustice / Explainer / Re-frame / Micro-doc) is Cover + News
+    // in that talk — not GST 10, not a leftover insight template dump.
+    const pinnedCount = slideCount === "auto" ? null : parseInt(slideCount, 10);
+    const mapSeq = conversationSlideSequence(genContext, Number.isFinite(pinnedCount) ? pinnedCount : null);
+    const sequence = mapSeq || useTemplate.sequence;
+    if (mapSeq) {
+      setPickedTemplate({
+        id: "conversation-cover-news",
+        name: "Cover + News (ranked conversation map)",
+        sequence: mapSeq,
+        custom: true,
+      });
+      setPickReasoning("Operator-ranked conversation map. Cover + News in that talk. GST is off.");
+    }
+    setBusyLabel(`Filling ${sequence.length} slides…`);
     const result = await generateTemplateFill({
       apiKey,
-      sequence: useTemplate.sequence,
+      sequence,
       topic,
       context: genContext,
       voice,
       slotPrompts,
-      templateMeta: useTemplate,
+      templateMeta: mapSeq
+        ? { name: "Cover + News (ranked conversation map)", keyMove: "Cover names the talk; News carries the receipt. Secondary colors one pointed source. Tertiary stays parked." }
+        : useTemplate,
       mode,
       letterMode,
       // Compass override: cluster directive as its own top-level block +
@@ -1073,9 +1093,8 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
           Type a topic + context; Gemini writes every slide as one coherent story. Let it pick or arrange the layout, or choose a template. Per-slot rules from <strong>/brand → Slide Content Rules</strong> apply.
         </div>
 
-        {/* Generation Mode picker — hidden in compact mode because the
-            matrix-driven path always uses AI-arrange. Only the from-
-            scratch entry (MediaTool's bare ✨ AI Fill button) shows it. */}
+        {/* Generation Mode picker — hidden in compact mode. GST lives
+            next to Register so Feature Preview can turn it off. */}
         {!compactMode && (
           <>
             <div style={{ fontSize: "0.55rem", letterSpacing: 1.4, textTransform: "uppercase", fontWeight: 700, color: "rgba(245,240,232,0.4)", margin: "0 0 7px" }}>Generation mode</div>
@@ -1096,29 +1115,12 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
                 picks from {allTemplates.length} templates
               </span>
             </label>
-
-            {/* AI arranges — design a bespoke slot sequence for THIS story instead of
-                a fixed template. Supersedes template selection + AI-pick. */}
-            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.72rem", color: aiArrange ? "#E5BC4F" : "rgba(245,240,232,0.7)", cursor: "pointer", marginBottom: 8, padding: "7px 9px", background: aiArrange ? "rgba(229,188,79,0.08)" : "transparent", border: "1px solid " + (aiArrange ? "rgba(229,188,79,0.35)" : "rgba(245,240,232,0.08)"), borderRadius: 4 }}>
-              <input
-                type="checkbox"
-                checked={aiArrange}
-                onChange={(e) => { setAiArrange(e.target.checked); if (e.target.checked) { setLetAiPick(false); setDotsMode(false); } }}
-              />
-              <span style={{ fontWeight: 700, letterSpacing: 0.5 }}>
-                🪄 GST cultural pipeline (10 slides)
-              </span>
-              <span style={{ marginLeft: "auto", fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: 0.5 }}>
-                theory → storyboard → micro-copy
-              </span>
-            </label>
           </>
         )}
 
-        {/* Slide count — only meaningful when AI arranges the carousel (a fixed
-            template is locked to its own length). "Auto" lets Gemini size the
-            arc to the story; a number pins the count. */}
-        {aiArrange && (
+        {/* Promo flyer arranger still sizes itself. GST is always 10 —
+            those chips used to lie. Off: Cover + News (or the template). */}
+        {aiArrange && mode === "promo" && (
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, padding: "8px 10px", background: "rgba(229,188,79,0.04)", border: "1px solid rgba(229,188,79,0.15)", borderRadius: 4 }}>
             <span style={{ fontSize: "0.65rem", color: "rgba(245,240,232,0.7)", letterSpacing: 0.5, fontWeight: 700 }}>How many slides?</span>
             <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
@@ -1137,6 +1139,11 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
                 >{c === "auto" ? "✨ Auto" : c}</button>
               ))}
             </div>
+          </div>
+        )}
+        {aiArrange && mode !== "promo" && (
+          <div style={{ fontSize: "0.62rem", color: "rgba(245,240,232,0.5)", margin: "-2px 0 12px", padding: "0 2px", lineHeight: 1.45 }}>
+            GST is a fixed 10-slide arc (hook → anatomy → cases → teach → stance). Auto / 4 / 5 do not resize it. Turn GST off to write Cover + News in the conversation map you ranked.
           </div>
         )}
 
@@ -1306,6 +1313,32 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
           <div style={{ fontSize: "0.62rem", color: "rgba(229,188,79,0.75)", lineHeight: 1.45, margin: "-4px 0 12px", padding: "0 2px" }}>
             Feature default. Events are the door. 15% curator / 85% observation. Closer is a directory, not an RSVP.
           </div>
+        )}
+
+        {mode !== "promo" && (
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.72rem", color: aiArrange ? "#E5BC4F" : "rgba(245,240,232,0.7)", cursor: "pointer", marginBottom: 8, padding: "7px 9px", background: aiArrange ? "rgba(229,188,79,0.08)" : "transparent", border: "1px solid " + (aiArrange ? "rgba(229,188,79,0.35)" : "rgba(245,240,232,0.08)"), borderRadius: 4 }}>
+            <input
+              type="checkbox"
+              checked={aiArrange}
+              onChange={(e) => {
+                const on = e.target.checked;
+                setAiArrange(on);
+                if (on) {
+                  setLetAiPick(false);
+                  setDotsMode(false);
+                  setSlideCount("10");
+                } else {
+                  setSlideCount("auto");
+                }
+              }}
+            />
+            <span style={{ fontWeight: 700, letterSpacing: 0.5 }}>
+              🪄 GST cultural pipeline (10 slides)
+            </span>
+            <span style={{ marginLeft: "auto", fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: 0.5 }}>
+              {aiArrange ? "on — 10-slide stance arc" : "off — Cover + News in the ranked map"}
+            </span>
+          </label>
         )}
 
         {/* Each register surfaces its own optional TECHNIQUE right here — the
@@ -1486,14 +1519,15 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
               {/* CONFLICTS + OVERRIDES — where this window changes something */}
               <div style={{ marginBottom: 4 }}>
                 <div style={{ fontSize: "0.55rem", letterSpacing: 1.2, textTransform: "uppercase", fontWeight: 700, color: "rgba(99,179,237,0.7)", marginBottom: 3 }}>What THIS window adds / overrides</div>
-                <div>Slide count: <b style={{ color: "#F5F0E8" }}>{slideCount}</b> {slideCount === "auto" ? "— spine picks the honest count from the material" : `— pinning ${slideCount} slides (spine may compress if the material can't earn all of them)`}</div>
+                <div>GST 10: <b style={{ color: "#F5F0E8" }}>{aiArrange && mode !== "promo" ? "on" : "off"}</b> {aiArrange && mode !== "promo" ? "— 10-slide stance arc. Ranked conversation map still names the talk." : "— Cover + News in the ranked conversation map (Injustice / Explainer / Re-frame / Micro-doc) if you selected one."}</div>
+                <div>Slide count: <b style={{ color: "#F5F0E8" }}>{aiArrange && mode !== "promo" ? "10 (GST locked)" : slideCount}</b> {aiArrange && mode !== "promo" ? "" : (slideCount === "auto" ? "— Cover + News (3) if a map is ranked, else the template" : `— pinning ${slideCount} slides`)}</div>
                 <div>Enrich lookups: {researchOn || newsOn
                   ? <span style={{ color: "#FBBF24" }}>ADDS extra Gemini calls whose bullets get concatenated into Research Anchors — may duplicate matrix anchors</span>
                   : <span style={{ color: "rgba(245,240,232,0.4)" }}>off (recommended when Research Anchors are already populated)</span>}</div>
                 <div>Context textarea: shows the matrix seed. Edits here go to the writer prompt only — they do NOT update the matrix. Regenerate from the matrix to reset.</div>
                 {!compactMode ? null : (
                   <div style={{ marginTop: 4, fontSize: "0.6rem", color: "rgba(245,240,232,0.45)", fontStyle: "italic" }}>
-                    Hidden in compact mode: Let AI pick template · Template dropdown · Topic field · Letter mode · Connect the dots · Anchor field. Matrix-driven flow uses AI-arrange by default.
+                    Hidden in compact mode: Let AI pick template · Template dropdown · Topic field · Letter mode · Connect the dots · Anchor field. GST is a toggle — Feature defaults off. Ranked conversation maps still seed the writer.
                   </div>
                 )}
               </div>

@@ -7,6 +7,9 @@ import {
   formatConversationSeedLines,
   sanitizeConversationRank,
   applyConversationSuggestion,
+  parseConversationRankFromContext,
+  conversationWriterBlock,
+  conversationSlideSequence,
 } from "./conversationMaps.js";
 import { eventMatrixToFillSeed } from "./eventMatrixToFillSeed.js";
 import { MATRIX_FIELDS } from "./matrixEnums.js";
@@ -120,6 +123,7 @@ test("seed lines are Cover + News conversation maps, not GST 10", () => {
     tertiary: "reframe",
   });
   const blob = lines.join("\n");
+  assert.match(blob, /CONVERSATION_RANK_KEYS: primary=explainer/);
   assert.match(blob, /CONVERSATION MAP: primary Explainer/);
   assert.match(blob, /Cover \+ News/);
   assert.match(blob, /10-slide/);
@@ -144,6 +148,26 @@ test("fill seed injects the conversation map and stores the field", () => {
   assert.match(seed.context, /CONVERSATION MAP: primary Explainer/);
   assert.match(seed.context, /Cover \+ News/);
   assert.equal(seed.arrange, false);
+});
+
+test("ranked maps parse from seed and become Cover + News, not GST 10", () => {
+  const seed = formatConversationSeedLines({
+    primary: "explainer",
+    secondary: "injustice",
+    tertiary: "reframe",
+  }).join("\n");
+  const parsed = parseConversationRankFromContext(seed);
+  assert.equal(parsed.primary, "explainer");
+  assert.equal(parsed.secondary, "injustice");
+  assert.equal(parsed.tertiary, "reframe");
+  assert.deepEqual(conversationSlideSequence(parsed), ["cover", "news", "cta"]);
+  assert.deepEqual(conversationSlideSequence(parsed, 5), ["cover", "news", "text", "text", "cta"]);
+  assert.equal(conversationSlideSequence({}), null);
+  const writer = conversationWriterBlock(parsed).join("\n");
+  assert.match(writer, /outranks GST/);
+  assert.match(writer, /Explainer/);
+  assert.match(writer, /do not invent who-owns/);
+  assert.deepEqual(parseConversationRankFromContext(""), sanitizeConversationRank({}));
 });
 
 test("locked operator rank is not overwritten by a new suggestion", () => {

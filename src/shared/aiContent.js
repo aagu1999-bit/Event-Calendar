@@ -48,6 +48,7 @@ import {
   CONTENT_ESSAY_ARC,
 } from "./cgeMethod.js";
 import { generateGstCarousel } from "./gstPipeline.js";
+import { conversationWriterBlock } from "./conversationMaps.js";
 
 const MODEL = "gemini-2.5-flash-lite";
 const URL_BASE = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
@@ -2959,6 +2960,7 @@ export async function generateNarrativeSpine({ apiKey, topic, context, clusterDi
     ...(today ? [`Today: ${today}`] : []),
     "",
     ...platformThesisBlock({ mode, isEvergreen }),
+    ...conversationWriterBlock(context),
     ...(isContentRegister(mode, isEvergreen) ? contentSpineMandate() : []),
     ...(context && context.trim() ? [
       "Raw context (the writer will draw from these; you decide which serve the thesis and which are noise):",
@@ -3617,14 +3619,10 @@ function variationDirective() {
 // the closer behaves, so the two registers produce visibly different copy.
 function registerBlock(mode) {
   if (mode === "content") return [
-    "REGISTER: GST CULTURAL ANALYSIS — wearegst / Pop Culture Detective energy.",
-    "- THREE GEARS: PATTERN (repeating structure) + TEACH (reusable lens) + STANCE (who benefits / who's blocked). Pattern alone is incomplete.",
-    "- CHARGE + STAKES under the gears: felt heat that stops the thumb, and what it costs someone.",
-    "- Omniscient: float above the specimen, read the map, take a side. No both-sides fog.",
-    "- Inverse hook in the first two sentences. Ruthless brevity. Active voice.",
-    "- Scan-path bolding on core entities. Under 35 words of intent per beat when possible.",
-    "- Banned sludge: delve, testament, moreover, landscape, unpack, nuanced, vibrant community, hidden gem, don't miss, pull up, both sides, it's complicated.",
-    "- Closer is stance-as-engagement or the next question — never RSVP / ticket sell.",
+    "REGISTER: CONTENT — Cover + News in the conversation map the operator ranked, not a 10-slide GST stance hunt.",
+    "- If SOURCE MATERIAL has a CONVERSATION MAP, that is the talk. Write Cover + News in that talk.",
+    "- Do not import who-benefits / who-owns / diaspora unless the map is Injustice and the desk named that fight.",
+    "- GST 10 is optional. Off: essay slots. On: the ranked map still names the talk — GST must not replace it with a who-benefits hunt.",
     "─────────────────────────────",
     "",
   ];
@@ -4232,6 +4230,7 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
     ...(sequence.length > 2 && !isContentRegister(mode, isEvergreen) ? retentionEngineering(sequence.length) : []),
     ...(letterMode ? letterModeBlock() : []),
     ...platformThesisBlock({ mode, isEvergreen }),
+    ...conversationWriterBlock(context),
     ...registerBlock(mode),
     // BEHAVIORAL TAGS — the operator's dimension picks (Emotion,
     // Demographic, Cluster label) are BEHAVIORAL CONSTRAINTS for the
