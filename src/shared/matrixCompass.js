@@ -619,10 +619,10 @@ export function resolveEditorialLens({ cluster, override, base } = {}) {
 }
 
 // ─── DRAFT HOOK SYNTHESIZER ─────────────────────────────────────────
-// Cover line for a magazine brief — not an Instagram listicle.
-// Emotion still sets tone; Fuel START / THESIS lines authorize the
-// named NJ geography Google already found. Without those names the
-// model writes "discover surprising gathering spots."
+// Cover line for a magazine brief — a STATEMENT that names the POV's
+// contrast, not an Instagram question or a guest-list recap.
+// Fuel START / THESIS lines authorize the named NJ geography Google
+// already found. Without those names the model writes listicle covers.
 const FUEL_LINE = /^(?:[-•*]\s+)?(?:THESIS|START|GAP|FRICTION|MECHANISM|SPECIMEN|NEXT|DOCUMENT|ARGUMENT|JOIN)\s*—/i;
 
 const LISTICLE_HOOK_TROPES = [
@@ -639,6 +639,11 @@ const LISTICLE_HOOK_TROPES = [
   /\bmust-?visit\b/i,
   /\bspots?\s+you\s+(?:need|have)\s+to\s+(?:see|know|try)\b/i,
   /\bthe\s+truth\s+is\b/i,
+  // Question-mark covers and "Event: who is this for?" titles.
+  // The Tech Week failure: recap the guest list, colon, then ask.
+  /\?\s*$/,
+  /\bwho\s+(?:is|are)\b[\s\S]{0,80}\bfor\b/i,
+  /:\s*.+\?/,
 ];
 
 export function isListicleHook(text) {
@@ -667,12 +672,12 @@ export function buildHookPrompt({
   const evidence = hookEvidenceLines(anchors);
   return [
     "ROLE: You write magazine cover lines for a Black New Jersey cultural publication. You are not an Instagram listicle copywriter.",
-    "TASK: Write one 10-to-18 word cover line that NAMES THE CONTRAST the brief already proved.",
+    "TASK: Write one 10-to-18 word STATEMENT that NAMES THE CONTRAST the POV already named. A declaration, never a question.",
     "",
-    "THE INPUTS (LENS then POV then Fuel — not dropdowns):",
-    `- The Core Argument (POV, drafted from the LENS): ${cleanPOV}`,
+    "THE INPUTS (POV first, then LENS, then Fuel — not live chips):",
+    `- The Core Argument (POV — this is the contrast to compress): ${cleanPOV}`,
     ...(cleanBase ? [`- Analytical lens (facet lock labels): ${cleanBase}`] : []),
-    ...(cleanLens ? [`- LENS Narrowing (this piece): ${cleanLens}`] : []),
+    ...(cleanLens ? [`- LENS Narrowing (scene, not the guest list to recap): ${cleanLens}`] : []),
     ...(evidence.length
       ? [
         "- Fuel starting points (authorized proper nouns — use at least one named road, town, retrofit, or geography from these lines):",
@@ -683,14 +688,19 @@ export function buildHookPrompt({
     "QUALITY BAR — Google AI Mode, not a listing:",
     "  GOOD: \"Walker's Paradise vs the strip-mall geography Route 22 actually built.\"",
     "  GOOD: \"Cranford retrofitted the downtown. Route 22 still gathers in a parking lot.\"",
+    "  GOOD: \"The new class filled Newark Tech Week. The old gatekeepers still set the room.\"",
     "  FAILED: \"Did your commuter community? Discover surprising new gathering spots.\"",
+    "  FAILED: \"Newark Tech Week's new professionals and students: Who is Newark's tech future for?\"",
     "",
     "STRICT CONSTRAINTS:",
-    "1. Write FROM the POV and LENS. Do not invent a tone, audience, cluster syllabus, or corridor spend that is not already in those inputs. Unclicked dropdowns are not inputs.",
-    '2. Name the contrast the brief proved. Do NOT pose a vague "did you know" or "discover surprising spots" observation.',
+    "1. Compress the POV's tension. The LENS is the scene, not a guest list to recap. Do not invent a tone, audience, cluster syllabus, or corridor spend that is not already in those inputs. Unclicked dropdowns are not inputs.",
+    '2. Name the contrast the POV proved. Do NOT pose a vague "did you know" or "discover surprising spots" observation.',
     '3. No listicle tropes: NEVER "Discover surprising", "new gathering spots", "Did your community", "Did you know", "Here\'s why", "The real reason", "hidden gems", "spots you need to know", "Let\'s talk about", "You won\'t believe", "The truth is", "Everything you know is wrong".',
     "4. Proper nouns: you MAY and SHOULD name towns, roads, corridors, and patterns that already appear in the POV, LENS, or Fuel starting points. Do NOT invent names that are not there.",
-    "5. Format: one sentence. No quotes, no preamble, no framing.",
+    "5. Format: one sentence. No quotes, no preamble, no framing. No trailing question mark.",
+    "6. Demographic labels (students, professionals, business owners, creatives, DJs) are who the piece is FOR — never the cover's guest list. Do not recap who showed up.",
+    '7. NEVER a question-mark cover. NEVER "Who is X for?". NEVER "Event name: question". NEVER a colon-title that restates the audience then asks who the future is for.',
+    "8. Prefer the POV's fight (who programs / who already holds the room vs who the flyer named) over the LENS's crowd recap.",
     "",
     'Return ONLY JSON in this exact shape: {"hook": "..."}',
   ].join("\n");
@@ -713,7 +723,7 @@ export async function synthesizeHook({ apiKey, pov, editorialLens = "", anchors 
     contents: [{ parts: [{ text: prompt }] }],
     generationConfig: {
       responseMimeType: "application/json",
-      temperature: 0.85,
+      temperature: 0.6,
       maxOutputTokens: 256,
       responseSchema: {
         type: "object",
@@ -752,7 +762,7 @@ export async function synthesizeHook({ apiKey, pov, editorialLens = "", anchors 
   const hook = String(parsed?.hook || "").trim().replace(/^["'“”‘’]+|["'“”‘’]+$/g, "");
   if (!hook) throw new Error("Gemini returned no hook text — retry.");
   if (isListicleHook(hook)) {
-    throw new Error("Gemini wrote a listicle cover. Redraft Hook — the line has to name the contrast the Fuel brief already proved.");
+    throw new Error("Gemini wrote a question-mark or listicle cover. Redraft Hook — the line has to name the contrast, not ask who the piece is for.");
   }
   // Word-count guard — the spec says 10-18 words. A one-liner outside
   // that range violates the parametric contract; log a warning but
