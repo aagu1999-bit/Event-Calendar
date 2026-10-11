@@ -36,7 +36,7 @@ export const CONTENT_FLYER_SLOTS = [
   "photo",
 ];
 
-export const CONTENT_ESSAY_SLOTS = ["cover", "text", "news", "cta"];
+export const CONTENT_ESSAY_SLOTS = ["cover", "news", "text", "cta"];
 
 export function contentArrangerLines() {
   return [
@@ -44,10 +44,11 @@ export function contentArrangerLines() {
     `Arc: ${CONTENT_ESSAY_ARC} when the desk earned a contrast. If the desk only locates, Cover + News locates. Do not invent paradox / friction / pattern / join / mechanism to complete the kit.`,
     "Do NOT use OPEN A LOOP → CREATE TENSION → DELIVER THE PAYOFF. That spine writes 'THE COMMUTER TOWN'S SOCIAL LIFE IS GONE', then a manifesto dump, then a brewery hours card, then a 1:3000 stat.",
     "Do NOT pick spotlight, stat, features, countdown, poster, press, or photo. A venue name and a number live INSIDE an explained paragraph — they are not their own slides.",
-    "Honor the slide count the desk earned (Auto 3–10). Cover → news → cta is honest when there is no contrast. Do not pad to complete CAUSE / EXPLAIN. News is allowed when it continues the explanation as prose, not a stacked card or scaffolding kicker.",
-    "Slide jobs:",
-    "  LOCATE or CONTRAST (cover) — locate who / what / where / when. Title two expressions (Strip Malls vs Urban Cafes) ONLY if Fuel already proved them. Subtitle connects. Never 'is gone'. Never 'discover surprising gathering spots'.",
-    "  NEWS or CAUSE (text/news) — the proving paragraph for what is already on this desk. A cause paragraph (sprawl + the cap → deficit) ONLY if the brief named that pressure. Do not invent a 1:3000.",
+    "Honor the slide count the desk earned (Auto 3–10). Cover → news → cta is honest when there is no contrast. Do not pad to complete CAUSE / EXPLAIN. News is THE LOG (who / what / where / when), not a stacked card or scaffolding kicker.",
+    "If the context contains SLIDE_PLAN_KEYS, honor those named jobs. Look is assigned from the job. Locate / Cause / Explain / Paradox go quiet — do not invent them to complete a kit.",
+    "Slide jobs (only when no named plan):",
+    "  LOCATE or CONTRAST (cover) — locate who / what / where / when. Title two expressions (Strip Malls vs Urban Cafes) ONLY if Fuel already proved them. Subtitle connects. Never 'is gone'. Never 'discover surprising gathering spots'. Never withhold the news so they swipe.",
+    "  NEWS or CAUSE (news) — THE LOG for what is already on this desk. Real stake + named receipt + a use. A cause paragraph ONLY if the brief named that pressure. Do not invent a 1:3000. Not THE BIGGER PICTURE. Not an open loop.",
     "  EXPLAIN (text) — only if there is an expression to explain. Title names the section ('Route 22's Parking Lot Breweries'). Body explains WHY, and names Sunken Silo and Autodidact inside that paragraph when they are on the brief.",
     "  NEXT (cta) — the question already on the desk. Never invent a liquor-barrier closer. Never 'find your next gathering spot'. Never THE ARCHIVE.",
   ];
@@ -221,6 +222,7 @@ export function contentMethodBlock() {
     "- Manifesto pileup (five short stacked sentences banging the same point) is a failed text slide. Write a paragraph.",
     "- Cover locates. States a CONTRAST from THESIS / START only if those lines already named two expressions. Never 'discover surprising gathering spots'. Never 'THE SOCIAL LIFE IS GONE'.",
     "- Do not write the essay labels (CONTRAST, CAUSE, EXPLAIN, NEXT, SPECIMEN, PATTERN, JOIN, DOOR) as visible copy.",
+    "- If the context contains SLIDE_PLAN_KEYS, those named jobs win. Locate / Cause / Explain go quiet. Do not invent them to complete the essay kit.",
     "═════════════════════════════",
     "",
   ];
@@ -231,6 +233,7 @@ export function contentMethodSpineBlock() {
   return [
     "CONTENT ESSAY SPINE — Feature / content piece. This OVERRIDES Paradox → Friction → Mechanism → Gate AND the Instagram open-loop spine.",
     `Outline as ${CONTENT_ESSAY_ARC} when the desk earned a contrast. If it only locates, outline Cover + News. Do not invent paradox / friction / pattern / join / mechanism beats to fill four slots.`,
+    "If the context contains SLIDE_PLAN_KEYS, outline THOSE jobs in that order. Locate / Cause / Explain go quiet. recommendedSlideCount is the named job count.",
     "- CONTRAST — name the two expressions the brief already proved. If none, locate. No withheld loop. No 'is gone'.",
     "- CAUSE — only if the brief named a pressure. Articulate how it produced those expressions. Numbers live in this sentence.",
     "- EXPLAIN — the section that makes one expression undeniable. Place-names live inside the paragraph. If there are two expressions, a second EXPLAIN beat is correct.",

@@ -147,4 +147,7 @@ export const MATRIX_FIELDS = [
   // Ranked conversation map (Injustice / Explainer / Re-frame /
   // Micro-doc). Completeness ignores it — empty is a valid skip.
   "conversation_rank",
+  // Named slide jobs (hook / prove / happened / who / changes / todo).
+  // Completeness ignores it — empty means Auto from this desk.
+  "slide_plan",
 ];

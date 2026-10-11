@@ -26,9 +26,9 @@
 export const SLOT_DOCTRINE = {
   cover: {
     readerJob:
-      "Stop the scroll and promise a tension worth resolving in the next 5-6 slides.",
+      "Stop the scroll by stating the fact or the real stake already on the desk. Do not withhold the news so they swipe.",
     successCriteria:
-      "Reader swipes to slide 2. The hook creates an itch that only the next slide can scratch.",
+      "Reader knows the news on slide 1. Swipe is for how / when / what to do — not to learn what the piece is.",
     inputRequirements: {
       // Cover always fires; there's no source-material gate.
       needs: [],
@@ -36,8 +36,9 @@ export const SLOT_DOCTRINE = {
         "The POV + Cluster LENS + Emotion (drives tone). No source-material gate — cover always works.",
     },
     antiPatterns: [
-      "Descriptive titles that name the topic instead of naming a tension (e.g. 'The Math Behind the Crowd' — that describes, doesn't provoke).",
-      "Anchoring the cover on one specific venue or entity — makes slides 2-5 feel like non-sequiturs.",
+      "Withholding the news so they swipe — an itch that only slide 2 can scratch.",
+      "Descriptive titles that name the topic instead of the fact or stake (e.g. 'The Math Behind the Crowd').",
+      "Anchoring the cover on one specific venue or entity — makes later slides feel like non-sequiturs.",
       "Marketing tropes: 'Here's why', 'The real story', 'Everything you know is wrong', 'Let's talk about'.",
       "Filling headline with the POV verbatim instead of compressing it into a hook.",
     ],
@@ -45,19 +46,19 @@ export const SLOT_DOCTRINE = {
 
   news: {
     readerJob:
-      "Zoom out. Deliver a wider frame the reader hadn't considered, so the spotlights and stats that follow land harder.",
+      "THE LOG. Deliver who / what / where / when already on this desk. Real stake + named receipt + a use on this card.",
     successCriteria:
-      "Reader thinks 'huh, didn't know that mattered.' A bigger loop opens under the cover's tension.",
+      "Reader has a named receipt and knows what to do with it. Not a bigger picture. Not an open loop.",
     inputRequirements: {
       needs: ["framingContext"],
       description:
-        "A framing / context-role bullet AND a tension the argument depends on. Not a proof bullet — that belongs on a spotlight or stat.",
+        "A named receipt already on the desk (date, vote, number, source) plus a use. Not a hunt for a wider frame.",
     },
     antiPatterns: [
       "Scaffolding kickers: 'THE BIGGER PICTURE', 'THE STORY', 'THE CONTEXT', 'THE FRAME'. These are labels, not eyebrows.",
-      "Recap of the cover with no new frame added.",
-      "Missing the payoff line — news slot ends on ONE asterisk-wrapped bold beat.",
-      "Body that reads like an introduction to the piece instead of a beat within it.",
+      "Opening a loop or withholding the payoff so they swipe again.",
+      "Recap of the cover with no named receipt added.",
+      "Body that reads like an introduction to the piece instead of the log.",
     ],
   },
 
@@ -200,13 +201,14 @@ export const CONTENT_SLOT_OVERRIDES = {
   },
   news: {
     readerJob:
-      "Continue the explanation as a reported section, not a stacked card.",
+      "THE LOG. Continue as a reported section: who / what / where / when already on this desk. Real stake + named receipt + a use.",
     successCriteria:
-      "The section adds a connection the cover did not already make.",
+      "The card carries a named receipt and a use. Not THE BIGGER PICTURE. Not an open loop.",
     antiPatterns: [
       "Scaffolding kickers: 'THE BIGGER PICTURE', 'THE STORY', 'THE CONTEXT', 'THE FRAME', 'THE FIX IS IN'.",
+      "Opening a loop or withholding the payoff.",
       "Stacked one-liners instead of a paragraph.",
-      "Recap of the cover with no new connection.",
+      "Recap of the cover with no named receipt.",
     ],
   },
   cta: {

@@ -50,6 +50,7 @@ import { getClusterLabel, resolveEditorialLens, isListicleHook, formatCoherenceS
 import { formatConversationSeedLines } from "./conversationMaps.js";
 import { buildSubjectLock, lockLensDirective } from "./subjectLock.js";
 import { CONTENT_DEFAULT_VOICE } from "./cgeThesis.js";
+import { formatSlidePlanSeedLines, sanitizeSlidePlan } from "./slideJobs.js";
 
 // Register (mode) mapping — matches the state variable `mode` in
 // AiTemplateFillModal. Valid values: "promo", "editorial", "story", "content".
@@ -210,6 +211,12 @@ export function eventMatrixToFillSeed(event) {
     if (contextLines.length) contextLines.push("");
     contextLines.push(...conversationLines);
   }
+  const slidePlan = sanitizeSlidePlan(m.slide_plan);
+  const slidePlanLines = formatSlidePlanSeedLines(slidePlan);
+  if (slidePlanLines.length) {
+    if (contextLines.length) contextLines.push("");
+    contextLines.push(...slidePlanLines);
+  }
   const context = contextLines.join("\n");
 
   return {
@@ -267,6 +274,8 @@ export function eventMatrixToFillSeed(event) {
     // Empty arrays when the matrix has no history.
     rejectedDrafts: Array.isArray(m.rejected_drafts) ? m.rejected_drafts.slice(-3) : [],
     approvedDrafts: Array.isArray(m.approved_drafts) ? m.approved_drafts.slice(-3) : [],
+    // Named jobs. Empty = Auto Cover + News + closer. GST ignores this.
+    slidePlan,
   };
 }
 

@@ -46,6 +46,15 @@ import {
 } from "./cgeMethod.js";
 import { generateGstCarousel } from "./gstPipeline.js";
 import { conversationWriterBlock } from "./conversationMaps.js";
+import {
+  sanitizeSlidePlan,
+  parseSlidePlanFromContext,
+  slideJobOf,
+  coverStyleOf,
+  slidePlanWriterBlock,
+  slidePlanSpineBlock,
+  attachTrifectaWarnings,
+} from "./slideJobs.js";
 
 const MODEL = "gemini-2.5-flash-lite";
 const URL_BASE = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
@@ -1477,7 +1486,7 @@ export async function designSequence({ apiKey, topic, context, mode, targetCount
       "Do not default to memory, ownership vs programming, or same-city diaspora tension unless the LENS, POV, or an anchor named it.",
       "An event or room may open the piece; it is not the product.",
       `BANNED slot types: ${CONTENT_FLYER_SLOTS.join(", ")}. A venue or a number inside the brief is not permission to pick those slots.`,
-      "Prefer: cover → text → text → text → cta. Each text slide is a connecting paragraph, not a manifesto and not a venue card.",
+      "Prefer: cover → news → text → cta. News is THE LOG. Each extra text slide is a connecting paragraph, not a manifesto and not a venue card.",
       "The CTA is the NEXT QUESTION the explanation opened. Never RSVP / pull up / this weekend / find your next gathering spot / THE ARCHIVE.",
       "Starting points (THESIS / START / GAP / FRICTION / MECHANISM) are what you explain. Do not peel them into a listicle or a stat.",
       "The COVER names the contrast those starting points already proved (Strip Malls vs Urban Cafes). Never 'discover surprising gathering spots'. Never 'is gone'.",
@@ -1497,19 +1506,16 @@ export async function designSequence({ apiKey, topic, context, mode, targetCount
     ...(contentMode
       ? [
         "Available slide types (use ONLY these):",
-        "- cover: the contrast title + connecting subtitle. ALWAYS slide 1. Do not open a withheld loop.",
+        "- cover: the contrast title + connecting subtitle. ALWAYS slide 1. State the fact or stake. Do not withhold.",
+        "- news: THE LOG — who / what / where / when already on this desk. Real stake + named receipt + a use. Not a stacked card. Not 'THE BIGGER PICTURE'. Not an open loop.",
         "- text: a SECTION of the essay. Title names the section. Body is a connecting paragraph that explains.",
-        "- news: allowed only if it continues the explanation as prose. Not a stacked card. Not 'THE BIGGER PICTURE'.",
         "- cta: the next question the explanation opened. Not an invite. Not a directory.",
       ]
       : [
         "Available slide types (use ONLY these) — pick each for the FEELING it creates:",
-        "- cover: the hook. ALWAYS slide 1. Its job is to stop the scroll and open a loop.",
+        "- cover: the hook. ALWAYS slide 1. State the fact or the real stake. Do not withhold the news so they swipe.",
+        "- news: THE LOG — a reported card. who / what / where / when already on the desk. Real stake + named receipt + a use. Not THE BIGGER PICTURE. Not an open loop.",
         "- text: a short manifesto/thesis — the 'why this matters', the emotional stakes.",
-        "- news: a punchy news-card + photo — short stacked lines that open a loop and land a bold payoff, over",
-        "  an image. This is your STRONGEST middle-of-carousel beat: an insider dispatch beat that lands like reporting. PREFER it over",
-        "  a plain 'text' slide for any backstory / why-it-matters / breaking / human-context beat. A healthy",
-        "  carousel carries 1-3 'news' beats — lean on it, but don't make EVERY slide news (keep some variety).",
         "- spotlight: ONE venue/feature/angle per slide; several in a row build a listicle rhythm.",
         "- stat: one big number + label — a beat of impact or proof.",
         "- features: 3-5 concrete promises — what's actually included (best for a single event with draws).",
@@ -1529,7 +1535,7 @@ export async function designSequence({ apiKey, topic, context, mode, targetCount
     "- Slide 1 is ALWAYS 'cover'. End on a 'cta'.",
     ...(contentMode
       ? [
-        "- Every slide must earn its place by advancing CONTRAST → CAUSE → EXPLAIN → NEXT. No venue cards. No number cards. No padding.",
+        "- Every slide must earn its place. If SLIDE_PLAN_KEYS named the cards, honor those jobs — Locate / Cause / Explain go quiet. Otherwise CONTRAST → CAUSE → EXPLAIN → NEXT only when the desk earned a contrast. No venue cards. No number cards. No padding.",
       ]
       : [
         "- Match the mix to the STORY AND THE FEELING, never a formula: a single event with many draws →",
@@ -2461,7 +2467,7 @@ function buildFillResponseSchema(sequence) {
 //
 // Output: { slides: [{ type, ...slot-fields }, ...] }
 
-export async function generateTemplateFill({ apiKey, sequence, topic, context, voice, slotPrompts, templateMeta, mode, polish = true, letterMode = false, clusterDirective = "", clusterLabel = "", keywordTrigger = null, spine = true, voiceParams = null, behavioralTags = null, isEvergreen = false, rejectedDrafts = [], approvedDrafts = [] }) {
+export async function generateTemplateFill({ apiKey, sequence, topic, context, voice, slotPrompts, templateMeta, mode, polish = true, letterMode = false, clusterDirective = "", clusterLabel = "", keywordTrigger = null, spine = true, voiceParams = null, behavioralTags = null, isEvergreen = false, rejectedDrafts = [], approvedDrafts = [], slideJobs = null }) {
   if (!apiKey) throw new Error("Missing Gemini API key");
   if (!Array.isArray(sequence) || !sequence.length) throw new Error("Missing template sequence");
   if ((!topic || !topic.trim()) && (!context || !context.trim())) throw new Error("Add a topic or event details first");
@@ -2474,6 +2480,13 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
     apiKey, topic, context, clusterDirective, clusterLabel, mode, isEvergreen: evergreenEarly,
   });
   context = prepared.context;
+
+  const namedPlan = (() => {
+    const fromArg = sanitizeSlidePlan(slideJobs);
+    if (fromArg.jobs.length) return fromArg;
+    return parseSlidePlanFromContext(context);
+  })();
+  const jobsLocked = namedPlan.jobs.length > 0;
 
   // THIN_INPUT guard — refuse to write a 7-slide dispatch from 2 facts.
   // Without this the fill's response-shape enforcement ("expected N slides,
@@ -2501,7 +2514,7 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   // In code we drop excess content slots from the sequence tail so the
   // spine + writer only ever see a shape that CAN'T echo.
   let cappedSequence = sequence.slice();
-  if (!evergreenEarly && suppliedBullets > 0 && atomicContentSlots > suppliedBullets) {
+  if (!jobsLocked && !evergreenEarly && suppliedBullets > 0 && atomicContentSlots > suppliedBullets) {
     const kept = [];
     let contentSeen = 0;
     for (const t of sequence) {
@@ -2605,7 +2618,7 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   // photo-heavy template makes no sense). If spine failed, no compression.
   let workingSequence = generationSequence;
   let workingSpine = narrativeSpine;
-  if (narrativeSpine && narrativeSpine.recommendedSlideCount < generationSequence.length) {
+  if (!jobsLocked && narrativeSpine && narrativeSpine.recommendedSlideCount < generationSequence.length) {
     const atomicSlotsInSeq = generationSequence.filter(t => t === "text" || t === "spotlight" || t === "stat" || t === "news").length;
     if (atomicSlotsInSeq >= 3) {
       const targetLen = narrativeSpine.recommendedSlideCount;
@@ -2668,6 +2681,7 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
     isEvergreen: evergreen,
     rejectedDrafts,
     approvedDrafts,
+    slideJobs: jobsLocked ? namedPlan : null,
   });
 
   // Temperature split by register — story/editorial write at 0.70
@@ -2776,6 +2790,7 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
     if (!evergreen) sanitized = detectCrossContamination(sanitized, workingSpine, filteredContext, workingSequence);
     sanitized = detectGeographicWhiplash(sanitized, workingSequence);
     sanitized = detectSlotDoctrineViolations(sanitized, workingSequence);
+    if (jobsLocked) sanitized = attachTrifectaWarnings(sanitized, namedPlan.jobs);
     return willStitchCta ? appendStitchedCtaIfNeeded(sanitized) : stitchKeywordCta(sanitized, workingSequence, keywordTrigger);
   }
   // Deterministic pre-polish dedup: scan adjacent slides for a shared numeric
@@ -2846,6 +2861,7 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   if (!evergreen) sanitized = detectCrossContamination(sanitized, workingSpine, filteredContext, workingSequence);
   sanitized = detectGeographicWhiplash(sanitized, workingSequence);
   sanitized = detectSlotDoctrineViolations(sanitized, workingSequence);
+  if (jobsLocked) sanitized = attachTrifectaWarnings(sanitized, namedPlan.jobs);
   return willStitchCta ? appendStitchedCtaIfNeeded(sanitized) : stitchKeywordCta(sanitized, workingSequence, keywordTrigger);
 }
 
@@ -2948,6 +2964,7 @@ export async function generateNarrativeSpine({ apiKey, topic, context, clusterDi
     "",
     ...platformThesisBlock({ mode, isEvergreen }),
     ...conversationWriterBlock(context),
+    ...slidePlanSpineBlock(context),
     ...(isContentRegister(mode, isEvergreen) ? contentSpineMandate() : []),
     ...(context && context.trim() ? [
       "Raw context (the writer will draw from these; you decide which serve the thesis and which are noise):",
@@ -3074,6 +3091,8 @@ export async function generateNarrativeSpine({ apiKey, topic, context, clusterDi
   if (!Number.isInteger(recommendedSlideCount) || recommendedSlideCount < 3 || recommendedSlideCount > slideCount) {
     recommendedSlideCount = slideCount;
   }
+  const namedJobCount = parseSlidePlanFromContext(context).jobs.length;
+  if (namedJobCount) recommendedSlideCount = Math.min(slideCount, Math.max(2, namedJobCount));
   // Causal synthesis — the completed causal reasoning the writer executes
   // against. Soft-required: an empty string is acceptable (spine still
   // returns, writer degrades gracefully to inferring the argument from
@@ -3225,7 +3244,7 @@ export function buildDedupPreamble(slides) {
 function fillSlotShape(t) {
   if (t === "cover")     return '{"type":"cover","headline":"...","subtitle":"...","accentWord":"..."}';
   if (t === "text")      return '{"type":"text","textTitle":"...","textBody":"..."}';
-  if (t === "news")      return '{"type":"news","newsKicker":"<short eyebrow like BREAKING or THE BIGGER PICTURE>","newsHeadline":"<optional short heading, or empty>","newsBody":"<1-2 short paragraphs of supporting copy>","newsBold":false}';
+  if (t === "news")      return '{"type":"news","newsKicker":"<short eyebrow like BREAKING or THE VOTE — never THE BIGGER PICTURE>","newsHeadline":"<optional short heading, or empty>","newsBody":"<1-2 short paragraphs of the log>","newsBold":false}';
   if (t === "spotlight") return '{"type":"spotlight","spotName":"...","spotMeta":"...","spotTime":"","spotPrice":"","spotCta":""}';
   if (t === "cta")       return '{"type":"cta","ctaKicker":"","ctaDate":"...","ctaVenue":"...","ctaUrl":"..."}';
   if (t === "photo")     return '{"type":"photo","caption":"...","captionSecondary":"..."}';
@@ -3967,10 +3986,16 @@ function parseContextBullets(context) {
 // voice (brand fingerprint), slotPrompts, templateMeta, mode, today,
 // letterMode, narrativeSpine. Every field the writer sees here has a
 // direct impact on how a slide is written. If it doesn't, cut it.
-function buildTemplatePrompt({ sequence, topic, context, historicalContext = [], imminentBullets = [], voice, slotPrompts, templateMeta, mode, today, letterMode = false, narrativeSpine = null, behavioralTags = null, isEvergreen = false, rejectedDrafts = [], approvedDrafts = [] }) {
+function buildTemplatePrompt({ sequence, topic, context, historicalContext = [], imminentBullets = [], voice, slotPrompts, templateMeta, mode, today, letterMode = false, narrativeSpine = null, behavioralTags = null, isEvergreen = false, rejectedDrafts = [], approvedDrafts = [], slideJobs = null }) {
   const hasVoiceDesc = voice && typeof voice.description === "string" && voice.description.trim();
   const exemplars = Array.isArray(voice?.exemplars) ? voice.exemplars.filter(e => e && e.trim()) : [];
   const hasExemplars = exemplars.length > 0;
+  const namedPlan = (() => {
+    const fromArg = sanitizeSlidePlan(slideJobs);
+    if (fromArg.jobs.length) return fromArg;
+    return parseSlidePlanFromContext(context);
+  })();
+  const jobsLocked = namedPlan.jobs.length > 0;
 
   // Detect matrix-shaped context (POV: ... + "- bullet" lines) so we can
   // teach the model to map each bullet 1:1 to a slot instead of cramming
@@ -4051,13 +4076,18 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
     // Reword to signal peer-entry semantics instead.
     const spineMode = narrativeSpine?.spineMode || "insight";
     const isShowcasePeer = spineMode === "showcase" && beatLabel === "SHOWCASE";
-    const beatPrefix = beatLabel
+    const namedJob = jobsLocked ? slideJobOf(namedPlan.jobs[idx]) : null;
+    const namedStyle = (namedJob && namedJob.key === "hook") ? coverStyleOf(namedPlan.coverStyle) : null;
+    const jobPrefix = namedJob
+      ? `>>> JOB: ${namedJob.label} — ${namedJob.writer}${namedStyle ? ` ${namedStyle.writer}` : ""} Look is ${namedJob.look}. Do not invent Locate / Cause / Explain / Paradox beats. ${reservedProof ? `Reserved PROOF for this slide: "${reservedProof}..." — this bullet lands HERE and NOWHERE ELSE.${timelyClause}` : "Carry this job from what is already on the desk."} <<<\n`
+      : "";
+    const beatPrefix = jobPrefix || (beatLabel
       ? (slotType === "cover"
           ? `>>> BEAT: ${beatLabel} — MACRO-COVER: locate THIS specimen. If this beat is CONTRAST, title the two expressions Fuel already proved. If this beat is LOCATE, name who / what / where / when. Subtitle connects. Do NOT invent a contrast. Do NOT write "is gone". Do NOT write category mush ("discover surprising gathering spots"). Do NOT withhold the point so they swipe. Instances land on later slides, inside paragraphs — not peeled onto venue cards. <<<\n`
           : isShowcasePeer
             ? `>>> BEAT: SHOWCASE — this is a PEER ENTRY in a directory. Slides sharing this label are equal-weight entries in the collection — do NOT position this one as "the next phase" of an argument the previous slide started. Each SHOWCASE slide carries ONE distinct entity from the collection. ${reservedProof ? `Reserved PROOF (entity) for this slide: "${reservedProof}..." — this entity lands HERE and NOWHERE ELSE in the carousel.${timelyClause}` : "NO proof entity is reserved for this slide — do NOT reach for an entity already assigned to another peer slot; carry this entry with a specific from context marked 'context' or leave it lighter than the sibling entries."} <<<\n`
             : `>>> BEAT: ${beatLabel} — this slide advances ONLY this beat, no other.${reservedProof ? ` Reserved PROOF for this slide: "${reservedProof}..." — this bullet lands HERE and NOWHERE ELSE in the carousel.${timelyClause}` : " NO proof bullet is reserved for this slide — do NOT reach for a proof already assigned to another slide; carry the beat with tension, framing, or a specific from context marked 'context' (not 'proof')."} <<<\n`)
-      : "";
+      : "");
     if (!rule) {
       return `SLIDE ${idx + 1} (${slotType.toUpperCase()}) — no rule defined; produce reasonable defaults matching brand voice.\n${doctrinePrefix}${beatPrefix}${refPrefix}`;
     }
@@ -4080,7 +4110,7 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
       const ctaTotal = sequence.filter(t => t === "cta").length;
       extra = `\n\nThis is CTA ${ctaIdxAmong} of ${ctaTotal}. Each CTA is a DIRECTORY LISTING for ONE event. ctaKicker stays BLANK. ctaDate slot becomes the EVENT NAME (uppercased big-bold headline of the card). ctaVenue slot is "<venue> · <day> · <time>". ctaUrl is that event's URL or page link. Pick a DIFFERENT event from the context for each CTA — don't repeat. If context lists fewer events than CTAs, invent plausible ones grounded in the topic.`;
     } else if (slotType === "news") {
-      extra = "\n\nNEWS slide — a SUPPORTING explainer beat, not a cover. Open a small loop, hold a beat, land the payoff. newsKicker = a 1-3 word eyebrow (BREAKING / THE BACKSTORY / WHY IT MATTERS / THE BIGGER PICTURE). newsHeadline = an optional short heading, or empty. newsBody follows SENTENCE CADENCE — do NOT default to one sentence per line. Conversational or rolling (the default): 1-2 short paragraphs of supporting copy. Stacked (only when that cadence is chosen): one thought per line, blank line before the payoff. End on ONE payoff line wrapped in *asterisks* so it bolds (exactly one). Real reported substance, not a repeat of the cover. Every specific must be true; never manufacture drama. newsBold true only for a genuinely urgent breaking beat.";
+      extra = "\n\nNEWS slide — THE LOG, not a cover and not a supporting explainer. who / what / where / when already on this desk. Real stake + named receipt + a use on THIS card. newsKicker = a 1-3 word eyebrow from the desk (BREAKING / THE VOTE / THE ROOM — never THE BIGGER PICTURE / THE STORY / THE CONTEXT / THE FRAME). newsHeadline = an optional short heading, or empty. newsBody is reported substance, not a manifesto and not an open loop. Conversational or rolling (the default): 1-2 short paragraphs. End on ONE payoff line wrapped in *asterisks* so it bolds (exactly one) only if that payoff is already on the desk. Every specific must be true; never manufacture drama. newsBold true only for a genuinely urgent breaking beat.";
     } else if (slotType === "features") {
       // The Features slot is the one most prone to filler because each card is
       // tiny — force concrete promises and a single standout card.
@@ -4199,16 +4229,21 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
     "  a listicle ('discover surprising gathering spots'). NEVER 'THE SOCIAL LIFE IS GONE'.",
     ...(isContentRegister(mode, isEvergreen)
       ? [
-        "- Cover = contrast title + connecting subtitle. Do not withhold the point so they swipe. Slide 2 explains the cause. The FINAL slide is the next question that explanation opened — never a directory door, never 'find your next gathering spot'.",
+        jobsLocked
+          ? "- Cover states the fact or the real stake the operator named. Do not withhold. Later slides do the named jobs only."
+          : "- Cover = contrast title + connecting subtitle. Do not withhold the point so they swipe. Slide 2 is THE LOG. The FINAL slide is the next question that explanation opened — never a directory door, never 'find your next gathering spot'.",
       ]
-      : [
-        "- PREFER AN OPEN LOOP on the cover whenever the story supports it: a setup +",
-        "  a withheld payoff that forces the swipe ('This Jersey mall was left for",
-        "  dead. Saturday, it wakes up.'). It outperforms a plain descriptive line.",
+      : jobsLocked
+        ? [
+          "- Cover states the fact or the real stake. Do not withhold the news so they swipe.",
+          "- Honest always: a hook the rest of the carousel actually pays off. Never invent a fight.",
+          "- Later slides do the named jobs only. Locate / Cause / Explain / Paradox go quiet.",
+        ]
+        : [
+        "- Cover states the fact or the real stake already on the desk. Do not withhold the news so they swipe.",
         "- Honest always: a hook the rest of the carousel actually pays off. Tease, never mislead.",
-        "- PULL-THROUGH (hold attention to the END): SLIDE 2 must CONTINUE the cover's hook —",
-        "  open by paying off its curiosity ('Here's what happened…', 'How it came back…'), not",
-        "  a generic thesis. Every slide should make the reader want the next; escalate concrete",
+        "- PULL-THROUGH (hold attention to the END): SLIDE 2 is THE LOG — who / what / where / when already on this desk,",
+        "  not a generic thesis. Every slide should make the reader want the next; escalate concrete",
         "  specifics through the middle. The FINAL slide must REWARD reaching the end (a payoff +",
         "  the invite), not a limp 'link in bio'.",
       ]),
@@ -4223,6 +4258,7 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
     ...(letterMode ? letterModeBlock() : []),
     ...platformThesisBlock({ mode, isEvergreen }),
     ...conversationWriterBlock(context),
+    ...slidePlanWriterBlock(jobsLocked ? namedPlan : context),
     ...registerBlock(mode),
     // BEHAVIORAL TAGS — the operator's dimension picks (Emotion,
     // Demographic, Cluster label) are BEHAVIORAL CONSTRAINTS for the
