@@ -363,4 +363,10 @@ test("slide count is earned from this desk, not a silent 3", () => {
   assert.equal(countUsableAnchors(emptyDesk), 0);
   assert.equal(earnedSlideCount(emptyDesk), 5);
   assert.equal(earnedSlideCount(""), 3);
+  const namedJobs = [
+    fourProofs,
+    "SLIDE_PLAN_KEYS: jobs=hook,happened,todo; cover=announcement",
+    "SLIDE JOBS: Stop the scroll → What happened → What to do",
+  ].join("\n");
+  assert.equal(earnedSlideCount(namedJobs), 3);
 });

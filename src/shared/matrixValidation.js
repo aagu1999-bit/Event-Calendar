@@ -83,7 +83,7 @@ export function validateMatrix(matrix, { targetStatus } = {}) {
 // editorial content).
 export function matrixCompleteness(matrix) {
   const m = matrix || {};
-  const countable = MATRIX_FIELDS.filter((f) => f !== "pipeline_status" && f !== "argument_check" && f !== "conversation_rank");
+  const countable = MATRIX_FIELDS.filter((f) => f !== "pipeline_status" && f !== "argument_check" && f !== "conversation_rank" && f !== "slide_plan");
   const filled = countable.filter((f) => {
     const v = m[f];
     if (Array.isArray(v)) return v.filter(Boolean).length > 0;

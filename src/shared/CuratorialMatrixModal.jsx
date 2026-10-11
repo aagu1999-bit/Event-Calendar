@@ -56,6 +56,8 @@ import {
   applyConversationSuggestion,
   vetoConversationPrimary,
 } from "./conversationMaps.js";
+import { SlideJobStrip } from "./SlideJobStrip.jsx";
+import { sanitizeSlidePlan, formatSlidePlanSeeLine } from "./slideJobs.js";
 
 // The Curatorial Matrix editor — dedicated modal (not inline in the row)
 // per operator preference: matrix curation is deep editorial work that
@@ -2710,6 +2712,18 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
             <div style={{ fontSize: "0.62rem", color: faint, marginBottom: 8, lineHeight: 1.5 }}>
               Reads Hook + POV + Anchors against the LENS. Maps each claim to an anchor or flags it unverified. After Fuel lands, this runs itself. Slide-count advice is what the desk earned — Cover + News is the starting pair, not a 10-card stretch.
             </div>
+            <div style={{
+              marginBottom: 10,
+              padding: "8px 10px",
+              background: sanitizeSlidePlan(local.slide_plan).jobs.length ? "rgba(99,179,237,0.10)" : "rgba(10,10,12,0.35)",
+              border: `1px solid ${sanitizeSlidePlan(local.slide_plan).jobs.length ? "rgba(99,179,237,0.35)" : whisper}`,
+              borderRadius: 4,
+              fontSize: "0.68rem",
+              color: cream,
+              lineHeight: 1.5,
+            }}>
+              {formatSlidePlanSeeLine(local.slide_plan)}
+            </div>
             {coherenceError && (
               <div style={{
                 padding: "8px 10px",
@@ -2753,6 +2767,9 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                 }}>
                   <div style={{ fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", fontSize: "0.62rem", marginBottom: 6 }}>
                     {icon} {label}{staleNote}
+                  </div>
+                  <div style={{ color: cream, fontWeight: 700, marginBottom: 6 }}>
+                    {formatSlidePlanSeeLine(local.slide_plan)}
                   </div>
                   <div style={{ color: "rgba(245,240,232,0.85)", marginBottom: 6 }}>
                     {coherenceResult.reason}
@@ -2994,6 +3011,13 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
             );
           })()}
 
+          <div style={{ marginTop: 18, borderTop: `1px dashed ${hair}`, paddingTop: 14 }}>
+            <SlideJobStrip
+              plan={local.slide_plan}
+              onChange={(next) => applyPatch({ slide_plan: sanitizeSlidePlan(next) })}
+            />
+          </div>
+
         </div>
 
         {/* Footer */}
@@ -3086,6 +3110,8 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
           initialIsEvergreen={aiFillOverlaySeed.isEvergreen}
           initialRejectedDrafts={aiFillOverlaySeed.rejectedDrafts || []}
           initialApprovedDrafts={aiFillOverlaySeed.approvedDrafts || []}
+          initialSlidePlan={aiFillOverlaySeed.slidePlan || local.slide_plan}
+          onSlidePlanChange={(plan) => applyPatch({ slide_plan: sanitizeSlidePlan(plan) })}
           onClose={() => { setAiFillOverlayOpen(false); setAiFillOverlaySeed(null); }}
           onAccept={(slides) => {
             if (typeof onAiFillAccept === "function") onAiFillAccept(slides, event);

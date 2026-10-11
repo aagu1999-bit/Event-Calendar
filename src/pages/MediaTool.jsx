@@ -7692,6 +7692,7 @@ export default function MediaTool() {
         initialVoiceParams={aiFillSeed.voiceParams}
         initialBehavioralTags={aiFillSeed.behavioralTags}
         initialIsEvergreen={aiFillSeed.isEvergreen}
+        initialSlidePlan={aiFillSeed.slidePlan}
         onClose={() => setAiFillOpen(false)}
         onAccept={onAiTemplateAccept}
       />

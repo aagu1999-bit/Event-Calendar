@@ -24,6 +24,7 @@
 // handles both shapes transparently, so nothing on disk breaks.
 
 import { CGE_VOICE_RATIO, isPlatformThemeLeak } from "./cgeThesis.js";
+import { parseSlidePlanFromContext } from "./slideJobs.js";
 
 export const CONTENT_CLUSTERS = {
   SUBURBAN_THIRD_PLACE: {
@@ -1053,7 +1054,7 @@ export function countUsableAnchors(context) {
       n += 1;
       continue;
     }
-    if (/^[-•*]/.test(raw) && bullet.length > 8 && !/^(?:POV:|OPERATOR HOOK:|COHERENCE:|USE THIS DESK|POINTED SLIDE|UNVERIFIED|OPEN GAPS|CONVERSATION|ANCHORED FACTS|HOMEWORK)/i.test(bullet)) {
+    if (/^[-•*]/.test(raw) && bullet.length > 8 && !/^(?:POV:|OPERATOR HOOK:|COHERENCE:|USE THIS DESK|POINTED SLIDE|UNVERIFIED|OPEN GAPS|CONVERSATION|ANCHORED FACTS|HOMEWORK|SLIDE_PLAN|SLIDE JOBS|The operator named)/i.test(bullet)) {
       n += 1;
     }
   }
@@ -1069,6 +1070,8 @@ export function earnedSlideCount(context, pinned = null) {
   if (typeof pinned === "number" && Number.isFinite(pinned) && pinned > 0) {
     return Math.min(DESK_SLIDE_MAX, Math.max(DESK_SLIDE_MIN, Math.round(pinned)));
   }
+  const namedJobs = parseSlidePlanFromContext(context).jobs;
+  if (namedJobs.length) return Math.min(DESK_SLIDE_MAX, Math.max(2, namedJobs.length));
   const proofs = countUsableAnchors(context);
   if (proofs > 0) return Math.min(DESK_SLIDE_MAX, Math.max(DESK_SLIDE_MIN, proofs + 2));
   const pointed = parsePointedSlideCount(context);
