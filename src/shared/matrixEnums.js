@@ -104,7 +104,7 @@ export const LIMITS = {
   POV_MAX: 500,       // curatorial thesis; keeps it thesis, not article
   BULLET_MAX: 700,    // starting-point paragraph; AI Mode briefs need more than a venue fact
   BULLETS_MIN: 1,     // at least one data point to mark Ready
-  BULLETS_MAX: 8,     // thesis + starting points a writer can dive; trim before the carousel if it overloads
+  BULLETS_MAX: 10,    // starting points plus a relatedness Gap; trim before the carousel if it overloads
   TRIGGER_MAX: 20,    // DM trigger — short and shoutable
   FACETS_MAX: 5,      // largest cluster's facet count; empty ≠ syllabus — Select all or pick topics
   LOCALES_MAX: 3,     // subject-lock corridor locales (empty = geography context, not a spend)
