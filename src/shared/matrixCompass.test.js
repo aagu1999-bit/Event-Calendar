@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isListicleHook, isBrochureCopy, hookEvidenceLines, splitHookPhrases, classifyHookRegister, formatHookPhraseLines, buildHookPrompt, buildLensReframePrompt, buildThesisPrompt, buildCoherencePrompt, normalizeCoherenceResult, formatCoherenceSeedLines, defaultCoherenceUseFor, coherenceInputSignature, describeReframeInputs, lensFreshnessSignature, earnedSlideCount, essaySlideSequence, countUsableAnchors, isHomeworkAnchor, isLocateDesk, formatDeskSeeLine, formatDeskLengthContext, formatEmotionRegister } from "./matrixCompass.js";
+import { isListicleHook, isBrochureCopy, hookEvidenceLines, splitHookPhrases, classifyHookRegister, formatHookPhraseLines, buildHookPrompt, buildLensReframePrompt, buildThesisPrompt, buildCoherencePrompt, normalizeCoherenceResult, formatCoherenceSeedLines, fuelCitationCount, relatednessGapLine, isRelatednessGap, hasRelatednessGapFor, fuelRelatednessGaps, formatRelatednessSeedLines, defaultCoherenceUseFor, coherenceInputSignature, describeReframeInputs, lensFreshnessSignature, earnedSlideCount, essaySlideSequence, countUsableAnchors, isHomeworkAnchor, isLocateDesk, formatDeskSeeLine, formatDeskLengthContext, formatEmotionRegister } from "./matrixCompass.js";
 import { buildSubjectLock, subjectLockPromptLines, lockLensDirective } from "./subjectLock.js";
 
 test("listicle hooks are the Google-vs-CGE failure", () => {
@@ -481,4 +481,49 @@ test("slide count is earned from this desk, not a silent 3", () => {
     "SLIDE JOBS: Stop the scroll → What happened → What to do",
   ].join("\n");
   assert.equal(earnedSlideCount(namedJobs), 3);
+});
+
+test("fuel citation dots count Check claims that sit on that Fuel number", () => {
+  const check = {
+    verdict: "thin",
+    reason: "One claim is still a promise.",
+    claims: [
+      { claim: "The week is on.", from: "hook", support: "anchored", anchor: 1 },
+      { claim: "Oct. 14 is at iHub.", from: "pov", support: "anchored", anchor: 2 },
+      { claim: "The week is on.", from: "pov", support: "anchored", anchor: 1 },
+      { claim: "Who paid is unknown.", from: "pov", support: "unverified", anchor: 0 },
+    ],
+  };
+  assert.equal(fuelCitationCount(check, 1), 2);
+  assert.equal(fuelCitationCount(check, 2), 1);
+  assert.equal(fuelCitationCount(check, 3), 0);
+  assert.equal(fuelCitationCount(null, 1), 0);
+  assert.equal(fuelCitationCount(check, 0), 0);
+});
+
+test("relatedness Gap is an open ask, not a canned facet list", () => {
+  const bullets = [
+    "START — Equal Space is hosting Newark Tech Week sessions on Broad Street.",
+    "START — HAX / SOSV committed $25M and projects 2,500 jobs in Newark.",
+  ];
+  const line = relatednessGapLine([2, 1], bullets);
+  assert.match(line, /^GAP — Fuel #1 × #2 · are these related\?/);
+  assert.match(line, /Equal Space/);
+  assert.match(line, /HAX/);
+  assert.match(line, /RELATED AS/);
+  assert.match(line, /NOT RELATED AS/);
+  assert.match(line, /USE AS afterthought/);
+  assert.match(line, /Cite a page or NONE/);
+  assert.equal(/same night|same door|same public|same clock|same holder/i.test(line), false);
+  assert.equal(isRelatednessGap(line), true);
+  assert.equal(isRelatednessGap("GAP — who paid for the main stages"), false);
+  assert.equal(hasRelatednessGapFor([line], [1, 2]), true);
+  assert.equal(hasRelatednessGapFor([line], [1, 3]), false);
+  assert.deepEqual(fuelRelatednessGaps(["START — a fact", line]), [line]);
+  assert.equal(relatednessGapLine([1], bullets), "");
+  const seed = formatRelatednessSeedLines([line]);
+  assert.match(seed[0], /open ask between Fuel numbers/);
+  assert.match(seed[0], /Opinion about why it matters lives in POV/);
+  assert.equal(/night \/ door \/ public/.test(seed[0]), false);
+  assert.deepEqual(formatRelatednessSeedLines(["START — a fact"]), []);
 });

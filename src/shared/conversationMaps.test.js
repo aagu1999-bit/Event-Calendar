@@ -260,6 +260,25 @@ test("fill seed splits homework off the proof pile", () => {
   assert.equal(earnedSlideCount(seed.context), 6);
 });
 
+test("fill seed tells the writer relatedness is climate or omit, not a mash", () => {
+  const seed = eventMatrixToFillSeed({
+    name: "Newark Tech Week",
+    matrix: {
+      hook_a_side: "Newark Tech Week is on Broad Street this October.",
+      editorial_pov: "The week sits on real capital, not just a calendar.",
+      data_points: [
+        "START — Equal Space is hosting Newark Tech Week sessions on Broad Street.",
+        "START — HAX / SOSV committed $25M and projects 2,500 jobs in Newark.",
+        "GAP — Fuel #1 × #2 · are these related? #1: Equal Space hosts Tech Week · #2: HAX $25M Name RELATED AS",
+      ],
+    },
+  });
+  assert.match(seed.context, /RELATEDNESS — open ask between Fuel numbers/);
+  assert.match(seed.context, /afterthought/);
+  assert.match(seed.context, /Opinion about why it matters lives in POV/);
+  assert.match(seed.context, /do not mash/);
+});
+
 test("ranked maps parse from seed and become Cover + News, not GST 10", () => {
   const seed = formatConversationSeedLines({
     primary: "explainer",

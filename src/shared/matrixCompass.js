@@ -1122,6 +1122,76 @@ export function normalizeCoherenceResult(parsed, { anchors = [] } = {}) {
   return out;
 }
 
+export function fuelCitationCount(check, fuelNumber) {
+  const n = Number(fuelNumber);
+  if (!Number.isFinite(n) || n < 1) return 0;
+  const claims = Array.isArray(check?.claims) ? check.claims : [];
+  return claims.filter((c) => c && c.support === "anchored" && Number(c.anchor) === n).length;
+}
+
+// Open relatedness ask between Fuel numbers. Not a canned facet list
+// (night / door / public / clock / holder). The hunt names RELATED AS /
+// NOT RELATED AS / USE AS afterthought|program|omit — or NONE.
+const RELATEDNESS_ASK = /\b(?:are these related|related as|not related as|use as afterthought|fuel #\d+)/i;
+
+function uniqueFuelNumbers(indices) {
+  return [...new Set((Array.isArray(indices) ? indices : [])
+    .map((n) => Number(n))
+    .filter((n) => Number.isFinite(n) && n >= 1))]
+    .sort((a, b) => a - b);
+}
+
+export function relatednessPairKey(indices) {
+  return uniqueFuelNumbers(indices).join("×");
+}
+
+export function isRelatednessGap(line) {
+  const text = stripFuelLead(line);
+  if (!/^GAP\s*—/i.test(text)) return false;
+  return RELATEDNESS_ASK.test(text);
+}
+
+export function fuelRelatednessGaps(bullets = []) {
+  return (Array.isArray(bullets) ? bullets : [])
+    .map((b) => String(b || "").trim())
+    .filter((b) => b && isRelatednessGap(b));
+}
+
+export function hasRelatednessGapFor(bullets, indices) {
+  const key = relatednessPairKey(indices);
+  if (!key || !key.includes("×")) return false;
+  return fuelRelatednessGaps(bullets).some((line) => {
+    const found = [...String(line).matchAll(/#(\d+)/g)].map((m) => Number(m[1]));
+    return relatednessPairKey(found) === key;
+  });
+}
+
+export function relatednessGapLine(indices, bullets = [], limit = 700) {
+  const nums = uniqueFuelNumbers(indices);
+  if (nums.length < 2) return "";
+  const labels = nums.map((n) => `#${n}`).join(" × ");
+  const excerpts = nums.map((n) => {
+    const raw = String(bullets[n - 1] || "").trim();
+    const body = stripFuelLead(raw)
+      .replace(/^(?:START|GAP|THESIS|SPECIMEN|MECHANISM|FRICTION|DOCUMENT|ARGUMENT|JOIN|NEXT)\s*—\s*/i, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    return `#${n}: ${body.slice(0, 120) || "(empty)"}`;
+  }).join(" · ");
+  const line = `GAP — Fuel ${labels} · are these related? ${excerpts} Name RELATED AS (what a page actually supports), NOT RELATED AS (do not invent same-program / same-host), and USE AS afterthought / climate / program / omit. Cite a page or NONE.`;
+  return line.slice(0, limit);
+}
+
+export function formatRelatednessSeedLines(bullets = []) {
+  const relevant = (Array.isArray(bullets) ? bullets : [])
+    .map((b) => String(b || "").trim())
+    .filter((b) => isRelatednessGap(b) || /\bRELATED AS\b|\bUSE AS afterthought\b/i.test(b));
+  if (!relevant.length) return [];
+  return [
+    "RELATEDNESS — open ask between Fuel numbers, not a canned facet list. If a line says RELATED AS climate / afterthought / momentum, that fact is weather around the piece — one card after the specimen is named, not a session of the week. If NONE or NOT RELATED AS same night / host / program, do not mash them onto one swipe. Opinion about why it matters lives in POV, not in this hunt.",
+  ];
+}
+
 export function formatCoherenceSeedLines(check) {
   const normalized = normalizeCoherenceResult(check);
   if (!normalized) return [];

@@ -38,6 +38,10 @@ import {
   formatDeskSeeLine,
   formatDeskLengthContext,
   isLocateDesk,
+  fuelCitationCount,
+  relatednessGapLine,
+  hasRelatednessGapFor,
+  fuelRelatednessGaps,
 } from "./matrixCompass.js";
 import {
   buildSubjectLock,
@@ -306,6 +310,9 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
   // warning points at the right rows in the current list.
   const [overlaps, setOverlaps] = useState([]);
   const [overlapOffset, setOverlapOffset] = useState(0);
+  // Fuel numbers the operator picked to ask "are these related?"
+  // Open prompt — not a canned facet list. Cleared after the GAP lands.
+  const [relatedPick, setRelatedPick] = useState([]);
 
   // Draft Thesis (Gemini Flash-Lite) state — synthesizes the four
   // matrix dimensions into a real editorial thesis instead of the
@@ -517,6 +524,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
     setCoherenceError(null);
     setCheckingCoherence(false);
     setCoherenceFromFuel(false);
+    setRelatedPick([]);
   }, [event?.id]);
 
   const applyPatch = (patch) => {
@@ -692,6 +700,27 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
     const line = `GAP — ${claim}`.slice(0, LIMITS.BULLET_MAX);
     applyPatch({ data_points: [...bullets, line] });
   };
+  const toggleRelatedPick = (n) => {
+    const num = Number(n);
+    if (!Number.isFinite(num) || num < 1) return;
+    setRelatedPick((prev) => {
+      if (prev.includes(num)) return prev.filter((x) => x !== num);
+      if (prev.length >= 4) return prev;
+      return [...prev, num].sort((a, b) => a - b);
+    });
+  };
+  const askRelatedness = () => {
+    if (relatedPick.length < 2) return;
+    if (hasRelatednessGapFor(bullets, relatedPick)) {
+      setRelatedPick([]);
+      return;
+    }
+    if (bullets.length >= LIMITS.BULLETS_MAX) return;
+    const line = relatednessGapLine(relatedPick, bullets, LIMITS.BULLET_MAX);
+    if (!line) return;
+    applyPatch({ data_points: [...bullets, line] });
+    setRelatedPick([]);
+  };
   const setConversationSlot = (slot, key) => {
     const now = sanitizeConversationRank(local.conversation_rank);
     const next = { ...now, locked: true };
@@ -708,6 +737,9 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
   const removeBullet = (i) => {
     const next = bullets.filter((_, idx) => idx !== i);
     applyPatch({ data_points: next });
+    setRelatedPick((prev) => prev
+      .map((n) => (n === i + 1 ? 0 : n > i + 1 ? n - 1 : n))
+      .filter((n) => n >= 1));
   };
 
   // Fuel Research — calls the server's /api/matrix/research endpoint,
@@ -748,7 +780,12 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
           subjectFacets: selectedFacets,
           corridorLocales: selectedLocales,
           joinFacet: selectedJoin,
-          coherenceGaps: sendGaps && Array.isArray(coherenceResult?.gaps) ? coherenceResult.gaps : [],
+          coherenceGaps: sendGaps
+            ? [
+              ...(Array.isArray(coherenceResult?.gaps) ? coherenceResult.gaps : []),
+              ...fuelRelatednessGaps(bullets),
+            ].filter((g, i, all) => g && all.indexOf(g) === i).slice(0, 6)
+            : [],
           coherenceReason: sendGaps ? (coherenceResult?.reason || "") : "",
           mode,
         }),
@@ -1992,24 +2029,54 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {bullets.map((b, i) => {
                 const over = (b || "").length > LIMITS.BULLET_MAX;
+                const cites = fuelCitationCount(coherenceResult || local.argument_check, i + 1);
+                const picked = relatedPick.includes(i + 1);
                 return (
                   <div key={i} style={{
                     display: "flex", alignItems: "flex-start", gap: 8,
-                    background: "#0e0e10",
-                    border: `1px solid ${over ? warn : whisper}`,
+                    background: picked ? "rgba(167,139,250,0.08)" : "#0e0e10",
+                    border: `1px solid ${over ? warn : picked ? orbit : whisper}`,
                     borderRadius: 6,
                     padding: "8px 12px",
                   }}>
-                    <span style={{
+                    <button
+                      type="button"
+                      onClick={() => toggleRelatedPick(i + 1)}
+                      aria-pressed={picked}
+                      title={picked
+                        ? `Fuel #${i + 1} selected — click again to drop it from the relatedness ask`
+                        : cites
+                          ? `${cites} hook/POV claim${cites === 1 ? "" : "s"} sit on Fuel #${i + 1}. Click to ask if this line is related to another.`
+                          : `Fuel #${i + 1}. Click to pick this line, then pick another and ask if they're related.`}
+                      style={{
                       width: 22,
                       flexShrink: 0,
-                      marginTop: 6,
+                      marginTop: 2,
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      gap: 3,
                       fontSize: "0.62rem",
                       fontWeight: 800,
                       letterSpacing: "0.04em",
                       fontVariantNumeric: "tabular-nums",
-                      color: orbit,
-                    }}>{i + 1}</span>
+                      color: picked ? cream : orbit,
+                      background: picked ? orbit : "transparent",
+                      border: `1px solid ${picked ? orbit : "transparent"}`,
+                      borderRadius: 4,
+                      padding: "2px 0 3px",
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                    }}>
+                      {i + 1}
+                      {cites > 0 ? (
+                        <span style={{ display: "flex", gap: 2, flexWrap: "wrap", justifyContent: "center", maxWidth: 22 }}>
+                          {Array.from({ length: Math.min(cites, 4) }, (_, d) => (
+                            <span key={d} style={{ width: 5, height: 5, borderRadius: 99, background: picked ? cream : ready, display: "inline-block" }} />
+                          ))}
+                        </span>
+                      ) : null}
+                    </button>
                     <textarea
                       value={b || ""}
                       onChange={(e) => setBullet(i, e.target.value)}
@@ -2052,6 +2119,69 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                   </div>
                 );
               })}
+              {bullets.length >= 2 ? (
+                <div style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  alignItems: "center",
+                  gap: 8,
+                  marginTop: 2,
+                }}>
+                  <span style={{ fontSize: "0.62rem", color: muted, lineHeight: 1.5, flex: "1 1 180px" }}>
+                    Click two or more numbers, then ask if they&apos;re related. Open prompt — not a facet list. Opinion stays in POV.
+                  </span>
+                  <button
+                    type="button"
+                    onClick={askRelatedness}
+                    disabled={relatedPick.length < 2 || bullets.length >= LIMITS.BULLETS_MAX || hasRelatednessGapFor(bullets, relatedPick)}
+                    title={relatedPick.length < 2
+                      ? "Pick two or more Fuel numbers first"
+                      : hasRelatednessGapFor(bullets, relatedPick)
+                        ? "That pair is already a Gap on Fuel — Google relatedness below"
+                        : "Write an open Gap: are these related? Related-as / not / afterthought or omit."}
+                    style={{
+                      background: relatedPick.length >= 2 ? "rgba(167,139,250,0.16)" : "transparent",
+                      border: `1px dashed ${relatedPick.length >= 2 ? orbit : whisper}`,
+                      color: relatedPick.length >= 2 ? orbit : faint,
+                      borderRadius: 6,
+                      padding: "8px 12px",
+                      cursor: relatedPick.length < 2 || bullets.length >= LIMITS.BULLETS_MAX ? "not-allowed" : "pointer",
+                      fontFamily: "inherit",
+                      fontSize: "0.68rem",
+                      letterSpacing: "0.08em",
+                      textTransform: "uppercase",
+                      fontWeight: 700,
+                    }}
+                  >
+                    {relatedPick.length >= 2
+                      ? `Ask if #${relatedPick.join(" × #")} are related`
+                      : "Ask if related"}
+                  </button>
+                  {fuelRelatednessGaps(bullets).length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => fuelResearch("gap-scout")}
+                      disabled={researching}
+                      title="Google the relatedness Gaps already on Fuel. Returns RELATED AS / NOT RELATED AS / USE AS, or NONE."
+                      style={{
+                        background: researching ? "rgba(167,139,250,0.06)" : "rgba(167,139,250,0.14)",
+                        border: `1px solid ${orbit}`,
+                        color: researching ? faint : orbit,
+                        borderRadius: 6,
+                        padding: "8px 12px",
+                        cursor: researching ? "not-allowed" : "pointer",
+                        fontFamily: "inherit",
+                        fontSize: "0.68rem",
+                        letterSpacing: "0.08em",
+                        textTransform: "uppercase",
+                        fontWeight: 700,
+                      }}
+                    >
+                      {researching ? "Searching…" : "Google relatedness"}
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
               {bullets.length < LIMITS.BULLETS_MAX && (
                 <div style={{ display: "flex", gap: 8 }}>
                   <button

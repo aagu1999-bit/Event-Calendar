@@ -46,7 +46,7 @@ export function summarizeSlidesForFeedback(slides) {
 // point, not a lock.
 
 import { EVENT_TIERS, DEMOGRAPHIC_PRESETS, LEGACY_DEMOGRAPHIC_ALIASES, PIPELINE_STATUS, MATRIX_FIELDS } from "./matrixEnums.js";
-import { getClusterLabel, resolveEditorialLens, isListicleHook, formatCoherenceSeedLines, isHomeworkAnchor, isLocateDesk, formatEmotionRegister } from "./matrixCompass.js";
+import { getClusterLabel, resolveEditorialLens, isListicleHook, formatCoherenceSeedLines, formatRelatednessSeedLines, isHomeworkAnchor, isLocateDesk, formatEmotionRegister } from "./matrixCompass.js";
 import { formatConversationSeedLines } from "./conversationMaps.js";
 import { buildSubjectLock, lockLensDirective } from "./subjectLock.js";
 import { CONTENT_DEFAULT_VOICE } from "./cgeThesis.js";
@@ -209,6 +209,11 @@ export function eventMatrixToFillSeed(event) {
       contextLines.push("GAPS — not proof. Do not write these as facts. Unverified claims stay off the slides:");
       for (const b of gaps) contextLines.push(b);
     }
+  }
+  const relatednessLines = formatRelatednessSeedLines(bullets);
+  if (relatednessLines.length) {
+    if (contextLines.length) contextLines.push("");
+    contextLines.push(...relatednessLines);
   }
   const coherenceLines = formatCoherenceSeedLines(m.argument_check);
   if (coherenceLines.length) {
