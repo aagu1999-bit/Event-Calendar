@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isListicleHook, isBrochureCopy, hookEvidenceLines, splitHookPhrases, classifyHookRegister, formatHookPhraseLines, buildHookPrompt, buildLensReframePrompt, buildThesisPrompt, buildCoherencePrompt, normalizeCoherenceResult, formatCoherenceSeedLines, fuelCitationCount, relatednessGapLine, isRelatednessGap, hasRelatednessGapFor, fuelRelatednessGaps, formatRelatednessSeedLines, defaultCoherenceUseFor, coherenceInputSignature, describeReframeInputs, lensFreshnessSignature, earnedSlideCount, essaySlideSequence, countUsableAnchors, isHomeworkAnchor, isLocateDesk, formatDeskSeeLine, formatDeskLengthContext, formatEmotionRegister } from "./matrixCompass.js";
+import { isListicleHook, isBrochureCopy, hookEvidenceLines, splitHookPhrases, classifyHookRegister, formatHookPhraseLines, buildHookPrompt, buildLensReframePrompt, buildThesisPrompt, buildCoherencePrompt, normalizeCoherenceResult, formatCoherenceSeedLines, fuelCitationCount, relatednessGapLine, isRelatednessGap, hasRelatednessGapFor, fuelRelatednessGaps, formatRelatednessSeedLines, sanitizeFuelOmit, countPickedStarts, defaultCoherenceUseFor, coherenceInputSignature, describeReframeInputs, lensFreshnessSignature, earnedSlideCount, essaySlideSequence, countUsableAnchors, isHomeworkAnchor, isLocateDesk, formatDeskSeeLine, formatDeskLengthContext, formatEmotionRegister } from "./matrixCompass.js";
 import { buildSubjectLock, subjectLockPromptLines, lockLensDirective } from "./subjectLock.js";
 
 test("listicle hooks are the Google-vs-CGE failure", () => {
@@ -526,4 +526,17 @@ test("relatedness Gap is an open ask, not a canned facet list", () => {
   assert.match(seed[0], /Opinion about why it matters lives in POV/);
   assert.equal(/night \/ door \/ public/.test(seed[0]), false);
   assert.deepEqual(formatRelatednessSeedLines(["START — a fact"]), []);
+});
+
+test("Fuel omit parks STARTs so they do not earn chairs", () => {
+  const bullets = [
+    "START — Equal Space hosts Tech Week on Broad Street.",
+    "GAP — Fuel #1 × #3 · are these related?",
+    "START — HAX committed $25M in Newark.",
+    "START — Demo Day is Oct. 20.",
+  ];
+  assert.deepEqual(sanitizeFuelOmit([3, 0, 3, 9], bullets.length), [3]);
+  assert.equal(countPickedStarts(bullets, []), 3);
+  assert.equal(countPickedStarts(bullets, [3]), 2);
+  assert.equal(countPickedStarts(bullets, [1, 3, 4]), 0);
 });

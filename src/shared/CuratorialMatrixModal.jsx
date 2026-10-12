@@ -42,6 +42,9 @@ import {
   relatednessGapLine,
   hasRelatednessGapFor,
   fuelRelatednessGaps,
+  sanitizeFuelOmit,
+  isFuelOmitted,
+  isHomeworkAnchor,
 } from "./matrixCompass.js";
 import {
   buildSubjectLock,
@@ -369,6 +372,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
   // be initialized here.
   const [local, setLocal] = useState(() => ({ ...(event?.matrix || {}) }));
   const bullets = Array.isArray(local.data_points) ? local.data_points : [];
+  const fuelOmit = sanitizeFuelOmit(local.fuel_omit, bullets.length);
   // Demographics are stored on the matrix as an array; normalize legacy
   // comma-string values before staleness memos read the selection.
   const selectedDemographics = normalizeDemographic(local.target_demographic);
@@ -409,7 +413,8 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
   const deskSeeLine = useMemo(() => {
     const pointed = coherenceResult?.slideCount || local.argument_check?.slideCount;
     const context = formatDeskLengthContext({
-      dataPoints: local.data_points,
+      dataPoints: (Array.isArray(local.data_points) ? local.data_points : [])
+        .filter((b, i) => !isHomeworkAnchor(b) && !isFuelOmitted(local.fuel_omit, i + 1)),
       pointed,
     });
     return formatDeskSeeLine({
@@ -419,7 +424,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
       context,
       plan: local.slide_plan,
     });
-  }, [local.hook_a_side, local.editorial_pov, liveCheckLens, local.editorial_lens, local.data_points, local.slide_plan, coherenceResult, local.argument_check]);
+  }, [local.hook_a_side, local.editorial_pov, liveCheckLens, local.editorial_lens, local.data_points, local.fuel_omit, local.slide_plan, coherenceResult, local.argument_check]);
   const locateDesk = useMemo(() => isLocateDesk({
     hook: local.hook_a_side,
     pov: local.editorial_pov,
@@ -742,10 +747,23 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
   };
   const removeBullet = (i) => {
     const next = bullets.filter((_, idx) => idx !== i);
-    applyPatch({ data_points: next });
+    const nextOmit = sanitizeFuelOmit(fuelOmit, bullets.length)
+      .map((n) => (n === i + 1 ? 0 : n > i + 1 ? n - 1 : n))
+      .filter((n) => n >= 1);
+    applyPatch({ data_points: next, fuel_omit: sanitizeFuelOmit(nextOmit, next.length) });
     setRelatedPick((prev) => prev
       .map((n) => (n === i + 1 ? 0 : n > i + 1 ? n - 1 : n))
       .filter((n) => n >= 1));
+  };
+  const toggleFuelOmit = (n) => {
+    const num = Number(n);
+    if (!Number.isFinite(num) || num < 1) return;
+    const line = String(bullets[num - 1] || "").trim();
+    if (!line || isHomeworkAnchor(line)) return;
+    const next = fuelOmit.includes(num)
+      ? fuelOmit.filter((x) => x !== num)
+      : [...fuelOmit, num];
+    applyPatch({ fuel_omit: sanitizeFuelOmit(next, bullets.length) });
   };
 
   // Fuel Research — calls the server's /api/matrix/research endpoint,
@@ -813,10 +831,8 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
       if (mode === "dive") {
         merged = incoming.slice(0, LIMITS.BULLETS_MAX);
       } else if (mode === "gap-scout") {
-        // Make room for the new pieces — do not slice them off
-        // because the desk is already full of history.
-        const keep = Math.max(0, LIMITS.BULLETS_MAX - incoming.length);
-        merged = [...deskBullets.slice(0, keep), ...incoming].slice(0, LIMITS.BULLETS_MAX);
+        // Append. Do not drop STARTs to land a relatedness result.
+        merged = [...deskBullets, ...incoming].slice(0, LIMITS.BULLETS_MAX);
       } else {
         merged = [...deskBullets, ...incoming].slice(0, LIMITS.BULLETS_MAX);
       }
@@ -2040,11 +2056,14 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                 const over = (b || "").length > LIMITS.BULLET_MAX;
                 const cites = fuelCitationCount(coherenceResult || local.argument_check, i + 1);
                 const picked = relatedPick.includes(i + 1);
+                const homework = isHomeworkAnchor(b);
+                const parked = !homework && isFuelOmitted(fuelOmit, i + 1);
                 return (
                   <div key={i} style={{
                     display: "flex", alignItems: "flex-start", gap: 8,
-                    background: picked ? "rgba(167,139,250,0.08)" : "#0e0e10",
-                    border: `1px solid ${over ? warn : picked ? orbit : whisper}`,
+                    background: picked ? "rgba(167,139,250,0.08)" : parked ? "rgba(251,191,36,0.05)" : "#0e0e10",
+                    border: `1px solid ${over ? warn : picked ? orbit : parked ? "rgba(251,191,36,0.32)" : whisper}`,
+                    opacity: parked ? 0.72 : 1,
                     borderRadius: 6,
                     padding: "8px 12px",
                   }}>
@@ -2116,6 +2135,43 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                       }}
                       placeholder="START — a fact you already hold. GAP — what Fuel should look up."
                     />
+                    {!homework ? (
+                      <button
+                        type="button"
+                        onClick={() => toggleFuelOmit(i + 1)}
+                        title={parked
+                          ? `Fuel #${i + 1} is parked — Generate will not print it. Click to put it back in.`
+                          : `Fuel #${i + 1} is IN — Generate can print it. Click to park it on the desk.`}
+                        style={{
+                          flexShrink: 0,
+                          marginTop: 2,
+                          background: parked ? "rgba(251,191,36,0.12)" : "rgba(52,211,153,0.12)",
+                          border: `1px solid ${parked ? warn : ready}`,
+                          color: parked ? warn : ready,
+                          borderRadius: 3,
+                          padding: "2px 6px",
+                          fontFamily: "inherit",
+                          fontSize: "0.52rem",
+                          letterSpacing: "0.08em",
+                          textTransform: "uppercase",
+                          fontWeight: 800,
+                          cursor: "pointer",
+                        }}
+                      >{parked ? "Parked" : "In"}</button>
+                    ) : (
+                      <span
+                        title="A Gap is homework. Generate will not print it. No In/Park."
+                        style={{
+                          flexShrink: 0,
+                          marginTop: 3,
+                          fontSize: "0.52rem",
+                          letterSpacing: "0.08em",
+                          textTransform: "uppercase",
+                          fontWeight: 800,
+                          color: faint,
+                        }}
+                      >Gap</span>
+                    )}
                     <span style={{ fontSize: "0.6rem", color: over ? warn : faint, fontVariantNumeric: "tabular-nums", marginTop: 4, flexShrink: 0 }}>
                       {(b || "").length}/{LIMITS.BULLET_MAX}
                     </span>
@@ -2138,8 +2194,8 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                 }}>
                   <span style={{ fontSize: "0.62rem", color: bullets.length >= LIMITS.BULLETS_MAX ? warn : muted, lineHeight: 1.5, flex: "1 1 180px" }}>
                     {bullets.length >= LIMITS.BULLETS_MAX
-                      ? `Fuel is full (${bullets.length}/${LIMITS.BULLETS_MAX}). Ask still searches. Drop a line if you want the Gap parked on the list.`
-                      : "Click two or more numbers, then ask if they're related. Open prompt — not a facet list. Opinion stays in POV."}
+                      ? `Fuel is full (${bullets.length}/${LIMITS.BULLETS_MAX}). Ask still searches. Park STARTs you don't want printed.`
+                      : "Keep the pile. In / Park picks which STARTs Generate prints. Click numbers to ask if they're related. Gaps never print."}
                   </span>
                   <button
                     type="button"
@@ -3141,7 +3197,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
             {deskSeeLine}
             {isMatrixReadyForGeneration(local)
               ? ""
-              : " · Fill Tier + Hook + one Fuel fact to Generate."}
+              : " · Fill Tier + Hook + one IN START to Generate. Gaps and parked lines don't count."}
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             <button

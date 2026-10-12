@@ -1222,6 +1222,27 @@ export function isHomeworkAnchor(line) {
   return HOMEWORK_ANCHOR.test(stripFuelLead(line));
 }
 
+export function sanitizeFuelOmit(omit, bulletCount = 0) {
+  const max = Number(bulletCount) || 0;
+  return [...new Set((Array.isArray(omit) ? omit : [])
+    .map((n) => Number(n))
+    .filter((n) => Number.isFinite(n) && n >= 1 && (max <= 0 || n <= max)))]
+    .sort((a, b) => a - b);
+}
+
+export function isFuelOmitted(omit, fuelNumber) {
+  const n = Number(fuelNumber);
+  return Number.isFinite(n) && n >= 1 && sanitizeFuelOmit(omit).includes(n);
+}
+
+export function countPickedStarts(bullets = [], omit = []) {
+  const parked = new Set(sanitizeFuelOmit(omit, Array.isArray(bullets) ? bullets.length : 0));
+  return (Array.isArray(bullets) ? bullets : [])
+    .map((b, i) => ({ b: String(b || "").trim(), n: i + 1 }))
+    .filter(({ b, n }) => b && !isHomeworkAnchor(b) && !parked.has(n))
+    .length;
+}
+
 export function parsePointedSlideCount(text) {
   const m = String(text || "").match(/POINTED SLIDE COUNT:\s*(\d+)/i);
   if (!m) return null;
@@ -1242,7 +1263,7 @@ export function countUsableAnchors(context) {
       n += 1;
       continue;
     }
-    if ((/^[-•*]/.test(raw) || /^\d+[.)]\s+/.test(raw.trim())) && bullet.length > 8 && !/^(?:POV:|OPERATOR HOOK:|COHERENCE:|USE THIS DESK|POINTED SLIDE|UNVERIFIED|OPEN GAPS|GAPS —|CONVERSATION|ANCHORED FACTS|HOMEWORK|SLIDE_PLAN|SLIDE JOBS|NEWS STYLES|The operator named)/i.test(bullet)) {
+    if ((/^[-•*]/.test(raw) || /^\d+[.)]\s+/.test(raw.trim())) && bullet.length > 8 && !/^(?:POV:|OPERATOR HOOK:|COHERENCE:|USE THIS DESK|POINTED SLIDE|UNVERIFIED|OPEN GAPS|GAPS —|PARKED FUEL|CONVERSATION|ANCHORED FACTS|HOMEWORK|SLIDE_PLAN|SLIDE JOBS|NEWS STYLES|The operator named)/i.test(bullet)) {
       n += 1;
     }
   }

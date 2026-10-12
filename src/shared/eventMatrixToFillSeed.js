@@ -46,7 +46,7 @@ export function summarizeSlidesForFeedback(slides) {
 // point, not a lock.
 
 import { EVENT_TIERS, DEMOGRAPHIC_PRESETS, LEGACY_DEMOGRAPHIC_ALIASES, PIPELINE_STATUS, MATRIX_FIELDS } from "./matrixEnums.js";
-import { getClusterLabel, resolveEditorialLens, isListicleHook, formatCoherenceSeedLines, formatRelatednessSeedLines, isHomeworkAnchor, isLocateDesk, formatEmotionRegister } from "./matrixCompass.js";
+import { getClusterLabel, resolveEditorialLens, isListicleHook, formatCoherenceSeedLines, formatRelatednessSeedLines, isHomeworkAnchor, isLocateDesk, formatEmotionRegister, sanitizeFuelOmit } from "./matrixCompass.js";
 import { formatConversationSeedLines } from "./conversationMaps.js";
 import { buildSubjectLock, lockLensDirective } from "./subjectLock.js";
 import { CONTENT_DEFAULT_VOICE } from "./cgeThesis.js";
@@ -193,19 +193,27 @@ export function eventMatrixToFillSeed(event) {
   }
   if (bullets.length) {
     if (contextLines.length) contextLines.push("");
+    const omit = sanitizeFuelOmit(m.fuel_omit, bullets.length);
     const usable = [];
+    const parked = [];
     const gaps = [];
     bullets.forEach((b, i) => {
       const line = `${i + 1}. ${b}`;
       if (isHomeworkAnchor(b)) gaps.push(line);
+      else if (omit.includes(i + 1)) parked.push(line);
       else usable.push(line);
     });
     if (usable.length) {
       contextLines.push("ANCHORED FACTS (write from these — numbers match Fuel on the desk):");
       for (const b of usable) contextLines.push(b);
     }
-    if (gaps.length) {
+    if (parked.length) {
       if (usable.length) contextLines.push("");
+      contextLines.push("PARKED FUEL — on the desk, not this carousel. Do not write these:");
+      for (const b of parked) contextLines.push(b);
+    }
+    if (gaps.length) {
+      if (usable.length || parked.length) contextLines.push("");
       contextLines.push("GAPS — not proof. Do not write these as facts. Unverified claims stay off the slides:");
       for (const b of gaps) contextLines.push(b);
     }
@@ -314,6 +322,7 @@ export function emptyDeskPatch() {
     corridor_locales: [],
     target_demographic: [],
     data_points: [],
+    fuel_omit: [],
     pipeline_status: PIPELINE_STATUS.DRAFT.key,
     preview_slides: [],
     rejected_drafts: [],
