@@ -36,6 +36,7 @@ import {
   coherenceInputSignature,
   COMPASS_TOPICS,
   formatDeskSeeLine,
+  formatDeskLengthContext,
   isLocateDesk,
 } from "./matrixCompass.js";
 import {
@@ -57,7 +58,7 @@ import {
   suggestConversationRank,
   vetoConversationPrimary,
 } from "./conversationMaps.js";
-import { SlideJobStrip, NewsStyleChips } from "./SlideJobStrip.jsx";
+import { NewsStyleChips } from "./SlideJobStrip.jsx";
 import { sanitizeSlidePlan } from "./slideJobs.js";
 
 // The Curatorial Matrix editor — dedicated modal (not inline in the row)
@@ -400,14 +401,15 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
   const liveCheckLens = resolvedLensForCheck.combined || resolvedLensForCheck.base || "";
   const deskSeeLine = useMemo(() => {
     const pointed = coherenceResult?.slideCount || local.argument_check?.slideCount;
+    const context = formatDeskLengthContext({
+      dataPoints: local.data_points,
+      pointed,
+    });
     return formatDeskSeeLine({
       hook: local.hook_a_side,
       pov: local.editorial_pov,
       lens: liveCheckLens || local.editorial_lens,
-      context: [
-        ...(Array.isArray(local.data_points) ? local.data_points : []),
-        pointed ? `POINTED SLIDE COUNT: ${pointed}` : "",
-      ].filter(Boolean).join("\n"),
+      context,
       plan: local.slide_plan,
     });
   }, [local.hook_a_side, local.editorial_pov, liveCheckLens, local.editorial_lens, local.data_points, local.slide_plan, coherenceResult, local.argument_check]);
@@ -2569,7 +2571,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
               color: muted,
               listStyle: "none",
             }}>
-              More · Voice, Hook B, Compass, jobs
+              More · Voice, Hook B, Compass
             </summary>
             <div style={{ padding: "0 4px 12px", display: "flex", flexDirection: "column", gap: 22 }}>
           {/* 🧭 Topic Compass — one-tap seed topics that fill cluster + corridor
@@ -2983,14 +2985,6 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
               </div>
             );
           })()}
-          <div style={{ marginTop: 18, borderTop: `1px dashed ${hair}`, paddingTop: 14 }}>
-            <SlideJobStrip
-              plan={local.slide_plan}
-              desk={newsDesk}
-              showNewsStyles={false}
-              onChange={(next) => applyPatch({ slide_plan: sanitizeSlidePlan(next) })}
-            />
-          </div>
             </div>
           </details>
 

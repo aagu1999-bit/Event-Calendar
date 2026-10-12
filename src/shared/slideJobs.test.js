@@ -60,7 +60,7 @@ test("looks come from jobs, not a second playbook", () => {
 });
 
 test("empty plan heading is Auto; named plan names the cards", () => {
-  assert.equal(formatSlidePlanHeading({}), "Cover + News + closer from this desk (Auto)");
+  assert.equal(formatSlidePlanHeading({}), "Auto from Fuel / Check");
   assert.match(formatSlidePlanHeading(defaultSlidePlan()), /Stop the scroll → What happened → What to do/);
   assert.match(formatSlidePlanHeading(defaultSlidePlan()), /cover: Announcement/);
   assert.match(formatSlidePlanSeeLine(defaultSlidePlan()), /What you'll see:/);

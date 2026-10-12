@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isListicleHook, isBrochureCopy, hookEvidenceLines, splitHookPhrases, classifyHookRegister, formatHookPhraseLines, buildHookPrompt, buildLensReframePrompt, buildThesisPrompt, buildCoherencePrompt, normalizeCoherenceResult, formatCoherenceSeedLines, defaultCoherenceUseFor, coherenceInputSignature, describeReframeInputs, lensFreshnessSignature, earnedSlideCount, essaySlideSequence, countUsableAnchors, isHomeworkAnchor, isLocateDesk, formatDeskSeeLine, formatEmotionRegister } from "./matrixCompass.js";
+import { isListicleHook, isBrochureCopy, hookEvidenceLines, splitHookPhrases, classifyHookRegister, formatHookPhraseLines, buildHookPrompt, buildLensReframePrompt, buildThesisPrompt, buildCoherencePrompt, normalizeCoherenceResult, formatCoherenceSeedLines, defaultCoherenceUseFor, coherenceInputSignature, describeReframeInputs, lensFreshnessSignature, earnedSlideCount, essaySlideSequence, countUsableAnchors, isHomeworkAnchor, isLocateDesk, formatDeskSeeLine, formatDeskLengthContext, formatEmotionRegister } from "./matrixCompass.js";
 import { buildSubjectLock, subjectLockPromptLines, lockLensDirective } from "./subjectLock.js";
 
 test("listicle hooks are the Google-vs-CGE failure", () => {
@@ -457,6 +457,19 @@ test("slide count is earned from this desk, not a silent 3", () => {
     context: "LOCATE DESK: Cover locates.\n- START — one night.",
     count: 7,
   }), "You'll see Cover + News + 4 more + Done.");
+  const techWeekFuel = formatDeskLengthContext({
+    dataPoints: [
+      "Oct. 12 at Ruth Bader Ginsburg Hall",
+      "Mixer at Consigliere",
+      "Oct. 13 pitch night at Equal Space",
+      "NJIT student talks",
+      "GAP — a currently-operating Saturday operator quote",
+    ],
+    pointed: 3,
+  });
+  assert.equal(countUsableAnchors(techWeekFuel), 4);
+  assert.equal(earnedSlideCount(techWeekFuel), 6);
+  assert.equal(formatDeskSeeLine({ context: techWeekFuel }), "You'll see Cover + News + 3 more + Done.");
   assert.match(formatEmotionRegister("Curiosity/Epiphany"), /cold reader/);
   assert.equal(formatEmotionRegister(""), "");
   assert.equal(earnedSlideCount(locateWeek, 5), 5);

@@ -4,8 +4,9 @@
 // operator names jobs on a strip; Generate does not invent a second
 // hidden beat list when a plan is set. GST 10 ignores this plan.
 //
-// Empty plan = current Auto (Cover + News + closer from the desk).
-// A named plan wins length. Default tap is three jobs, not homework.
+// Empty plan = Auto from Fuel / Check. Extra START facts are extra
+// News cards, not a lock at Cover + News + closer. A named plan wins
+// length. "Lock 3 cards" is the tap that freezes at three jobs.
 
 export const SLIDE_JOBS = {
   hook: {
@@ -302,7 +303,7 @@ export function formatSlidePlanHeading(plan) {
   const clean = sanitizeSlidePlan(plan);
   const news = formatNewsStyleParen(clean);
   const newsTail = news ? ` · news:${news}` : "";
-  if (!clean.jobs.length) return `Cover + News + closer from this desk (Auto)${newsTail}`;
+  if (!clean.jobs.length) return `Auto from Fuel / Check${newsTail}`;
   const labels = clean.jobs.map((k) => SLIDE_JOBS[k].label);
   const style = coverStyleOf(clean.coverStyle);
   const head = labels.join(" → ");

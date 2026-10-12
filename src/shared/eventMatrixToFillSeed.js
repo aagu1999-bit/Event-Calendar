@@ -268,7 +268,7 @@ export function eventMatrixToFillSeed(event) {
     // Empty arrays when the matrix has no history.
     rejectedDrafts: Array.isArray(m.rejected_drafts) ? m.rejected_drafts.slice(-3) : [],
     approvedDrafts: Array.isArray(m.approved_drafts) ? m.approved_drafts.slice(-3) : [],
-    // Named jobs. Empty = Auto Cover + News + closer. GST ignores this.
+    // Named jobs. Empty = Auto from Fuel / Check. GST ignores this.
     slidePlan,
   };
 }

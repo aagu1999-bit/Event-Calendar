@@ -1238,6 +1238,28 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
                 ? formatPreviewSeeLine(slides)
                 : formatDeskSeeLine({ context, plan: slidePlan, count: deskN })}
             </div>
+            {!gstOn && mode !== "promo" && !slidePlan.jobs.length && !slides.length && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                <span style={{ fontSize: "0.65rem", color: "rgba(245,240,232,0.7)", letterSpacing: 0.5, fontWeight: 700 }}>How many slides?</span>
+                <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                  {["auto", "3", "4", "5", "6", "7", "8", "9", "10"].map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => setSlideCount(c)}
+                      title={c === "auto" ? `From this desk: ${earnedSlideCount(context)} slides` : `Pin ${c} slides`}
+                      style={{
+                        padding: "4px 10px", borderRadius: 4, cursor: "pointer",
+                        fontSize: "0.62rem", fontWeight: 700, fontFamily: "'Syne',sans-serif",
+                        background: slideCount === c ? "rgba(99,179,237,0.22)" : "rgba(245,240,232,0.04)",
+                        color: slideCount === c ? "#63B3ED" : "rgba(245,240,232,0.5)",
+                        border: slideCount === c ? "1px solid rgba(99,179,237,0.5)" : "1px solid transparent",
+                      }}
+                    >{c === "auto" ? `Auto · ${earnedSlideCount(context)}` : c}</button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -1261,7 +1283,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
               color: "rgba(245,240,232,0.55)",
               listStyle: "none",
             }}>
-              More · 10-slide, jobs, register
+              More · Always 10, lock cards, register
             </summary>
           ) : null}
           <div style={compactMode ? { padding: "0 10px 12px" } : { display: "contents" }}>
@@ -1356,31 +1378,10 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
             plan={slidePlan}
             onChange={commitSlidePlan}
             desk={{ hook: topic, pov: "", lens: "", anchors: anchorsFromDeskContext(context), check: null }}
+            autoCount={deskN}
             disabled={gstOn}
             disabledNote="GST is on — named jobs are ignored. Turn GST off to lock the cards."
           />
-        )}
-        {!gstOn && compactMode && mode !== "promo" && !slidePlan.jobs.length && (
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, padding: "8px 10px", background: "rgba(99,179,237,0.06)", border: "1px solid rgba(99,179,237,0.22)", borderRadius: 4 }}>
-            <span style={{ fontSize: "0.65rem", color: "rgba(245,240,232,0.7)", letterSpacing: 0.5, fontWeight: 700 }}>How many slides?</span>
-            <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-              {["auto", "3", "4", "5", "6", "7", "8", "9", "10"].map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  onClick={() => setSlideCount(c)}
-                  title={c === "auto" ? `From this desk: ${earnedSlideCount(context)} slides` : `Pin ${c} slides`}
-                  style={{
-                    padding: "4px 10px", borderRadius: 4, cursor: "pointer",
-                    fontSize: "0.62rem", fontWeight: 700, fontFamily: "'Syne',sans-serif",
-                    background: slideCount === c ? "rgba(99,179,237,0.22)" : "rgba(245,240,232,0.04)",
-                    color: slideCount === c ? "#63B3ED" : "rgba(245,240,232,0.5)",
-                    border: slideCount === c ? "1px solid rgba(99,179,237,0.5)" : "1px solid transparent",
-                  }}
-                >{c === "auto" ? `Auto · ${earnedSlideCount(context)}` : c}</button>
-              ))}
-            </div>
-          </div>
         )}
 
 

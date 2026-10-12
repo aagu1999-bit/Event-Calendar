@@ -1187,6 +1187,19 @@ export function isLocateDesk({ hook = "", pov = "", lens = "" } = {}) {
   return !LOCATE_CONTRAST.test(blob);
 }
 
+// Fuel facts as Generate counts them: dashed bullets, plus Check's
+// pointed count when it exists. Raw typed lines (no START prefix)
+// still earn chairs. Check's 3 does not freeze Auto if Fuel earned more.
+export function formatDeskLengthContext({ dataPoints = [], pointed = null } = {}) {
+  const lines = (Array.isArray(dataPoints) ? dataPoints : [])
+    .map((b) => String(b || "").trim())
+    .filter(Boolean)
+    .map((b) => (/^[-•*]/.test(b) ? b : `- ${b}`));
+  const n = Number.parseInt(pointed, 10);
+  if (Number.isFinite(n) && n > 0) lines.push(`POINTED SLIDE COUNT: ${n}`);
+  return lines.join("\n");
+}
+
 export function formatDeskSeeLine({ hook = "", pov = "", lens = "", context = "", plan = null, count = null } = {}) {
   const clean = sanitizeSlidePlan(plan);
   const fromContext = parseSlidePlanFromContext(context);
