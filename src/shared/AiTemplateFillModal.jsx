@@ -15,7 +15,7 @@ import {
   formatSlidePlanHeading,
   anchorsFromDeskContext,
 } from "./slideJobs.js";
-import { recastSlot, PREVIEW_RECAST_TYPES, PREVIEW_RECAST_LABELS } from "./recastSlot.js";
+import { recastSlot, PREVIEW_RECAST_TYPES, PREVIEW_RECAST_LABELS, PREVIEW_RECAST_HINTS, formatPreviewSeeLine } from "./recastSlot.js";
 import {
   interpretBuildTurn,
   formatDraftForContinue,
@@ -887,7 +887,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
             key={t}
             type="button"
             onClick={() => recastSlide(idx, t)}
-            title={`Show this card as ${PREVIEW_RECAST_LABELS[t]}. Sentences stay. Redo then writes this type.`}
+            title={`${PREVIEW_RECAST_HINTS[t] || PREVIEW_RECAST_LABELS[t]} Sentences stay. Redo then writes this type.`}
             style={{
               padding: "3px 8px",
               borderRadius: 3,
@@ -1234,7 +1234,9 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
               Check
             </div>
             <div style={{ fontSize: "0.88rem", color: "#F5F0E8", lineHeight: 1.5, fontWeight: 600 }}>
-              {formatDeskSeeLine({ context, plan: slidePlan })}
+              {slides.length
+                ? formatPreviewSeeLine(slides)
+                : formatDeskSeeLine({ context, plan: slidePlan, count: deskN })}
             </div>
           </div>
         )}
@@ -1995,7 +1997,7 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
               Preview · {slides.length} slides
             </div>
             <div style={{ fontSize: "0.58rem", color: "rgba(245,240,232,0.5)", marginBottom: 8, lineHeight: 1.4 }}>
-              Change type to recast the chair. Edit the fields. Redo writes the type showing now.
+              Cover · News · Done are the chairs. Text is a paragraph if you recast. Keep sends the chair to the canvas. Wrong marks it for the ask box. Redo rewrites this chair as the type showing now.
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
               {slides.map((slot, idx) => {
@@ -2120,7 +2122,7 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
                             <span style={{ flexShrink: 0 }}>⚠️</span>
                             <span>
                               <strong style={{ letterSpacing: "0.3px" }}>
-                                {w.type === "phantom_entity" ? "Unverified Entity Detected" : w.type === "atomicity_violation" ? "Data-Dump Detected" : "Warning"}:
+                                {w.type === "phantom_entity" ? "Unverified Entity Detected" : w.type === "atomicity_violation" ? "Data-Dump Detected" : w.type === "empty_news" ? "Empty News body" : "Warning"}:
                               </strong>{" "}
                               {w.message}
                               {" "}

@@ -54,6 +54,7 @@ import {
   slidePlanWriterBlock,
   slidePlanSpineBlock,
   attachTrifectaWarnings,
+  attachEmptyNewsWarnings,
 } from "./slideJobs.js";
 
 const MODEL = "gemini-2.5-flash-lite";
@@ -2791,6 +2792,7 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
     if (!evergreen) sanitized = detectCrossContamination(sanitized, workingSpine, filteredContext, workingSequence);
     sanitized = detectGeographicWhiplash(sanitized, workingSequence);
     sanitized = detectSlotDoctrineViolations(sanitized, workingSequence);
+    sanitized = attachEmptyNewsWarnings(sanitized);
     if (jobsLocked) sanitized = attachTrifectaWarnings(sanitized, namedPlan.jobs);
     return willStitchCta ? appendStitchedCtaIfNeeded(sanitized) : stitchKeywordCta(sanitized, workingSequence, keywordTrigger);
   }
@@ -2862,6 +2864,7 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   if (!evergreen) sanitized = detectCrossContamination(sanitized, workingSpine, filteredContext, workingSequence);
   sanitized = detectGeographicWhiplash(sanitized, workingSequence);
   sanitized = detectSlotDoctrineViolations(sanitized, workingSequence);
+  sanitized = attachEmptyNewsWarnings(sanitized);
   if (jobsLocked) sanitized = attachTrifectaWarnings(sanitized, namedPlan.jobs);
   return willStitchCta ? appendStitchedCtaIfNeeded(sanitized) : stitchKeywordCta(sanitized, workingSequence, keywordTrigger);
 }
@@ -3243,7 +3246,7 @@ export function buildDedupPreamble(slides) {
 function fillSlotShape(t) {
   if (t === "cover")     return '{"type":"cover","headline":"...","subtitle":"...","accentWord":"..."}';
   if (t === "text")      return '{"type":"text","textTitle":"...","textBody":"..."}';
-  if (t === "news")      return '{"type":"news","newsKicker":"<short eyebrow like BREAKING or THE VOTE — never THE BIGGER PICTURE>","newsHeadline":"<optional short heading, or empty>","newsBody":"<1-2 short paragraphs of the log>","newsBold":false}';
+  if (t === "news")      return '{"type":"news","newsKicker":"<1-3 word eyebrow like THE SUMMIT or OCT 12 — never THE LOG>","newsHeadline":"<required short heading — the event or receipt name>","newsBody":"<required 1-2 short paragraphs of the log — never empty>","newsBold":false}';
   if (t === "spotlight") return '{"type":"spotlight","spotName":"...","spotMeta":"...","spotTime":"","spotPrice":"","spotCta":""}';
   if (t === "cta")       return '{"type":"cta","ctaKicker":"","ctaDate":"...","ctaVenue":"...","ctaUrl":"..."}';
   if (t === "photo")     return '{"type":"photo","caption":"...","captionSecondary":"..."}';
@@ -4109,7 +4112,7 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
       const ctaTotal = sequence.filter(t => t === "cta").length;
       extra = `\n\nThis is CTA ${ctaIdxAmong} of ${ctaTotal}. Each CTA is a DIRECTORY LISTING for ONE event. ctaKicker stays BLANK. ctaDate slot becomes the EVENT NAME (uppercased big-bold headline of the card). ctaVenue slot is "<venue> · <day> · <time>". ctaUrl is that event's URL or page link. Pick a DIFFERENT event from the context for each CTA — don't repeat. If context lists fewer events than CTAs, invent plausible ones grounded in the topic.`;
     } else if (slotType === "news") {
-      extra = "\n\nNEWS slide — the log, not a cover and not a supporting explainer. who / what / where / when already on this desk. Real stake + named receipt + a use on THIS card. newsKicker = a 1-3 word eyebrow from the desk (BREAKING / THE VOTE / THE ROOM — never THE LOG / THE BIGGER PICTURE / THE STORY / THE CONTEXT / THE FRAME). newsHeadline = an optional short heading, or empty. newsBody is reported substance, not a manifesto and not an open loop. Conversational or rolling (the default): 1-2 short paragraphs. End on ONE payoff line wrapped in *asterisks* so it bolds (exactly one) only if that payoff is already on the desk. Every specific must be true; never manufacture drama. newsBold true only for a genuinely urgent breaking beat.";
+      extra = "\n\nNEWS slide — the log, not a cover and not a name-only kicker. who / what / where / when already on this desk. Real stake + named receipt + a use on THIS card. newsKicker = a 1-3 word eyebrow (THE SUMMIT / HACKATHON / OCT 12 — never THE LOG / THE BIGGER PICTURE / THE STORY). newsHeadline = REQUIRED short heading (the event or receipt name). newsBody = REQUIRED: write the START / THESIS receipt into 1-2 short paragraphs. Never leave newsBody empty. A kicker with a blank body is a failed card — the name is not the log. Conversational or rolling (the default). End on ONE payoff line wrapped in *asterisks* so it bolds (exactly one) only if that payoff is already on the desk. Every specific must be true; never manufacture drama. newsBold true only for a genuinely urgent breaking beat.";
     } else if (slotType === "features") {
       // The Features slot is the one most prone to filler because each card is
       // tiny — force concrete promises and a single standout card.
@@ -4142,7 +4145,7 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
     ...purposeBlock,
     "You are generating an ENTIRE editorial Instagram carousel for CGE. The slides will be exported in order — write them as ONE coherent story, not isolated cards.",
     "",
-    "NODE 1 — STRUCTURE PASS: your primary job here is STRUCTURE, FACTS, and ROUTING under schema pressure. The BRAND VOICE FINGERPRINT block above is signal, not a straitjacket — a downstream Node 2 (Voice Pass) will rewrite text-string field values to lock voice cadence, stance, and distance without touching JSON shape, facts, or routing. So: hit the schema, honor the beat + reserved proof for each slide. One beat per slide. A starting point may color a beat — do not turn the carousel into a directory of starting points. If a slot's material is thin, keep it short and specific rather than padding — Node 2 can only rewrite what you route correctly, it cannot rescue empty structure or misrouted facts.",
+    "NODE 1 — STRUCTURE PASS: your primary job here is STRUCTURE, FACTS, and ROUTING under schema pressure. The BRAND VOICE FINGERPRINT block above is signal, not a straitjacket — a downstream Node 2 (Voice Pass) will rewrite text-string field values to lock voice cadence, stance, and distance without touching JSON shape, facts, or routing. So: hit the schema, honor the beat + reserved proof for each slide. One beat per slide. Extra News chairs ARE the log of START receipts already on the desk — one receipt per News card, written in newsBody. That is not a Spotlight directory. Do not leave a News card as a name-only kicker. If a slot's material is thin, keep it short and specific rather than padding — Node 2 can only rewrite what you route correctly, it cannot rescue empty structure or misrouted facts.",
     "",
     // FEEDBACK MEMORY — operator's Reject / Approve history for THIS matrix.
     // Rejections come with a reason ("wall of text on cover", "slide 3 empty",

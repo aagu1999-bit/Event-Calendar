@@ -473,6 +473,25 @@ export function trifectaWarnings(slide, jobKey) {
   return warnings;
 }
 
+export function emptyNewsWarnings(slide) {
+  if (!slide || slide.type !== "news") return [];
+  if (String(slide.newsBody || "").trim()) return [];
+  return [{
+    type: "empty_news",
+    message: "News body is empty. The receipt belongs in Body — Kicker is only the eyebrow.",
+  }];
+}
+
+export function attachEmptyNewsWarnings(slides) {
+  if (!Array.isArray(slides)) return slides;
+  return slides.map((slide) => {
+    const extras = emptyNewsWarnings(slide);
+    if (!extras.length) return slide;
+    const existing = Array.isArray(slide?._warnings) ? slide._warnings : [];
+    return { ...slide, _warnings: [...existing, ...extras] };
+  });
+}
+
 export function attachTrifectaWarnings(slides, jobs = []) {
   if (!Array.isArray(slides)) return slides;
   return slides.map((slide, i) => {

@@ -453,6 +453,10 @@ test("slide count is earned from this desk, not a silent 3", () => {
   assert.equal(formatDeskSeeLine({
     plan: { jobs: ["hook", "happened", "todo"] },
   }), "You'll see 3 named cards.");
+  assert.equal(formatDeskSeeLine({
+    context: "LOCATE DESK: Cover locates.\n- START — one night.",
+    count: 7,
+  }), "You'll see Cover + News + 4 more + Done.");
   assert.match(formatEmotionRegister("Curiosity/Epiphany"), /cold reader/);
   assert.equal(formatEmotionRegister(""), "");
   assert.equal(earnedSlideCount(locateWeek, 5), 5);

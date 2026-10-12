@@ -1187,7 +1187,7 @@ export function isLocateDesk({ hook = "", pov = "", lens = "" } = {}) {
   return !LOCATE_CONTRAST.test(blob);
 }
 
-export function formatDeskSeeLine({ hook = "", pov = "", lens = "", context = "", plan = null } = {}) {
+export function formatDeskSeeLine({ hook = "", pov = "", lens = "", context = "", plan = null, count = null } = {}) {
   const clean = sanitizeSlidePlan(plan);
   const fromContext = parseSlidePlanFromContext(context);
   const named = clean.jobs.length ? clean.jobs : fromContext.jobs;
@@ -1195,7 +1195,10 @@ export function formatDeskSeeLine({ hook = "", pov = "", lens = "", context = ""
   if (named.length) {
     return `You'll see ${named.length} named cards${newsBit ? ` · News${newsBit}` : ""}.`;
   }
-  const n = earnedSlideCount(context);
+  const pinned = typeof count === "number" && Number.isFinite(count) && count > 0
+    ? Math.min(DESK_SLIDE_MAX, Math.max(DESK_SLIDE_MIN, Math.round(count)))
+    : null;
+  const n = pinned || earnedSlideCount(context);
   if (n <= 3) return `You'll see Cover + News${newsBit} + Done.`;
   return `You'll see Cover + News${newsBit} + ${n - 3} more + Done.`;
 }

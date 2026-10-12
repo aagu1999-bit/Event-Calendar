@@ -56,6 +56,7 @@ export const SLOT_DOCTRINE = {
     },
     antiPatterns: [
       "Scaffolding kickers: 'THE LOG', 'THE BIGGER PICTURE', 'THE STORY', 'THE CONTEXT', 'THE FRAME'. These are labels, not eyebrows.",
+      "A name-only kicker with an empty newsBody — the receipt belongs in the body.",
       "Opening a loop or withholding the payoff so they swipe again.",
       "Recap of the cover with no named receipt added.",
       "Body that reads like an introduction to the piece instead of the log.",

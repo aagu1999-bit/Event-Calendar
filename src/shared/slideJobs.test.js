@@ -19,6 +19,7 @@ import {
   hasNamedSlidePlan,
   trifectaWarnings,
   attachTrifectaWarnings,
+  attachEmptyNewsWarnings,
   newsStyleAvailability,
   toggleNewsStyle,
   clampNewsStyles,
@@ -111,6 +112,17 @@ test("trifecta warns only on What happened / Prove cards", () => {
   );
   assert.equal(tagged[0]._warnings.length > 0, true);
   assert.equal(tagged[1]._warnings, undefined);
+});
+
+test("empty News body is flagged so Redo can fill the receipt", () => {
+  const tagged = attachEmptyNewsWarnings([
+    { type: "news", newsKicker: "RUTGERS-NEWARK SUMMIT", newsHeadline: "", newsBody: "" },
+    { type: "news", newsKicker: "THE SUMMIT", newsHeadline: "Rutgers–Newark", newsBody: "Oct. 12, 1:30–6 p.m. at Ruth Bader Ginsburg Hall." },
+    { type: "cover", headline: "ok" },
+  ]);
+  assert.equal(tagged[0]._warnings[0].type, "empty_news");
+  assert.equal(tagged[1]._warnings, undefined);
+  assert.equal(tagged[2]._warnings, undefined);
 });
 
 test("matrix stores slide_plan and completeness ignores it", () => {
