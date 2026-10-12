@@ -4,6 +4,7 @@ import {
   SLIDE_JOBS,
   SLIDE_JOB_ORDER,
   DEFAULT_SLIDE_JOBS,
+  NEWS_STYLE_ORDER,
   sanitizeSlidePlan,
   defaultSlidePlan,
   looksFromJobs,
@@ -18,6 +19,11 @@ import {
   hasNamedSlidePlan,
   trifectaWarnings,
   attachTrifectaWarnings,
+  newsStyleAvailability,
+  toggleNewsStyle,
+  clampNewsStyles,
+  formatNewsStyleParen,
+  anchorsFromDeskContext,
 } from "./slideJobs.js";
 import { MATRIX_FIELDS } from "./matrixEnums.js";
 import { matrixCompleteness } from "./matrixValidation.js";
@@ -166,4 +172,123 @@ test("empty slide_plan leaves Auto from receipts", () => {
 
 test("essay slot catalog is Cover then News then Text then closer", () => {
   assert.deepEqual(CONTENT_ESSAY_SLOTS, ["cover", "news", "text", "cta"]);
+});
+
+test("Generate context only counts Fuel lines as News-style material", () => {
+  const anchors = anchorsFromDeskContext([
+    "LOCATE DESK: Cover + News + Done.",
+    "POV: Newark Tech Week is in town.",
+    "ANCHORED FACTS (write from these):",
+    "- START — Oct. 12 at Ruth Bader Ginsburg Hall",
+    "- START — Mixer at Consigliere",
+    "HOMEWORK — NOT PROOF.",
+    "- GAP — who paid for the main stages",
+    "NEWS STYLES — stack on every News card, not extra chairs: Log + Receipt.",
+  ].join("\n"));
+  assert.deepEqual(anchors, [
+    "START — Oct. 12 at Ruth Bader Ginsburg Hall",
+    "START — Mixer at Consigliere",
+    "GAP — who paid for the main stages",
+  ]);
+  const avail = newsStyleAvailability({ hook: "Newark Tech Week", anchors });
+  assert.equal(avail.side.ok, true);
+  assert.equal(avail.hole.ok, true);
+  assert.equal(avail.receipt.ok, true);
+});
+
+test("News styles stay grey until the desk earns them, then they stack", () => {
+  assert.deepEqual(NEWS_STYLE_ORDER, ["log", "receipt", "quote", "side", "hole"]);
+  const empty = newsStyleAvailability({});
+  for (const key of NEWS_STYLE_ORDER) assert.equal(empty[key].ok, false);
+
+  const logOnly = newsStyleAvailability({ hook: "Newark Tech Week is in town." });
+  assert.equal(logOnly.log.ok, true);
+  assert.equal(logOnly.receipt.ok, false);
+  assert.equal(logOnly.quote.ok, false);
+  assert.equal(logOnly.side.ok, false);
+  assert.equal(logOnly.hole.ok, false);
+
+  const receiptDesk = newsStyleAvailability({
+    hook: "Newark Tech Week is in town.",
+    anchors: ["START — Oct. 12 at Ruth Bader Ginsburg Hall"],
+  });
+  assert.equal(receiptDesk.log.ok, true);
+  assert.equal(receiptDesk.receipt.ok, true);
+  assert.equal(receiptDesk.side.ok, false);
+
+  const twoFacts = newsStyleAvailability({
+    anchors: [
+      "START — Oct. 12 at Ruth Bader Ginsburg Hall",
+      "START — Mixer at Consigliere on Oct. 13",
+    ],
+  });
+  assert.equal(twoFacts.side.ok, true);
+  assert.equal(twoFacts.receipt.ok, true);
+
+  const quoted = newsStyleAvailability({
+    anchors: ['START — Mayor Jackson said the hall “does not list who paid.”'],
+  });
+  assert.equal(quoted.quote.ok, true);
+
+  const gapped = newsStyleAvailability({
+    anchors: [
+      "START — Oct. 12 at Ruth Bader Ginsburg Hall",
+      "GAP — who paid for the main stages",
+    ],
+    check: { claims: [{ claim: "Sponsors underwrite the week.", support: "unverified", anchor: 0 }], gaps: [] },
+  });
+  assert.equal(gapped.hole.ok, true);
+});
+
+test("News styles multi-select stack and clamp when Fuel disappears", () => {
+  const desk = {
+    hook: "Newark Tech Week is in town.",
+    anchors: [
+      "START — Oct. 12 at Ruth Bader Ginsburg Hall",
+      "START — Mixer at Consigliere on Oct. 13",
+      "GAP — who paid for the main stages",
+    ],
+  };
+  let plan = toggleNewsStyle({}, "log", desk);
+  plan = toggleNewsStyle(plan, "receipt", desk);
+  plan = toggleNewsStyle(plan, "hole", desk);
+  assert.deepEqual(plan.newsStyles, ["log", "receipt", "hole"]);
+  plan = toggleNewsStyle(plan, "side", desk);
+  assert.deepEqual(plan.newsStyles, ["log", "receipt", "hole", "side"]);
+  assert.equal(toggleNewsStyle(plan, "quote", desk).newsStyles.includes("quote"), false);
+
+  const dropped = clampNewsStyles(plan, { hook: "Newark Tech Week is in town." });
+  assert.deepEqual(dropped.newsStyles, ["log"]);
+  assert.equal(formatNewsStyleParen(plan), " (log + receipt + the hole + side by side)");
+});
+
+test("stacked News styles seed the writer without adding chairs", () => {
+  const plan = sanitizeSlidePlan({ newsStyles: ["log", "receipt", "hole"] });
+  assert.deepEqual(plan.jobs, []);
+  const lines = formatSlidePlanSeedLines(plan);
+  assert.match(lines[0], /jobs=none; cover=none; news=log,receipt,hole/);
+  assert.match(lines.join("\n"), /stack on every News card/);
+  assert.match(lines.join("\n"), /Log \+ Receipt \+ The hole/);
+  assert.match(lines.join("\n"), /Do not add a slide per style/);
+  const parsed = parseSlidePlanFromContext(lines.join("\n"));
+  assert.deepEqual(parsed.newsStyles, ["log", "receipt", "hole"]);
+  assert.deepEqual(parsed.jobs, []);
+  const seed = eventMatrixToFillSeed({
+    name: "Tech Week",
+    matrix: {
+      event_tier: "FEATURE",
+      hook_a_side: "Newark Tech Week is in town.",
+      editorial_pov: "The week is in town, but the stages do not list who paid.",
+      data_points: [
+        "START — Oct. 12 at Ruth Bader Ginsburg Hall",
+        "START — Mixer at Consigliere",
+        "GAP — who paid for the main stages",
+      ],
+      slide_plan: { newsStyles: ["log", "receipt", "hole"] },
+    },
+  });
+  assert.match(seed.context, /news=log,receipt,hole/);
+  assert.equal(earnedSlideCount(seed.context), 4);
+  assert.deepEqual(essaySlideSequence(earnedSlideCount(seed.context)), ["cover", "news", "news", "cta"]);
+  assert.match(formatSlidePlanHeading(plan), /news: \(log \+ receipt \+ the hole\)/);
 });

@@ -13,6 +13,7 @@ import {
   looksFromJobs,
   replaceSlidePlanInContext,
   formatSlidePlanHeading,
+  anchorsFromDeskContext,
 } from "./slideJobs.js";
 import { recastSlot, PREVIEW_RECAST_TYPES, PREVIEW_RECAST_LABELS } from "./recastSlot.js";
 import {
@@ -1352,6 +1353,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
           <SlideJobStrip
             plan={slidePlan}
             onChange={commitSlidePlan}
+            desk={{ hook: topic, pov: "", lens: "", anchors: anchorsFromDeskContext(context), check: null }}
             disabled={gstOn}
             disabledNote="GST is on — named jobs are ignored. Turn GST off to lock the cards."
           />

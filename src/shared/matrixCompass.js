@@ -24,7 +24,7 @@
 // handles both shapes transparently, so nothing on disk breaks.
 
 import { CGE_VOICE_RATIO, isPlatformThemeLeak } from "./cgeThesis.js";
-import { parseSlidePlanFromContext, sanitizeSlidePlan } from "./slideJobs.js";
+import { parseSlidePlanFromContext, sanitizeSlidePlan, formatNewsStyleParen } from "./slideJobs.js";
 
 export const CONTENT_CLUSTERS = {
   SUBURBAN_THIRD_PLACE: {
@@ -1189,18 +1189,19 @@ export function isLocateDesk({ hook = "", pov = "", lens = "" } = {}) {
 }
 
 export function formatDeskSeeLine({ hook = "", pov = "", lens = "", context = "", plan = null } = {}) {
-  const named = sanitizeSlidePlan(plan).jobs.length
-    ? sanitizeSlidePlan(plan).jobs
-    : parseSlidePlanFromContext(context).jobs;
+  const clean = sanitizeSlidePlan(plan);
+  const fromContext = parseSlidePlanFromContext(context);
+  const named = clean.jobs.length ? clean.jobs : fromContext.jobs;
+  const newsBit = formatNewsStyleParen(clean.newsStyles.length ? clean : fromContext);
   if (named.length) {
-    return `You'll see ${named.length} named cards.`;
+    return `You'll see ${named.length} named cards${newsBit ? ` · News${newsBit}` : ""}.`;
   }
   if (isLocateDesk({ hook, pov, lens }) || LOCATE_DESK_LINE.test(String(context || ""))) {
-    return "You'll see Cover + News + Done.";
+    return `You'll see Cover + News${newsBit} + Done.`;
   }
   const n = earnedSlideCount(context);
-  if (n <= 3) return "You'll see Cover + News + Done.";
-  return `You'll see Cover + News + ${n - 3} more + Done.`;
+  if (n <= 3) return `You'll see Cover + News${newsBit} + Done.`;
+  return `You'll see Cover + News${newsBit} + ${n - 3} more + Done.`;
 }
 
 // Auto length from THIS desk's copy, not a silent 3 and not GST 10.
