@@ -316,9 +316,39 @@ test("each News card picks its own style mix after Generate", () => {
   assert.match(seed.context, /GAPS — not proof/i);
   assert.equal(earnedSlideCount(seed.context), 4);
   assert.deepEqual(essaySlideSequence(earnedSlideCount(seed.context)), ["cover", "news", "news", "cta"]);
+  assert.equal(seed.eventId, null);
+  assert.deepEqual(seed.slides, []);
   const cleared = emptyDeskPatch();
   assert.deepEqual(cleared.data_points, []);
   assert.deepEqual(cleared.preview_slides, []);
   assert.equal(cleared.hook_a_side, null);
   assert.deepEqual(sanitizeNewsStyles(["log", "log", "nope", "receipt"]), ["log", "receipt"]);
+});
+
+test("fill seed carries event id and saved preview cards so sidebar Fill can reopen them", () => {
+  const slides = [
+    { type: "cover", headline: "Newark Tech Week lands Oct. 12" },
+    { type: "news", newsHeadline: "24 events", newsBody: "Oct. 12–17.", newsStyles: ["log"] },
+  ];
+  const seed = eventMatrixToFillSeed({
+    id: "editorial_tech_week",
+    name: "Tech Week",
+    matrix: {
+      event_tier: "FEATURE",
+      hook_a_side: "Newark Tech Week lands Oct. 12.",
+      editorial_pov: "The week is on.",
+      data_points: ["START — Oct. 12 at Ruth Bader Ginsburg Hall"],
+      preview_slides: slides,
+    },
+  });
+  assert.equal(seed.eventId, "editorial_tech_week");
+  assert.equal(seed.slides.length, 2);
+  assert.equal(seed.slides[0].headline, "Newark Tech Week lands Oct. 12");
+  const cardsOnly = eventMatrixToFillSeed({
+    id: "editorial_cards_only",
+    name: "Saved cards",
+    matrix: { event_tier: "FEATURE", preview_slides: slides },
+  });
+  assert.equal(cardsOnly.eventId, "editorial_cards_only");
+  assert.equal(cardsOnly.slides.length, 2);
 });

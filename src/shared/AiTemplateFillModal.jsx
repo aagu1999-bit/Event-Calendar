@@ -296,6 +296,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
       setPickedTemplate({ id: "connect-the-dots", name: `Connect the dots${plan.thesis ? ` — ${plan.thesis}` : ""}`, sequence: dotsSlides.map(s => s.type), custom: true });
       setPickReasoning(plan.thesis ? `Thesis: ${plan.thesis}` : "");
       setSlides(dotsSlides);
+      if (typeof onPreviewSave === "function") onPreviewSave(dotsSlides);
       return;
     }
     // "AI arranges" — design a bespoke slot sequence for this story, then
@@ -326,6 +327,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
       setCompressionEvent(arranged.compressionEvent || null);
       setGstMeta(arranged.gst || null);
       setSlides(arranged.slides);
+      if (typeof onPreviewSave === "function") onPreviewSave(arranged.slides);
       return;
     }
     // Phase 1 (optional): AI picks the template.
@@ -469,10 +471,11 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
           console.warn("News lookup failed, continuing without it:", e?.message || e);
         }
       }
-      // Pause so the operator can ask what came up before slides write.
-      // Questions already typed during the look-up stay in the box.
+      // Write the cards now. Questions belong under the preview after
+      // there is a draft — not a pause before the operator can see it.
       setPendingWrite({ genContext });
-      setAwaitingQuestions(true);
+      await writeCarousel(genContext);
+      setAwaitingQuestions(false);
     } catch (err) {
       console.error(err);
       setError(err.message || "Generation failed");
@@ -1858,64 +1861,14 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
           </div>
         </details>
 
-        <div style={{
-          marginBottom: 12,
-          padding: "10px 12px",
-          background: awaitingQuestions || slides.length ? "rgba(229,188,79,0.10)" : "rgba(229,188,79,0.04)",
-          border: "1px solid " + (awaitingQuestions || slides.length ? "rgba(229,188,79,0.45)" : "rgba(229,188,79,0.18)"),
-          borderRadius: 5,
-        }}>
-          <label style={{ fontSize: "0.6rem", color: "#E5BC4F", display: "block", marginBottom: 4, letterSpacing: 1.2, textTransform: "uppercase", fontWeight: 700 }}>
-            Questions while this is building
-          </label>
-          <div style={{ fontSize: "0.58rem", color: "rgba(245,240,232,0.55)", marginBottom: 6, lineHeight: 1.45 }}>
-            A question is a turn — not a note. It can look something up, keep building on these slides, write over a slide you mark Wrong, and reuse saved voice / what you already approved or rejected. It does not start over unless you say so.
-          </div>
-          <textarea
-            ref={questionsRef}
-            value={operatorQuestions}
-            onChange={(e) => setOperatorQuestions(e.target.value)}
-            rows={3}
-            placeholder={wrongIdx.size
-              ? "What's wrong with the marked slide? The next turn writes over that part and keeps the rest."
-              : "e.g. Does a new restaurant that wants a bar just get told no?\nThat's wrong — don't say it that way.\nWhat about a BYOB hall?"}
-            style={{
-              width: "100%",
-              padding: "8px 10px",
-              background: "#111",
-              border: "1px solid " + (awaitingQuestions || slides.length ? "rgba(229,188,79,0.35)" : "rgba(245,240,232,0.08)"),
-              borderRadius: 4,
-              color: "#F5F0E8",
-              fontFamily: "inherit",
-              fontSize: "0.72rem",
-              outline: "none",
-              boxSizing: "border-box",
-              resize: "vertical",
-            }}
-          />
-          <div style={{ marginTop: 6, fontSize: "0.58rem", color: "#E5BC4F", letterSpacing: 0.3 }}>
-            This turn: {liveTurn.label}
-            {sessionLessons.length ? ` · ${sessionLessons.length} lesson${sessionLessons.length === 1 ? "" : "s"} sticking` : ""}
-            {wrongIdx.size ? ` · ${wrongIdx.size} slide${wrongIdx.size === 1 ? "" : "s"} marked wrong` : ""}
-          </div>
-          {buildLog.length > 0 && (
-            <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 3 }}>
-              {buildLog.slice(-4).map((entry, i) => (
-                <div key={i} style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.45)", lineHeight: 1.4 }}>
-                  {entry.label}{entry.questions ? ` — “${String(entry.questions).slice(0, 90)}${entry.questions.length > 90 ? "…" : ""}”` : ""}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
+          {slides.length === 0 ? (
           <button
-            onClick={(awaitingQuestions || slides.length) ? handleBuildTurn : handleGenerate}
-            disabled={busy || (!(awaitingQuestions || slides.length) && !canGenerate)}
+            onClick={handleGenerate}
+            disabled={busy || !canGenerate}
             style={{
               padding: "9px 18px",
-              background: busy ? "rgba(229,188,79,0.4)" : ((awaitingQuestions || slides.length || canGenerate) ? "#E5BC4F" : "rgba(229,188,79,0.25)"),
+              background: busy ? "rgba(229,188,79,0.4)" : (canGenerate ? "#E5BC4F" : "rgba(229,188,79,0.25)"),
               color: "#000",
               border: "none",
               borderRadius: 4,
@@ -1923,15 +1876,11 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
               fontWeight: 700,
               letterSpacing: 1,
               textTransform: "uppercase",
-              cursor: busy ? "wait" : ((awaitingQuestions || slides.length || canGenerate) ? "pointer" : "not-allowed"),
+              cursor: busy ? "wait" : (canGenerate ? "pointer" : "not-allowed"),
               fontFamily: "'Syne',sans-serif",
             }}
-          >{busy
-            ? (busyLabel || "Generating…")
-            : (awaitingQuestions || slides.length)
-              ? liveTurn.label
-              : genLabel}</button>
-          {(awaitingQuestions || slides.length > 0) && !busy && (
+          >{busy ? (busyLabel || "Generating…") : genLabel}</button>
+          ) : !busy ? (
             <button
               type="button"
               onClick={handleGenerate}
@@ -1951,6 +1900,8 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
                 fontFamily: "'Syne',sans-serif",
               }}
             >↺ Start over</button>
+          ) : (
+            <span style={{ fontSize: "0.68rem", color: "#E5BC4F" }}>{busyLabel || "Generating…"}</span>
           )}
 
           <span style={{ fontSize: "0.6rem", color: voiceOn ? "#34D399" : "rgba(245,240,232,0.4)", letterSpacing: 1, textTransform: "uppercase", fontFamily: "'Syne',sans-serif", fontWeight: 700 }}>
@@ -2064,7 +2015,7 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
               Preview · {slides.length} slides
             </div>
             <div style={{ fontSize: "0.58rem", color: "rgba(245,240,232,0.5)", marginBottom: 8, lineHeight: 1.4 }}>
-              Cover · News · Done are the chairs. News styles live on each News card after Generate. Back to desk keeps Fuel as you left it. Keep sends the chair to the canvas. Wrong marks it for the ask box. Redo rewrites this chair as the type showing now.
+              Cover · News · Done are the chairs. News styles live on each News card after Generate. Back to desk keeps Fuel as you left it. Keep sends the chair to the canvas. Write about these slides sits under the cards. Wrong marks a card for that box. Redo rewrites this chair as the type showing now.
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
               {slides.map((slot, idx) => {
@@ -2203,6 +2154,76 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
                   </div>
                 );
               })}
+            </div>
+
+            <div style={{
+              marginBottom: 12,
+              padding: "10px 12px",
+              background: "rgba(229,188,79,0.10)",
+              border: "1px solid rgba(229,188,79,0.45)",
+              borderRadius: 5,
+            }}>
+              <label style={{ fontSize: "0.6rem", color: "#E5BC4F", display: "block", marginBottom: 4, letterSpacing: 1.2, textTransform: "uppercase", fontWeight: 700 }}>
+                Write about these slides
+              </label>
+              <div style={{ fontSize: "0.58rem", color: "rgba(245,240,232,0.55)", marginBottom: 6, lineHeight: 1.45 }}>
+                After you can see the cards. A question is a turn on this draft — look something up, keep building, or write over a slide you mark Wrong. It does not start over unless you say so.
+              </div>
+              <textarea
+                ref={questionsRef}
+                value={operatorQuestions}
+                onChange={(e) => setOperatorQuestions(e.target.value)}
+                rows={3}
+                placeholder={wrongIdx.size
+                  ? "What's wrong with the marked slide? The next turn writes over that part and keeps the rest."
+                  : "e.g. Slide 4 is Fuel #3 only.\nDrop the hedge — omit it.\nThat's wrong — don't say it that way."}
+                style={{
+                  width: "100%",
+                  padding: "8px 10px",
+                  background: "#111",
+                  border: "1px solid rgba(229,188,79,0.35)",
+                  borderRadius: 4,
+                  color: "#F5F0E8",
+                  fontFamily: "inherit",
+                  fontSize: "0.72rem",
+                  outline: "none",
+                  boxSizing: "border-box",
+                  resize: "vertical",
+                }}
+              />
+              <div style={{ marginTop: 6, fontSize: "0.58rem", color: "#E5BC4F", letterSpacing: 0.3 }}>
+                This turn: {liveTurn.label}
+                {sessionLessons.length ? ` · ${sessionLessons.length} lesson${sessionLessons.length === 1 ? "" : "s"} sticking` : ""}
+                {wrongIdx.size ? ` · ${wrongIdx.size} slide${wrongIdx.size === 1 ? "" : "s"} marked wrong` : ""}
+              </div>
+              {buildLog.length > 0 && (
+                <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 3 }}>
+                  {buildLog.slice(-4).map((entry, i) => (
+                    <div key={i} style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.45)", lineHeight: 1.4 }}>
+                      {entry.label}{entry.questions ? ` — “${String(entry.questions).slice(0, 90)}${entry.questions.length > 90 ? "…" : ""}”` : ""}
+                    </div>
+                  ))}
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={handleBuildTurn}
+                disabled={busy}
+                style={{
+                  marginTop: 8,
+                  padding: "8px 14px",
+                  background: busy ? "rgba(229,188,79,0.4)" : "#E5BC4F",
+                  color: "#000",
+                  border: "none",
+                  borderRadius: 4,
+                  fontSize: "0.68rem",
+                  fontWeight: 700,
+                  letterSpacing: 1,
+                  textTransform: "uppercase",
+                  cursor: busy ? "wait" : "pointer",
+                  fontFamily: "'Syne',sans-serif",
+                }}
+              >{busy ? (busyLabel || "Writing…") : liveTurn.label}</button>
             </div>
 
             {/* Feedback memory acknowledgement banner — shows after Reject */}

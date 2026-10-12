@@ -140,9 +140,10 @@ export function appendMethodBriefToContext(context, researched) {
   return base ? `${base}\n\n${block}` : block;
 }
 
-// Operator questions typed while a carousel is being built — after
-// research, before slides write. Same append pattern as the method brief
-// so generateArrangedCarousel / generateTemplateFill just see more context.
+// Operator questions typed after cards exist. A turn on the draft —
+// not a hunt that belongs on the desk. Same append pattern as the
+// method brief so generateArrangedCarousel / generateTemplateFill just
+// see more context.
 export const OPERATOR_QUESTIONS_MARKER = "OPERATOR QUESTIONS WHILE BUILDING";
 
 export function appendOperatorQuestions(context, questions) {
