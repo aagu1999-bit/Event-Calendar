@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
-import { useEventsStore, useCarouselSeedStore, useBrandStore } from "../store.js";
+import { useEventsStore, useCarouselSeedStore, useBrandStore, useLastDeskStore } from "../store.js";
 import { AiTemplateFillModal } from "./AiTemplateFillModal.jsx";
 import {
   EVENT_TIERS, EVENT_TIER_ORDER,
@@ -273,6 +273,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
   const clearExemplars = useBrandStore((s) => s.clearExemplars);
   const syncError = useEventsStore((s) => s.syncError);
   const setCarouselSeed = useCarouselSeedStore((s) => s.setSeed);
+  const setLastDeskEventId = useLastDeskStore((s) => s.setEventId);
   const navigate = useNavigate();
 
   // Fuel Research (Perplexity) state — one research call at a time,
@@ -3052,6 +3053,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
               onClick={() => {
                 const seed = eventMatrixToFillSeed({ ...event, matrix: local });
                 if (!seed) return;
+                if (event?.id) setLastDeskEventId(event.id);
                 // Window collapse: open the AI Fill modal ON TOP of
                 // this matrix (compact mode) instead of navigating
                 // away. Matrix stays visible behind, non-interactive
@@ -3063,7 +3065,11 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                   setAiFillOverlaySeed(seed);
                   setAiFillOverlayOpen(true);
                 } else {
-                  setCarouselSeed(seed);
+                  setCarouselSeed({
+                    ...seed,
+                    eventId: event?.id ?? null,
+                    slides: Array.isArray(local.preview_slides) ? local.preview_slides : [],
+                  });
                   onClose && onClose();
                   navigate("/media");
                 }
@@ -3125,6 +3131,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
           onClose={() => { setAiFillOverlayOpen(false); setAiFillOverlaySeed(null); }}
           onAccept={(slides) => {
             applyPatch({ preview_slides: Array.isArray(slides) ? slides : [] });
+            if (event?.id) setLastDeskEventId(event.id);
             if (typeof onAiFillAccept === "function") onAiFillAccept(slides, event);
             setAiFillOverlayOpen(false);
             setAiFillOverlaySeed(null);

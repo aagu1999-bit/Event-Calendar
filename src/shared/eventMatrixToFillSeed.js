@@ -142,8 +142,14 @@ export function eventMatrixToFillSeed(event) {
     ? m.data_points.map((b) => String(b || "").trim()).filter(Boolean)
     : [];
 
+  const savedSlides = Array.isArray(m.preview_slides)
+    ? m.preview_slides.filter((s) => s && s.type)
+    : [];
+
   // Nothing to work with → let the caller open the modal empty.
-  if (!hookA && !pov && !bullets.length) return null;
+  // Saved preview cards still count — sidebar Fill must reopen them
+  // after the operator clicks out to the canvas.
+  if (!hookA && !pov && !bullets.length && !savedSlides.length) return null;
 
   // Topic is the argument, not a listicle hook. A leftover
   // "discover surprising gathering spots" line used to become the
@@ -275,6 +281,19 @@ export function eventMatrixToFillSeed(event) {
     approvedDrafts: Array.isArray(m.approved_drafts) ? m.approved_drafts.slice(-3) : [],
     // Named jobs. Empty = Auto from Fuel / Check. GST ignores this.
     slidePlan,
+    eventId: event.id ?? null,
+    slides: savedSlides,
+  };
+}
+
+export function previewDeskFromEvent(event) {
+  const m = event?.matrix || {};
+  return {
+    hook: m.hook_a_side || "",
+    pov: m.editorial_pov || "",
+    lens: m.editorial_lens || "",
+    anchors: Array.isArray(m.data_points) ? m.data_points : [],
+    check: m.argument_check || null,
   };
 }
 

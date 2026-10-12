@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
 import JSZip from "jszip";
-import { useEventsStore, useRestoreStore, useBrandStore, useCarouselTemplatesStore, useCarouselSeedStore, BUILTIN_CAROUSEL_TEMPLATES } from "../store";
+import { useEventsStore, useRestoreStore, useBrandStore, useCarouselTemplatesStore, useCarouselSeedStore, useLastDeskStore, BUILTIN_CAROUSEL_TEMPLATES } from "../store";
 import { generateCaptions } from "../shared/gemini";
 import { savePhotoAndNotify, saveExport } from "../shared/photoLibrary.js";
 import { tagPngWithCgeExport } from "../shared/pngMetadata.js";
@@ -11,6 +11,7 @@ import { AiSlideGeneratorModal } from "../shared/AiSlideGeneratorModal.jsx";
 import { AiTemplateFillModal } from "../shared/AiTemplateFillModal.jsx";
 import { CuratorialMatrixModal } from "../shared/CuratorialMatrixModal.jsx";
 import { EVENT_TIERS } from "../shared/matrixEnums.js";
+import { eventMatrixToFillSeed, previewDeskFromEvent } from "../shared/eventMatrixToFillSeed.js";
 import { NewsScoutModal } from "../shared/NewsScoutModal.jsx";
 
 const COLORS = {
@@ -3452,6 +3453,12 @@ export default function MediaTool() {
   const [matrixEventId, setMatrixEventId] = useState(null);
   const upsertEvent = useEventsStore((s) => s.upsertEvent);
   const eventsList = useEventsStore((s) => s.events);
+  const updateEventMatrix = useEventsStore((s) => s.updateEventMatrix);
+  const lastDeskEventId = useLastDeskStore((s) => s.eventId);
+  const setLastDeskEventId = useLastDeskStore((s) => s.setEventId);
+  const lastDeskEvent = lastDeskEventId
+    ? eventsList.find((e) => e.id === lastDeskEventId) || null
+    : null;
   // Handler for the "New Editorial Piece" button. Creates a stub record
   // in the events store keyed by a generated id, then opens the Matrix
   // modal on it. The stub carries `_kind: "editorial"` so future filters
@@ -3477,12 +3484,53 @@ export default function MediaTool() {
       matrix: { event_tier: EVENT_TIERS.FEATURE.key },
     };
     upsertEvent(stub);
+    setLastDeskEventId(id);
     setMatrixEventId(id);
   };
+
+  const seedFromEvent = (event) => {
+    const seed = eventMatrixToFillSeed(event);
+    const slides = seed?.slides || (Array.isArray(event?.matrix?.preview_slides) ? event.matrix.preview_slides : []);
+    return {
+      topic: seed?.topic || event?.name || "",
+      context: seed?.context || "",
+      arrange: seed?.arrange ?? false,
+      register: seed?.register || null,
+      templateId: seed?.templateId || null,
+      clusterDirective: seed?.clusterDirective || "",
+      clusterLabel: seed?.clusterLabel || "",
+      keywordTrigger: seed?.keywordTrigger || null,
+      voiceParams: seed?.voiceParams,
+      behavioralTags: seed?.behavioralTags,
+      isEvergreen: seed?.isEvergreen,
+      slidePlan: seed?.slidePlan,
+      rejectedDrafts: seed?.rejectedDrafts || [],
+      approvedDrafts: seed?.approvedDrafts || [],
+      eventId: event?.id ?? seed?.eventId ?? null,
+      slides,
+    };
+  };
+
   // Seed for AI Fill Template. Set by the News Scout's "Build carousel" so the
-  // modal opens pre-filled with a story (and AI-arrange on); the plain ✨ AI
-  // Fill button clears it so it opens blank.
-  const [aiFillSeed, setAiFillSeed] = useState({ topic: "", context: "", arrange: false, register: null, templateId: null, clusterDirective: "", clusterLabel: "", keywordTrigger: null });
+  // modal opens pre-filled with a story (and AI-arrange on). Sidebar Fill
+  // reopens the last desk instead of wiping.
+  const [aiFillSeed, setAiFillSeed] = useState({ topic: "", context: "", arrange: false, register: null, templateId: null, clusterDirective: "", clusterLabel: "", keywordTrigger: null, eventId: null, slides: [] });
+
+  const openLastFill = () => {
+    if (lastDeskEvent) {
+      setLastDeskEventId(lastDeskEvent.id);
+      setAiFillSeed(seedFromEvent(lastDeskEvent));
+    }
+    setAiFillOpen(true);
+  };
+
+  const openLastEditorial = () => {
+    if (lastDeskEvent) {
+      setMatrixEventId(lastDeskEvent.id);
+      return;
+    }
+    startNewEditorialPiece();
+  };
   // Scout → Media handoff AND Matrix → Media handoff: whenever a seed lands in
   // the store, open AI Fill pre-filled with it (arrange on). Watching the
   // store's `seed` field (not just running on mount) matters when the operator
@@ -3495,9 +3543,10 @@ export default function MediaTool() {
   useEffect(() => {
     if (!pendingCarouselSeed) return;
     const seed = consumeCarouselSeed();
-    if (seed && seed.topic) {
+    if (seed && (seed.topic || seed.eventId || (Array.isArray(seed.slides) && seed.slides.length))) {
+      if (seed.eventId) setLastDeskEventId(seed.eventId);
       setAiFillSeed({
-        topic: seed.topic,
+        topic: seed.topic || "",
         context: seed.context || "",
         arrange: !!seed.arrange,
         register: seed.register || null,
@@ -3505,6 +3554,14 @@ export default function MediaTool() {
         clusterDirective: seed.clusterDirective || "",
         clusterLabel: seed.clusterLabel || "",
         keywordTrigger: seed.keywordTrigger || null,
+        voiceParams: seed.voiceParams,
+        behavioralTags: seed.behavioralTags,
+        isEvergreen: seed.isEvergreen,
+        slidePlan: seed.slidePlan,
+        rejectedDrafts: seed.rejectedDrafts || [],
+        approvedDrafts: seed.approvedDrafts || [],
+        eventId: seed.eventId || null,
+        slides: Array.isArray(seed.slides) ? seed.slides : [],
       });
       setAiFillOpen(true);
     }
@@ -5290,7 +5347,19 @@ export default function MediaTool() {
 
   // Accept the AI-generated slides and push to carousel. Auto-numbers
   // Spotlights if there are 2+ of them (Feature Drop / listicle behavior).
-  const onAiTemplateAccept = (slides /*, template */) => {
+  const onAiTemplateAccept = (slides, event /*, template */) => {
+    const deskId = event?.id || aiFillSeed.eventId || lastDeskEventId;
+    if (deskId) {
+      setLastDeskEventId(deskId);
+      if (typeof updateEventMatrix === "function") {
+        updateEventMatrix(deskId, { preview_slides: Array.isArray(slides) ? slides : [] });
+      }
+    }
+    setAiFillSeed((prev) => ({
+      ...prev,
+      eventId: deskId || prev.eventId,
+      slides: Array.isArray(slides) ? slides : prev.slides,
+    }));
     const total = slides.length;
     const spotlightCount = slides.filter(s => s.type === "spotlight").length;
     let spotIdx = 0;
@@ -6321,8 +6390,10 @@ export default function MediaTool() {
                 + slot prompts. Pair this with the From Template dropdown
                 (manual fill) — both compose with the same templates. */}
             <button
-              onClick={() => { setAiFillSeed({ topic: "", context: "", arrange: false, register: null, templateId: null }); setAiFillOpen(true); }}
-              title="AI-fill the whole template in one call — type topic + context, get every slide back (Cover + Text + N×Spotlight or N×CTA + Closer)"
+              onClick={openLastFill}
+              title={lastDeskEvent
+                ? "Open the cards from the last desk. Fuel and preview stay as you left them."
+                : "AI-fill the whole template in one call — type topic + context, get every slide back"}
               style={{
                 padding: "6px 10px",
                 background: "rgba(229,188,79,0.18)",
@@ -6343,8 +6414,10 @@ export default function MediaTool() {
                 Matrix modal on a fresh stub; from there, Preview Carousel
                 pipes back into AI Fill Template like any curated event. */}
             <button
-              onClick={startNewEditorialPiece}
-              title="Start a standalone editorial piece — matrix-first, no event required"
+              onClick={openLastEditorial}
+              title={lastDeskEvent
+                ? "Open the last desk — Fuel, Check, Hook, and saved cards stay."
+                : "Start a standalone editorial piece — matrix-first, no event required"}
               style={{
                 padding: "6px 10px",
                 background: "rgba(167,139,250,0.18)",
@@ -6359,7 +6432,27 @@ export default function MediaTool() {
                 fontFamily: "'Syne',sans-serif",
                 whiteSpace: "nowrap",
               }}
-            >◆ New Editorial Piece</button>
+            >{lastDeskEvent ? "◆ Editorial" : "◆ New Editorial Piece"}</button>
+            {lastDeskEvent ? (
+              <button
+                onClick={startNewEditorialPiece}
+                title="Start a blank desk. The last one stays in the store."
+                style={{
+                  padding: "6px 10px",
+                  background: "transparent",
+                  color: "rgba(167,139,250,0.85)",
+                  border: "1px solid rgba(167,139,250,0.35)",
+                  borderRadius: 4,
+                  fontSize: "0.6rem",
+                  fontWeight: 700,
+                  letterSpacing: "1px",
+                  textTransform: "uppercase",
+                  cursor: "pointer",
+                  fontFamily: "'Syne',sans-serif",
+                  whiteSpace: "nowrap",
+                }}
+              >New</button>
+            ) : null}
             {/* 🗞️ News Scout — hunts the web for timely, event-based Black
                 culture/community happenings in NJ that fit the CGE beat and
                 ranks them; "Use in News slot" drops one into the News template. */}
@@ -7693,13 +7786,28 @@ export default function MediaTool() {
         initialBehavioralTags={aiFillSeed.behavioralTags}
         initialIsEvergreen={aiFillSeed.isEvergreen}
         initialSlidePlan={aiFillSeed.slidePlan}
+        initialSlides={Array.isArray(aiFillSeed.slides) ? aiFillSeed.slides : []}
+        initialRejectedDrafts={aiFillSeed.rejectedDrafts || []}
+        initialApprovedDrafts={aiFillSeed.approvedDrafts || []}
+        previewDesk={lastDeskEvent ? previewDeskFromEvent(lastDeskEvent) : null}
+        onPreviewSave={(slides) => {
+          const next = Array.isArray(slides) ? slides : [];
+          setAiFillSeed((prev) => ({ ...prev, slides: next }));
+          const deskId = aiFillSeed.eventId || lastDeskEventId;
+          if (deskId && typeof updateEventMatrix === "function") {
+            updateEventMatrix(deskId, { preview_slides: next });
+          }
+        }}
         onClose={() => setAiFillOpen(false)}
         onAccept={onAiTemplateAccept}
       />
       <CuratorialMatrixModal
         open={!!matrixEventId}
         event={eventsList.find((e) => e.id === matrixEventId) || null}
-        onClose={() => setMatrixEventId(null)}
+        onClose={() => {
+          if (matrixEventId) setLastDeskEventId(matrixEventId);
+          setMatrixEventId(null);
+        }}
         apiKey={geminiKey}
         onAiFillAccept={onAiTemplateAccept}
       />

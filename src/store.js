@@ -51,6 +51,19 @@ export const useCarouselSeedStore = create((set, get) => ({
   },
 }));
 
+// Last desk that built the canvas. Sidebar AI Fill / Editorial reopen
+// this event instead of a blank stub after the operator clicks out
+// to look at visualized slides.
+export const useLastDeskStore = create(
+  persist(
+    (set) => ({
+      eventId: null,
+      setEventId: (id) => set({ eventId: id || null }),
+    }),
+    { name: "cge-last-desk" },
+  ),
+);
+
 const dedupeKey = (e) =>
   [
     e.day || "",
