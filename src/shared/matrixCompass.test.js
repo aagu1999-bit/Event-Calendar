@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isListicleHook, isBrochureCopy, hookEvidenceLines, splitHookPhrases, classifyHookRegister, formatHookPhraseLines, buildHookPrompt, buildLensReframePrompt, buildThesisPrompt, buildCoherencePrompt, normalizeCoherenceResult, formatCoherenceSeedLines, defaultCoherenceUseFor, coherenceInputSignature, describeReframeInputs, lensFreshnessSignature, earnedSlideCount, essaySlideSequence, countUsableAnchors, isHomeworkAnchor } from "./matrixCompass.js";
+import { isListicleHook, isBrochureCopy, hookEvidenceLines, splitHookPhrases, classifyHookRegister, formatHookPhraseLines, buildHookPrompt, buildLensReframePrompt, buildThesisPrompt, buildCoherencePrompt, normalizeCoherenceResult, formatCoherenceSeedLines, defaultCoherenceUseFor, coherenceInputSignature, describeReframeInputs, lensFreshnessSignature, earnedSlideCount, essaySlideSequence, countUsableAnchors, isHomeworkAnchor, isLocateDesk, formatDeskSeeLine } from "./matrixCompass.js";
 import { buildSubjectLock, subjectLockPromptLines, lockLensDirective } from "./subjectLock.js";
 
 test("listicle hooks are the Google-vs-CGE failure", () => {
@@ -412,6 +412,34 @@ test("slide count is earned from this desk, not a silent 3", () => {
   assert.equal(countUsableAnchors(emptyDesk), 0);
   assert.equal(earnedSlideCount(emptyDesk), 5);
   assert.equal(earnedSlideCount(""), 3);
+  assert.equal(isLocateDesk({
+    lens: "newark tech week is coming to newark",
+    pov: "Newark Tech Week is in town Oct. 12–17.",
+    hook: "Newark Tech Week lands Oct. 12–17.",
+  }), true);
+  assert.equal(isLocateDesk({
+    pov: "Black commuters feel a walkable deficit.",
+  }), false);
+  const locateWeek = [
+    "LOCATE DESK: Cover + News + Done. Fuel facts are names to print, not extra chairs.",
+    "POV: Newark Tech Week is in town.",
+    "ANCHORED FACTS (write from these):",
+    "- START — Oct. 12 at Ruth Bader Ginsburg Hall",
+    "- START — Mixer at Consigliere",
+    "- START — Oct. 13 pitch night at Equal Space",
+    "- START — NJIT student talks",
+  ].join("\n");
+  assert.equal(earnedSlideCount(locateWeek), 3);
+  assert.equal(formatDeskSeeLine({
+    lens: "newark tech week is coming to newark",
+    pov: "Newark Tech Week is in town.",
+    context: locateWeek,
+  }), "You'll see Cover + News + Done.");
+  assert.equal(formatDeskSeeLine({
+    plan: { jobs: ["hook", "happened", "todo"] },
+  }), "You'll see 3 named cards.");
+  assert.equal(earnedSlideCount(locateWeek, 5), 5);
+
   const namedJobs = [
     fourProofs,
     "SLIDE_PLAN_KEYS: jobs=hook,happened,todo; cover=announcement",

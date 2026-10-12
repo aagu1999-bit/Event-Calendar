@@ -7,7 +7,7 @@ export const PREVIEW_RECAST_LABELS = {
   cover: "Cover",
   news: "News",
   text: "Text",
-  cta: "CTA",
+  cta: "Done",
 };
 
 function pairFrom(slot) {

@@ -35,6 +35,8 @@ import {
   normalizeCoherenceResult,
   coherenceInputSignature,
   COMPASS_TOPICS,
+  formatDeskSeeLine,
+  isLocateDesk,
 } from "./matrixCompass.js";
 import {
   buildSubjectLock,
@@ -57,7 +59,7 @@ import {
   vetoConversationPrimary,
 } from "./conversationMaps.js";
 import { SlideJobStrip } from "./SlideJobStrip.jsx";
-import { sanitizeSlidePlan, formatSlidePlanSeeLine } from "./slideJobs.js";
+import { sanitizeSlidePlan } from "./slideJobs.js";
 
 // The Curatorial Matrix editor — dedicated modal (not inline in the row)
 // per operator preference: matrix curation is deep editorial work that
@@ -397,6 +399,25 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
     [local.cluster, local.editorial_lens, liveLens]
   );
   const liveCheckLens = resolvedLensForCheck.combined || resolvedLensForCheck.base || "";
+  const deskSeeLine = useMemo(() => formatDeskSeeLine({
+    hook: local.hook_a_side,
+    pov: local.editorial_pov,
+    lens: liveCheckLens || local.editorial_lens,
+    context: [
+      isLocateDesk({
+        hook: local.hook_a_side,
+        pov: local.editorial_pov,
+        lens: liveCheckLens || local.editorial_lens,
+      }) ? "LOCATE DESK:" : "",
+      ...(Array.isArray(local.data_points) ? local.data_points : []),
+    ].filter(Boolean).join("\n"),
+    plan: local.slide_plan,
+  }), [local.hook_a_side, local.editorial_pov, liveCheckLens, local.editorial_lens, local.data_points, local.slide_plan]);
+  const locateDesk = useMemo(() => isLocateDesk({
+    hook: local.hook_a_side,
+    pov: local.editorial_pov,
+    lens: liveCheckLens || local.editorial_lens,
+  }), [local.hook_a_side, local.editorial_pov, liveCheckLens, local.editorial_lens]);
   const coherenceIsStale = useMemo(() => {
     if (!coherenceResult || !coherenceCheckedAt) return false;
     const sig = coherenceInputSignature({
@@ -1229,7 +1250,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
         onClick={(e) => e.stopPropagation()}
         style={{
           width: "100%",
-          maxWidth: 640,
+          maxWidth: 880,
           background: "#17171a",
           border: `1px solid ${whisper}`,
           borderRadius: 14,
@@ -1314,94 +1335,6 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
         {/* Body */}
         <div style={{ padding: 22, display: "flex", flexDirection: "column", gap: 22 }}>
 
-          {/* 🧭 Topic Compass — one-tap seed topics that fill cluster + corridor
-              + hook + emotion + demographics from the operator's own beat board.
-              Collapsed by default to keep the modal short. */}
-          <div style={{
-            border: `1px solid ${compassOpen ? orbit : whisper}`,
-            borderRadius: 8,
-            background: compassOpen ? "rgba(167,139,250,0.06)" : "transparent",
-            overflow: "hidden",
-          }}>
-            <button
-              type="button"
-              onClick={() => setCompassOpen((v) => !v)}
-              aria-expanded={compassOpen}
-              style={{
-                width: "100%",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                background: "transparent",
-                border: "none",
-                color: compassOpen ? orbit : muted,
-                cursor: "pointer",
-                padding: "10px 14px",
-                fontFamily: "inherit",
-                fontSize: "0.66rem",
-                letterSpacing: "0.14em",
-                textTransform: "uppercase",
-                fontWeight: 700,
-              }}
-            >
-              <span>🧭 Topic Compass · {COMPASS_TOPICS.length} seed angles</span>
-              <span style={{ fontSize: "0.7rem" }}>{compassOpen ? "▾" : "▸"}</span>
-            </button>
-            {compassOpen && (
-              <div style={{ padding: "0 14px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
-                <div style={{ fontSize: "0.66rem", color: faint, lineHeight: 1.5 }}>
-                  Click any seed to auto-fill cluster, corridor, hook A-side, emotion, and demographics.
-                  Anything you've already typed is preserved.
-                </div>
-                <div style={{ display: "grid", gap: 6 }}>
-                  {COMPASS_TOPICS.map((t) => (
-                    <button
-                      key={t.id}
-                      type="button"
-                      onClick={() => applyCompassTopic(t)}
-                      title={t.suggestedHook}
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "auto 1fr auto",
-                        alignItems: "center",
-                        gap: 10,
-                        background: "#0e0e10",
-                        border: `1px solid ${whisper}`,
-                        borderRadius: 6,
-                        padding: "8px 12px",
-                        color: cream,
-                        cursor: "pointer",
-                        fontFamily: "inherit",
-                        textAlign: "left",
-                      }}
-                    >
-                      <span style={{
-                        fontSize: "0.56rem",
-                        color: faint,
-                        letterSpacing: "0.1em",
-                        fontVariantNumeric: "tabular-nums",
-                      }}>{t.id}</span>
-                      <span style={{ display: "flex", flexDirection: "column", gap: 3, minWidth: 0 }}>
-                        <span style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: "0.82rem" }}>{t.title}</span>
-                        <span style={{ fontSize: "0.68rem", color: muted, lineHeight: 1.4, whiteSpace: "normal", overflow: "hidden", textOverflow: "ellipsis" }}>{t.suggestedHook}</span>
-                        <span style={{ fontSize: "0.58rem", color: faint, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-                          {t.cluster} · {t.corridor}
-                        </span>
-                      </span>
-                      <span style={{
-                        fontSize: "0.6rem",
-                        color: orbit,
-                        letterSpacing: "0.12em",
-                        textTransform: "uppercase",
-                        fontWeight: 700,
-                      }}>Fill →</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-
           {isFeature && (
             <div style={{
               padding: "10px 14px",
@@ -1415,62 +1348,108 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
               gap: 10,
             }}>
               <span style={{ color: feature, fontWeight: 800 }}>◇</span>
-              <span><strong>Feature</strong> · cultural content, not a calendar drop. Preview Carousel seeds the Content register (15/85 observational, archive closer). Date and venue are optional.</span>
+              <span><strong>Feature</strong> · cultural content, not a calendar drop. Generate seeds the Content register. Date and venue are optional.</span>
             </div>
           )}
 
-          {/* ═════════════════════════════
-              DATA FLOW MAP
-              ═════════════════════════════
-              The matrix looks top-down in the UI, but the actual
-              data flow is OPT-IN RE-SYNTHESIS — each synth button
-              reads a specific set of upstream fields and writes ONE
-              downstream field. Nothing auto-cascades. Downstream
-              fields go stale silently when upstream changes.
-              This panel names the dependency graph explicitly so
-              the operator's mental model matches the actual code. */}
-          <details style={{
-            marginBottom: 12,
-            border: `1px dashed ${whisper}`,
-            borderRadius: 6,
-            background: "rgba(99,179,237,0.02)",
-          }}>
-            <summary style={{
-              padding: "8px 12px",
-              cursor: "pointer",
-              fontSize: "0.6rem",
-              letterSpacing: "0.12em",
-              textTransform: "uppercase",
-              fontWeight: 700,
-              color: "#63B3ED",
-              listStyle: "none",
-            }}>
-              ▸ Data flow · what reads from what (open to see the dependency graph)
-            </summary>
-            <div style={{ padding: "6px 14px 12px", fontSize: "0.66rem", color: "rgba(245,240,232,0.75)", lineHeight: 1.7 }}>
-              <div style={{ marginBottom: 6, color: faint, fontStyle: "italic" }}>
-                Nothing auto-cascades — every downstream field is written by a manual synth button. When you change an upstream field after synthesizing a downstream, the downstream goes stale and shows a "⚠ STALE" chip below it.
-              </div>
-              <div style={{ marginTop: 8, fontFamily: "'JetBrains Mono', monospace", fontSize: "0.62rem", lineHeight: 1.75 }}>
-                <div><b style={{ color: cream }}>Pills</b> (cluster desk · facets · corridor · locales · join · emotion · demographic) + typed topic  <span style={{ color: faint }}>→ (click ✨ Reframe)</span>  <b style={{ color: "#A78BFA" }}>LENS</b></div>
-                <div><b style={{ color: cream }}>LENS</b>  <span style={{ color: faint }}>→ (click ✨ Draft Thesis)</span>  <b style={{ color: "#A78BFA" }}>editorial_pov</b></div>
-                <div><b style={{ color: cream }}>LENS</b> · POV · Fuel names  <span style={{ color: faint }}>→ (click ✨ Draft Hook)</span>  <b style={{ color: "#A78BFA" }}>hook_a_side</b></div>
-                <div><b style={{ color: cream }}>LENS</b> · POV · Hook · locales as geography  <span style={{ color: faint }}>→ (click 🔮 Fuel Research)</span>  <b style={{ color: "#A78BFA" }}>data_points (anchors)</b>  <span style={{ color: faint }}>→ (auto) Check</span></div>
-                <div><b style={{ color: cream }}>Distance</b> · Cadence · Stance  <span style={{ color: faint }}>→ (click 🎙 New Preview)</span>  <b style={{ color: "#A78BFA" }}>voice preview (not stored)</b></div>
-                <div><b style={{ color: cream }}>Hook</b> · POV · Anchors · <b style={{ color: "#A78BFA" }}>LENS</b>  <span style={{ color: faint }}>→ (auto after Fuel, or click 🔎 Check)</span>  <b style={{ color: "#A78BFA" }}>claim map · slide advice</b>  <span style={{ color: faint }}>→ conversation rank</span></div>
-              </div>
-              <div style={{ marginTop: 8, fontSize: "0.6rem", color: "#63B3ED", fontWeight: 700, letterSpacing: "0.06em" }}>
-                Pills feed the LENS (Reframe). Everything after that reads the LENS — not an unclicked cluster, corridor, or emotion. Empty chips do NOT dump the catalog. Select all or pick the topics this piece spends.
-              </div>
-              <div style={{ marginTop: 10, color: faint, fontStyle: "italic" }}>
-                Values you TYPE (Hook, POV, LENS narrowing, anchors) never trigger synth automatically — the button is always the trigger, except Check, which also re-runs after a successful Fuel land. That's by design so a stray edit doesn't overwrite a carefully-crafted downstream field. Check reads the LENS strictly — unclicked cluster catalog is not the LENS.
+          <div style={{ marginTop: 4 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 4 }}>
+              <label style={{ ...labelStyle, marginBottom: 0 }}>
+                Narrowing
+              </label>
+              <div style={{ display: "flex", gap: 6 }}>
+                {(() => {
+                  const hasTopic = !!String(local.editorial_lens || "").trim();
+                  const hasPills = !!(
+                    local.cluster || local.corridor || selectedFacets.length || selectedLocales.length
+                    || selectedJoin || local.target_emotion || selectedDemographics.length
+                  );
+                  const disabled = reframingLens || (!hasTopic && !hasPills);
+                  return (
+                    <button
+                      type="button"
+                      onClick={reframeLens}
+                      disabled={disabled}
+                      title={disabled && !reframingLens
+                        ? "Type a topic or pick a chip first — cluster is optional."
+                        : "Stitch the topic in this box with the chips you already picked. Cluster is optional. Result replaces this box."}
+                      style={{
+                        background: disabled ? "transparent" : "rgba(167,139,250,0.14)",
+                        border: `1px solid ${disabled ? whisper : orbit}`,
+                        color: disabled ? faint : orbit,
+                        borderRadius: 4,
+                        padding: "3px 10px",
+                        fontFamily: "inherit",
+                        fontSize: "0.58rem",
+                        letterSpacing: "0.1em",
+                        textTransform: "uppercase",
+                        fontWeight: 700,
+                        cursor: disabled ? "not-allowed" : "pointer",
+                      }}
+                    >
+                      {reframingLens ? "…Reframing" : hasTopic ? "✨ Rereframe" : "✨ Reframe LENS"}
+                    </button>
+                  );
+                })()}
+                {String(local.editorial_lens || "").trim() ? (
+                  <button
+                    type="button"
+                    onClick={() => applyPatch({ editorial_lens: undefined })}
+                    title="Clear the narrowing — if facets are locked, that LENS still reaches downstream; otherwise the piece has no syllabus dump."
+                    style={{
+                      background: "transparent",
+                      border: `1px solid ${whisper}`,
+                      color: muted,
+                      borderRadius: 4,
+                      padding: "3px 10px",
+                      fontFamily: "inherit",
+                      fontSize: "0.58rem",
+                      letterSpacing: "0.1em",
+                      textTransform: "uppercase",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                  >↺ Reset</button>
+                ) : null}
               </div>
             </div>
-          </details>
+            <textarea
+              style={{ ...textareaStyle, minHeight: 56, fontSize: "0.78rem" }}
+              value={local.editorial_lens || ""}
+              onChange={(e) => applyPatch({ editorial_lens: e.target.value })}
+              placeholder="This is the piece. Type the topic, then Reframe if you want the chips stitched in."
+              maxLength={800}
+            />
+            <div style={hintStyle}>This is the piece.</div>
+            {lensReframeError ? (
+              <div style={{
+                fontSize: "0.66rem",
+                color: warn,
+                marginTop: 4,
+                letterSpacing: "0.02em",
+                lineHeight: 1.5,
+              }}>
+                ⚠️ {lensReframeError}
+              </div>
+            ) : null}
+            {renderStalenessChip("LENS narrowing", lensSnapshot, lensStale, describeReframeInputs(lensSnapshot))}
+            {String(local.editorial_lens || "").trim() && (
+              <div style={{
+                fontSize: "0.6rem",
+                marginTop: 4,
+                color: "#63B3ED",
+                letterSpacing: "0.03em",
+                lineHeight: 1.5,
+              }}>
+                ◆ This is the LENS downstream reads (with any locked facet labels). Draft Thesis and Draft Hook read every sentence here — drama, utility, or insight — then write one lead, not a mash. Also feeds Fuel, Check, and the writer.
+              </div>
+            )}
+          </div>
 
+          <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
           {/* Tier */}
           <div>
-            <div style={groupLabelStyle}><span style={{ width: 3, height: 12, background: orbit, borderRadius: 2, display: "inline-block" }} />Event Tier</div>
+            <div style={groupLabelStyle}><span style={{ width: 3, height: 12, background: orbit, borderRadius: 2, display: "inline-block" }} />Tier</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
               {EVENT_TIER_ORDER.map((key) => {
                 const t = EVENT_TIERS[key];
@@ -1503,7 +1482,6 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
               <div style={{ fontSize: "0.68rem", color: warn, marginTop: 6 }}>⚠ {errorsByField.event_tier}</div>
             )}
           </div>
-
           {/* Corridor + Cluster */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
             <div>
@@ -1640,100 +1618,6 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
               )}
             </div>
           </div>
-
-          <div style={{ marginTop: 4 }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 4 }}>
-              <label style={{ ...labelStyle, marginBottom: 0 }}>
-                Narrowing · optional
-              </label>
-              <div style={{ display: "flex", gap: 6 }}>
-                {(() => {
-                  const hasTopic = !!String(local.editorial_lens || "").trim();
-                  const hasPills = !!(
-                    local.cluster || local.corridor || selectedFacets.length || selectedLocales.length
-                    || selectedJoin || local.target_emotion || selectedDemographics.length
-                  );
-                  const disabled = reframingLens || (!hasTopic && !hasPills);
-                  return (
-                    <button
-                      type="button"
-                      onClick={reframeLens}
-                      disabled={disabled}
-                      title={disabled && !reframingLens
-                        ? "Type a topic or pick a chip first — cluster is optional."
-                        : "Stitch the topic in this box with the chips you already picked. Cluster is optional. Result replaces this box."}
-                      style={{
-                        background: disabled ? "transparent" : "rgba(167,139,250,0.14)",
-                        border: `1px solid ${disabled ? whisper : orbit}`,
-                        color: disabled ? faint : orbit,
-                        borderRadius: 4,
-                        padding: "3px 10px",
-                        fontFamily: "inherit",
-                        fontSize: "0.58rem",
-                        letterSpacing: "0.1em",
-                        textTransform: "uppercase",
-                        fontWeight: 700,
-                        cursor: disabled ? "not-allowed" : "pointer",
-                      }}
-                    >
-                      {reframingLens ? "…Reframing" : hasTopic ? "✨ Rereframe" : "✨ Reframe LENS"}
-                    </button>
-                  );
-                })()}
-                {String(local.editorial_lens || "").trim() ? (
-                  <button
-                    type="button"
-                    onClick={() => applyPatch({ editorial_lens: undefined })}
-                    title="Clear the narrowing — if facets are locked, that LENS still reaches downstream; otherwise the piece has no syllabus dump."
-                    style={{
-                      background: "transparent",
-                      border: `1px solid ${whisper}`,
-                      color: muted,
-                      borderRadius: 4,
-                      padding: "3px 10px",
-                      fontFamily: "inherit",
-                      fontSize: "0.58rem",
-                      letterSpacing: "0.1em",
-                      textTransform: "uppercase",
-                      fontWeight: 700,
-                      cursor: "pointer",
-                    }}
-                  >↺ Reset</button>
-                ) : null}
-              </div>
-            </div>
-            <textarea
-              style={{ ...textareaStyle, minHeight: 56, fontSize: "0.78rem" }}
-              value={local.editorial_lens || ""}
-              onChange={(e) => applyPatch({ editorial_lens: e.target.value })}
-              placeholder="Type a topic, then ✨ Reframe — stitches to the chips you picked. Cluster is optional. Empty = reframe from the chips alone."
-              maxLength={800}
-            />
-            {lensReframeError ? (
-              <div style={{
-                fontSize: "0.66rem",
-                color: warn,
-                marginTop: 4,
-                letterSpacing: "0.02em",
-                lineHeight: 1.5,
-              }}>
-                ⚠️ {lensReframeError}
-              </div>
-            ) : null}
-            {renderStalenessChip("LENS narrowing", lensSnapshot, lensStale, describeReframeInputs(lensSnapshot))}
-            {String(local.editorial_lens || "").trim() && (
-              <div style={{
-                fontSize: "0.6rem",
-                marginTop: 4,
-                color: "#63B3ED",
-                letterSpacing: "0.03em",
-                lineHeight: 1.5,
-              }}>
-                ◆ This is the LENS downstream reads (with any locked facet labels). Draft Thesis and Draft Hook read every sentence here — drama, utility, or insight — then write one lead, not a mash. Also feeds Fuel, Check, and the writer.
-              </div>
-            )}
-          </div>
-
           {resolveClusterKey(local.cluster) ? (
             <details style={{
               marginTop: 4,
@@ -1766,11 +1650,10 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
               />
             </details>
           ) : null}
-
           {/* Emotion + Demographic */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
             <div>
-              <label style={labelStyle}>Target Emotion</label>
+              <label style={labelStyle}>Emotion</label>
               <select
                 style={selectStyle}
                 value={local.target_emotion || ""}
@@ -1782,7 +1665,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
               <div style={hintStyle}>Feeds the register block in the carousel prompt</div>
             </div>
             <div>
-              <label style={labelStyle}>Target Demographic</label>
+              <label style={labelStyle}>Who</label>
               {/* Selected chips row */}
               {selectedDemographics.length > 0 && (
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 8 }}>
@@ -1897,38 +1780,37 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
               </div>
             </div>
           </div>
+          </div>
 
-          {/* Voice Parameters — Distance × Cadence × Stance
-              (see voiceParams.js). Three orthogonal knobs the writer
-              reads to shape how the piece SOUNDS within the brand
-              voice. All three are optional; unset falls back to the
-              mode's register block alone. */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+          {/* Editorial POV */}
           <div>
             <div style={{ ...groupLabelStyle, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
               <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <span style={{ width: 3, height: 12, background: orbit, borderRadius: 2, display: "inline-block" }} />
-                Voice Parameters · How this piece sounds
+                POV
               </span>
-              {/* Voice Preview — renders one sample paragraph in the
-                  current combo. Requires Distance AND Cadence. Same
-                  disabled-with-tooltip pattern as Draft Thesis /
-                  Draft Hook. */}
+              {/* Draft Thesis — sends the four matrix dimensions to
+                  Gemini Flash-Lite for a real editorial synthesis.
+                  Disabled without a cluster (no LENS = no anchor).
+                  Shown always so the operator can regenerate when
+                  the current thesis feels forced or off-tone. */}
               {(() => {
-                const canPreview = !!local.voice_distance && !!local.voice_cadence;
-                const disabled = previewingVoice || !canPreview;
-                const label = previewingVoice
-                  ? "…Previewing"
-                  : voicePreviewText
-                    ? "🎤 New Preview"
-                    : "🎤 Voice Preview";
+                const hasLens = !!(liveLens || String(local.editorial_lens || "").trim());
+                const disabled = synthesizing || !hasLens;
+                const label = synthesizing
+                  ? "…Synthesizing"
+                  : String(local.editorial_pov || "").trim()
+                    ? "✨ Redraft Thesis"
+                    : "✨ Draft Thesis";
                 return (
                   <button
                     type="button"
-                    onClick={runVoicePreview}
+                    onClick={draftThesis}
                     disabled={disabled}
-                    title={canPreview
-                      ? "Hear one sample paragraph in the current Distance × Cadence × Stance combination before generating a full carousel."
-                      : "Pick a Distance AND a Cadence first — those are what the preview demonstrates."}
+                    title={hasLens
+                      ? "Synthesize a thesis from the LENS on screen (locked facets and/or typed Narrowing) plus corridor, emotion, demographic"
+                      : "Type a topic in Narrowing or pick facets first — that is the LENS."}
                     style={{
                       background: disabled ? "transparent" : "rgba(167,139,250,0.14)",
                       border: `1px solid ${disabled ? whisper : orbit}`,
@@ -1948,121 +1830,33 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                 );
               })()}
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
-              <div>
-                <label style={labelStyle}>Distance</label>
-                <select
-                  style={selectStyle}
-                  value={local.voice_distance || ""}
-                  onChange={(e) => applyPatch({ voice_distance: e.target.value || undefined })}
-                >
-                  <option value="">— pick distance —</option>
-                  {DISTANCE_OPTIONS.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
-                </select>
-                <div style={hintStyle}>How close to the reader</div>
-              </div>
-              <div>
-                <label style={labelStyle}>Cadence</label>
-                <select
-                  style={selectStyle}
-                  value={local.voice_cadence || ""}
-                  onChange={(e) => applyPatch({ voice_cadence: e.target.value || undefined })}
-                >
-                  <option value="">— pick cadence —</option>
-                  {CADENCE_OPTIONS.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
-                </select>
-                <div style={hintStyle}>Sentence shape / rhythm</div>
-              </div>
-              <div>
-                <label style={labelStyle}>Stance · optional</label>
-                <select
-                  style={selectStyle}
-                  value={local.voice_stance || ""}
-                  onChange={(e) => applyPatch({ voice_stance: e.target.value || undefined })}
-                >
-                  <option value="">— none —</option>
-                  {STANCE_OPTIONS.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
-                </select>
-                <div style={hintStyle}>Attitude toward the subject</div>
-              </div>
-            </div>
-            {/* Emotion × Stance compatibility warning — soft yellow
-                notice when the picked emotion and stance fight each
-                other (see EMOTION_STANCE_TENSIONS in voiceParams.js).
-                Doesn't block generation; just calibrates expectation. */}
-            {(() => {
-              const compat = getVoiceCompatWarning({ emotion: local.target_emotion, stance: local.voice_stance });
-              if (compat.level === "natural") return null;
-              const color = compat.level === "conflict" ? warn : anchor;
-              const bgTint = compat.level === "conflict" ? "rgba(251,191,36,0.08)" : "rgba(229,188,79,0.06)";
-              return (
-                <div style={{
-                  marginTop: 10,
-                  padding: "8px 12px",
-                  background: bgTint,
-                  border: `1px solid ${color}42`,
-                  borderRadius: 4,
-                  display: "flex",
-                  gap: 8,
-                  alignItems: "flex-start",
-                }}>
-                  <span style={{ fontSize: "0.9rem", lineHeight: 1 }}>⚠️</span>
-                  <div style={{ fontSize: "0.68rem", color: "rgba(245,240,232,0.82)", lineHeight: 1.5 }}>
-                    <b style={{ color, letterSpacing: "0.06em", textTransform: "uppercase", fontSize: "0.6rem", fontWeight: 700 }}>
-                      {compat.level === "conflict" ? "Voice conflict" : "Voice tension"}
-                    </b>
-                    {" "}— {compat.note}
-                  </div>
-                </div>
-              );
-            })()}
-            {/* Voice preview panel — renders the sample paragraph or
-                an error. Whitespace-preserving so Stacked cadence
-                previews (short stacked lines) render as intended. */}
-            {voicePreviewError ? (
+            <textarea
+              style={textareaStyle}
+              value={local.editorial_pov || ""}
+              onChange={(e) => applyPatch({ editorial_pov: e.target.value })}
+              placeholder="Why does this space / event matter? Draft Thesis reads the LENS only — cluster, corridor, and emotion have to be Reframed into that LENS first."
+              maxLength={LIMITS.POV_MAX + 100}
+            />
+            <CharCounter current={(local.editorial_pov || "").length} max={LIMITS.POV_MAX} error={errorsByField.editorial_pov} />
+            {synthError ? (
               <div style={{
                 fontSize: "0.66rem",
                 color: warn,
-                marginTop: 10,
+                marginTop: 4,
                 letterSpacing: "0.02em",
                 lineHeight: 1.5,
               }}>
-                ⚠️ {voicePreviewError}
+                ⚠️ {synthError}
               </div>
             ) : null}
-            {voicePreviewText ? (
-              <div style={{
-                marginTop: 10,
-                padding: "10px 12px",
-                background: "rgba(167,139,250,0.06)",
-                border: `1px solid rgba(167,139,250,0.28)`,
-                borderRadius: 4,
-                color: cream,
-                fontSize: "0.78rem",
-                lineHeight: 1.55,
-                whiteSpace: "pre-wrap",
-              }}>
-                <div style={{
-                  fontSize: "0.58rem",
-                  letterSpacing: "0.12em",
-                  textTransform: "uppercase",
-                  color: orbit,
-                  fontWeight: 700,
-                  marginBottom: 6,
-                }}>
-                  ◆ Preview{voicePreviewFor ? ` · ${voicePreviewFor}` : ""}
-                </div>
-                {voicePreviewText}
-              </div>
-            ) : null}
+            {renderStalenessChip("Editorial POV", thesisSnapshot, thesisStale, "LENS")}
           </div>
-
           {/* Hook A */}
           <div>
             <div style={{ ...groupLabelStyle, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
               <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <span style={{ width: 3, height: 12, background: anchor, borderRadius: 2, display: "inline-block" }} />
-                Hook A-side · Primary Carousel Opener
+                Hook
               </span>
               {/* Draft Hook — fires Gemini Flash-Lite to compress the
                   current POV plus Fuel START lines into a cover that
@@ -2144,89 +1938,9 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                 {hookClash.level === "conflict" ? "⚠ " : "◇ "}Hook ↔ Voice {hookClash.level}: {hookClash.note}
               </div>
             ) : null}
-            {renderStalenessChip("Hook A-side", hookSnapshot, hookStale, "LENS · POV")}
+            <div style={hintStyle}>Reads every Narrowing sentence, then writes one cover.</div>
+            {renderStalenessChip("Hook", hookSnapshot, hookStale, "LENS · POV")}
           </div>
-
-          {/* Hook B */}
-          <div>
-            <div style={groupLabelStyle}><span style={{ width: 3, height: 12, background: feature, borderRadius: 2, display: "inline-block" }} />Hook B-side · Alt for Substack A/B</div>
-            <textarea
-              style={textareaStyle}
-              value={local.hook_b_side || ""}
-              onChange={(e) => applyPatch({ hook_b_side: e.target.value })}
-              placeholder="Alternate angle for the deeper piece — usually more editorial than the IG opener."
-              maxLength={LIMITS.HOOK_MAX + 50}
-            />
-            <CharCounter current={(local.hook_b_side || "").length} max={LIMITS.HOOK_MAX} error={errorsByField.hook_b_side} />
-          </div>
-
-          {/* Editorial POV */}
-          <div>
-            <div style={{ ...groupLabelStyle, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-              <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ width: 3, height: 12, background: orbit, borderRadius: 2, display: "inline-block" }} />
-                Editorial POV · 1–2 sentence thesis
-              </span>
-              {/* Draft Thesis — sends the four matrix dimensions to
-                  Gemini Flash-Lite for a real editorial synthesis.
-                  Disabled without a cluster (no LENS = no anchor).
-                  Shown always so the operator can regenerate when
-                  the current thesis feels forced or off-tone. */}
-              {(() => {
-                const hasLens = !!(liveLens || String(local.editorial_lens || "").trim());
-                const disabled = synthesizing || !hasLens;
-                const label = synthesizing
-                  ? "…Synthesizing"
-                  : String(local.editorial_pov || "").trim()
-                    ? "✨ Redraft Thesis"
-                    : "✨ Draft Thesis";
-                return (
-                  <button
-                    type="button"
-                    onClick={draftThesis}
-                    disabled={disabled}
-                    title={hasLens
-                      ? "Synthesize a thesis from the LENS on screen (locked facets and/or typed Narrowing) plus corridor, emotion, demographic"
-                      : "Type a topic in Narrowing or pick facets first — that is the LENS."}
-                    style={{
-                      background: disabled ? "transparent" : "rgba(167,139,250,0.14)",
-                      border: `1px solid ${disabled ? whisper : orbit}`,
-                      color: disabled ? faint : orbit,
-                      borderRadius: 4,
-                      padding: "3px 10px",
-                      fontFamily: "inherit",
-                      fontSize: "0.58rem",
-                      letterSpacing: "0.1em",
-                      textTransform: "uppercase",
-                      fontWeight: 700,
-                      cursor: disabled ? "not-allowed" : "pointer",
-                    }}
-                  >
-                    {label}
-                  </button>
-                );
-              })()}
-            </div>
-            <textarea
-              style={textareaStyle}
-              value={local.editorial_pov || ""}
-              onChange={(e) => applyPatch({ editorial_pov: e.target.value })}
-              placeholder="Why does this space / event matter? Draft Thesis reads the LENS only — cluster, corridor, and emotion have to be Reframed into that LENS first."
-              maxLength={LIMITS.POV_MAX + 100}
-            />
-            <CharCounter current={(local.editorial_pov || "").length} max={LIMITS.POV_MAX} error={errorsByField.editorial_pov} />
-            {synthError ? (
-              <div style={{
-                fontSize: "0.66rem",
-                color: warn,
-                marginTop: 4,
-                letterSpacing: "0.02em",
-                lineHeight: 1.5,
-              }}>
-                ⚠️ {synthError}
-              </div>
-            ) : null}
-            {renderStalenessChip("Editorial POV", thesisSnapshot, thesisStale, "LENS")}
           </div>
 
           {/* Research Anchors (internal field: data_points) */}
@@ -2234,7 +1948,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
             <div style={{ ...groupLabelStyle, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
               <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <span style={{ width: 3, height: 12, background: orbit, borderRadius: 2, display: "inline-block" }} />
-                Research Anchors · NJ brief + starting points
+                Fuel
               </span>
               <button
                 type="button"
@@ -2258,7 +1972,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                   cursor: researching ? "not-allowed" : "pointer",
                 }}
               >
-                {researching ? "🔮 Researching…" : "🔮 Fuel Research"}
+                {researching ? "…Fueling" : "Fuel"}
               </button>
               {researchPhase === "gap-scout" ? (
                 <button
@@ -2573,107 +2287,6 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
             )}
           </div>
 
-          {/* Automation Wiring */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-            <div>
-              <label style={labelStyle}>Keyword Trigger</label>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#0e0e10", border: `1px solid ${whisper}`, borderRadius: 6, padding: "8px 12px" }}>
-                <span style={{ fontSize: "0.7rem", color: faint, fontFamily: "'Syne', sans-serif", fontWeight: 700, letterSpacing: "0.05em" }}>DM</span>
-                <input
-                  type="text"
-                  value={local.keyword_trigger || ""}
-                  onChange={(e) => applyPatch({ keyword_trigger: e.target.value.toUpperCase() })}
-                  placeholder="AFROFEVER"
-                  maxLength={LIMITS.TRIGGER_MAX}
-                  style={{
-                    background: "transparent",
-                    border: "none",
-                    outline: "none",
-                    color: cream,
-                    fontFamily: "'Syne', sans-serif",
-                    fontWeight: 800,
-                    fontSize: "0.85rem",
-                    letterSpacing: "0.12em",
-                    textTransform: "uppercase",
-                    flex: 1,
-                  }}
-                />
-              </div>
-              <div style={hintStyle}>DM this word → ManyChat sends event details</div>
-              {triggerWarning && (
-                <div style={{
-                  fontSize: "0.66rem",
-                  color: warn,
-                  marginTop: 6,
-                  lineHeight: 1.5,
-                  letterSpacing: "0.01em",
-                }}>
-                  ⚠ {triggerWarning}
-                </div>
-              )}
-            </div>
-
-            <div>
-              <label style={labelStyle}>Pipeline Status</label>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
-                {PIPELINE_STATUS_ORDER.map((key) => {
-                  const s = PIPELINE_STATUS[key];
-                  const on = status === key;
-                  const disabled = key === PIPELINE_STATUS.READY.key && !readyValidation.ok && !on;
-                  const color =
-                    key === PIPELINE_STATUS.DRAFT.key ? warn :
-                    key === PIPELINE_STATUS.READY.key ? ready :
-                    cream;
-                  const bg =
-                    key === PIPELINE_STATUS.DRAFT.key ? warnBg :
-                    key === PIPELINE_STATUS.READY.key ? readyBg :
-                    "rgba(245,240,232,0.08)";
-                  return (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() => setStatus(key)}
-                      disabled={disabled}
-                      title={disabled ? "Fill required fields first" : ""}
-                      style={{
-                        padding: "10px 8px",
-                        borderRadius: 6,
-                        border: `1px solid ${on ? color : whisper}`,
-                        background: on ? bg : "transparent",
-                        color: on ? color : (disabled ? "rgba(245,240,232,0.28)" : muted),
-                        cursor: disabled ? "not-allowed" : "pointer",
-                        fontFamily: "inherit",
-                        fontSize: "0.66rem",
-                        letterSpacing: "0.1em",
-                        textTransform: "uppercase",
-                        fontWeight: 700,
-                        opacity: disabled ? 0.5 : 1,
-                      }}
-                    >{s.label}</button>
-                  );
-                })}
-              </div>
-              <div style={hintStyle}>
-                {readyValidation.ok
-                  ? "Ready to ship — gates JSON export to n8n / Python"
-                  : `Fill ${readyValidation.errors.length} field${readyValidation.errors.length === 1 ? "" : "s"} to unlock Ready`}
-              </div>
-            </div>
-          </div>
-
-          {syncError && (
-            <div style={{
-              padding: "10px 12px",
-              background: warnBg,
-              border: `1px solid rgba(251,191,36,0.32)`,
-              borderRadius: 6,
-              fontSize: "0.72rem",
-              color: warn,
-            }}>
-              ⚠ Sync error: {syncError}. Changes are still in memory — retry by editing any field.
-            </div>
-          )}
-
           {/* ═════════════════════════════
               ARGUMENT COHERENCE CHECK
               ═════════════════════════════
@@ -2682,16 +2295,22 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
               we burn a carousel generation. Auto-runs after Fuel;
               result is a claim→source map + slide-count advice, not
               a generation gate. */}
-          <div style={{ marginTop: 18, borderTop: `1px dashed ${hair}`, paddingTop: 14 }}>
+          <div style={{
+            marginTop: 4,
+            padding: "12px 14px",
+            background: "rgba(99,179,237,0.08)",
+            border: `1px solid rgba(99,179,237,0.35)`,
+            borderRadius: 8,
+          }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 8 }}>
-              <div style={{ fontSize: "0.66rem", color: cream, letterSpacing: "0.06em", fontWeight: 700, textTransform: "uppercase" }}>
-                🔎 Argument coherence check
+              <div style={{ fontSize: "0.66rem", color: "#63B3ED", letterSpacing: "0.12em", fontWeight: 700, textTransform: "uppercase" }}>
+                Check
               </div>
               <button
                 type="button"
                 onClick={() => runCoherenceCheck()}
                 disabled={checkingCoherence || !String(local.hook_a_side || "").trim() || !String(local.editorial_pov || "").trim() || bullets.filter(Boolean).length < 2}
-                title="Adversarial pre-gen check: can these anchors support this argument on the LENS? Auto-runs after Fuel; Re-check any time."
+                title="Can these Fuel facts support this Hook and POV? Auto-runs after Fuel; Re-check any time."
                 style={{
                   background: checkingCoherence ? "rgba(99,179,237,0.06)" : "rgba(99,179,237,0.14)",
                   color: checkingCoherence ? faint : "#63B3ED",
@@ -2707,24 +2326,23 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                   opacity: (!String(local.hook_a_side || "").trim() || !String(local.editorial_pov || "").trim() || bullets.filter(Boolean).length < 2) ? 0.4 : 1,
                 }}
               >
-                {checkingCoherence ? "…Checking" : coherenceResult ? "↻ Re-check" : "Check argument"}
+                {checkingCoherence ? "…Checking" : coherenceResult ? "↻ Re-check" : "Check"}
               </button>
             </div>
-            <div style={{ fontSize: "0.62rem", color: faint, marginBottom: 8, lineHeight: 1.5 }}>
-              Reads Hook + POV + Anchors against the LENS. Maps each claim to an anchor or flags it unverified. After Fuel lands, this runs itself. Slide-count advice is what the desk earned — Cover + News is the starting pair, not a 10-card stretch.
-            </div>
             <div style={{
-              marginBottom: 10,
-              padding: "8px 10px",
-              background: sanitizeSlidePlan(local.slide_plan).jobs.length ? "rgba(99,179,237,0.10)" : "rgba(10,10,12,0.35)",
-              border: `1px solid ${sanitizeSlidePlan(local.slide_plan).jobs.length ? "rgba(99,179,237,0.35)" : whisper}`,
-              borderRadius: 4,
-              fontSize: "0.68rem",
+              marginBottom: locateDesk && !sanitizeSlidePlan(local.slide_plan).jobs.length ? 6 : 0,
+              fontSize: "0.88rem",
               color: cream,
               lineHeight: 1.5,
+              fontWeight: 600,
             }}>
-              {formatSlidePlanSeeLine(local.slide_plan)}
+              {deskSeeLine}
             </div>
+            {locateDesk && !sanitizeSlidePlan(local.slide_plan).jobs.length ? (
+              <div style={{ fontSize: "0.68rem", color: muted, lineHeight: 1.45, marginBottom: 4 }}>
+                Fuel facts stay names until you add a night.
+              </div>
+            ) : null}
             {coherenceError && (
               <div style={{
                 padding: "8px 10px",
@@ -2770,7 +2388,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                     {icon} {label}{staleNote}
                   </div>
                   <div style={{ color: cream, fontWeight: 700, marginBottom: 6 }}>
-                    {formatSlidePlanSeeLine(local.slide_plan)}
+                    {deskSeeLine}
                   </div>
                   <div style={{ color: "rgba(245,240,232,0.85)", marginBottom: 6 }}>
                     {coherenceResult.reason}
@@ -2904,6 +2522,381 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
             })()}
           </div>
 
+          {syncError && (
+            <div style={{
+              padding: "10px 12px",
+              background: warnBg,
+              border: `1px solid rgba(251,191,36,0.32)`,
+              borderRadius: 6,
+              fontSize: "0.72rem",
+              color: warn,
+            }}>
+              ⚠ Sync error: {syncError}. Changes are still in memory — retry by editing any field.
+            </div>
+          )}
+
+          <details style={{
+            border: `1px dashed ${whisper}`,
+            borderRadius: 8,
+            background: "transparent",
+          }}>
+            <summary style={{
+              padding: "10px 12px",
+              cursor: "pointer",
+              fontSize: "0.66rem",
+              letterSpacing: "0.12em",
+              textTransform: "uppercase",
+              fontWeight: 700,
+              color: muted,
+              listStyle: "none",
+            }}>
+              More · Voice, Hook B, Compass, jobs
+            </summary>
+            <div style={{ padding: "0 4px 12px", display: "flex", flexDirection: "column", gap: 22 }}>
+          {/* 🧭 Topic Compass — one-tap seed topics that fill cluster + corridor
+              + hook + emotion + demographics from the operator's own beat board.
+              Collapsed by default to keep the modal short. */}
+          <div style={{
+            border: `1px solid ${compassOpen ? orbit : whisper}`,
+            borderRadius: 8,
+            background: compassOpen ? "rgba(167,139,250,0.06)" : "transparent",
+            overflow: "hidden",
+          }}>
+            <button
+              type="button"
+              onClick={() => setCompassOpen((v) => !v)}
+              aria-expanded={compassOpen}
+              style={{
+                width: "100%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                background: "transparent",
+                border: "none",
+                color: compassOpen ? orbit : muted,
+                cursor: "pointer",
+                padding: "10px 14px",
+                fontFamily: "inherit",
+                fontSize: "0.66rem",
+                letterSpacing: "0.14em",
+                textTransform: "uppercase",
+                fontWeight: 700,
+              }}
+            >
+              <span>🧭 Topic Compass · {COMPASS_TOPICS.length} seed angles</span>
+              <span style={{ fontSize: "0.7rem" }}>{compassOpen ? "▾" : "▸"}</span>
+            </button>
+            {compassOpen && (
+              <div style={{ padding: "0 14px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ fontSize: "0.66rem", color: faint, lineHeight: 1.5 }}>
+                  Click any seed to auto-fill cluster, corridor, hook A-side, emotion, and demographics.
+                  Anything you've already typed is preserved.
+                </div>
+                <div style={{ display: "grid", gap: 6 }}>
+                  {COMPASS_TOPICS.map((t) => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => applyCompassTopic(t)}
+                      title={t.suggestedHook}
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "auto 1fr auto",
+                        alignItems: "center",
+                        gap: 10,
+                        background: "#0e0e10",
+                        border: `1px solid ${whisper}`,
+                        borderRadius: 6,
+                        padding: "8px 12px",
+                        color: cream,
+                        cursor: "pointer",
+                        fontFamily: "inherit",
+                        textAlign: "left",
+                      }}
+                    >
+                      <span style={{
+                        fontSize: "0.56rem",
+                        color: faint,
+                        letterSpacing: "0.1em",
+                        fontVariantNumeric: "tabular-nums",
+                      }}>{t.id}</span>
+                      <span style={{ display: "flex", flexDirection: "column", gap: 3, minWidth: 0 }}>
+                        <span style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: "0.82rem" }}>{t.title}</span>
+                        <span style={{ fontSize: "0.68rem", color: muted, lineHeight: 1.4, whiteSpace: "normal", overflow: "hidden", textOverflow: "ellipsis" }}>{t.suggestedHook}</span>
+                        <span style={{ fontSize: "0.58rem", color: faint, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                          {t.cluster} · {t.corridor}
+                        </span>
+                      </span>
+                      <span style={{
+                        fontSize: "0.6rem",
+                        color: orbit,
+                        letterSpacing: "0.12em",
+                        textTransform: "uppercase",
+                        fontWeight: 700,
+                      }}>Fill →</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+          {/* Voice Parameters — Distance × Cadence × Stance
+              (see voiceParams.js). Three orthogonal knobs the writer
+              reads to shape how the piece SOUNDS within the brand
+              voice. All three are optional; unset falls back to the
+              mode's register block alone. */}
+          <div>
+            <div style={{ ...groupLabelStyle, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ width: 3, height: 12, background: orbit, borderRadius: 2, display: "inline-block" }} />
+                Voice Parameters · How this piece sounds
+              </span>
+              {/* Voice Preview — renders one sample paragraph in the
+                  current combo. Requires Distance AND Cadence. Same
+                  disabled-with-tooltip pattern as Draft Thesis /
+                  Draft Hook. */}
+              {(() => {
+                const canPreview = !!local.voice_distance && !!local.voice_cadence;
+                const disabled = previewingVoice || !canPreview;
+                const label = previewingVoice
+                  ? "…Previewing"
+                  : voicePreviewText
+                    ? "🎤 New Preview"
+                    : "🎤 Voice Preview";
+                return (
+                  <button
+                    type="button"
+                    onClick={runVoicePreview}
+                    disabled={disabled}
+                    title={canPreview
+                      ? "Hear one sample paragraph in the current Distance × Cadence × Stance combination before generating a full carousel."
+                      : "Pick a Distance AND a Cadence first — those are what the preview demonstrates."}
+                    style={{
+                      background: disabled ? "transparent" : "rgba(167,139,250,0.14)",
+                      border: `1px solid ${disabled ? whisper : orbit}`,
+                      color: disabled ? faint : orbit,
+                      borderRadius: 4,
+                      padding: "3px 10px",
+                      fontFamily: "inherit",
+                      fontSize: "0.58rem",
+                      letterSpacing: "0.1em",
+                      textTransform: "uppercase",
+                      fontWeight: 700,
+                      cursor: disabled ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    {label}
+                  </button>
+                );
+              })()}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
+              <div>
+                <label style={labelStyle}>Distance</label>
+                <select
+                  style={selectStyle}
+                  value={local.voice_distance || ""}
+                  onChange={(e) => applyPatch({ voice_distance: e.target.value || undefined })}
+                >
+                  <option value="">— pick distance —</option>
+                  {DISTANCE_OPTIONS.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
+                </select>
+                <div style={hintStyle}>How close to the reader</div>
+              </div>
+              <div>
+                <label style={labelStyle}>Cadence</label>
+                <select
+                  style={selectStyle}
+                  value={local.voice_cadence || ""}
+                  onChange={(e) => applyPatch({ voice_cadence: e.target.value || undefined })}
+                >
+                  <option value="">— pick cadence —</option>
+                  {CADENCE_OPTIONS.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
+                </select>
+                <div style={hintStyle}>Sentence shape / rhythm</div>
+              </div>
+              <div>
+                <label style={labelStyle}>Stance · optional</label>
+                <select
+                  style={selectStyle}
+                  value={local.voice_stance || ""}
+                  onChange={(e) => applyPatch({ voice_stance: e.target.value || undefined })}
+                >
+                  <option value="">— none —</option>
+                  {STANCE_OPTIONS.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
+                </select>
+                <div style={hintStyle}>Attitude toward the subject</div>
+              </div>
+            </div>
+            {/* Emotion × Stance compatibility warning — soft yellow
+                notice when the picked emotion and stance fight each
+                other (see EMOTION_STANCE_TENSIONS in voiceParams.js).
+                Doesn't block generation; just calibrates expectation. */}
+            {(() => {
+              const compat = getVoiceCompatWarning({ emotion: local.target_emotion, stance: local.voice_stance });
+              if (compat.level === "natural") return null;
+              const color = compat.level === "conflict" ? warn : anchor;
+              const bgTint = compat.level === "conflict" ? "rgba(251,191,36,0.08)" : "rgba(229,188,79,0.06)";
+              return (
+                <div style={{
+                  marginTop: 10,
+                  padding: "8px 12px",
+                  background: bgTint,
+                  border: `1px solid ${color}42`,
+                  borderRadius: 4,
+                  display: "flex",
+                  gap: 8,
+                  alignItems: "flex-start",
+                }}>
+                  <span style={{ fontSize: "0.9rem", lineHeight: 1 }}>⚠️</span>
+                  <div style={{ fontSize: "0.68rem", color: "rgba(245,240,232,0.82)", lineHeight: 1.5 }}>
+                    <b style={{ color, letterSpacing: "0.06em", textTransform: "uppercase", fontSize: "0.6rem", fontWeight: 700 }}>
+                      {compat.level === "conflict" ? "Voice conflict" : "Voice tension"}
+                    </b>
+                    {" "}— {compat.note}
+                  </div>
+                </div>
+              );
+            })()}
+            {/* Voice preview panel — renders the sample paragraph or
+                an error. Whitespace-preserving so Stacked cadence
+                previews (short stacked lines) render as intended. */}
+            {voicePreviewError ? (
+              <div style={{
+                fontSize: "0.66rem",
+                color: warn,
+                marginTop: 10,
+                letterSpacing: "0.02em",
+                lineHeight: 1.5,
+              }}>
+                ⚠️ {voicePreviewError}
+              </div>
+            ) : null}
+            {voicePreviewText ? (
+              <div style={{
+                marginTop: 10,
+                padding: "10px 12px",
+                background: "rgba(167,139,250,0.06)",
+                border: `1px solid rgba(167,139,250,0.28)`,
+                borderRadius: 4,
+                color: cream,
+                fontSize: "0.78rem",
+                lineHeight: 1.55,
+                whiteSpace: "pre-wrap",
+              }}>
+                <div style={{
+                  fontSize: "0.58rem",
+                  letterSpacing: "0.12em",
+                  textTransform: "uppercase",
+                  color: orbit,
+                  fontWeight: 700,
+                  marginBottom: 6,
+                }}>
+                  ◆ Preview{voicePreviewFor ? ` · ${voicePreviewFor}` : ""}
+                </div>
+                {voicePreviewText}
+              </div>
+            ) : null}
+          </div>
+          {/* Hook B */}
+          <div>
+            <div style={groupLabelStyle}><span style={{ width: 3, height: 12, background: feature, borderRadius: 2, display: "inline-block" }} />Hook B-side · Alt for Substack A/B</div>
+            <textarea
+              style={textareaStyle}
+              value={local.hook_b_side || ""}
+              onChange={(e) => applyPatch({ hook_b_side: e.target.value })}
+              placeholder="Alternate angle for the deeper piece — usually more editorial than the IG opener."
+              maxLength={LIMITS.HOOK_MAX + 50}
+            />
+            <CharCounter current={(local.hook_b_side || "").length} max={LIMITS.HOOK_MAX} error={errorsByField.hook_b_side} />
+          </div>
+          {/* Automation Wiring */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+            <div>
+              <label style={labelStyle}>Keyword Trigger</label>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#0e0e10", border: `1px solid ${whisper}`, borderRadius: 6, padding: "8px 12px" }}>
+                <span style={{ fontSize: "0.7rem", color: faint, fontFamily: "'Syne', sans-serif", fontWeight: 700, letterSpacing: "0.05em" }}>DM</span>
+                <input
+                  type="text"
+                  value={local.keyword_trigger || ""}
+                  onChange={(e) => applyPatch({ keyword_trigger: e.target.value.toUpperCase() })}
+                  placeholder="AFROFEVER"
+                  maxLength={LIMITS.TRIGGER_MAX}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    outline: "none",
+                    color: cream,
+                    fontFamily: "'Syne', sans-serif",
+                    fontWeight: 800,
+                    fontSize: "0.85rem",
+                    letterSpacing: "0.12em",
+                    textTransform: "uppercase",
+                    flex: 1,
+                  }}
+                />
+              </div>
+              <div style={hintStyle}>DM this word → ManyChat sends event details</div>
+              {triggerWarning && (
+                <div style={{
+                  fontSize: "0.66rem",
+                  color: warn,
+                  marginTop: 6,
+                  lineHeight: 1.5,
+                  letterSpacing: "0.01em",
+                }}>
+                  ⚠ {triggerWarning}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <label style={labelStyle}>Pipeline Status</label>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+                {PIPELINE_STATUS_ORDER.map((key) => {
+                  const s = PIPELINE_STATUS[key];
+                  const on = status === key;
+                  const disabled = key === PIPELINE_STATUS.READY.key && !readyValidation.ok && !on;
+                  const color =
+                    key === PIPELINE_STATUS.DRAFT.key ? warn :
+                    key === PIPELINE_STATUS.READY.key ? ready :
+                    cream;
+                  const bg =
+                    key === PIPELINE_STATUS.DRAFT.key ? warnBg :
+                    key === PIPELINE_STATUS.READY.key ? readyBg :
+                    "rgba(245,240,232,0.08)";
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setStatus(key)}
+                      disabled={disabled}
+                      title={disabled ? "Fill required fields first" : ""}
+                      style={{
+                        padding: "10px 8px",
+                        borderRadius: 6,
+                        border: `1px solid ${on ? color : whisper}`,
+                        background: on ? bg : "transparent",
+                        color: on ? color : (disabled ? "rgba(245,240,232,0.28)" : muted),
+                        cursor: disabled ? "not-allowed" : "pointer",
+                        fontFamily: "inherit",
+                        fontSize: "0.66rem",
+                        letterSpacing: "0.1em",
+                        textTransform: "uppercase",
+                        fontWeight: 700,
+                        opacity: disabled ? 0.5 : 1,
+                      }}
+                    >{s.label}</button>
+                  );
+                })}
+              </div>
+              <div style={hintStyle}>
+                {readyValidation.ok
+                  ? "Ready to ship — gates JSON export to n8n / Python"
+                  : `Fill ${readyValidation.errors.length} field${readyValidation.errors.length === 1 ? "" : "s"} to unlock Ready`}
+              </div>
+            </div>
+          </div>
           {(() => {
             const rank = sanitizeConversationRank(local.conversation_rank);
             const veto = vetoConversationPrimary({
@@ -3011,28 +3004,30 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
               </div>
             );
           })()}
-
           <div style={{ marginTop: 18, borderTop: `1px dashed ${hair}`, paddingTop: 14 }}>
             <SlideJobStrip
               plan={local.slide_plan}
               onChange={(next) => applyPatch({ slide_plan: sanitizeSlidePlan(next) })}
             />
           </div>
+            </div>
+          </details>
 
         </div>
 
         {/* Footer */}
-        <div style={{ borderTop: `1px solid ${hair}`, padding: "14px 22px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <div style={{ fontSize: "0.66rem", color: faint, letterSpacing: "0.06em" }}>
+        <div style={{ borderTop: `1px solid ${hair}`, padding: "14px 22px", display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ fontSize: "0.72rem", color: muted, letterSpacing: "0.02em" }}>
+            {deskSeeLine}
             {isMatrixReadyForGeneration(local)
-              ? "✓ Matrix ready — Preview Carousel will hand off to the AI Fill modal"
-              : "Fill tier + hook A + one bullet to enable Preview Carousel"}
+              ? ""
+              : " · Fill Tier + Hook + one Fuel fact to Generate."}
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             <button
               onClick={onClose}
               style={{
-                padding: "10px 18px",
+                padding: "12px 18px",
                 borderRadius: 6,
                 border: `1px solid ${whisper}`,
                 background: "transparent",
@@ -3044,7 +3039,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                 textTransform: "uppercase",
                 fontWeight: 700,
               }}
-            >Done</button>
+            >Close</button>
             <button
               onClick={() => {
                 const seed = eventMatrixToFillSeed({ ...event, matrix: local });
@@ -3067,23 +3062,24 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
               }}
               disabled={!isMatrixReadyForGeneration(local)}
               title={isMatrixReadyForGeneration(local)
-                ? (apiKey ? "Open the AI Fill overlay on top of the matrix" : "Hand off matrix data to the AI Fill modal on Media")
+                ? (apiKey ? "Generate the cards on this desk" : "Hand off to Generate on Media")
                 : "Fill required fields first"}
               style={{
-                padding: "10px 20px",
+                flex: 1,
+                padding: "13px 20px",
                 borderRadius: 6,
-                border: `1px solid ${isMatrixReadyForGeneration(local) ? orbit : whisper}`,
-                background: isMatrixReadyForGeneration(local) ? orbit : "transparent",
-                color: isMatrixReadyForGeneration(local) ? "#1a0d3d" : "rgba(245,240,232,0.28)",
+                border: `1px solid ${isMatrixReadyForGeneration(local) ? "#E5BC4F" : whisper}`,
+                background: isMatrixReadyForGeneration(local) ? "#E5BC4F" : "transparent",
+                color: isMatrixReadyForGeneration(local) ? "#1a1404" : "rgba(245,240,232,0.28)",
                 cursor: isMatrixReadyForGeneration(local) ? "pointer" : "not-allowed",
                 fontFamily: "inherit",
-                fontSize: "0.72rem",
+                fontSize: "0.78rem",
                 letterSpacing: "0.1em",
                 textTransform: "uppercase",
                 fontWeight: 800,
                 opacity: isMatrixReadyForGeneration(local) ? 1 : 0.5,
               }}
-            >🎨 Preview Carousel →</button>
+            >Generate</button>
           </div>
         </div>
       </div>

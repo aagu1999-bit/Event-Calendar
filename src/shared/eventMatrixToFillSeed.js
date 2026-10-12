@@ -46,7 +46,7 @@ export function summarizeSlidesForFeedback(slides) {
 // point, not a lock.
 
 import { EVENT_TIERS, DEMOGRAPHIC_PRESETS, LEGACY_DEMOGRAPHIC_ALIASES } from "./matrixEnums.js";
-import { getClusterLabel, resolveEditorialLens, isListicleHook, formatCoherenceSeedLines, isHomeworkAnchor } from "./matrixCompass.js";
+import { getClusterLabel, resolveEditorialLens, isListicleHook, formatCoherenceSeedLines, isHomeworkAnchor, isLocateDesk } from "./matrixCompass.js";
 import { formatConversationSeedLines } from "./conversationMaps.js";
 import { buildSubjectLock, lockLensDirective } from "./subjectLock.js";
 import { CONTENT_DEFAULT_VOICE } from "./cgeThesis.js";
@@ -178,6 +178,9 @@ export function eventMatrixToFillSeed(event) {
   void clusterDirectiveBase; void lensOverride;
   const clusterLabel = m.cluster ? (getClusterLabel(m.cluster) || m.cluster) : "";
   const contextLines = [];
+  if (isLocateDesk({ hook: hookA, pov, lens: clusterDirective || m.editorial_lens })) {
+    contextLines.push("LOCATE DESK: Cover + News + Done. Fuel facts are names to print, not extra chairs. Do not write ecosystem / landscape / what's next.");
+  }
   if (pov) contextLines.push(`POV: ${pov}`);
   if (!lock.empty) {
     contextLines.push(`SUBJECT LOCK: ${lock.summary}. Stay on these sub-versions. Do not mash overlapping cluster topics unless JOIN is named.`);
