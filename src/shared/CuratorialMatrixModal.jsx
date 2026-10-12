@@ -672,15 +672,16 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
     next[i] = val;
     applyPatch({ data_points: next });
   };
-  const addBullet = () => {
+  const addFuelLine = (kind) => {
     if (bullets.length >= LIMITS.BULLETS_MAX) return;
-    applyPatch({ data_points: [...bullets, ""] });
+    const prefix = kind === "gap" ? "GAP — " : "START — ";
+    applyPatch({ data_points: [...bullets, prefix] });
   };
   const addBulletForClaim = (claimText) => {
     if (bullets.length >= LIMITS.BULLETS_MAX) return;
     const claim = String(claimText || "").trim();
     if (!claim) return;
-    const line = `RECEIPT — UNVERIFIED — ${claim}`.slice(0, LIMITS.BULLET_MAX);
+    const line = `GAP — ${claim}`.slice(0, LIMITS.BULLET_MAX);
     applyPatch({ data_points: [...bullets, line] });
   };
   const setConversationSlot = (slot, key) => {
@@ -2020,7 +2021,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                         padding: 0,
                         overflow: "hidden",
                       }}
-                      placeholder="THESIS — or START — a named NJ thread to dive. Not a venue address."
+                      placeholder="START — a fact you already hold. GAP — what Fuel should look up."
                     />
                     <span style={{ fontSize: "0.6rem", color: over ? warn : faint, fontVariantNumeric: "tabular-nums", marginTop: 4, flexShrink: 0 }}>
                       {(b || "").length}/{LIMITS.BULLET_MAX}
@@ -2035,23 +2036,46 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                 );
               })}
               {bullets.length < LIMITS.BULLETS_MAX && (
-                <button
-                  type="button"
-                  onClick={addBullet}
-                  style={{
-                    background: "transparent",
-                    border: `1px dashed ${whisper}`,
-                    color: muted,
-                    borderRadius: 6,
-                    padding: "8px 12px",
-                    cursor: "pointer",
-                    fontFamily: "inherit",
-                    fontSize: "0.68rem",
-                    letterSpacing: "0.08em",
-                    textTransform: "uppercase",
-                    fontWeight: 700,
-                  }}
-                >+ Add research anchor</button>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => addFuelLine("start")}
+                    title="A fact you already hold. Generate can print it as News."
+                    style={{
+                      flex: 1,
+                      background: "transparent",
+                      border: `1px dashed ${whisper}`,
+                      color: muted,
+                      borderRadius: 6,
+                      padding: "8px 12px",
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                      fontSize: "0.68rem",
+                      letterSpacing: "0.08em",
+                      textTransform: "uppercase",
+                      fontWeight: 700,
+                    }}
+                  >+ START · a fact you hold</button>
+                  <button
+                    type="button"
+                    onClick={() => addFuelLine("gap")}
+                    title="What Fuel should look up. Homework — not a slide until it is verified."
+                    style={{
+                      flex: 1,
+                      background: "transparent",
+                      border: `1px dashed ${whisper}`,
+                      color: muted,
+                      borderRadius: 6,
+                      padding: "8px 12px",
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                      fontSize: "0.68rem",
+                      letterSpacing: "0.08em",
+                      textTransform: "uppercase",
+                      fontWeight: 700,
+                    }}
+                  >+ GAP · look this up</button>
+                </div>
               )}
             </div>
             {errorsByField.data_points && (
@@ -2418,7 +2442,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                               <button
                                 type="button"
                                 onClick={() => addBulletForClaim(c.claim)}
-                                title="Add a RECEIPT — UNVERIFIED placeholder the next Fuel / Dive can fill"
+                                title="Add a GAP so Fuel can look this claim up. Homework — not a slide yet."
                                 style={{
                                   flexShrink: 0,
                                   background: "transparent",
@@ -2433,7 +2457,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                                   fontWeight: 700,
                                   cursor: "pointer",
                                 }}
-                              >+ Add research anchor</button>
+                              >+ GAP</button>
                             ) : null}
                           </div>
                         );
