@@ -55,7 +55,6 @@ import {
   CONVERSATION_MAP_ORDER,
   sanitizeConversationRank,
   suggestConversationRank,
-  applyConversationSuggestion,
   vetoConversationPrimary,
 } from "./conversationMaps.js";
 import { SlideJobStrip } from "./SlideJobStrip.jsx";
@@ -547,29 +546,6 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
     distance: local.voice_distance,
   }), [local.hook_a_side, local.voice_cadence, local.voice_stance, local.voice_distance]);
 
-  // Keyword-trigger semantic warning — soft check that fires when the DM
-  // trigger word looks disconnected from the piece's topic. Rationale: the
-  // trigger appears on the CTA slide ("Comment 'X' below") and must FEEL
-  // like it belongs to the story or the reader hesitates to type it.
-  //
-  // Pure derived value — no network. Heuristic: the trigger is "connected"
-  // when it appears as a substring of the topic corpus (hook + event name)
-  // OR shares a 4+ character token with it. Otherwise, warn softly.
-  const triggerWarning = useMemo(() => {
-    const trigger = String(local.keyword_trigger || "").trim().toUpperCase();
-    if (!trigger || trigger.length < 3) return null;
-    const corpus = [local.hook_a_side, event?.name, local.editorial_pov]
-      .filter(Boolean)
-      .map((s) => String(s).toUpperCase())
-      .join(" ");
-    if (!corpus) return null;
-    if (corpus.includes(trigger)) return null;
-    const tokens = corpus.match(/[A-Z]{4,}/g) || [];
-    const overlap = tokens.some((t) => t === trigger || t.includes(trigger) || trigger.includes(t));
-    if (overlap) return null;
-    return `“${trigger}” doesn't echo the topic — the CTA reads “Comment ‘${trigger}’ below” and readers hesitate to type words that feel disconnected. Consider one that lifts a core word from the hook or event name.`;
-  }, [local.keyword_trigger, local.hook_a_side, local.editorial_pov, event?.name]);
-
   // ─── STALENESS MEMOS (derived-field freshness) ────────────────
   // Compare each synthesizer's stored snapshot against current
   // matrix values. When any input has changed since the synth
@@ -1016,8 +992,14 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
         lens: lensLine,
         argumentCheck: persisted,
       });
-      const nextRank = applyConversationSuggestion(liveRank, suggestion);
-      applyPatch({ argument_check: persisted, conversation_rank: nextRank });
+      applyPatch({
+        argument_check: persisted,
+        conversation_rank: {
+          ...liveRank,
+          suggestedPrimary: suggestion.suggestedPrimary || suggestion.primary,
+          suggestedReason: suggestion.suggestedReason,
+        },
+      });
     } catch (err) {
       setCoherenceError(String(err?.message || err));
     } finally {
@@ -1040,7 +1022,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
     const hasTopic = !!String(local.editorial_lens || "").trim();
     const hasPills = !!(
       local.cluster || local.corridor || selectedFacets.length || selectedLocales.length
-      || selectedJoin || local.target_emotion || selectedDemographics.length
+      || selectedJoin || selectedDemographics.length
     );
     if (!hasTopic && !hasPills) {
       setLensReframeError("Type a topic or pick a chip first — Reframe stitches those, and cluster is optional.");
@@ -1362,7 +1344,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                   const hasTopic = !!String(local.editorial_lens || "").trim();
                   const hasPills = !!(
                     local.cluster || local.corridor || selectedFacets.length || selectedLocales.length
-                    || selectedJoin || local.target_emotion || selectedDemographics.length
+                    || selectedJoin || selectedDemographics.length
                   );
                   const disabled = reframingLens || (!hasTopic && !hasPills);
                   return (
@@ -2811,46 +2793,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
             <CharCounter current={(local.hook_b_side || "").length} max={LIMITS.HOOK_MAX} error={errorsByField.hook_b_side} />
           </div>
           {/* Automation Wiring */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-            <div>
-              <label style={labelStyle}>Keyword Trigger</label>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#0e0e10", border: `1px solid ${whisper}`, borderRadius: 6, padding: "8px 12px" }}>
-                <span style={{ fontSize: "0.7rem", color: faint, fontFamily: "'Syne', sans-serif", fontWeight: 700, letterSpacing: "0.05em" }}>DM</span>
-                <input
-                  type="text"
-                  value={local.keyword_trigger || ""}
-                  onChange={(e) => applyPatch({ keyword_trigger: e.target.value.toUpperCase() })}
-                  placeholder="AFROFEVER"
-                  maxLength={LIMITS.TRIGGER_MAX}
-                  style={{
-                    background: "transparent",
-                    border: "none",
-                    outline: "none",
-                    color: cream,
-                    fontFamily: "'Syne', sans-serif",
-                    fontWeight: 800,
-                    fontSize: "0.85rem",
-                    letterSpacing: "0.12em",
-                    textTransform: "uppercase",
-                    flex: 1,
-                  }}
-                />
-              </div>
-              <div style={hintStyle}>DM this word → ManyChat sends event details</div>
-              {triggerWarning && (
-                <div style={{
-                  fontSize: "0.66rem",
-                  color: warn,
-                  marginTop: 6,
-                  lineHeight: 1.5,
-                  letterSpacing: "0.01em",
-                }}>
-                  ⚠ {triggerWarning}
-                </div>
-              )}
-            </div>
-
-            <div>
+          <div>
               <label style={labelStyle}>Pipeline Status</label>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
                 {PIPELINE_STATUS_ORDER.map((key) => {
@@ -2895,7 +2838,6 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                   ? "Ready to ship — gates JSON export to n8n / Python"
                   : `Fill ${readyValidation.errors.length} field${readyValidation.errors.length === 1 ? "" : "s"} to unlock Ready`}
               </div>
-            </div>
           </div>
           {(() => {
             const rank = sanitizeConversationRank(local.conversation_rank);
@@ -2927,7 +2869,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                   Conversation map · rank after Fuel
                 </div>
                 <div style={{ fontSize: "0.62rem", color: faint, marginBottom: 10, lineHeight: 1.5 }}>
-                  What kind of talk this is — not which cluster drawer, not a 10-slide carousel. One primary. Secondary only if a claim already has a pointed source. Tertiary is caption or parked. Fuel still hunts the LENS.
+                  What kind of talk this is. Check may suggest. Generate only reads a rank you lock here. Empty = no talk seed.
                 </div>
                 {rank.suggestedReason ? (
                   <div style={{ fontSize: "0.68rem", color: "rgba(245,240,232,0.78)", marginBottom: 8, lineHeight: 1.5 }}>

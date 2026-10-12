@@ -85,7 +85,7 @@ test("gstCopyToSlots maps the 10-slide GST arc onto MediaTool types", () => {
 
 test("GST still has 10 roles, but a ranked map outranks who-benefits stance", () => {
   assert.equal(GST_DESIGN_TOKENS.slideRoles.length, 10);
-  const block = conversationWriterBlock(formatConversationSeedLines({ primary: "explainer" }).join("\n")).join("\n");
+  const block = conversationWriterBlock(formatConversationSeedLines({ primary: "explainer", locked: true }).join("\n")).join("\n");
   assert.match(block, /outranks GST/);
   assert.match(block, /Explainer/);
   assert.match(block, /do not invent who-owns/);

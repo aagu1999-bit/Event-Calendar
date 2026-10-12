@@ -46,7 +46,7 @@ export function summarizeSlidesForFeedback(slides) {
 // point, not a lock.
 
 import { EVENT_TIERS, DEMOGRAPHIC_PRESETS, LEGACY_DEMOGRAPHIC_ALIASES } from "./matrixEnums.js";
-import { getClusterLabel, resolveEditorialLens, isListicleHook, formatCoherenceSeedLines, isHomeworkAnchor, isLocateDesk } from "./matrixCompass.js";
+import { getClusterLabel, resolveEditorialLens, isListicleHook, formatCoherenceSeedLines, isHomeworkAnchor, isLocateDesk, formatEmotionRegister } from "./matrixCompass.js";
 import { formatConversationSeedLines } from "./conversationMaps.js";
 import { buildSubjectLock, lockLensDirective } from "./subjectLock.js";
 import { CONTENT_DEFAULT_VOICE } from "./cgeThesis.js";
@@ -114,12 +114,7 @@ export function pickGenerationTopic(m = {}, event = {}) {
 // Leftover event brands (AFROFEVER on a suburban-strip Feature) must
 // not become the CTA keyword. Feature only keeps a trigger that already
 // appears in the hook or POV.
-export function pickKeywordTrigger(m = {}) {
-  const trigger = String(m.keyword_trigger || "").trim();
-  if (!trigger) return null;
-  if (m.event_tier !== EVENT_TIERS.FEATURE.key) return trigger;
-  const corpus = [m.hook_a_side, m.editorial_pov].join(" ").toLowerCase();
-  if (corpus.includes(trigger.toLowerCase())) return trigger;
+export function pickKeywordTrigger(_m = {}) {
   return null;
 }
 
@@ -234,10 +229,6 @@ export function eventMatrixToFillSeed(event) {
     // as a top-level VOICE + FRAMING block, not a context footnote.
     clusterDirective,
     clusterLabel,
-    // DM keyword trigger — if set, generateTemplateFill deterministically
-    // stitches the final CTA slide with this token, bypassing LLM drift
-    // that produces limp "link in bio" fallbacks when the trigger is
-    // orphaned from the prompt.
     keywordTrigger: pickKeywordTrigger(m),
     // Voice parameters — Distance × Cadence × Stance. Passed to the
     // writer as its own directive block so the mode's register block
@@ -256,7 +247,7 @@ export function eventMatrixToFillSeed(event) {
     // buildTemplatePrompt reader-facing block names them and forbids
     // literal quotation in the shipped copy.
     behavioralTags: {
-      emotion: String(m.target_emotion || "").trim() || "",
+      emotion: formatEmotionRegister(m.target_emotion),
       demographics: Array.isArray(m.target_demographic)
         ? m.target_demographic.filter(Boolean).map((d) => LEGACY_DEMOGRAPHIC_ALIASES[d] || d)
         : (typeof m.target_demographic === "string" && m.target_demographic.trim()

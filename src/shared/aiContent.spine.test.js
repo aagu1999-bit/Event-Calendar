@@ -62,5 +62,5 @@ test("a named-contrast hook stays the generation topic", () => {
     event_tier: EVENT_TIERS.FEATURE.key,
     keyword_trigger: "Route 22",
     hook_a_side: hook,
-  }), "Route 22");
+  }), null);
 });

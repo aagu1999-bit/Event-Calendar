@@ -124,6 +124,7 @@ test("seed lines are Cover + News conversation maps, not GST 10", () => {
     primary: "explainer",
     secondary: "injustice",
     tertiary: "reframe",
+    locked: true,
   });
   const blob = lines.join("\n");
   assert.match(blob, /CONVERSATION_RANK_KEYS: primary=explainer/);
@@ -135,6 +136,11 @@ test("seed lines are Cover + News conversation maps, not GST 10", () => {
   assert.match(blob, /TERTIARY \(Re-frame/);
   assert.match(blob, /share this to change the conversation/);
   assert.deepEqual(formatConversationSeedLines({}), []);
+  assert.deepEqual(formatConversationSeedLines({
+    primary: "explainer",
+    secondary: "injustice",
+    locked: false,
+  }), []);
 });
 
 test("fill seed injects the conversation map and stores the field", () => {
@@ -146,13 +152,27 @@ test("fill seed injects the conversation map and stores the field", () => {
       hook_a_side: "Parkway towns eat the summer influx.",
       editorial_pov: "The influx is a logistics tax.",
       data_points: ["START — the mechanism is weekend traffic."],
-      conversation_rank: { primary: "explainer", secondary: "injustice" },
+      conversation_rank: { primary: "explainer", secondary: "injustice", locked: true },
     },
   });
   assert.match(seed.context, /CONVERSATION MAP: primary Explainer/);
   assert.match(seed.context, /Cover \+ News/);
   assert.match(seed.context, /not a default 3/);
   assert.equal(seed.arrange, false);
+});
+
+test("an unlocked suggestion does not seed Generate", () => {
+  const seed = eventMatrixToFillSeed({
+    name: "Parkway piece",
+    matrix: {
+      event_tier: "FEATURE",
+      hook_a_side: "Parkway towns eat the summer influx.",
+      editorial_pov: "The influx is a logistics tax.",
+      data_points: ["START — the mechanism is weekend traffic."],
+      conversation_rank: { primary: "explainer", suggestedPrimary: "explainer", locked: false },
+    },
+  });
+  assert.equal(/CONVERSATION MAP/.test(seed.context), false);
 });
 
 test("wipe feedback memory clears both banks", () => {
@@ -245,6 +265,7 @@ test("ranked maps parse from seed and become Cover + News, not GST 10", () => {
     primary: "explainer",
     secondary: "injustice",
     tertiary: "reframe",
+    locked: true,
   }).join("\n");
   const parsed = parseConversationRankFromContext(seed);
   assert.equal(parsed.primary, "explainer");

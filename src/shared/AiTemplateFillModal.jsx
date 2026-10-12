@@ -5,7 +5,7 @@ import { generateTemplateFill, pickTemplate, generateArrangedCarousel, researchE
 import { summarizeSlidesForFeedback } from "./eventMatrixToFillSeed.js";
 import { isContentRegister } from "./cgeThesis.js";
 import { parseConversationRankFromContext } from "./conversationMaps.js";
-import { earnedSlideCount, essaySlideSequence } from "./matrixCompass.js";
+import { earnedSlideCount, essaySlideSequence, formatDeskSeeLine } from "./matrixCompass.js";
 import { appendMethodBriefToContext, appendOperatorQuestions } from "./cgeMethod.js";
 import { SlideJobStrip } from "./SlideJobStrip.jsx";
 import {
@@ -244,7 +244,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
           ? (slideCount === "auto" ? "✨ Design + generate" : `✨ Generate ${slideCount} slides`)
           : "✨ GST generate (10)")
       : compactMode
-        ? `✨ Generate ${(!gstOn && slidePlan.jobs.length) ? slidePlan.jobs.length : deskN} slides from this desk`
+        ? "Generate"
         : letAiPick
           ? "✨ Let AI pick + generate"
           : `✨ Generate ${template?.sequence?.length || 0} slides`;
@@ -1221,50 +1221,73 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
           >×</button>
         </div>
 
-        {compactMode && mode !== "promo" && (
+        {compactMode && (
           <div style={{
-            position: "sticky", top: 0, zIndex: 3,
-            margin: "0 0 14px", padding: "12px 12px 10px",
-            background: gstOn ? "rgba(229,188,79,0.12)" : "rgba(99,179,237,0.10)",
-            border: `1px solid ${gstOn ? "rgba(229,188,79,0.45)" : "rgba(99,179,237,0.4)"}`,
-            borderRadius: 6,
+            margin: "0 0 14px",
+            padding: "12px 14px",
+            background: "rgba(99,179,237,0.08)",
+            border: "1px solid rgba(99,179,237,0.35)",
+            borderRadius: 8,
           }}>
-            <div style={{ fontSize: "0.58rem", letterSpacing: 1.4, textTransform: "uppercase", fontWeight: 800, color: gstOn ? "#E5BC4F" : "#63B3ED", marginBottom: 8 }}>
-              GST 10-slide arc
+            <div style={{ fontSize: "0.66rem", color: "#63B3ED", letterSpacing: "0.12em", fontWeight: 700, textTransform: "uppercase", marginBottom: 6 }}>
+              Check
             </div>
-            <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-              <button
-                type="button"
-                onClick={() => setGstOn(false)}
-                style={{
-                  flex: 1, padding: "10px 8px", borderRadius: 5, cursor: "pointer",
-                  fontFamily: "'Syne',sans-serif", fontSize: "0.78rem", fontWeight: 800,
-                  background: !gstOn ? "rgba(99,179,237,0.28)" : "transparent",
-                  color: !gstOn ? "#F5F0E8" : "rgba(245,240,232,0.45)",
-                  border: `1px solid ${!gstOn ? "rgba(99,179,237,0.7)" : "rgba(245,240,232,0.12)"}`,
-                }}
-              >Off · from this desk</button>
-              <button
-                type="button"
-                onClick={() => setGstOn(true)}
-                style={{
-                  flex: 1, padding: "10px 8px", borderRadius: 5, cursor: "pointer",
-                  fontFamily: "'Syne',sans-serif", fontSize: "0.78rem", fontWeight: 800,
-                  background: gstOn ? "rgba(229,188,79,0.28)" : "transparent",
-                  color: gstOn ? "#E5BC4F" : "rgba(245,240,232,0.45)",
-                  border: `1px solid ${gstOn ? "rgba(229,188,79,0.7)" : "rgba(245,240,232,0.12)"}`,
-                }}
-              >On · always 10 slides</button>
-            </div>
-            <div style={{ fontSize: "0.62rem", color: "rgba(245,240,232,0.7)", lineHeight: 1.45 }}>
-              {gstOn
-                ? "Generate will run GST. Auto / 4 / 5 do not change the length. Named slide jobs are ignored while GST is on."
-                : slidePlan.jobs.length
-                  ? `Generate will not run GST. Named jobs win length: ${formatSlidePlanHeading(slidePlan)}.`
-                  : `Generate will not run GST. Length is ${deskN} from the copy on this desk (anchored START / THESIS / SPECIMEN lines). Pin 3–10 or name jobs to lock the cards.`}
+            <div style={{ fontSize: "0.88rem", color: "#F5F0E8", lineHeight: 1.5, fontWeight: 600 }}>
+              {formatDeskSeeLine({ context, plan: slidePlan })}
             </div>
           </div>
         )}
+
+        <details
+          open={!compactMode}
+          style={compactMode ? {
+            marginBottom: 14,
+            border: "1px dashed rgba(245,240,232,0.18)",
+            borderRadius: 8,
+            background: "transparent",
+          } : { display: "contents" }}
+        >
+          {compactMode ? (
+            <summary style={{
+              padding: "10px 12px",
+              cursor: "pointer",
+              fontSize: "0.66rem",
+              letterSpacing: "0.12em",
+              textTransform: "uppercase",
+              fontWeight: 700,
+              color: "rgba(245,240,232,0.55)",
+              listStyle: "none",
+            }}>
+              More · 10-slide, jobs, register
+            </summary>
+          ) : null}
+          <div style={compactMode ? { padding: "0 10px 12px" } : { display: "contents" }}>
+            {compactMode && mode !== "promo" && (
+              <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+                <button
+                  type="button"
+                  onClick={() => setGstOn(false)}
+                  style={{
+                    flex: 1, padding: "8px", borderRadius: 5, cursor: "pointer",
+                    fontFamily: "'Syne',sans-serif", fontSize: "0.68rem", fontWeight: 800,
+                    background: !gstOn ? "rgba(99,179,237,0.28)" : "transparent",
+                    color: !gstOn ? "#F5F0E8" : "rgba(245,240,232,0.45)",
+                    border: `1px solid ${!gstOn ? "rgba(99,179,237,0.7)" : "rgba(245,240,232,0.12)"}`,
+                  }}
+                >From this desk</button>
+                <button
+                  type="button"
+                  onClick={() => setGstOn(true)}
+                  style={{
+                    flex: 1, padding: "8px", borderRadius: 5, cursor: "pointer",
+                    fontFamily: "'Syne',sans-serif", fontSize: "0.68rem", fontWeight: 800,
+                    background: gstOn ? "rgba(229,188,79,0.28)" : "transparent",
+                    color: gstOn ? "#E5BC4F" : "rgba(245,240,232,0.45)",
+                    border: `1px solid ${gstOn ? "rgba(229,188,79,0.7)" : "rgba(245,240,232,0.12)"}`,
+                  }}
+                >Always 10</button>
+              </div>
+            )}
 
         {!compactMode && (
         <div style={{ fontSize: "0.66rem", color: "rgba(245,240,232,0.55)", marginBottom: 12, lineHeight: 1.45 }}>
@@ -1754,13 +1777,15 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
                 <div>Context textarea: shows the matrix seed. Edits here go to the writer prompt only — they do NOT update the matrix. Regenerate from the matrix to reset.</div>
                 {!compactMode ? null : (
                   <div style={{ marginTop: 4, fontSize: "0.6rem", color: "rgba(245,240,232,0.45)", fontStyle: "italic" }}>
-                    Hidden in compact mode: Let AI pick template · Template dropdown · Topic field · Letter mode · Connect the dots · Anchor field. GST is a toggle — Feature defaults off. Ranked conversation maps still seed the writer.
+                    Hidden in compact mode: Let AI pick template · Template dropdown · Topic field · Letter mode · Connect the dots · Anchor field. Always-10 is a toggle — Feature defaults off. A conversation map only seeds the writer if you locked one in More on the desk.
                   </div>
                 )}
               </div>
             </div>
           </details>
         )}
+          </div>
+        </details>
 
         <div style={{
           marginBottom: 12,
