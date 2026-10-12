@@ -14,6 +14,7 @@ import {
   replaceSlidePlanInContext,
   formatSlidePlanHeading,
 } from "./slideJobs.js";
+import { recastSlot, PREVIEW_RECAST_TYPES, PREVIEW_RECAST_LABELS } from "./recastSlot.js";
 import {
   interpretBuildTurn,
   formatDraftForContinue,
@@ -730,7 +731,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
       const regenContext = appendOperatorQuestions(appendSavedTeaching([
         context.trim(),
         `FULL CAROUSEL (study the voice, the running motif, and what each slide already covers — do not repeat or contradict them):\n${fullMap}`,
-        `YOUR JOB: rewrite ONLY slide ${idx + 1} (the ${slot.type}) so it fits SEAMLESSLY between its neighbors — continue/pay off what the slide before sets up, and tee up the slide after. Match the established voice + motif + pattern, and fill the specific missing beat this position needs. Don't duplicate what other slides already say.\n${neighborLines}`,
+        `YOUR JOB: rewrite ONLY slide ${idx + 1} as a ${slot.type} card so it fits SEAMLESSLY between its neighbors — continue/pay off what the slide before sets up, and tee up the slide after. Match the established voice + motif + pattern, and fill the specific missing beat this position needs. Don't duplicate what other slides already say.\n${neighborLines}`,
         prevVersion && `PREVIOUS VERSION OF THIS SLIDE (make the new one clearly DIFFERENT — fresh angle/wording, not a rephrase — while still bridging the neighbors):\n${prevVersion}`,
       ].filter(Boolean).join("\n\n"), {
         voice,
@@ -783,6 +784,10 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
     if (!slot) return "";
     if (slot.type === "cover") {
       return [slot.headline, slot.subtitle].filter(s => s && s.trim()).join("\n\n");
+    }
+    if (slot.type === "news") {
+      return [slot.newsKicker, slot.newsHeadline, slot.newsBody]
+        .map((s) => (s || "").trim()).filter(Boolean).join("\n\n");
     }
     if (slot.type === "text") {
       const parts = [];
@@ -838,47 +843,170 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
     });
   };
 
+  const recastSlide = (idx, nextType) => {
+    const next = slides.map((s, i) => (i === idx ? recastSlot(s, nextType) : s));
+    setSlides(next);
+    if (pickedTemplate) {
+      setPickedTemplate({ ...pickedTemplate, sequence: next.map((s) => s.type) });
+    }
+  };
+  const patchSlide = (idx, patch) => {
+    setSlides((prev) => prev.map((s, i) => (i === idx ? { ...s, ...patch } : s)));
+  };
+
   const renderPreview = (slot, idx) => {
     const num = idx + 1;
+    const fieldStyle = {
+      width: "100%",
+      padding: "7px 9px",
+      background: "#111",
+      border: "1px solid rgba(245,240,232,0.12)",
+      borderRadius: 4,
+      color: "#F5F0E8",
+      fontFamily: "inherit",
+      fontSize: "0.78rem",
+      outline: "none",
+      boxSizing: "border-box",
+    };
+    const labelStyle = {
+      fontSize: "0.5rem",
+      letterSpacing: 1.2,
+      textTransform: "uppercase",
+      color: "rgba(245,240,232,0.45)",
+      fontWeight: 700,
+      margin: "8px 0 4px",
+    };
+    const typeChips = (
+      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+        <span style={{ fontSize: "0.5rem", color: "#E5BC4F", letterSpacing: 1.5, textTransform: "uppercase", fontWeight: 800 }}>
+          Slide {num}
+        </span>
+        {PREVIEW_RECAST_TYPES.map((t) => (
+          <button
+            key={t}
+            type="button"
+            onClick={() => recastSlide(idx, t)}
+            title={`Show this card as ${PREVIEW_RECAST_LABELS[t]}. Sentences stay. Redo then writes this type.`}
+            style={{
+              padding: "3px 8px",
+              borderRadius: 3,
+              cursor: "pointer",
+              fontSize: "0.55rem",
+              fontWeight: 800,
+              letterSpacing: 0.6,
+              textTransform: "uppercase",
+              fontFamily: "'Syne',sans-serif",
+              background: slot.type === t ? "rgba(99,179,237,0.28)" : "transparent",
+              color: slot.type === t ? "#63B3ED" : "rgba(245,240,232,0.5)",
+              border: `1px solid ${slot.type === t ? "rgba(99,179,237,0.6)" : "rgba(245,240,232,0.14)"}`,
+            }}
+          >{PREVIEW_RECAST_LABELS[t]}</button>
+        ))}
+      </div>
+    );
     if (slot.type === "cover") {
       return (
         <div>
-          <div style={{ fontSize: "0.5rem", color: "#E5BC4F", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 4 }}>
-            Slide {num} · Cover
-          </div>
-          <div style={{ fontFamily: "'Syne',sans-serif", fontSize: "1rem", fontWeight: 800, lineHeight: 1.15 }}>
-            {(slot.headline || "").split(/\s+/).map((w, wi) => (
-              <span key={wi} style={{ color: slot.accentWord && w.toLowerCase() === String(slot.accentWord).toLowerCase() ? "#E5BC4F" : "inherit" }}>
-                {w}{" "}
-              </span>
-            ))}
-          </div>
-          <div style={{ fontSize: "0.7rem", color: "rgba(245,240,232,0.7)", marginTop: 4 }}>
-            {slot.subtitle}
-          </div>
+          {typeChips}
+          <div style={labelStyle}>Headline</div>
+          <input
+            value={slot.headline || ""}
+            onChange={(e) => patchSlide(idx, { headline: e.target.value })}
+            style={{ ...fieldStyle, fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: "0.95rem" }}
+          />
+          <div style={labelStyle}>Subtitle</div>
+          <textarea
+            value={slot.subtitle || ""}
+            onChange={(e) => patchSlide(idx, { subtitle: e.target.value })}
+            rows={2}
+            style={{ ...fieldStyle, resize: "vertical" }}
+          />
+        </div>
+      );
+    }
+    if (slot.type === "news") {
+      return (
+        <div>
+          {typeChips}
+          <div style={labelStyle}>Kicker</div>
+          <input
+            value={slot.newsKicker || ""}
+            onChange={(e) => patchSlide(idx, { newsKicker: e.target.value })}
+            style={{ ...fieldStyle, letterSpacing: 1, textTransform: "uppercase", fontWeight: 800, fontSize: "0.7rem" }}
+          />
+          <div style={labelStyle}>Headline</div>
+          <input
+            value={slot.newsHeadline || ""}
+            onChange={(e) => patchSlide(idx, { newsHeadline: e.target.value })}
+            style={{ ...fieldStyle, fontFamily: "'Syne',sans-serif", fontWeight: 800 }}
+          />
+          <div style={labelStyle}>Body</div>
+          <textarea
+            value={slot.newsBody || ""}
+            onChange={(e) => patchSlide(idx, { newsBody: e.target.value })}
+            rows={4}
+            style={{ ...fieldStyle, resize: "vertical", lineHeight: 1.5 }}
+          />
         </div>
       );
     }
     if (slot.type === "text") {
       return (
         <div>
-          <div style={{ fontSize: "0.5rem", color: "#E5BC4F", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 4 }}>
-            Slide {num} · Text (manifesto)
-          </div>
-          {slot.textTitle && (
-            <div style={{ fontFamily: "'Syne',sans-serif", fontSize: "0.9rem", fontWeight: 800, marginBottom: 6 }}>
-              {slot.textTitle}
-            </div>
-          )}
-          <div style={{ fontSize: "0.7rem", color: "rgba(245,240,232,0.75)", whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
-            {slot.textBody}
-          </div>
+          {typeChips}
+          <div style={labelStyle}>Title</div>
+          <input
+            value={slot.textTitle || ""}
+            onChange={(e) => patchSlide(idx, { textTitle: e.target.value })}
+            style={{ ...fieldStyle, fontFamily: "'Syne',sans-serif", fontWeight: 800 }}
+          />
+          <div style={labelStyle}>Body</div>
+          <textarea
+            value={slot.textBody || ""}
+            onChange={(e) => patchSlide(idx, { textBody: e.target.value })}
+            rows={4}
+            style={{ ...fieldStyle, resize: "vertical", lineHeight: 1.5 }}
+          />
+        </div>
+      );
+    }
+    if (slot.type === "cta") {
+      return (
+        <div>
+          {typeChips}
+          <div style={labelStyle}>Kicker</div>
+          <input
+            value={slot.ctaKicker || ""}
+            onChange={(e) => patchSlide(idx, { ctaKicker: e.target.value })}
+            style={fieldStyle}
+          />
+          <div style={labelStyle}>Date / headline</div>
+          <textarea
+            value={slot.ctaDate || ""}
+            onChange={(e) => patchSlide(idx, { ctaDate: e.target.value })}
+            rows={2}
+            style={{ ...fieldStyle, resize: "vertical", fontFamily: "'Syne',sans-serif", fontWeight: 800 }}
+          />
+          <div style={labelStyle}>Venue / ask</div>
+          <textarea
+            value={slot.ctaVenue || ""}
+            onChange={(e) => patchSlide(idx, { ctaVenue: e.target.value })}
+            rows={2}
+            style={{ ...fieldStyle, resize: "vertical" }}
+          />
+          <div style={labelStyle}>URL</div>
+          <input
+            value={slot.ctaUrl || ""}
+            onChange={(e) => patchSlide(idx, { ctaUrl: e.target.value })}
+            style={fieldStyle}
+          />
         </div>
       );
     }
     if (slot.type === "spotlight") {
       return (
         <div>
+          {typeChips}
           <div style={{ fontSize: "0.5rem", color: "#E5BC4F", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 4 }}>
             Slide {num} · Spotlight
           </div>
@@ -896,59 +1024,10 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
         </div>
       );
     }
-    if (slot.type === "cta") {
-      return (
-        <div>
-          <div style={{ fontSize: "0.5rem", color: "#E5BC4F", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 4 }}>
-            Slide {num} · CTA
-          </div>
-          {slot.ctaKicker && (
-            <div style={{ display: "inline-block", padding: "2px 8px", background: "#E5BC4F", color: "#000", fontSize: "0.5rem", fontWeight: 800, letterSpacing: 1.5, marginBottom: 6, borderRadius: 3, fontFamily: "'Syne',sans-serif" }}>
-              {(slot.ctaKicker || "").toUpperCase()}
-            </div>
-          )}
-          <div style={{ fontFamily: "'Syne',sans-serif", fontSize: "1rem", fontWeight: 800, marginBottom: 4 }}>
-            {slot.ctaDate}
-          </div>
-          <div style={{ fontSize: "0.7rem", color: "rgba(245,240,232,0.7)" }}>
-            {slot.ctaVenue}
-          </div>
-          {slot.ctaUrl && (
-            <div style={{ fontSize: "0.6rem", color: "#E5BC4F", marginTop: 4 }}>
-              {slot.ctaUrl}
-            </div>
-          )}
-        </div>
-      );
-    }
-    if (slot.type === "news") {
-      return (
-        <div>
-          <div style={{ fontSize: "0.5rem", color: "#E5BC4F", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 4 }}>
-            Slide {num} · News
-          </div>
-          {slot.newsKicker && (
-            <div style={{ fontSize: "0.55rem", color: "#E5BC4F", letterSpacing: 1.2, textTransform: "uppercase", fontWeight: 800, marginBottom: 4 }}>{slot.newsKicker}</div>
-          )}
-          {slot.newsHeadline && (
-            <div style={{ fontFamily: "'Syne',sans-serif", fontSize: "0.95rem", fontWeight: 800, marginBottom: 4 }}>{slot.newsHeadline}</div>
-          )}
-          <div style={{ fontSize: "0.72rem", color: "rgba(245,240,232,0.78)", lineHeight: 1.5, whiteSpace: "pre-wrap" }}>
-            {String(slot.newsBody || "").split(/(\*[^*]+\*)/g).map((p, i) =>
-              (p.length > 2 && p.startsWith("*") && p.endsWith("*"))
-                ? <b key={i} style={{ color: "#F5F0E8" }}>{p.slice(1, -1)}</b>
-                : <span key={i}>{p}</span>
-            )}
-          </div>
-          {slot.newsCaption && (
-            <div style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.45)", marginTop: 5 }}>📍 {slot.newsCaption}</div>
-          )}
-        </div>
-      );
-    }
     if (slot.type === "photo") {
       return (
         <div>
+          {typeChips}
           <div style={{ fontSize: "0.5rem", color: "#E5BC4F", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 4 }}>
             Slide {num} · Photo (you upload the image)
           </div>
@@ -966,6 +1045,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
     if (slot.type === "countdown") {
       return (
         <div>
+          {typeChips}
           <div style={{ fontSize: "0.5rem", color: "#E5BC4F", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 4 }}>
             Slide {num} · Countdown
           </div>
@@ -987,6 +1067,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
     if (slot.type === "poster") {
       return (
         <div>
+          {typeChips}
           <div style={{ fontSize: "0.5rem", color: "#E5BC4F", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 4 }}>
             Slide {num} · Poster
           </div>
@@ -1014,6 +1095,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
     if (slot.type === "press") {
       return (
         <div>
+          {typeChips}
           <div style={{ fontSize: "0.5rem", color: "#E5BC4F", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 4 }}>
             Slide {num} · Press
           </div>
@@ -1045,8 +1127,9 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
     }
     if (slot.type === "features") {
       const items = Array.isArray(slot.features) ? slot.features : [];
-      return (
+          return (
         <div>
+          {typeChips}
           <div style={{ fontSize: "0.5rem", color: "#E5BC4F", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 4 }}>
             Slide {num} · Features
           </div>
@@ -1072,6 +1155,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
     if (slot.type === "stat") {
       return (
         <div>
+          {typeChips}
           <div style={{ fontSize: "0.5rem", color: "#E5BC4F", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 4 }}>
             Slide {num} · Stat
           </div>
@@ -1092,8 +1176,11 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
       );
     }
     return (
-      <div style={{ fontSize: "0.7rem", color: "rgba(245,240,232,0.5)" }}>
-        Slide {num} · {slot.type} (no preview)
+      <div>
+        {typeChips}
+        <div style={{ fontSize: "0.7rem", color: "rgba(245,240,232,0.5)" }}>
+          Slide {num} · {slot.type} (no preview)
+        </div>
       </div>
     );
   };
@@ -1877,8 +1964,11 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
                 </div>
               </div>
             )}
-            <div style={{ fontSize: "0.55rem", color: "#E5BC4F", letterSpacing: 1.5, textTransform: "uppercase", fontWeight: 700, fontFamily: "'Syne',sans-serif", marginBottom: 8 }}>
+            <div style={{ fontSize: "0.55rem", color: "#E5BC4F", letterSpacing: 1.5, textTransform: "uppercase", fontWeight: 700, fontFamily: "'Syne',sans-serif", marginBottom: 4 }}>
               Preview · {slides.length} slides
+            </div>
+            <div style={{ fontSize: "0.58rem", color: "rgba(245,240,232,0.5)", marginBottom: 8, lineHeight: 1.4 }}>
+              Change type to recast the chair. Edit the fields. Redo writes the type showing now.
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
               {slides.map((slot, idx) => {
