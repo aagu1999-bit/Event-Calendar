@@ -169,7 +169,9 @@ export function vetoConversationPrimary({ primary = "", hook = "", pov = "", anc
 
 export function formatConversationSeedLines(rank) {
   const clean = sanitizeConversationRank(rank);
-  if (!clean.primary) return [];
+  // Hidden chips are not a pick. Check may suggest; Generate only
+  // reads a rank the operator locked in More.
+  if (!clean.primary || !clean.locked) return [];
   const primary = CONVERSATION_MAPS[clean.primary];
   const lines = [
     `CONVERSATION_RANK_KEYS: primary=${clean.primary}; secondary=${clean.secondary || "none"}; tertiary=${clean.tertiary || "none"}`,
@@ -197,13 +199,14 @@ export function parseConversationRankFromContext(text) {
       primary: none(keyed[1]),
       secondary: none(keyed[2]),
       tertiary: none(keyed[3]),
+      locked: true,
     });
   }
   const labeled = s.match(/CONVERSATION MAP:\s*primary\s+([^—\n]+)/i);
   if (!labeled) return sanitizeConversationRank({});
   const blob = labeled[1].trim().toLowerCase();
   const primary = CONVERSATION_MAP_ORDER.find((key) => blob.includes(CONVERSATION_MAPS[key].label.split(" / ")[0].toLowerCase()));
-  return sanitizeConversationRank({ primary: primary || "" });
+  return sanitizeConversationRank({ primary: primary || "", locked: true });
 }
 
 // Writer / GST block. Ranked maps outrank GST's default who-benefits stance.

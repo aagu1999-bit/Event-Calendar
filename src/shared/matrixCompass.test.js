@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isListicleHook, isBrochureCopy, hookEvidenceLines, splitHookPhrases, classifyHookRegister, formatHookPhraseLines, buildHookPrompt, buildLensReframePrompt, buildThesisPrompt, buildCoherencePrompt, normalizeCoherenceResult, formatCoherenceSeedLines, defaultCoherenceUseFor, coherenceInputSignature, describeReframeInputs, lensFreshnessSignature, earnedSlideCount, essaySlideSequence, countUsableAnchors, isHomeworkAnchor, isLocateDesk, formatDeskSeeLine } from "./matrixCompass.js";
+import { isListicleHook, isBrochureCopy, hookEvidenceLines, splitHookPhrases, classifyHookRegister, formatHookPhraseLines, buildHookPrompt, buildLensReframePrompt, buildThesisPrompt, buildCoherencePrompt, normalizeCoherenceResult, formatCoherenceSeedLines, defaultCoherenceUseFor, coherenceInputSignature, describeReframeInputs, lensFreshnessSignature, earnedSlideCount, essaySlideSequence, countUsableAnchors, isHomeworkAnchor, isLocateDesk, formatDeskSeeLine, formatEmotionRegister } from "./matrixCompass.js";
 import { buildSubjectLock, subjectLockPromptLines, lockLensDirective } from "./subjectLock.js";
 
 test("listicle hooks are the Google-vs-CGE failure", () => {
@@ -165,6 +165,8 @@ test("reframe stitches a typed topic to the selected pills", () => {
   assert.match(prompt, /Social friction/);
   assert.match(prompt, /Cranford/);
   assert.match(prompt, /Young Working Professionals/);
+  assert.equal(/Curiosity\/Epiphany/.test(prompt), false);
+  assert.equal(/Emotion:/.test(prompt), false);
   assert.match(prompt, /do not throw it out/);
   assert.match(prompt, /Names the operator typed are authorized/);
 });
@@ -209,7 +211,11 @@ test("reframe chip names only the pills that were actually selected", () => {
     corridor: "Shore / Southern Arteries",
     emotion: "Curiosity/Epiphany",
     lock: { facets: ["venue-splits"] },
-  }), /cluster desk · corridor · emotion · facets/);
+  }), /cluster desk · corridor · facets/);
+  assert.equal(/emotion/.test(describeReframeInputs({
+    cluster: "GATHERING_LOGISTICS",
+    emotion: "Curiosity/Epiphany",
+  })), false);
 });
 
 test("LENS freshness ignores chip-only topic so a just-ran Reframe is not stale", () => {
@@ -438,6 +444,8 @@ test("slide count is earned from this desk, not a silent 3", () => {
   assert.equal(formatDeskSeeLine({
     plan: { jobs: ["hook", "happened", "todo"] },
   }), "You'll see 3 named cards.");
+  assert.match(formatEmotionRegister("Curiosity/Epiphany"), /cold reader/);
+  assert.equal(formatEmotionRegister(""), "");
   assert.equal(earnedSlideCount(locateWeek, 5), 5);
 
   const namedJobs = [

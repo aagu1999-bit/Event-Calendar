@@ -278,7 +278,7 @@ const CORRIDOR_ANCHORS = {
 // Emotion → the reader-stance modifier that closes the POV. Sets the
 // piece's angle: is this validating what the reader already feels, or
 // naming a pattern they hadn't seen?
-const EMOTION_STANCES = {
+export const EMOTION_STANCES = {
   "Curiosity/Epiphany": "This piece looks again at what is already on this desk until a cold reader can hold it.",
   "Validation/Relatability": "If the reader's own weekends feel like this, they're not imagining it — the shape of it is real.",
   "Skepticism/Irreverence": "The polished version is a lie; the piece surfaces what THIS desk already showed.",
@@ -286,6 +286,11 @@ const EMOTION_STANCES = {
   "Urgency/Insider Access": "This is what is already moving on this desk — act while the window is still this Saturday.",
   "Ambition/Sovereignty": "For anyone building the next room, start from what this desk already named.",
 };
+
+export function formatEmotionRegister(emotion) {
+  const key = String(emotion || "").trim();
+  return EMOTION_STANCES[key] || "";
+}
 
 // Demographic → short noun phrase that names who the piece is speaking
 // TO. Used to compose the "For X, this hits particular" clause. Keep
@@ -501,7 +506,7 @@ export function describeReframeInputs(inputs = {}) {
   if (topic) parts.push("typed topic");
   if (String(cluster || "").trim()) parts.push("cluster desk");
   if (String(corridor || "").trim()) parts.push("corridor");
-  if (String(emotion || "").trim()) parts.push("emotion");
+  void emotion;
   if (Array.isArray(demographics) && demographics.some((d) => String(d || "").trim())) parts.push("demographic");
   const facets = Array.isArray(lock?.facets) ? lock.facets.filter(Boolean) : [];
   const locales = Array.isArray(lock?.locales) ? lock.locales.filter(Boolean) : [];
@@ -532,10 +537,10 @@ export function lensFreshnessSignature({
   const locales = Array.isArray(lock?.locales)
     ? [...lock.locales].map((l) => String(l || "").trim()).filter(Boolean).sort()
     : [];
+  void emotion;
   return JSON.stringify({
     cluster: String(cluster || "").trim(),
     corridor: String(corridor || "").trim(),
-    emotion: String(emotion || "").trim(),
     demographics: demos,
     lock: {
       facets,
@@ -562,7 +567,7 @@ export function buildLensReframePrompt({
   const pillLines = [];
   if (clusterLabel) pillLines.push(`  Cluster desk: ${clusterLabel}`);
   if (corridor) pillLines.push(`  Corridor: ${corridor}`);
-  if (emotion) pillLines.push(`  Emotion: ${emotion}`);
+  void emotion;
   if (demoList.length) pillLines.push(`  Demographic: ${demoList.join(", ")}`);
   if (lockSummary) pillLines.push(`  Subject lock: ${lockSummary}`);
   return [

@@ -2592,7 +2592,8 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   // narrative spine focus its outline on the beats that will actually
   // appear as generated copy. Operates on the hard-capped sequence so
   // the drop is relative to the compressed shape, not the original.
-  const willStitchCta = !!(keywordTrigger && String(keywordTrigger).trim() && cappedSequence[cappedSequence.length - 1] === "cta");
+  const willStitchCta = false;
+  void keywordTrigger;
   const generationSequence = willStitchCta ? cappedSequence.slice(0, -1) : cappedSequence.slice();
 
   let narrativeSpine = null;
@@ -3158,10 +3159,8 @@ export async function generateNarrativeSpine({ apiKey, topic, context, clusterDi
 // this stitch — we map their intent to the actual four fields so the slide
 // actually renders. If the final slot isn't `cta`, we don't stitch (a
 // features/news ending would break under a forced replacement).
-function stitchKeywordCta(slides, sequence, keywordTrigger) {
-  if (!Array.isArray(slides) || !slides.length) return slides;
-  const trigger = String(keywordTrigger || "").trim().toUpperCase();
-  if (!trigger) return slides;
+function stitchKeywordCta(slides, _sequence, _keywordTrigger) {
+  return slides;
   const lastIdx = sequence.length - 1;
   if (sequence[lastIdx] !== "cta") return slides;
   const stitched = slides.slice();
@@ -3325,7 +3324,7 @@ export async function generateVoicePass({ apiKey, slides, sequence, voice, voice
     ...(voiceDirective ? [voiceDirective, ""] : []),
     ...(behavioralTags && (behavioralTags.emotion || (behavioralTags.demographics && behavioralTags.demographics.length)) ? [
       "BEHAVIORAL TAGS — these are HOW the piece should feel, not vocabulary to quote:",
-      ...(behavioralTags.emotion ? [`  Target Emotion (write in this register): ${behavioralTags.emotion}`] : []),
+      ...(behavioralTags.emotion ? [`  Emotion register (backside — write in this feel; never print Curiosity/Epiphany or any chip name): ${behavioralTags.emotion}`] : []),
       ...(behavioralTags.demographics && behavioralTags.demographics.length ? [`  Target Demographic (audience mental model): ${behavioralTags.demographics.join(", ")}`] : []),
       "  BANNED: quoting any of these labels verbatim in the shipped copy. Do NOT write 'Tag the [demographic]' or paste labels as vocabulary. The tags are HOW you write, not WHAT you write.",
       "",
@@ -4270,7 +4269,7 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
     ...(behavioralTags && (behavioralTags.emotion || (behavioralTags.demographics && behavioralTags.demographics.length) || behavioralTags.clusterLabel) ? [
       "═════════════════════════════",
       "BEHAVIORAL TAGS — these define who this piece is FOR and what emotional register to write in. They are INSTRUCTIONS to you, not vocabulary to reuse.",
-      ...(behavioralTags.emotion ? [`  Target Emotion (write in this register): ${behavioralTags.emotion}`] : []),
+      ...(behavioralTags.emotion ? [`  Emotion register (backside — write in this feel; never print Curiosity/Epiphany or any chip name): ${behavioralTags.emotion}`] : []),
       ...(behavioralTags.demographics && behavioralTags.demographics.length ? [`  Target Demographic (audience mental model): ${behavioralTags.demographics.join(", ")}`] : []),
       ...(behavioralTags.clusterLabel ? [`  Content Cluster (editorial identity): ${behavioralTags.clusterLabel}`] : []),
       "",
