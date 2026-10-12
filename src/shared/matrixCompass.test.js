@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isListicleHook, isBrochureCopy, hookEvidenceLines, buildHookPrompt, buildLensReframePrompt, buildThesisPrompt, buildCoherencePrompt, normalizeCoherenceResult, formatCoherenceSeedLines, defaultCoherenceUseFor, coherenceInputSignature, describeReframeInputs, lensFreshnessSignature, earnedSlideCount, essaySlideSequence, countUsableAnchors, isHomeworkAnchor } from "./matrixCompass.js";
+import { isListicleHook, isBrochureCopy, hookEvidenceLines, splitHookPhrases, classifyHookRegister, formatHookPhraseLines, buildHookPrompt, buildLensReframePrompt, buildThesisPrompt, buildCoherencePrompt, normalizeCoherenceResult, formatCoherenceSeedLines, defaultCoherenceUseFor, coherenceInputSignature, describeReframeInputs, lensFreshnessSignature, earnedSlideCount, essaySlideSequence, countUsableAnchors, isHomeworkAnchor } from "./matrixCompass.js";
 import { buildSubjectLock, subjectLockPromptLines, lockLensDirective } from "./subjectLock.js";
 
 test("listicle hooks are the Google-vs-CGE failure", () => {
@@ -35,6 +35,33 @@ test("hook evidence prefers THESIS / START lines over leftover venue notes", () 
   ]);
 });
 
+test("hook phrases split sentences and tag drama vs utility vs insight", () => {
+  assert.deepEqual(
+    splitHookPhrases("Walker's Paradise vs the strip. Look for the retrofit downtown. The commute killed the hang because parking lots replaced corners."),
+    [
+      "Walker's Paradise vs the strip",
+      "Look for the retrofit downtown",
+      "The commute killed the hang because parking lots replaced corners",
+    ],
+  );
+  assert.equal(classifyHookRegister("Walker's Paradise vs the strip-mall geography Route 22 actually built"), "drama");
+  assert.equal(classifyHookRegister("Look for the retrofit downtown, not the parking-lot speakeasy"), "utility");
+  assert.equal(classifyHookRegister("The commute killed the hang because parking lots replaced corners"), "insight");
+  assert.equal(classifyHookRegister("Route 22 still gathers in a parking lot"), "drama");
+  assert.equal(classifyHookRegister("Newark Tech Week is in town this week"), "insight");
+
+  const rows = formatHookPhraseLines({
+    pov: "Black commuters feel a walkable deficit.",
+    editorialLens: "Look for the retrofit. Walker's Paradise vs Route 22.",
+  });
+  assert.equal(rows.length, 3);
+  assert.equal(rows[0].source, "POV");
+  assert.equal(rows[0].register, "drama");
+  assert.equal(rows[1].source, "LENS");
+  assert.equal(rows[1].register, "utility");
+  assert.equal(rows[2].register, "drama");
+});
+
 test("hook prompt authorizes Fuel names and bans the listicle cover", () => {
   const prompt = buildHookPrompt({
     pov: "Black commuters returning to car-dependent hometowns feel a walkable deficit.",
@@ -58,6 +85,25 @@ test("hook prompt authorizes Fuel names and bans the listicle cover", () => {
   assert.match(prompt, /still set the room/);
   assert.equal(/Prefer the POV's fight \(who programs/.test(prompt), false);
   assert.equal(/No invented proper nouns: do NOT name specific venues, towns/.test(prompt), false);
+  assert.match(prompt, /CRITICAL READ/);
+  assert.match(prompt, /DRAMA —/);
+  assert.match(prompt, /UTILITY —/);
+  assert.match(prompt, /INSIGHT —/);
+  assert.match(prompt, /do not mash/);
+  assert.match(prompt, /\[POV · drama\]/);
+});
+
+test("hook prompt lists every Narrowing phrase instead of mashing registers", () => {
+  const prompt = buildHookPrompt({
+    pov: "The commute killed spontaneous hangs because parking lots replaced corners.",
+    editorialLens: "Look for the retrofit downtown. Walker's Paradise vs Route 22 still gathers in a lot.",
+  });
+  assert.match(prompt, /\[POV · insight\] The commute killed spontaneous hangs because parking lots replaced corners/);
+  assert.match(prompt, /\[LENS · utility\] Look for the retrofit downtown/);
+  assert.match(prompt, /\[LENS · drama\] Walker's Paradise vs Route 22 still gathers in a lot/);
+  assert.match(prompt, /FAILED \(mash\)/);
+  assert.match(prompt, /Lead with one register/);
+  assert.match(prompt, /Stay creative/);
 });
 
 test("hook prompt on an orienting POV does not demand a who-programs fight", () => {
@@ -92,6 +138,9 @@ test("hook and thesis ignore unclicked cluster, corridor, emotion, demographic",
   assert.equal(/Economics & Logistics/.test(thesis), false);
   assert.match(thesis, /summer shore traffic in Parkway towns/);
   assert.match(thesis, /already stitched into this LENS via Reframe/);
+  assert.match(thesis, /NARROWING PHRASES/);
+  assert.match(thesis, /\[insight\] summer shore traffic in Parkway towns/);
+  assert.match(thesis, /Do not mash/);
 });
 
 test("reframe stitches a typed topic to the selected pills", () => {

@@ -364,9 +364,22 @@ function joinDemographics(list) {
 // apiKey → throw so the caller can surface a clear error UI.
 export function buildThesisPrompt({ lens = "" } = {}) {
   const cleanLens = String(lens || "").trim();
+  const lensPhrases = formatHookPhraseLines({ editorialLens: cleanLens });
   return [
     "ROLE: You are an executive editor at a cultural infrastructure platform for Black New Jersey. Events are the door, not the product.",
-    "TASK: Write a single, cohesive 1–2 sentence Editorial POV from the LENS below. Cluster, corridor, emotion, and demographic only count if they were already stitched into this LENS via Reframe. Do not invent a dropdown you cannot see.",
+    "TASK: Read every Narrowing sentence first. Write a single, cohesive 1–2 sentence Editorial POV from the LENS below — in the register those phrases actually earned. Do not mash a drama phrase, a utility phrase, and an insight phrase into one awkward thesis. Cluster, corridor, emotion, and demographic only count if they were already stitched into this LENS via Reframe. Do not invent a dropdown you cannot see.",
+    "",
+    "CRITICAL READ — every Narrowing phrase can earn a different register:",
+    "  DRAMA — tension / contrast already in the typed words.",
+    "  UTILITY — how-to, where to go, what to do. Keep it practical; do not inflate it into a fight.",
+    "  INSIGHT — explaining why it works that way. The argument, not a recap mash.",
+    "First-pass tags are a hint. Confirm or override after reading the words. Pick ONE lead register for the POV; other phrases inform the second sentence or stay parked.",
+    ...(lensPhrases.length
+      ? [
+        "NARROWING PHRASES (do not skip; do not concatenate):",
+        ...lensPhrases.map((row) => `  [${row.register}] ${row.phrase}`),
+      ]
+      : ["NARROWING PHRASES: (none — do not write.)"]),
     "",
     "PUBLICATION (who you work for — NOT a fight to paste in):",
     "  CGE covers Black New Jersey. Events are the door, not the product.",
@@ -737,6 +750,85 @@ export function hookEvidenceLines(anchors = []) {
   return (fuel.length ? fuel : clean).slice(0, 12);
 }
 
+// Every typed Narrowing / POV sentence can earn a different cover
+// register. Draft Hook used to mash them into one awkward line.
+// Split first, tag a first-pass register, then let the writer pick
+// ONE lead (drama / utility / insight) instead of concatenating.
+const HOOK_DRAMA_SIGNALS = [
+  /\bvs\.?\b/i, /\bstill\b/i, /\bbut\b/i, /\byet\b/i, /\bwhile\b/i,
+  /\binstead\b/i, /\bnever\b/i, /\balready\b/i, /\bactually\b/i,
+  /\bdeficit\b/i, /\btax\b/i, /\bdied\b/i, /\bleftover\b/i,
+  /\bstakes?\b/i, /\bfight\b/i, /\bcan't\b/i, /\bwon't\b/i,
+  /\brefused?\b/i, /\bpaid\b/i, /\bwreck\b/i, /\bkilled\b/i,
+];
+const HOOK_UTILITY_SIGNALS = [
+  /\bhow to\b/i, /\bwhere to\b/i, /\bwhat to\b/i, /\blook for\b/i,
+  /\bbring\b/i, /\bavoid\b/i, /\bstart (?:here|with)\b/i,
+  /\btip\b/i, /\bguide\b/i, /\bneed to know\b/i,
+  /\bdo this\b/i, /\bsteps?\b/i, /\bskip the\b/i,
+];
+const HOOK_INSIGHT_SIGNALS = [
+  /\bbecause\b/i, /\bwhich means\b/i, /\bthe reason\b/i,
+  /\bthat's why\b/i, /\bso that\b/i, /\bexplains?\b/i,
+  /\bmechanism\b/i, /\bpattern\b/i, /\bbuilt as\b/i,
+  /\bdesigned to\b/i, /\bthe point is\b/i, /\bmeans that\b/i,
+  /\bwhy the\b/i, /\bin other words\b/i, /\bthe trick\b/i,
+];
+
+export function splitHookPhrases(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return [];
+  const parts = raw
+    .split(/(?<=[.!?])\s+|\n+|;\s+|(?:\s+[—–]\s+)/)
+    .map((s) => s.trim().replace(/^[-–—•*]+\s*/, "").replace(/[.!?]+$/, "").trim())
+    .filter(Boolean);
+  const kept = parts.filter((s) => s.length >= 6);
+  if (kept.length) return kept;
+  return [raw.replace(/[.!?]+$/, "").trim()].filter(Boolean);
+}
+
+export function classifyHookRegister(phrase) {
+  const s = String(phrase || "").trim();
+  if (!s) return "insight";
+  let drama = 0;
+  let utility = 0;
+  let insight = 0;
+  for (const re of HOOK_DRAMA_SIGNALS) if (re.test(s)) drama += 1;
+  for (const re of HOOK_UTILITY_SIGNALS) if (re.test(s)) utility += 1;
+  for (const re of HOOK_INSIGHT_SIGNALS) if (re.test(s)) insight += 1;
+  const max = Math.max(drama, utility, insight);
+  if (max === 0) return "insight";
+  if (utility === max && utility > drama && utility > insight) return "utility";
+  if (drama === max && drama > insight && drama > utility) return "drama";
+  if (insight === max && insight > drama && insight > utility) return "insight";
+  if (drama === insight && drama === max) {
+    return /\b(?:vs\.?|but|while|instead|still)\b/i.test(s) ? "drama" : "insight";
+  }
+  if (utility === max) return "utility";
+  return drama >= insight ? "drama" : "insight";
+}
+
+export function formatHookPhraseLines({ pov = "", editorialLens = "" } = {}) {
+  const rows = [];
+  const add = (source, text) => {
+    for (const phrase of splitHookPhrases(text)) {
+      rows.push({ source, register: classifyHookRegister(phrase), phrase });
+    }
+  };
+  add("POV", pov);
+  add("LENS", editorialLens);
+  return rows;
+}
+
+function hookPhrasePromptBlock({ pov, editorialLens } = {}) {
+  const rows = formatHookPhraseLines({ pov, editorialLens });
+  if (!rows.length) return ["PHRASES TO READ: (none — stay inside the POV.)"];
+  return [
+    "PHRASES TO READ — do not skip any; do not mash them into one clause:",
+    ...rows.map((row) => `  [${row.source} · ${row.register}] ${row.phrase}`),
+  ];
+}
+
 export function buildHookPrompt({
   pov,
   editorialLens = "",
@@ -749,7 +841,18 @@ export function buildHookPrompt({
   const evidence = hookEvidenceLines(anchors);
   return [
     "ROLE: You write magazine cover lines for a Black New Jersey cultural publication. You are not an Instagram listicle copywriter.",
-    "TASK: Write one 10-to-18 word STATEMENT that compresses what the POV already said. If the POV named a contrast, name that contrast. If the POV only orients (who / what / where / when), the cover locates — do not invent a fight. A declaration, never a question.",
+    "TASK: Two steps. First READ every typed sentence and phrase. Then write ONE creative 10-to-18 word STATEMENT in the register those phrases actually earned. If the POV named a contrast, name that contrast. If the POV only orients (who / what / where / when), the cover locates — do not invent a fight. A declaration, never a question. Do not mash a drama phrase, a utility phrase, and an insight phrase into one awkward sentence.",
+    "",
+    "STEP 1 — CRITICAL READ (do this before you write a word):",
+    "Every sentence and phrase the operator typed can earn a different cover register:",
+    "  DRAMA — tension, contrast, stakes, a scene that already has heat. Cover energy IF they typed that heat.",
+    "  UTILITY — practical, how-to, what to do, a tip. Useful later; not the cover unless the whole brief is a how-to.",
+    "  INSIGHT — explaining why it works that way, a mechanism, a reading. The argument — often the spine, rarely a mashed headline.",
+    "For EACH phrase below, decide which register it earns. First-pass tags in brackets are a hint — confirm or override after reading the words, not the tag.",
+    "Then pick ONE lead register: the one the typed words actually earned as cover energy. Other phrases inform; they do not all get a clause in the cover.",
+    ...hookPhrasePromptBlock({ pov: cleanPOV, editorialLens: cleanLens }),
+    "",
+    "STEP 2 — WRITE the cover in that lead register. Stay creative — do not reprint a phrase. Compress, do not concatenate.",
     "",
     "THE INPUTS (POV first, then LENS, then Fuel — not live chips):",
     `- The Core Argument (POV — compress this; do not add a house fight it did not name): ${cleanPOV}`,
@@ -762,10 +865,13 @@ export function buildHookPrompt({
       ]
       : ["- Fuel starting points: (none — stay inside the POV; do not invent a town or road.)"]),
     "",
-    "QUALITY BAR — Google AI Mode, not a listing:",
-    "  GOOD: \"Walker's Paradise vs the strip-mall geography Route 22 actually built.\"",
-    "  GOOD: \"Cranford retrofitted the downtown. Route 22 still gathers in a parking lot.\"",
-    "  GOOD: \"Newark Tech Week is in town. The rooms are built for business owners.\"",
+    "QUALITY BAR — Google AI Mode, not a listing. Creative cover, analyzed phrases:",
+    "  GOOD (drama lead): \"Walker's Paradise vs the strip-mall geography Route 22 actually built.\"",
+    "  GOOD (drama lead): \"Cranford retrofitted the downtown. Route 22 still gathers in a parking lot.\"",
+    "  GOOD (insight lead): \"The commute didn't kill the hang. It relocated it to a parking lot.\"",
+    "  GOOD (utility lead, only when they typed that): \"Skip the Route 22 lot. The hang is the retrofit downtown.\"",
+    "  GOOD (orient): \"Newark Tech Week is in town. The rooms are built for business owners.\"",
+    "  FAILED (mash): \"Walker's Paradise vs Route 22 — here's how to find the retrofit and why the commute killed the hang.\"",
     "  FAILED: \"Did your commuter community? Discover surprising new gathering spots.\"",
     "  FAILED: \"Newark Tech Week's new professionals and students: Who is Newark's tech future for?\"",
     "  FAILED: \"The new class filled Newark Tech Week. The old gatekeepers still set the room.\"",
@@ -781,6 +887,7 @@ export function buildHookPrompt({
     '7. NEVER a question-mark cover. NEVER "Who is X for?". NEVER "Event name: question". NEVER a colon-title that restates the audience then asks who the future is for.',
     "8. Do NOT import African American / Caribbean / African diaspora tension, who owns vs who programs, who actually benefits, whose vision, entrepreneurial spirit, old gatekeepers, old guard, or 'still set the room' unless those words or that fight are already in the POV or LENS.",
     "9. Do NOT recap a flyer. NEVER 'spotlights the city's innovations', 'burgeoning', 'future potential', 'drawing attention', or 'highlights'. If the POV only orients, locate in fewer words — do not invent a gatekeeper contrast to make the cover feel serious.",
+    "10. Do not mash registers. A utility tip next to a drama contrast is not 'combine them.' Lead with one register; park the others.",
     "",
     'Return ONLY JSON in this exact shape: {"hook": "..."}',
   ].join("\n");
