@@ -1173,7 +1173,6 @@ export function countUsableAnchors(context) {
   return n;
 }
 
-const LOCATE_DESK_LINE = /^LOCATE DESK:/m;
 const LOCATE_CONTRAST = /\b(?:vs\.?|but|while|instead|still|deficit|tax|killed|because|which means|the trick|who paid)\b/i;
 
 export function isLocateDesk({ hook = "", pov = "", lens = "" } = {}) {
@@ -1196,30 +1195,28 @@ export function formatDeskSeeLine({ hook = "", pov = "", lens = "", context = ""
   if (named.length) {
     return `You'll see ${named.length} named cards${newsBit ? ` · News${newsBit}` : ""}.`;
   }
-  if (isLocateDesk({ hook, pov, lens }) || LOCATE_DESK_LINE.test(String(context || ""))) {
-    return `You'll see Cover + News${newsBit} + Done.`;
-  }
   const n = earnedSlideCount(context);
   if (n <= 3) return `You'll see Cover + News${newsBit} + Done.`;
   return `You'll see Cover + News${newsBit} + ${n - 3} more + Done.`;
 }
 
 // Auto length from THIS desk's copy, not a silent 3 and not GST 10.
-// Operator pin and named jobs win. A locate-only Narrowing (who / what /
-// where / when, no contrast) stays Cover + News + Done — Fuel facts are
-// names, not extra chairs. Else countable START / THESIS / SPECIMEN
-// receipts (1 proof → 3, 8 proofs → 10).
+// Operator pin and named jobs win. Countable START / THESIS / SPECIMEN
+// receipts earn chairs (1 proof → 3, 5 proofs → 7, 8 proofs → 10).
+// Locate still means Cover locates (no invented essay arc) — it does
+// not freeze Auto at 3. Check's pointed count flows if it is higher.
 export function earnedSlideCount(context, pinned = null) {
   if (typeof pinned === "number" && Number.isFinite(pinned) && pinned > 0) {
     return Math.min(DESK_SLIDE_MAX, Math.max(DESK_SLIDE_MIN, Math.round(pinned)));
   }
   const namedJobs = parseSlidePlanFromContext(context).jobs;
   if (namedJobs.length) return Math.min(DESK_SLIDE_MAX, Math.max(2, namedJobs.length));
-  if (LOCATE_DESK_LINE.test(String(context || ""))) return DESK_SLIDE_MIN;
   const proofs = countUsableAnchors(context);
-  if (proofs > 0) return Math.min(DESK_SLIDE_MAX, Math.max(DESK_SLIDE_MIN, proofs + 2));
   const pointed = parsePointedSlideCount(context);
-  if (pointed) return Math.min(DESK_SLIDE_MAX, Math.max(DESK_SLIDE_MIN, pointed));
+  const fromProofs = proofs > 0 ? proofs + 2 : 0;
+  const fromCheck = pointed || 0;
+  const n = Math.max(fromProofs, fromCheck);
+  if (n > 0) return Math.min(DESK_SLIDE_MAX, Math.max(DESK_SLIDE_MIN, n));
   return DESK_SLIDE_MIN;
 }
 

@@ -427,26 +427,29 @@ test("slide count is earned from this desk, not a silent 3", () => {
     pov: "Black commuters feel a walkable deficit.",
   }), false);
   const locateWeek = [
-    "LOCATE DESK: Cover + News + Done. Fuel facts are names to print, not extra chairs.",
+    "LOCATE DESK: Cover locates. Extra Fuel facts are more News cards.",
     "POV: Newark Tech Week is in town.",
     "ANCHORED FACTS (write from these):",
     "- START — Oct. 12 at Ruth Bader Ginsburg Hall",
     "- START — Mixer at Consigliere",
     "- START — Oct. 13 pitch night at Equal Space",
     "- START — NJIT student talks",
+    "POINTED SLIDE COUNT: 7.",
   ].join("\n");
-  assert.equal(earnedSlideCount(locateWeek), 3);
+  assert.equal(countUsableAnchors(locateWeek), 4);
+  assert.equal(earnedSlideCount(locateWeek.replace(/\nPOINTED SLIDE COUNT: 7\./, "")), 6);
+  assert.equal(earnedSlideCount(locateWeek), 7);
   assert.equal(formatDeskSeeLine({
     lens: "newark tech week is coming to newark",
     pov: "Newark Tech Week is in town.",
     context: locateWeek,
-  }), "You'll see Cover + News + Done.");
+  }), "You'll see Cover + News + 4 more + Done.");
   assert.equal(formatDeskSeeLine({
     lens: "newark tech week is coming to newark",
     pov: "Newark Tech Week is in town.",
     context: locateWeek,
     plan: { newsStyles: ["log", "receipt"] },
-  }), "You'll see Cover + News (log + receipt) + Done.");
+  }), "You'll see Cover + News (log + receipt) + 4 more + Done.");
   assert.equal(formatDeskSeeLine({
     plan: { jobs: ["hook", "happened", "todo"] },
   }), "You'll see 3 named cards.");

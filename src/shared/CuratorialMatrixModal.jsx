@@ -398,20 +398,19 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
     [local.cluster, local.editorial_lens, liveLens]
   );
   const liveCheckLens = resolvedLensForCheck.combined || resolvedLensForCheck.base || "";
-  const deskSeeLine = useMemo(() => formatDeskSeeLine({
-    hook: local.hook_a_side,
-    pov: local.editorial_pov,
-    lens: liveCheckLens || local.editorial_lens,
-    context: [
-      isLocateDesk({
-        hook: local.hook_a_side,
-        pov: local.editorial_pov,
-        lens: liveCheckLens || local.editorial_lens,
-      }) ? "LOCATE DESK:" : "",
-      ...(Array.isArray(local.data_points) ? local.data_points : []),
-    ].filter(Boolean).join("\n"),
-    plan: local.slide_plan,
-  }), [local.hook_a_side, local.editorial_pov, liveCheckLens, local.editorial_lens, local.data_points, local.slide_plan]);
+  const deskSeeLine = useMemo(() => {
+    const pointed = coherenceResult?.slideCount || local.argument_check?.slideCount;
+    return formatDeskSeeLine({
+      hook: local.hook_a_side,
+      pov: local.editorial_pov,
+      lens: liveCheckLens || local.editorial_lens,
+      context: [
+        ...(Array.isArray(local.data_points) ? local.data_points : []),
+        pointed ? `POINTED SLIDE COUNT: ${pointed}` : "",
+      ].filter(Boolean).join("\n"),
+      plan: local.slide_plan,
+    });
+  }, [local.hook_a_side, local.editorial_pov, liveCheckLens, local.editorial_lens, local.data_points, local.slide_plan, coherenceResult, local.argument_check]);
   const locateDesk = useMemo(() => isLocateDesk({
     hook: local.hook_a_side,
     pov: local.editorial_pov,
@@ -2353,7 +2352,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
             </div>
             {locateDesk && !sanitizeSlidePlan(local.slide_plan).jobs.length ? (
               <div style={{ fontSize: "0.68rem", color: muted, lineHeight: 1.45, marginBottom: 4 }}>
-                Fuel facts stay names until you add a night.
+                Cover locates. Extra Fuel facts become more News cards.
               </div>
             ) : null}
             <div style={{ marginTop: 10 }}>

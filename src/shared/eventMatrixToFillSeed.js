@@ -174,7 +174,7 @@ export function eventMatrixToFillSeed(event) {
   const clusterLabel = m.cluster ? (getClusterLabel(m.cluster) || m.cluster) : "";
   const contextLines = [];
   if (isLocateDesk({ hook: hookA, pov, lens: clusterDirective || m.editorial_lens })) {
-    contextLines.push("LOCATE DESK: Cover + News + Done. Fuel facts are names to print, not extra chairs. Do not write ecosystem / landscape / what's next.");
+    contextLines.push("LOCATE DESK: Cover locates. Extra Fuel facts are more News cards. Do not write ecosystem / landscape / what's next.");
   }
   if (pov) contextLines.push(`POV: ${pov}`);
   if (!lock.empty) {
