@@ -13,6 +13,7 @@
 // minimum-viable-matrix checks needed to ship to automation.
 
 import { LIMITS, PIPELINE_STATUS, MATRIX_FIELDS, EVENT_TIERS } from "./matrixEnums.js";
+import { countPickedStarts } from "./matrixCompass.js";
 
 // Returns { ok: boolean, errors: [{ field, message }] }.
 // Errors are surfaced in field order so the UI can render them in the
@@ -42,7 +43,7 @@ export function validateMatrix(matrix, { targetStatus } = {}) {
     }
   }
   if (bullets.length > LIMITS.BULLETS_MAX) {
-    errors.push({ field: "data_points", message: `Max ${LIMITS.BULLETS_MAX} bullets — drop ${bullets.length - LIMITS.BULLETS_MAX}` });
+    errors.push({ field: "data_points", message: `Max ${LIMITS.BULLETS_MAX} on Fuel — park extras for Generate or drop ${bullets.length - LIMITS.BULLETS_MAX}` });
   }
 
   // Tier value must be a known tier if set at all — protects against
@@ -63,8 +64,8 @@ export function validateMatrix(matrix, { targetStatus } = {}) {
     if (!m.hook_a_side || !m.hook_a_side.trim()) {
       errors.push({ field: "hook_a_side", message: "Hook A-side required to ship" });
     }
-    if (bullets.length < LIMITS.BULLETS_MIN) {
-      errors.push({ field: "data_points", message: `At least ${LIMITS.BULLETS_MIN} data point required to ship` });
+    if (countPickedStarts(bullets, m.fuel_omit) < LIMITS.BULLETS_MIN) {
+      errors.push({ field: "data_points", message: "At least one IN START — Gaps and parked lines are not chairs" });
     }
     // Feature-tier only: POV is the editorial thesis for evergreen
     // pieces. Anchor/Orbit stay lightweight so quick weekend listings
@@ -83,7 +84,7 @@ export function validateMatrix(matrix, { targetStatus } = {}) {
 // editorial content).
 export function matrixCompleteness(matrix) {
   const m = matrix || {};
-  const countable = MATRIX_FIELDS.filter((f) => f !== "pipeline_status" && f !== "argument_check" && f !== "conversation_rank" && f !== "slide_plan" && f !== "preview_slides");
+  const countable = MATRIX_FIELDS.filter((f) => f !== "pipeline_status" && f !== "argument_check" && f !== "conversation_rank" && f !== "slide_plan" && f !== "preview_slides" && f !== "fuel_omit");
   const filled = countable.filter((f) => {
     const v = m[f];
     if (Array.isArray(v)) return v.filter(Boolean).length > 0;

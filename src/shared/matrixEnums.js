@@ -103,8 +103,8 @@ export const LIMITS = {
   HOOK_MAX: 220,      // A-side and B-side: fits an IG carousel opener
   POV_MAX: 500,       // curatorial thesis; keeps it thesis, not article
   BULLET_MAX: 700,    // starting-point paragraph; AI Mode briefs need more than a venue fact
-  BULLETS_MIN: 1,     // at least one data point to mark Ready
-  BULLETS_MAX: 10,    // starting points plus a relatedness Gap; trim before the carousel if it overloads
+  BULLETS_MIN: 1,     // at least one IN-play START to mark Ready / Generate
+  BULLETS_MAX: 24,    // Fuel holds the pile (facts + Gaps). Generate writes only IN STARTs.
   TRIGGER_MAX: 20,    // DM trigger — short and shoutable
   FACETS_MAX: 5,      // largest cluster's facet count; empty ≠ syllabus — Select all or pick topics
   LOCALES_MAX: 3,     // subject-lock corridor locales (empty = geography context, not a spend)
@@ -133,6 +133,9 @@ export const MATRIX_FIELDS = [
   "hook_b_side",
   "editorial_pov",
   "data_points",
+  // 1-based Fuel numbers parked from Generate. Completeness ignores it —
+  // empty means every START is in. Gaps are never chairs.
+  "fuel_omit",
   "keyword_trigger",
   "pipeline_status",
   // Voice params — Distance × Cadence × Stance (see voiceParams.js).

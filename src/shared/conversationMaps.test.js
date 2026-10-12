@@ -145,6 +145,7 @@ test("seed lines are Cover + News conversation maps, not GST 10", () => {
 
 test("fill seed injects the conversation map and stores the field", () => {
   assert.equal(MATRIX_FIELDS.includes("conversation_rank"), true);
+  assert.equal(MATRIX_FIELDS.includes("fuel_omit"), true);
   const seed = eventMatrixToFillSeed({
     name: "Parkway piece",
     matrix: {
@@ -277,6 +278,27 @@ test("fill seed tells the writer relatedness is climate or omit, not a mash", ()
   assert.match(seed.context, /afterthought/);
   assert.match(seed.context, /Opinion about why it matters lives in POV/);
   assert.match(seed.context, /do not mash/);
+});
+
+test("fill seed writes only IN STARTs and parks the rest", () => {
+  const seed = eventMatrixToFillSeed({
+    name: "Newark Tech Week",
+    matrix: {
+      hook_a_side: "Newark Tech Week is on Broad Street this October.",
+      editorial_pov: "The week sits on real capital.",
+      data_points: [
+        "START — Equal Space hosts Tech Week on Broad Street.",
+        "START — HAX committed $25M in Newark.",
+        "GAP — Fuel #1 × #2 · are these related?",
+      ],
+      fuel_omit: [2],
+    },
+  });
+  assert.match(seed.context, /ANCHORED FACTS/);
+  assert.match(seed.context, /Equal Space/);
+  assert.match(seed.context, /PARKED FUEL/);
+  assert.match(seed.context, /HAX committed/);
+  assert.match(seed.context, /GAPS — not proof/);
 });
 
 test("ranked maps parse from seed and become Cover + News, not GST 10", () => {
