@@ -370,7 +370,7 @@ test("coherence seed lines tell the writer what the desk can carry", () => {
   assert.match(blob, /POINTED SLIDE COUNT: 3/);
   assert.match(blob, /UNVERIFIED CLAIMS — OMIT FROM EVERY SLIDE/);
   assert.match(blob, /The tax is unpaid/);
-  assert.match(blob, /OPEN GAPS — homework, not copy/);
+  assert.match(blob, /GAPS — not copy/);
   assert.match(blob, /currently-operating Parkway Saturday/);
   assert.deepEqual(formatCoherenceSeedLines(null), []);
   const sig = coherenceInputSignature({ hook: "a", pov: "b", anchors: ["c"], lens: "d" });
@@ -469,6 +469,7 @@ test("slide count is earned from this desk, not a silent 3", () => {
   });
   assert.equal(countUsableAnchors(techWeekFuel), 4);
   assert.equal(earnedSlideCount(techWeekFuel), 6);
+  assert.equal(countUsableAnchors("1. START — Oct. 12 at Ruth Bader Ginsburg Hall\n2. GAP — who paid\n3. START — Mixer at Consigliere"), 2);
   assert.equal(formatDeskSeeLine({ context: techWeekFuel }), "You'll see Cover + News + 3 more + Done.");
   assert.match(formatEmotionRegister("Curiosity/Epiphany"), /cold reader/);
   assert.equal(formatEmotionRegister(""), "");

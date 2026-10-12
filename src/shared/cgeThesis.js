@@ -50,6 +50,7 @@ export function isContentRegister(mode, isEvergreen = false) {
 const PLATFORM_THEME_LEAKS = [
   { re: /\bdiaspora\b/i, needle: "diaspora" },
   { re: /\bwho actually benefits\b/i, needle: "who actually benefits" },
+  { re: /\bwho benefits\b/i, needle: "who benefits" },
   { re: /\bwho owns\b/i, needle: "who owns" },
   { re: /\bwho programs\b/i, needle: "who programs" },
   { re: /\bwhose vision\b/i, needle: "whose vision" },

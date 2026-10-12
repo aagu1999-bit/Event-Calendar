@@ -1135,15 +1135,21 @@ export function formatCoherenceSeedLines(check) {
     lines.push(`UNVERIFIED CLAIMS — OMIT FROM EVERY SLIDE. Do not write, paraphrase, or imply these. If the hook or POV used one, rewrite that beat from an anchored START / THESIS / SPECIMEN line. Never treat a RECEIPT — UNVERIFIED line as proof: ${unverified.map((c) => c.claim).join("; ")}`);
   }
   if (normalized.gaps.length) {
-    lines.push(`OPEN GAPS — homework, not copy. Do not invent these onto slides: ${normalized.gaps.join("; ")}`);
+    lines.push(`GAPS — not copy. Do not invent these onto slides: ${normalized.gaps.join("; ")}`);
   }
   return lines;
 }
 
-const HOMEWORK_ANCHOR = /^(?:[-•*]\s+)?(?:RECEIPT\s*—\s*UNVERIFIED|GAP\s*—)/i;
+const HOMEWORK_ANCHOR = /^(?:RECEIPT\s*—\s*UNVERIFIED|GAP\s*—)/i;
+
+export function stripFuelLead(line) {
+  return String(line || "").trim()
+    .replace(/^[-•*]\s+/, "")
+    .replace(/^\d+[.)]\s+/, "");
+}
 
 export function isHomeworkAnchor(line) {
-  return HOMEWORK_ANCHOR.test(String(line || "").trim());
+  return HOMEWORK_ANCHOR.test(stripFuelLead(line));
 }
 
 export function parsePointedSlideCount(text) {
@@ -1160,13 +1166,13 @@ export function countUsableAnchors(context) {
   for (const line of lines) {
     const raw = String(line || "").trim();
     if (!raw) continue;
-    const bullet = raw.replace(/^[-•*]\s+/, "");
+    const bullet = stripFuelLead(raw);
     if (isHomeworkAnchor(raw) || isHomeworkAnchor(bullet)) continue;
     if (/^(?:THESIS|START|SPECIMEN|MECHANISM|FRICTION|DOCUMENT|ARGUMENT|JOIN|NEXT)\s*—/i.test(bullet)) {
       n += 1;
       continue;
     }
-    if (/^[-•*]/.test(raw) && bullet.length > 8 && !/^(?:POV:|OPERATOR HOOK:|COHERENCE:|USE THIS DESK|POINTED SLIDE|UNVERIFIED|OPEN GAPS|CONVERSATION|ANCHORED FACTS|HOMEWORK|SLIDE_PLAN|SLIDE JOBS|The operator named)/i.test(bullet)) {
+    if ((/^[-•*]/.test(raw) || /^\d+[.)]\s+/.test(raw.trim())) && bullet.length > 8 && !/^(?:POV:|OPERATOR HOOK:|COHERENCE:|USE THIS DESK|POINTED SLIDE|UNVERIFIED|OPEN GAPS|GAPS —|CONVERSATION|ANCHORED FACTS|HOMEWORK|SLIDE_PLAN|SLIDE JOBS|NEWS STYLES|The operator named)/i.test(bullet)) {
       n += 1;
     }
   }

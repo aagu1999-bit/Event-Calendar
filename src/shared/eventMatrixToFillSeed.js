@@ -45,7 +45,7 @@ export function summarizeSlidesForFeedback(slides) {
 // they can flip it inside the fill modal itself — the seed is a starting
 // point, not a lock.
 
-import { EVENT_TIERS, DEMOGRAPHIC_PRESETS, LEGACY_DEMOGRAPHIC_ALIASES } from "./matrixEnums.js";
+import { EVENT_TIERS, DEMOGRAPHIC_PRESETS, LEGACY_DEMOGRAPHIC_ALIASES, PIPELINE_STATUS, MATRIX_FIELDS } from "./matrixEnums.js";
 import { getClusterLabel, resolveEditorialLens, isListicleHook, formatCoherenceSeedLines, isHomeworkAnchor, isLocateDesk, formatEmotionRegister } from "./matrixCompass.js";
 import { formatConversationSeedLines } from "./conversationMaps.js";
 import { buildSubjectLock, lockLensDirective } from "./subjectLock.js";
@@ -187,16 +187,21 @@ export function eventMatrixToFillSeed(event) {
   }
   if (bullets.length) {
     if (contextLines.length) contextLines.push("");
-    const usable = bullets.filter((b) => !isHomeworkAnchor(b));
-    const homework = bullets.filter((b) => isHomeworkAnchor(b));
+    const usable = [];
+    const gaps = [];
+    bullets.forEach((b, i) => {
+      const line = `${i + 1}. ${b}`;
+      if (isHomeworkAnchor(b)) gaps.push(line);
+      else usable.push(line);
+    });
     if (usable.length) {
-      contextLines.push("ANCHORED FACTS (write from these):");
-      for (const b of usable) contextLines.push(`- ${b}`);
+      contextLines.push("ANCHORED FACTS (write from these — numbers match Fuel on the desk):");
+      for (const b of usable) contextLines.push(b);
     }
-    if (homework.length) {
+    if (gaps.length) {
       if (usable.length) contextLines.push("");
-      contextLines.push("HOMEWORK — NOT PROOF. Do not write these as facts. Unverified claims and open gaps stay off the slides:");
-      for (const b of homework) contextLines.push(`- ${b}`);
+      contextLines.push("GAPS — not proof. Do not write these as facts. Unverified claims stay off the slides:");
+      for (const b of gaps) contextLines.push(b);
     }
   }
   const coherenceLines = formatCoherenceSeedLines(m.argument_check);
@@ -277,6 +282,24 @@ export function eventMatrixToFillSeed(event) {
 // so a desk that kept bad carousels to look at them now teaches that shape.
 export function wipeFeedbackMemoryPatch() {
   return { rejected_drafts: [], approved_drafts: [] };
+}
+
+export function emptyDeskPatch() {
+  const patch = {
+    subject_facets: [],
+    corridor_locales: [],
+    target_demographic: [],
+    data_points: [],
+    pipeline_status: PIPELINE_STATUS.DRAFT.key,
+    preview_slides: [],
+    rejected_drafts: [],
+    approved_drafts: [],
+  };
+  for (const field of MATRIX_FIELDS) {
+    if (field in patch) continue;
+    patch[field] = null;
+  }
+  return patch;
 }
 
 export function countFeedbackMemory(events) {

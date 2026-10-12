@@ -150,4 +150,7 @@ export const MATRIX_FIELDS = [
   // Named slide jobs (hook / prove / happened / who / changes / todo).
   // Completeness ignores it — empty means Auto from Fuel / Check.
   "slide_plan",
+  // Last generated preview. Completeness ignores it — going back to
+  // the desk should still show Fuel / Check, not a blank Generate.
+  "preview_slides",
 ];

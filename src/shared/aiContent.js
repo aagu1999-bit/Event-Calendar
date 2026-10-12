@@ -55,6 +55,7 @@ import {
   slidePlanSpineBlock,
   attachTrifectaWarnings,
   attachEmptyNewsWarnings,
+  attachNewsStyles,
 } from "./slideJobs.js";
 
 const MODEL = "gemini-2.5-flash-lite";
@@ -2793,6 +2794,7 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
     sanitized = detectGeographicWhiplash(sanitized, workingSequence);
     sanitized = detectSlotDoctrineViolations(sanitized, workingSequence);
     sanitized = attachEmptyNewsWarnings(sanitized);
+    sanitized = attachNewsStyles(sanitized);
     if (jobsLocked) sanitized = attachTrifectaWarnings(sanitized, namedPlan.jobs);
     return willStitchCta ? appendStitchedCtaIfNeeded(sanitized) : stitchKeywordCta(sanitized, workingSequence, keywordTrigger);
   }
@@ -2865,6 +2867,7 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   sanitized = detectGeographicWhiplash(sanitized, workingSequence);
   sanitized = detectSlotDoctrineViolations(sanitized, workingSequence);
   sanitized = attachEmptyNewsWarnings(sanitized);
+  sanitized = attachNewsStyles(sanitized);
   if (jobsLocked) sanitized = attachTrifectaWarnings(sanitized, namedPlan.jobs);
   return willStitchCta ? appendStitchedCtaIfNeeded(sanitized) : stitchKeywordCta(sanitized, workingSequence, keywordTrigger);
 }
@@ -3246,7 +3249,7 @@ export function buildDedupPreamble(slides) {
 function fillSlotShape(t) {
   if (t === "cover")     return '{"type":"cover","headline":"...","subtitle":"...","accentWord":"..."}';
   if (t === "text")      return '{"type":"text","textTitle":"...","textBody":"..."}';
-  if (t === "news")      return '{"type":"news","newsKicker":"<1-3 word eyebrow like THE SUMMIT or OCT 12 — never THE LOG>","newsHeadline":"<required short heading — the event or receipt name>","newsBody":"<required 1-2 short paragraphs of the log — never empty>","newsBold":false}';
+  if (t === "news")      return '{"type":"news","newsKicker":"<1-3 word eyebrow like THE SUMMIT or OCT 12 — never THE LOG>","newsHeadline":"<required short heading — the event or receipt name>","newsBody":"<required 1-2 short paragraphs of the log — never empty>","newsBold":false,"newsStyles":["log"]}';
   if (t === "spotlight") return '{"type":"spotlight","spotName":"...","spotMeta":"...","spotTime":"","spotPrice":"","spotCta":""}';
   if (t === "cta")       return '{"type":"cta","ctaKicker":"","ctaDate":"...","ctaVenue":"...","ctaUrl":"..."}';
   if (t === "photo")     return '{"type":"photo","caption":"...","captionSecondary":"..."}';
@@ -4111,8 +4114,12 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
       const ctaIdxAmong = sequence.slice(0, idx).filter(t => t === "cta").length + 1;
       const ctaTotal = sequence.filter(t => t === "cta").length;
       extra = `\n\nThis is CTA ${ctaIdxAmong} of ${ctaTotal}. Each CTA is a DIRECTORY LISTING for ONE event. ctaKicker stays BLANK. ctaDate slot becomes the EVENT NAME (uppercased big-bold headline of the card). ctaVenue slot is "<venue> · <day> · <time>". ctaUrl is that event's URL or page link. Pick a DIFFERENT event from the context for each CTA — don't repeat. If context lists fewer events than CTAs, invent plausible ones grounded in the topic.`;
+    } else if (slotType === "cover" && /LOCATE DESK:/i.test(String(context || ""))) {
+      extra = "\n\nLOCATE COVER: headline names who / what / where / when already on this desk. Do not ask who benefits, who paid, whose boom, or whether investment reaches residents unless a numbered Fuel line already named that fight. Subtitle is the map or the first night, not a withheld examination.";
+    } else if (slotType === "cta" && /LOCATE DESK:/i.test(String(context || ""))) {
+      extra = "\n\nLOCATE DONE: a next step already on the desk (a named night, a map, comment EVENTS). Not 'examine the evidence'. Do not restate the cover as a question.";
     } else if (slotType === "news") {
-      extra = "\n\nNEWS slide — the log, not a cover and not a name-only kicker. who / what / where / when already on this desk. Real stake + named receipt + a use on THIS card. newsKicker = a 1-3 word eyebrow (THE SUMMIT / HACKATHON / OCT 12 — never THE LOG / THE BIGGER PICTURE / THE STORY). newsHeadline = REQUIRED short heading (the event or receipt name). newsBody = REQUIRED: write the START / THESIS receipt into 1-2 short paragraphs. Never leave newsBody empty. A kicker with a blank body is a failed card — the name is not the log. Conversational or rolling (the default). End on ONE payoff line wrapped in *asterisks* so it bolds (exactly one) only if that payoff is already on the desk. Every specific must be true; never manufacture drama. newsBold true only for a genuinely urgent breaking beat.";
+      extra = "\n\nNEWS slide — the log, not a cover and not a name-only kicker. who / what / where / when already on this desk. Real stake + named receipt + a use on THIS card. newsKicker = a 1-3 word eyebrow (THE SUMMIT / HACKATHON / OCT 12 — never THE LOG / THE BIGGER PICTURE / THE STORY). newsHeadline = REQUIRED short heading (the event or receipt name). newsBody = REQUIRED: write the START / THESIS receipt into 1-2 short paragraphs. Never leave newsBody empty. A kicker with a blank body is a failed card — the name is not the log. Conversational or rolling (the default). End on ONE payoff line wrapped in *asterisks* so it bolds (exactly one) only if that payoff is already on the desk. Every specific must be true; never manufacture drama. newsBold true only for a genuinely urgent breaking beat. newsStyles = THIS card's mix only (log / receipt / quote / side / hole). Do not copy the same mix onto every News chair. Cite Fuel by number when you plant a receipt (Fuel #2).";
     } else if (slotType === "features") {
       // The Features slot is the one most prone to filler because each card is
       // tiny — force concrete promises and a single standout card.

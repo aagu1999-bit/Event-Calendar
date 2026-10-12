@@ -7,13 +7,14 @@ import { isContentRegister } from "./cgeThesis.js";
 import { parseConversationRankFromContext } from "./conversationMaps.js";
 import { earnedSlideCount, essaySlideSequence, formatDeskSeeLine } from "./matrixCompass.js";
 import { appendMethodBriefToContext, appendOperatorQuestions } from "./cgeMethod.js";
-import { SlideJobStrip } from "./SlideJobStrip.jsx";
+import { SlideJobStrip, NewsStyleChips } from "./SlideJobStrip.jsx";
 import {
   sanitizeSlidePlan,
   looksFromJobs,
   replaceSlidePlanInContext,
   formatSlidePlanHeading,
   anchorsFromDeskContext,
+  sanitizeNewsStyles,
 } from "./slideJobs.js";
 import { recastSlot, PREVIEW_RECAST_TYPES, PREVIEW_RECAST_LABELS, PREVIEW_RECAST_HINTS, formatPreviewSeeLine } from "./recastSlot.js";
 import {
@@ -49,7 +50,7 @@ const CONTEXT_SCAFFOLD = [
 //   onClose()
 //   onAccept(slides)   — slides array matching the template's sequence
 
-export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTopic = "", initialContext = "", initialArrange = false, initialRegister = null, initialClusterDirective = "", initialClusterLabel = "", initialKeywordTrigger = null, initialVoiceParams = null, initialBehavioralTags = null, initialIsEvergreen = false, initialRejectedDrafts = [], initialApprovedDrafts = [], initialSlidePlan = null, compactMode = false, onClose, onAccept, onSaveFeedback = null, onSlidePlanChange = null }) {
+export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTopic = "", initialContext = "", initialArrange = false, initialRegister = null, initialClusterDirective = "", initialClusterLabel = "", initialKeywordTrigger = null, initialVoiceParams = null, initialBehavioralTags = null, initialIsEvergreen = false, initialRejectedDrafts = [], initialApprovedDrafts = [], initialSlidePlan = null, initialSlides = [], previewDesk = null, compactMode = false, onClose, onAccept, onSaveFeedback = null, onSlidePlanChange = null, onPreviewSave = null }) {
   const voice = useBrandStore((s) => s.voice);
   const slotPrompts = useBrandStore((s) => s.slotPrompts);
   const addExemplar = useBrandStore((s) => s.addExemplar);
@@ -168,11 +169,23 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
 
   useEffect(() => {
     if (open) {
-      setSlides([]);
+      const saved = Array.isArray(initialSlides) ? initialSlides.filter((s) => s && s.type) : [];
+      setSlides(saved);
+      if (saved.length) {
+        setKeptIdx(new Set(saved.map((_, i) => i)));
+        setPickedTemplate({
+          id: "desk-preview",
+          name: `${saved.length} slides from this desk`,
+          sequence: saved.map((s) => s.type),
+          custom: true,
+        });
+      } else {
+        setKeptIdx(new Set());
+        setPickedTemplate(null);
+      }
       setError("");
       setBusy(false);
       setBusyLabel("");
-      setPickedTemplate(null);
       setPickReasoning("");
       setCompressionEvent(null);
       setSavedIdx(new Set());
@@ -367,7 +380,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
       voice,
       slotPrompts,
       templateMeta: deskSeq
-        ? { name: jobsLocked ? formatSlidePlanHeading(namedPlan) : `${n} slides from this desk`, keyMove: jobsLocked ? "The operator named these jobs. Look is assigned from the job. Do not invent Locate / Cause / Explain beats." : "Cover locates. Extra chairs are more News — one receipt per card. Omit unverified claims and open gaps. Do not invent homework onto slides." }
+        ? { name: jobsLocked ? formatSlidePlanHeading(namedPlan) : `${n} slides from this desk`, keyMove: jobsLocked ? "The operator named these jobs. Look is assigned from the job. Do not invent Locate / Cause / Explain beats." : "Cover locates. Extra chairs are more News — one receipt per card. Omit unverified claims and Gaps. Do not invent gaps onto slides." }
         : useTemplate,
       mode,
       letterMode,
@@ -392,6 +405,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
       slideJobs: jobsLocked ? namedPlan : null,
     });
     setSlides(result);
+    if (typeof onPreviewSave === "function") onPreviewSave(result);
   };
 
   const commitSlidePlan = (next) => {
@@ -495,6 +509,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
       approvedDrafts: approvedMem,
     });
     setSlides(result);
+    if (typeof onPreviewSave === "function") onPreviewSave(result);
   };
 
   const rewriteMarkedSlides = async (genContext, marked) => {
@@ -533,6 +548,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
     }
     singleRegenRef.current = true;
     setSlides(next);
+    if (typeof onPreviewSave === "function") onPreviewSave(next);
     setSavedIdx((prev) => {
       const n = new Set(prev);
       marked.forEach((i) => n.delete(i));
@@ -729,10 +745,14 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
         after ? `THE SLIDE RIGHT AFTER (slide ${idx + 2} - ${after.type}): ${slotToExemplar(after).trim() || "(no text)"}`
               : "There is NO slide after — this is the closer/CTA.",
       ].join("\n");
+      const styleLine = slot.type === "news" && Array.isArray(slot.newsStyles) && slot.newsStyles.length
+        ? `NEWS STYLES FOR THIS CARD ONLY: ${slot.newsStyles.join(", ")}. Rewrite THIS chair in that mix. Do not copy it onto other News chairs.`
+        : "";
       const regenContext = appendOperatorQuestions(appendSavedTeaching([
         context.trim(),
         `FULL CAROUSEL (study the voice, the running motif, and what each slide already covers — do not repeat or contradict them):\n${fullMap}`,
         `YOUR JOB: rewrite ONLY slide ${idx + 1} as a ${slot.type} card so it fits SEAMLESSLY between its neighbors — continue/pay off what the slide before sets up, and tee up the slide after. Match the established voice + motif + pattern, and fill the specific missing beat this position needs. Don't duplicate what other slides already say.\n${neighborLines}`,
+        styleLine,
         prevVersion && `PREVIOUS VERSION OF THIS SLIDE (make the new one clearly DIFFERENT — fresh angle/wording, not a rephrase — while still bridging the neighbors):\n${prevVersion}`,
       ].filter(Boolean).join("\n\n"), {
         voice,
@@ -765,8 +785,15 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
       });
       const fresh = Array.isArray(result) && result[0] ? result[0] : null;
       if (!fresh) throw new Error("No slide returned");
+      if (slot.type === "news") {
+        fresh.newsStyles = sanitizeNewsStyles(slot.newsStyles?.length ? slot.newsStyles : fresh.newsStyles);
+      }
       singleRegenRef.current = true; // preserve keep/skip choices across the swap
-      setSlides(prevSlides => prevSlides.map((s, i) => (i === idx ? fresh : s)));
+      setSlides((prevSlides) => {
+        const next = prevSlides.map((s, i) => (i === idx ? fresh : s));
+        if (typeof onPreviewSave === "function") onPreviewSave(next);
+        return next;
+      });
       setSavedIdx(prev2 => { const n = new Set(prev2); n.delete(idx); return n; }); // new copy → un-mark "saved"
     } catch (err) {
       console.error(err);
@@ -847,9 +874,14 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
   const recastSlide = (idx, nextType) => {
     const next = slides.map((s, i) => (i === idx ? recastSlot(s, nextType) : s));
     setSlides(next);
+    if (typeof onPreviewSave === "function") onPreviewSave(next);
     if (pickedTemplate) {
       setPickedTemplate({ ...pickedTemplate, sequence: next.map((s) => s.type) });
     }
+  };
+  const closeToDesk = () => {
+    if (typeof onPreviewSave === "function" && slides.length) onPreviewSave(slides);
+    if (typeof onClose === "function") onClose();
   };
   const patchSlide = (idx, patch) => {
     setSlides((prev) => prev.map((s, i) => (i === idx ? { ...s, ...patch } : s)));
@@ -948,6 +980,17 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
             rows={4}
             style={{ ...fieldStyle, resize: "vertical", lineHeight: 1.5 }}
           />
+          <div style={{ marginTop: 10 }}>
+            <NewsStyleChips
+              styles={Array.isArray(slot.newsStyles) ? slot.newsStyles : []}
+              desk={previewDesk || { hook: topic, pov: "", lens: "", anchors: anchorsFromDeskContext(context), check: null }}
+              onStylesChange={(next) => patchSlide(idx, { newsStyles: next })}
+              heading="News styles · this card"
+              hint={Array.isArray(slot.newsStyles) && slot.newsStyles.length
+                ? "This chair’s mix. Change it, then Redo to rewrite this card only."
+                : "Pick the mix for this chair, then Redo."}
+            />
+          </div>
         </div>
       );
     }
@@ -1215,11 +1258,33 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
           <h2 style={{ fontSize: "1.15rem", fontFamily: "'Syne',sans-serif", fontWeight: 700, letterSpacing: 1, margin: 0 }}>
             {compactMode ? "Preview · generate" : "✨ AI Fill Template"}
           </h2>
-          <button
-            onClick={onClose}
-            style={{ background: "transparent", border: "none", color: "rgba(245,240,232,0.55)", fontSize: "1.4rem", cursor: "pointer", lineHeight: 1 }}
-            title="Close"
-          >×</button>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {compactMode ? (
+              <button
+                type="button"
+                onClick={closeToDesk}
+                title="Back to Fuel / Check / Hook. Cards stay on this desk."
+                style={{
+                  background: "transparent",
+                  border: "1px solid rgba(245,240,232,0.18)",
+                  color: "rgba(245,240,232,0.75)",
+                  fontSize: "0.58rem",
+                  fontWeight: 800,
+                  letterSpacing: 0.8,
+                  textTransform: "uppercase",
+                  padding: "5px 9px",
+                  borderRadius: 4,
+                  cursor: "pointer",
+                  fontFamily: "'Syne',sans-serif",
+                }}
+              >Back to desk</button>
+            ) : null}
+            <button
+              onClick={closeToDesk}
+              style={{ background: "transparent", border: "none", color: "rgba(245,240,232,0.55)", fontSize: "1.4rem", cursor: "pointer", lineHeight: 1 }}
+              title={compactMode ? "Back to desk — cards stay" : "Close"}
+            >×</button>
+          </div>
         </div>
 
         {compactMode && (
@@ -1379,6 +1444,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
             onChange={commitSlidePlan}
             desk={{ hook: topic, pov: "", lens: "", anchors: anchorsFromDeskContext(context), check: null }}
             autoCount={deskN}
+            showNewsStyles={false}
             disabled={gstOn}
             disabledNote="GST is on — named jobs are ignored. Turn GST off to lock the cards."
           />
@@ -1998,7 +2064,7 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
               Preview · {slides.length} slides
             </div>
             <div style={{ fontSize: "0.58rem", color: "rgba(245,240,232,0.5)", marginBottom: 8, lineHeight: 1.4 }}>
-              Cover · News · Done are the chairs. Text is a paragraph if you recast. Keep sends the chair to the canvas. Wrong marks it for the ask box. Redo rewrites this chair as the type showing now.
+              Cover · News · Done are the chairs. News styles live on each News card after Generate. Back to desk keeps Fuel as you left it. Keep sends the chair to the canvas. Wrong marks it for the ask box. Redo rewrites this chair as the type showing now.
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
               {slides.map((slot, idx) => {
