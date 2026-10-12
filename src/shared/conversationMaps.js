@@ -228,7 +228,7 @@ export function conversationWriterBlock(rankOrText) {
   ];
 }
 
-// Cover + News in the ranked talk. Extra text slides from this desk's
+// Cover + News in the ranked talk. Extra chairs are more News from this desk's
 // receipts (or an operator pin). A selected map does not freeze length at 3.
 export function conversationSlideSequence(rankOrText, targetCount = null) {
   const rank = typeof rankOrText === "string"

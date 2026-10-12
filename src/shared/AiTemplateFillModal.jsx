@@ -366,7 +366,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
       voice,
       slotPrompts,
       templateMeta: deskSeq
-        ? { name: jobsLocked ? formatSlidePlanHeading(namedPlan) : `${n} slides from this desk`, keyMove: jobsLocked ? "The operator named these jobs. Look is assigned from the job. Do not invent Locate / Cause / Explain beats." : "Cover locates. News carries one receipt. Extra text slides only for extra anchored receipts. Omit unverified claims and open gaps. Do not invent homework onto slides." }
+        ? { name: jobsLocked ? formatSlidePlanHeading(namedPlan) : `${n} slides from this desk`, keyMove: jobsLocked ? "The operator named these jobs. Look is assigned from the job. Do not invent Locate / Cause / Explain beats." : "Cover locates. Extra chairs are more News — one receipt per card. Omit unverified claims and open gaps. Do not invent homework onto slides." }
         : useTemplate,
       mode,
       letterMode,
@@ -1769,7 +1769,7 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
                   <button type="button" onClick={() => setGstOn(false)} style={{ padding: "3px 8px", borderRadius: 3, cursor: "pointer", fontSize: "0.55rem", fontWeight: 800, letterSpacing: 0.08, textTransform: "uppercase", background: !gstOn ? "rgba(99,179,237,0.25)" : "transparent", color: !gstOn ? "#63B3ED" : "rgba(245,240,232,0.45)", border: `1px solid ${!gstOn ? "rgba(99,179,237,0.5)" : "rgba(245,240,232,0.12)"}` }}>Off</button>
                   <button type="button" onClick={() => setGstOn(true)} style={{ padding: "3px 8px", borderRadius: 3, cursor: "pointer", fontSize: "0.55rem", fontWeight: 800, letterSpacing: 0.08, textTransform: "uppercase", background: gstOn ? "rgba(229,188,79,0.22)" : "transparent", color: gstOn ? "#E5BC4F" : "rgba(245,240,232,0.45)", border: `1px solid ${gstOn ? "rgba(229,188,79,0.5)" : "rgba(245,240,232,0.12)"}` }}>On</button>
                 </div>
-                <div>{gstOn ? "— 10-slide stance arc. Named jobs are ignored while GST is on." : slidePlan.jobs.length ? `— Named jobs: ${formatSlidePlanHeading(slidePlan)}. Look is assigned from the job.` : "— Cover + News in the ranked conversation map if you selected one. Extra text slides only when this desk earned them. Name jobs to lock the cards."}</div>
+                <div>{gstOn ? "— 10-slide stance arc. Named jobs are ignored while GST is on." : slidePlan.jobs.length ? `— Named jobs: ${formatSlidePlanHeading(slidePlan)}. Look is assigned from the job.` : "— Cover + News, then more News for extra receipts. Name jobs to lock the cards."}</div>
                 <div>Slide count: <b style={{ color: "#F5F0E8" }}>{gstOn ? "10 (GST locked)" : (slidePlan.jobs.length ? slidePlan.jobs.length : deskN)}</b> {gstOn ? "" : (slidePlan.jobs.length ? "— named jobs win length" : (slideCount === "auto" ? "— Auto from the anchored receipts on this desk. 3–10. Not a silent 3." : `— pinning ${slideCount} slides`))}</div>
                 <div>Enrich lookups: {researchOn || newsOn
                   ? <span style={{ color: "#FBBF24" }}>ADDS extra Gemini calls whose bullets get concatenated into Research Anchors — may duplicate matrix anchors</span>

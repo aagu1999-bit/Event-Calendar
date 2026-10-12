@@ -49,7 +49,7 @@ export function contentArrangerLines() {
     "Slide jobs (only when no named plan):",
     "  LOCATE or CONTRAST (cover) — locate who / what / where / when. Title two expressions (Strip Malls vs Urban Cafes) ONLY if Fuel already proved them. Subtitle connects. Never 'is gone'. Never 'discover surprising gathering spots'. Never withhold the news so they swipe.",
     "  NEWS or CAUSE (news) — THE LOG for what is already on this desk. Real stake + named receipt + a use. A cause paragraph ONLY if the brief named that pressure. Do not invent a 1:3000. Not THE BIGGER PICTURE. Not an open loop.",
-    "  EXPLAIN (text) — only if there is an expression to explain. Title names the section ('Route 22's Parking Lot Breweries'). Body explains WHY, and names Sunken Silo and Autodidact inside that paragraph when they are on the brief.",
+    "  EXPLAIN (text) — only if the operator recast a card to Text. Auto extra chairs are more News, not Text. If Text is used: title names the section. Body explains WHY from a receipt already on the desk.",
     "  NEXT (cta) — the question already on the desk. Never invent a liquor-barrier closer. Never 'find your next gathering spot'. Never THE ARCHIVE.",
   ];
 }

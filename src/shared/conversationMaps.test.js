@@ -272,8 +272,8 @@ test("ranked maps parse from seed and become Cover + News, not GST 10", () => {
   assert.equal(parsed.secondary, "injustice");
   assert.equal(parsed.tertiary, "reframe");
   assert.deepEqual(conversationSlideSequence(parsed), ["cover", "news", "cta"]);
-  assert.deepEqual(conversationSlideSequence(`${seed}\nPOINTED SLIDE COUNT: 5.`), ["cover", "news", "text", "text", "cta"]);
-  assert.deepEqual(conversationSlideSequence(parsed, 5), ["cover", "news", "text", "text", "cta"]);
+  assert.deepEqual(conversationSlideSequence(`${seed}\nPOINTED SLIDE COUNT: 5.`), ["cover", "news", "news", "news", "cta"]);
+  assert.deepEqual(conversationSlideSequence(parsed, 5), ["cover", "news", "news", "news", "cta"]);
   const richDesk = [
     seed,
     "POINTED SLIDE COUNT: 3.",
@@ -282,7 +282,7 @@ test("ranked maps parse from seed and become Cover + News, not GST 10", () => {
     "- MECHANISM — weekend traffic eats the split.",
     "- SPECIMEN — a Parkway operator named the influx.",
   ].join("\n");
-  assert.deepEqual(conversationSlideSequence(richDesk), ["cover", "news", "text", "text", "text", "cta"]);
+  assert.deepEqual(conversationSlideSequence(richDesk), ["cover", "news", "news", "news", "news", "cta"]);
   assert.equal(conversationSlideSequence({}), null);
   const writer = conversationWriterBlock(parsed).join("\n");
   assert.match(writer, /outranks GST/);

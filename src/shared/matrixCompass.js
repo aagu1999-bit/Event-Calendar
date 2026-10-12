@@ -1225,7 +1225,7 @@ export function earnedSlideCount(context, pinned = null) {
 export function essaySlideSequence(n) {
   const count = Math.min(DESK_SLIDE_MAX, Math.max(DESK_SLIDE_MIN, Number(n) || DESK_SLIDE_MIN));
   const seq = ["cover", "news"];
-  for (let i = 0; i < count - 3; i += 1) seq.push("text");
+  for (let i = 0; i < count - 3; i += 1) seq.push("news");
   seq.push("cta");
   return seq;
 }
