@@ -1122,6 +1122,13 @@ export function normalizeCoherenceResult(parsed, { anchors = [] } = {}) {
   return out;
 }
 
+export function fuelCitationCount(check, fuelNumber) {
+  const n = Number(fuelNumber);
+  if (!Number.isFinite(n) || n < 1) return 0;
+  const claims = Array.isArray(check?.claims) ? check.claims : [];
+  return claims.filter((c) => c && c.support === "anchored" && Number(c.anchor) === n).length;
+}
+
 export function formatCoherenceSeedLines(check) {
   const normalized = normalizeCoherenceResult(check);
   if (!normalized) return [];

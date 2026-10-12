@@ -38,6 +38,7 @@ import {
   formatDeskSeeLine,
   formatDeskLengthContext,
   isLocateDesk,
+  fuelCitationCount,
 } from "./matrixCompass.js";
 import {
   buildSubjectLock,
@@ -1992,6 +1993,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {bullets.map((b, i) => {
                 const over = (b || "").length > LIMITS.BULLET_MAX;
+                const cites = fuelCitationCount(coherenceResult || local.argument_check, i + 1);
                 return (
                   <div key={i} style={{
                     display: "flex", alignItems: "flex-start", gap: 8,
@@ -2000,16 +2002,33 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                     borderRadius: 6,
                     padding: "8px 12px",
                   }}>
-                    <span style={{
+                    <span
+                      title={cites
+                        ? `${cites} hook/POV claim${cites === 1 ? "" : "s"} sit on Fuel #${i + 1} — this line is holding the post`
+                        : `Fuel #${i + 1}. Run Check to see if hook/POV sit on this line.`}
+                      style={{
                       width: 22,
                       flexShrink: 0,
-                      marginTop: 6,
+                      marginTop: 2,
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      gap: 3,
                       fontSize: "0.62rem",
                       fontWeight: 800,
                       letterSpacing: "0.04em",
                       fontVariantNumeric: "tabular-nums",
                       color: orbit,
-                    }}>{i + 1}</span>
+                    }}>
+                      {i + 1}
+                      {cites > 0 ? (
+                        <span style={{ display: "flex", gap: 2, flexWrap: "wrap", justifyContent: "center", maxWidth: 22 }}>
+                          {Array.from({ length: Math.min(cites, 4) }, (_, d) => (
+                            <span key={d} style={{ width: 5, height: 5, borderRadius: 99, background: ready, display: "inline-block" }} />
+                          ))}
+                        </span>
+                      ) : null}
+                    </span>
                     <textarea
                       value={b || ""}
                       onChange={(e) => setBullet(i, e.target.value)}

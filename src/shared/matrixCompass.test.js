@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isListicleHook, isBrochureCopy, hookEvidenceLines, splitHookPhrases, classifyHookRegister, formatHookPhraseLines, buildHookPrompt, buildLensReframePrompt, buildThesisPrompt, buildCoherencePrompt, normalizeCoherenceResult, formatCoherenceSeedLines, defaultCoherenceUseFor, coherenceInputSignature, describeReframeInputs, lensFreshnessSignature, earnedSlideCount, essaySlideSequence, countUsableAnchors, isHomeworkAnchor, isLocateDesk, formatDeskSeeLine, formatDeskLengthContext, formatEmotionRegister } from "./matrixCompass.js";
+import { isListicleHook, isBrochureCopy, hookEvidenceLines, splitHookPhrases, classifyHookRegister, formatHookPhraseLines, buildHookPrompt, buildLensReframePrompt, buildThesisPrompt, buildCoherencePrompt, normalizeCoherenceResult, formatCoherenceSeedLines, fuelCitationCount, defaultCoherenceUseFor, coherenceInputSignature, describeReframeInputs, lensFreshnessSignature, earnedSlideCount, essaySlideSequence, countUsableAnchors, isHomeworkAnchor, isLocateDesk, formatDeskSeeLine, formatDeskLengthContext, formatEmotionRegister } from "./matrixCompass.js";
 import { buildSubjectLock, subjectLockPromptLines, lockLensDirective } from "./subjectLock.js";
 
 test("listicle hooks are the Google-vs-CGE failure", () => {
@@ -481,4 +481,22 @@ test("slide count is earned from this desk, not a silent 3", () => {
     "SLIDE JOBS: Stop the scroll → What happened → What to do",
   ].join("\n");
   assert.equal(earnedSlideCount(namedJobs), 3);
+});
+
+test("fuel citation dots count Check claims that sit on that Fuel number", () => {
+  const check = {
+    verdict: "thin",
+    reason: "One claim is still a promise.",
+    claims: [
+      { claim: "The week is on.", from: "hook", support: "anchored", anchor: 1 },
+      { claim: "Oct. 14 is at iHub.", from: "pov", support: "anchored", anchor: 2 },
+      { claim: "The week is on.", from: "pov", support: "anchored", anchor: 1 },
+      { claim: "Who paid is unknown.", from: "pov", support: "unverified", anchor: 0 },
+    ],
+  };
+  assert.equal(fuelCitationCount(check, 1), 2);
+  assert.equal(fuelCitationCount(check, 2), 1);
+  assert.equal(fuelCitationCount(check, 3), 0);
+  assert.equal(fuelCitationCount(null, 1), 0);
+  assert.equal(fuelCitationCount(check, 0), 0);
 });
