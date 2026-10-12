@@ -401,9 +401,9 @@ test("slide count is earned from this desk, not a silent 3", () => {
   ].join("\n");
   assert.equal(countUsableAnchors(eightProofs), 8);
   assert.equal(earnedSlideCount(eightProofs), 10);
-  assert.deepEqual(essaySlideSequence(6), ["cover", "news", "text", "text", "text", "cta"]);
+  assert.deepEqual(essaySlideSequence(6), ["cover", "news", "news", "news", "news", "cta"]);
   assert.deepEqual(essaySlideSequence(3), ["cover", "news", "cta"]);
-  assert.deepEqual(essaySlideSequence(4), ["cover", "news", "text", "cta"]);
+  assert.deepEqual(essaySlideSequence(4), ["cover", "news", "news", "cta"]);
   assert.equal(essaySlideSequence(10).length, 10);
   assert.deepEqual(essaySlideSequence(10).slice(0, 2), ["cover", "news"]);
   assert.equal(essaySlideSequence(10).at(-1), "cta");

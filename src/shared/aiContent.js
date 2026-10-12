@@ -1486,7 +1486,7 @@ export async function designSequence({ apiKey, topic, context, mode, targetCount
       "Do not default to memory, ownership vs programming, or same-city diaspora tension unless the LENS, POV, or an anchor named it.",
       "An event or room may open the piece; it is not the product.",
       `BANNED slot types: ${CONTENT_FLYER_SLOTS.join(", ")}. A venue or a number inside the brief is not permission to pick those slots.`,
-      "Prefer: cover → news → text → cta. News is THE LOG. Each extra text slide is a connecting paragraph, not a manifesto and not a venue card.",
+      "Prefer: cover → news → news → cta. News is THE LOG. Each extra chair is another News card — one more named receipt already on the desk — not a Text manifesto and not a venue card.",
       "The CTA is the NEXT QUESTION the explanation opened. Never RSVP / pull up / this weekend / find your next gathering spot / THE ARCHIVE.",
       "Starting points (THESIS / START / GAP / FRICTION / MECHANISM) are what you explain. Do not peel them into a listicle or a stat.",
       "The COVER names the contrast those starting points already proved (Strip Malls vs Urban Cafes). Never 'discover surprising gathering spots'. Never 'is gone'.",
