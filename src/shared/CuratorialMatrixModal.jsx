@@ -710,16 +710,22 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
     });
   };
   const askRelatedness = () => {
-    if (relatedPick.length < 2) return;
+    if (relatedPick.length < 2 || researching) return;
+    const line = relatednessGapLine(relatedPick, bullets, LIMITS.BULLET_MAX);
+    if (!line) return;
     if (hasRelatednessGapFor(bullets, relatedPick)) {
+      setRelatedPick([]);
+      void fuelResearch("gap-scout");
+      return;
+    }
+    if (bullets.length < LIMITS.BULLETS_MAX) {
+      applyPatch({ data_points: [...bullets, line] });
       setRelatedPick([]);
       return;
     }
-    if (bullets.length >= LIMITS.BULLETS_MAX) return;
-    const line = relatednessGapLine(relatedPick, bullets, LIMITS.BULLET_MAX);
-    if (!line) return;
-    applyPatch({ data_points: [...bullets, line] });
+    // Desk is full — still hunt. Do not drop STARTs to park a 9th line.
     setRelatedPick([]);
+    void fuelResearch("gap-scout", { extraGaps: [line] });
   };
   const setConversationSlot = (slot, key) => {
     const now = sanitizeConversationRank(local.conversation_rank);
@@ -746,11 +752,13 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
   // which relays to Perplexity's web-grounded Agent API. Response bullets append to
   // data_points (up to BULLETS_MAX cap); citations render below the
   // list so the operator can vet before shipping. Errors surface inline.
-  const fuelResearch = async (mode = "full") => {
+  const fuelResearch = async (mode = "full", opts = {}) => {
     if (researching) return;
+    const deskBullets = Array.isArray(opts.bullets) ? opts.bullets : bullets;
+    const extraGaps = Array.isArray(opts.extraGaps) ? opts.extraGaps : [];
     // Snapshot the bullets we have now so a bad research can be undone
     // in one tap via the sources strip's ↺ Discard button.
-    setPreResearchSnapshot(bullets);
+    setPreResearchSnapshot(deskBullets);
     setResearching(true);
     setResearchError(null);
     try {
@@ -764,7 +772,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
             ? local.hook_a_side
             : "") || local.editorial_pov || event?.name || "",
           pov: local.editorial_pov || "",
-          existingBullets: bullets,
+          existingBullets: deskBullets,
           tier: local.event_tier || "",
           corridor: local.corridor || "",
           // Demographics get injected into Perplexity's system prompt
@@ -783,7 +791,8 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
           coherenceGaps: sendGaps
             ? [
               ...(Array.isArray(coherenceResult?.gaps) ? coherenceResult.gaps : []),
-              ...fuelRelatednessGaps(bullets),
+              ...fuelRelatednessGaps(deskBullets),
+              ...extraGaps,
             ].filter((g, i, all) => g && all.indexOf(g) === i).slice(0, 6)
             : [],
           coherenceReason: sendGaps ? (coherenceResult?.reason || "") : "",
@@ -807,9 +816,9 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
         // Make room for the new pieces — do not slice them off
         // because the desk is already full of history.
         const keep = Math.max(0, LIMITS.BULLETS_MAX - incoming.length);
-        merged = [...bullets.slice(0, keep), ...incoming].slice(0, LIMITS.BULLETS_MAX);
+        merged = [...deskBullets.slice(0, keep), ...incoming].slice(0, LIMITS.BULLETS_MAX);
       } else {
-        merged = [...bullets, ...incoming].slice(0, LIMITS.BULLETS_MAX);
+        merged = [...deskBullets, ...incoming].slice(0, LIMITS.BULLETS_MAX);
       }
       const thesisLine = typeof j.thesis === "string" ? j.thesis.trim() : "";
       const patch = { data_points: merged };
@@ -834,7 +843,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
       // append. The server's overlap indices are 0-based against the
       // just-returned payload; add the offset to point at the rendered
       // rows in the current list.
-      setOverlapOffset(bullets.length);
+      setOverlapOffset(deskBullets.length);
       setOverlaps(Array.isArray(j.overlaps) ? j.overlaps : []);
       // Snapshot Fuel Research inputs so staleness detector flags
       // the anchors when the operator later changes cluster / POV /
@@ -2127,25 +2136,29 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                   gap: 8,
                   marginTop: 2,
                 }}>
-                  <span style={{ fontSize: "0.62rem", color: muted, lineHeight: 1.5, flex: "1 1 180px" }}>
-                    Click two or more numbers, then ask if they&apos;re related. Open prompt — not a facet list. Opinion stays in POV.
+                  <span style={{ fontSize: "0.62rem", color: bullets.length >= LIMITS.BULLETS_MAX ? warn : muted, lineHeight: 1.5, flex: "1 1 180px" }}>
+                    {bullets.length >= LIMITS.BULLETS_MAX
+                      ? `Fuel is full (${bullets.length}/${LIMITS.BULLETS_MAX}). Ask still searches. Drop a line if you want the Gap parked on the list.`
+                      : "Click two or more numbers, then ask if they're related. Open prompt — not a facet list. Opinion stays in POV."}
                   </span>
                   <button
                     type="button"
                     onClick={askRelatedness}
-                    disabled={relatedPick.length < 2 || bullets.length >= LIMITS.BULLETS_MAX || hasRelatednessGapFor(bullets, relatedPick)}
+                    disabled={relatedPick.length < 2 || researching}
                     title={relatedPick.length < 2
                       ? "Pick two or more Fuel numbers first"
                       : hasRelatednessGapFor(bullets, relatedPick)
-                        ? "That pair is already a Gap on Fuel — Google relatedness below"
-                        : "Write an open Gap: are these related? Related-as / not / afterthought or omit."}
+                        ? "That pair is already a Gap — click to Google relatedness"
+                        : bullets.length >= LIMITS.BULLETS_MAX
+                          ? "Fuel is full. This still searches relatedness without adding a 9th line."
+                          : "Write an open Gap: are these related? Related-as / not / afterthought or omit."}
                     style={{
                       background: relatedPick.length >= 2 ? "rgba(167,139,250,0.16)" : "transparent",
                       border: `1px dashed ${relatedPick.length >= 2 ? orbit : whisper}`,
-                      color: relatedPick.length >= 2 ? orbit : faint,
+                      color: relatedPick.length >= 2 && !researching ? orbit : faint,
                       borderRadius: 6,
                       padding: "8px 12px",
-                      cursor: relatedPick.length < 2 || bullets.length >= LIMITS.BULLETS_MAX ? "not-allowed" : "pointer",
+                      cursor: relatedPick.length < 2 || researching ? "not-allowed" : "pointer",
                       fontFamily: "inherit",
                       fontSize: "0.68rem",
                       letterSpacing: "0.08em",
