@@ -88,6 +88,152 @@ export const COVER_STYLES = {
 
 export const COVER_STYLE_ORDER = ["announcement", "number", "quote", "needtoknow", "howitworks"];
 
+// News is the beef. Styles stack on the same News card (trifecta), they
+// do not add chairs. A style stays locked until the desk has the material.
+export const NEWS_STYLES = {
+  log: {
+    key: "log",
+    label: "Log",
+    hint: "Who / what / where / when on the card",
+    missing: "Type who / what / where / when in Narrowing or Fuel",
+    writer:
+      "LOG: who / what / where / when already on the desk. One night, not a landscape.",
+  },
+  receipt: {
+    key: "receipt",
+    label: "Receipt",
+    hint: "A date, number, filing, or official line",
+    missing: "Need a date, number, filing, or official line in Fuel",
+    writer:
+      "RECEIPT: plant one named proof already on the desk (date, vote, number, filing). Do not invent a statistic.",
+  },
+  quote: {
+    key: "quote",
+    label: "Quote",
+    hint: "Someone on the desk said it",
+    missing: "Need someone speaking — a quote or “X said” in Fuel",
+    writer:
+      "QUOTE: a named speaker already on the desk. Do not invent a voice.",
+  },
+  side: {
+    key: "side",
+    label: "Side by side",
+    hint: "Two sourced facts, no because",
+    missing: "Need two sourced facts in Fuel",
+    writer:
+      "SIDE BY SIDE: put two sourced facts already on the desk next to each other. Do not write because / which means / who paid unless that join is itself sourced.",
+  },
+  hole: {
+    key: "hole",
+    label: "The hole",
+    hint: "Name what the desk could not prove",
+    missing: "Add a GAP, or Check an unverified claim",
+    writer:
+      "THE HOLE: name the gap as a fact (the filing does not list who signed). Do not hedge a rumor onto the card. Do not fill the gap.",
+  },
+};
+
+export const NEWS_STYLE_ORDER = ["log", "receipt", "quote", "side", "hole"];
+
+const HOMEWORK_ANCHOR = /^(?:[-•*]\s+)?(?:RECEIPT\s*—\s*UNVERIFIED|GAP\s*—)/i;
+const RECEIPT_RE = /\b(?:\d{1,4}|\$[\d,]+|\d+%|monday|tuesday|wednesday|thursday|friday|saturday|sunday|voted|vote|official|according to|filing|ordinance|permit|lease|census|license|reported|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|19\d{2}|20\d{2})\b/i;
+const QUOTE_RE = /[“”"][^“”"]{8,}[“”"]|\b(?:said|says|told)\s+[A-Z]|\baccording to\s+[A-Z]/;
+
+function newsDeskBlob({ hook = "", pov = "", lens = "", anchors = [] } = {}) {
+  const lines = Array.isArray(anchors) ? anchors : [];
+  return [hook, pov, lens, ...lines].map((s) => String(s || "")).join("\n");
+}
+
+function usableNewsAnchors(anchors = []) {
+  return (Array.isArray(anchors) ? anchors : [])
+    .map((a) => String(a || "").trim())
+    .filter((a) => a.length > 8 && !HOMEWORK_ANCHOR.test(a));
+}
+
+const SKIP_CONTEXT_PREFIX = /^(?:POV:|OPERATOR HOOK:|COHERENCE:|USE THIS DESK|POINTED SLIDE|UNVERIFIED|OPEN GAPS|CONVERSATION|ANCHORED FACTS|HOMEWORK|SLIDE_PLAN|SLIDE JOBS|NEWS STYLES|LOCATE DESK|The operator named|LOG:|RECEIPT:|QUOTE:|SIDE BY SIDE:|THE HOLE:)/i;
+
+export function anchorsFromDeskContext(text) {
+  const out = [];
+  for (const line of String(text || "").split(/\n/)) {
+    const raw = String(line || "").trim();
+    if (!raw) continue;
+    const bullet = raw.replace(/^[-•*]\s+/, "");
+    if (HOMEWORK_ANCHOR.test(raw) || HOMEWORK_ANCHOR.test(bullet)) {
+      out.push(bullet);
+      continue;
+    }
+    if (/^(?:THESIS|START|SPECIMEN|MECHANISM|FRICTION|DOCUMENT|ARGUMENT|JOIN|NEXT|GAP)\s*—/i.test(bullet)) {
+      out.push(bullet);
+      continue;
+    }
+    if (/^[-•*]/.test(raw) && bullet.length > 8 && !SKIP_CONTEXT_PREFIX.test(bullet)) {
+      out.push(bullet);
+    }
+  }
+  return out;
+}
+
+export function newsStyleOf(key) {
+  const k = String(key || "").trim().toLowerCase();
+  return NEWS_STYLES[k] || null;
+}
+
+export function newsStyleAvailability(desk = {}) {
+  const blob = newsDeskBlob(desk);
+  const usable = usableNewsAnchors(desk.anchors);
+  const homework = (Array.isArray(desk.anchors) ? desk.anchors : [])
+    .map((a) => String(a || "").trim())
+    .filter((a) => HOMEWORK_ANCHOR.test(a));
+  const check = desk.check && typeof desk.check === "object" ? desk.check : {};
+  const unverified = Array.isArray(check.claims)
+    ? check.claims.filter((c) => c && c.support === "unverified")
+    : [];
+  const gaps = Array.isArray(check.gaps) ? check.gaps.filter(Boolean) : [];
+  const named = [desk.hook, desk.pov, desk.lens].map((s) => String(s || "").trim()).some((s) => s.length > 8);
+  const logOk = named || usable.length > 0;
+  const receiptOk = RECEIPT_RE.test(blob);
+  const quoteOk = QUOTE_RE.test(blob);
+  const sideOk = usable.length >= 2;
+  const holeOk = homework.length > 0 || unverified.length > 0 || gaps.length > 0;
+  return {
+    log: { ok: logOk, reason: logOk ? NEWS_STYLES.log.hint : NEWS_STYLES.log.missing },
+    receipt: { ok: receiptOk, reason: receiptOk ? NEWS_STYLES.receipt.hint : NEWS_STYLES.receipt.missing },
+    quote: { ok: quoteOk, reason: quoteOk ? NEWS_STYLES.quote.hint : NEWS_STYLES.quote.missing },
+    side: { ok: sideOk, reason: sideOk ? NEWS_STYLES.side.hint : NEWS_STYLES.side.missing },
+    hole: { ok: holeOk, reason: holeOk ? NEWS_STYLES.hole.hint : NEWS_STYLES.hole.missing },
+  };
+}
+
+export function clampNewsStyles(plan, desk = {}) {
+  const clean = sanitizeSlidePlan(plan);
+  const avail = newsStyleAvailability(desk);
+  return {
+    ...clean,
+    newsStyles: clean.newsStyles.filter((k) => avail[k]?.ok),
+  };
+}
+
+export function toggleNewsStyle(plan, key, desk = {}) {
+  const style = newsStyleOf(key);
+  if (!style) return sanitizeSlidePlan(plan);
+  const clean = clampNewsStyles(plan, desk);
+  const avail = newsStyleAvailability(desk);
+  if (!avail[style.key]?.ok) return clean;
+  const on = clean.newsStyles.includes(style.key);
+  return {
+    ...clean,
+    newsStyles: on
+      ? clean.newsStyles.filter((k) => k !== style.key)
+      : [...clean.newsStyles, style.key],
+  };
+}
+
+export function formatNewsStyleParen(plan) {
+  const labels = sanitizeSlidePlan(plan).newsStyles.map((k) => NEWS_STYLES[k].label.toLowerCase());
+  if (!labels.length) return "";
+  return ` (${labels.join(" + ")})`;
+}
+
 export function slideJobOf(key) {
   const k = String(key || "").trim().toLowerCase();
   return SLIDE_JOBS[k] || null;
@@ -127,14 +273,23 @@ export function sanitizeSlidePlan(raw = {}) {
     unique.splice(1, 0, "happened");
   }
   const coverStyle = coverStyleOf(src.coverStyle)?.key || "";
+  const newsSeen = new Set();
+  const newsStyles = (Array.isArray(src.newsStyles) ? src.newsStyles : [])
+    .map((k) => newsStyleOf(k)?.key)
+    .filter((k) => {
+      if (!k || newsSeen.has(k)) return false;
+      newsSeen.add(k);
+      return true;
+    });
   return {
     jobs: unique.slice(0, 8),
     coverStyle,
+    newsStyles,
   };
 }
 
 export function defaultSlidePlan() {
-  return { jobs: DEFAULT_SLIDE_JOBS.slice(), coverStyle: "announcement" };
+  return { jobs: DEFAULT_SLIDE_JOBS.slice(), coverStyle: "announcement", newsStyles: [] };
 }
 
 export function looksFromJobs(jobs = []) {
@@ -145,11 +300,14 @@ export function looksFromJobs(jobs = []) {
 
 export function formatSlidePlanHeading(plan) {
   const clean = sanitizeSlidePlan(plan);
-  if (!clean.jobs.length) return "Cover + News + closer from this desk (Auto)";
+  const news = formatNewsStyleParen(clean);
+  const newsTail = news ? ` · news:${news}` : "";
+  if (!clean.jobs.length) return `Cover + News + closer from this desk (Auto)${newsTail}`;
   const labels = clean.jobs.map((k) => SLIDE_JOBS[k].label);
   const style = coverStyleOf(clean.coverStyle);
   const head = labels.join(" → ");
-  return style ? `${head} · cover: ${style.label}` : head;
+  const withCover = style ? `${head} · cover: ${style.label}` : head;
+  return `${withCover}${newsTail}`;
 }
 
 export function formatSlidePlanSeeLine(plan) {
@@ -165,28 +323,43 @@ export function hasNamedSlidePlan(planOrText) {
 
 export function formatSlidePlanSeedLines(plan) {
   const clean = sanitizeSlidePlan(plan);
-  if (!clean.jobs.length) return [];
-  const labels = clean.jobs.map((k) => SLIDE_JOBS[k].label);
-  const style = coverStyleOf(clean.coverStyle);
-  return [
-    `SLIDE_PLAN_KEYS: jobs=${clean.jobs.join(",")}; cover=${clean.coverStyle || "none"}`,
-    `SLIDE JOBS: ${labels.join(" → ")}`,
-    "The operator named these jobs. Look (cover / news / text / closer) is assigned from the job. Do not invent Locate / Cause / Explain / Paradox beats to complete a kit. Do not add slides the plan did not name.",
-    style ? style.writer : "Cover states the fact or the real stake. Do not withhold the news.",
-    "When a job is What happened or Prove I wasn't lying: put a real stake, a named receipt, and a use on THAT card (the trifecta). No fabricated drama.",
-  ];
+  if (!clean.jobs.length && !clean.newsStyles.length) return [];
+  const jobsKey = clean.jobs.length ? clean.jobs.join(",") : "none";
+  const coverKey = clean.coverStyle || "none";
+  const newsKey = clean.newsStyles.length ? clean.newsStyles.join(",") : "none";
+  const keys = clean.newsStyles.length
+    ? `SLIDE_PLAN_KEYS: jobs=${jobsKey}; cover=${coverKey}; news=${newsKey}`
+    : `SLIDE_PLAN_KEYS: jobs=${jobsKey}; cover=${coverKey}`;
+  const lines = [keys];
+  if (clean.jobs.length) {
+    const labels = clean.jobs.map((k) => SLIDE_JOBS[k].label);
+    const style = coverStyleOf(clean.coverStyle);
+    lines.push(`SLIDE JOBS: ${labels.join(" → ")}`);
+    lines.push("The operator named these jobs. Look (cover / news / text / closer) is assigned from the job. Do not invent Locate / Cause / Explain / Paradox beats to complete a kit. Do not add slides the plan did not name.");
+    lines.push(style ? style.writer : "Cover states the fact or the real stake. Do not withhold the news.");
+    lines.push("When a job is What happened or Prove I wasn't lying: put a real stake, a named receipt, and a use on THAT card (the trifecta). No fabricated drama.");
+  }
+  if (clean.newsStyles.length) {
+    const labels = clean.newsStyles.map((k) => NEWS_STYLES[k].label);
+    lines.push(`NEWS STYLES — stack on every News card, not extra chairs: ${labels.join(" + ")}. Do not add a slide per style.`);
+    for (const k of clean.newsStyles) lines.push(NEWS_STYLES[k].writer);
+  }
+  return lines;
 }
 
 export function parseSlidePlanFromContext(text) {
   const s = String(text || "");
-  const m = s.match(/SLIDE_PLAN_KEYS:\s*jobs=([a-z,]+);\s*cover=([a-z]+|none)/i);
+  const m = s.match(/SLIDE_PLAN_KEYS:\s*jobs=([a-z,]+|none);\s*cover=([a-z]+|none)(?:;\s*news=([a-z,]+|none))?/i);
   if (!m) return sanitizeSlidePlan({});
-  const jobs = String(m[1] || "").split(",").map((k) => k.trim());
+  const jobsRaw = String(m[1] || "").toLowerCase();
+  const jobs = jobsRaw === "none" ? [] : jobsRaw.split(",").map((k) => k.trim());
   const cover = String(m[2] || "").toLowerCase() === "none" ? "" : m[2];
-  return sanitizeSlidePlan({ jobs, coverStyle: cover });
+  const newsRaw = String(m[3] || "").toLowerCase();
+  const newsStyles = !newsRaw || newsRaw === "none" ? [] : newsRaw.split(",").map((k) => k.trim());
+  return sanitizeSlidePlan({ jobs, coverStyle: cover, newsStyles });
 }
 
-const SLIDE_PLAN_CONTEXT_RE = /^(?:SLIDE_PLAN_KEYS:|SLIDE JOBS:|The operator named these jobs|Cover style:|Cover states the fact|When a job is What happened)/i;
+const SLIDE_PLAN_CONTEXT_RE = /^(?:SLIDE_PLAN_KEYS:|SLIDE JOBS:|The operator named these jobs|Cover style:|Cover states the fact|When a job is What happened|NEWS STYLES|LOG:|RECEIPT:|QUOTE:|SIDE BY SIDE:|THE HOLE:)/i;
 
 export function replaceSlidePlanInContext(text, plan) {
   const kept = String(text || "")
@@ -206,11 +379,16 @@ export function slidePlanWriterBlock(planOrText) {
     : sanitizeSlidePlan(planOrText);
   const lines = formatSlidePlanSeedLines(plan);
   if (!lines.length) return [];
+  const namedJobs = plan.jobs.length > 0;
   return [
     "═════════════════════════════",
-    "SLIDE JOBS — operator-named. Look (cover / news / text / closer) is assigned from the job. This outranks Locate / Cause / Explain / Paradox / Friction kit-filling. GST 10 ignores this plan.",
+    namedJobs
+      ? "SLIDE JOBS — operator-named. Look (cover / news / text / closer) is assigned from the job. This outranks Locate / Cause / Explain / Paradox / Friction kit-filling. GST 10 ignores this plan."
+      : "NEWS STYLES — stack on every News card. These are not extra chairs. GST 10 ignores this plan.",
     ...lines,
-    "Do not invent slides the plan did not name. Do not compress below the named count.",
+    namedJobs
+      ? "Do not invent slides the plan did not name. Do not compress below the named count."
+      : "Do not add a News slide per style. Combine the selected styles on the News cards the desk already earned.",
     "═════════════════════════════",
     "",
   ];

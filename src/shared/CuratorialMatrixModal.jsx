@@ -57,7 +57,7 @@ import {
   suggestConversationRank,
   vetoConversationPrimary,
 } from "./conversationMaps.js";
-import { SlideJobStrip } from "./SlideJobStrip.jsx";
+import { SlideJobStrip, NewsStyleChips } from "./SlideJobStrip.jsx";
 import { sanitizeSlidePlan } from "./slideJobs.js";
 
 // The Curatorial Matrix editor — dedicated modal (not inline in the row)
@@ -417,6 +417,13 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
     pov: local.editorial_pov,
     lens: liveCheckLens || local.editorial_lens,
   }), [local.hook_a_side, local.editorial_pov, liveCheckLens, local.editorial_lens]);
+  const newsDesk = useMemo(() => ({
+    hook: local.hook_a_side,
+    pov: local.editorial_pov,
+    lens: liveCheckLens || local.editorial_lens,
+    anchors: bullets,
+    check: coherenceResult || local.argument_check,
+  }), [local.hook_a_side, local.editorial_pov, liveCheckLens, local.editorial_lens, bullets, coherenceResult, local.argument_check]);
   const coherenceIsStale = useMemo(() => {
     if (!coherenceResult || !coherenceCheckedAt) return false;
     const sig = coherenceInputSignature({
@@ -2349,6 +2356,13 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                 Fuel facts stay names until you add a night.
               </div>
             ) : null}
+            <div style={{ marginTop: 10 }}>
+              <NewsStyleChips
+                plan={local.slide_plan}
+                desk={newsDesk}
+                onChange={(next) => applyPatch({ slide_plan: sanitizeSlidePlan(next) })}
+              />
+            </div>
             {coherenceError && (
               <div style={{
                 padding: "8px 10px",
@@ -2973,6 +2987,8 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
           <div style={{ marginTop: 18, borderTop: `1px dashed ${hair}`, paddingTop: 14 }}>
             <SlideJobStrip
               plan={local.slide_plan}
+              desk={newsDesk}
+              showNewsStyles={false}
               onChange={(next) => applyPatch({ slide_plan: sanitizeSlidePlan(next) })}
             />
           </div>

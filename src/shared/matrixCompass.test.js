@@ -442,6 +442,12 @@ test("slide count is earned from this desk, not a silent 3", () => {
     context: locateWeek,
   }), "You'll see Cover + News + Done.");
   assert.equal(formatDeskSeeLine({
+    lens: "newark tech week is coming to newark",
+    pov: "Newark Tech Week is in town.",
+    context: locateWeek,
+    plan: { newsStyles: ["log", "receipt"] },
+  }), "You'll see Cover + News (log + receipt) + Done.");
+  assert.equal(formatDeskSeeLine({
     plan: { jobs: ["hook", "happened", "todo"] },
   }), "You'll see 3 named cards.");
   assert.match(formatEmotionRegister("Curiosity/Epiphany"), /cold reader/);
