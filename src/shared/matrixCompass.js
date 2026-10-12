@@ -1135,15 +1135,21 @@ export function formatCoherenceSeedLines(check) {
     lines.push(`UNVERIFIED CLAIMS — OMIT FROM EVERY SLIDE. Do not write, paraphrase, or imply these. If the hook or POV used one, rewrite that beat from an anchored START / THESIS / SPECIMEN line. Never treat a RECEIPT — UNVERIFIED line as proof: ${unverified.map((c) => c.claim).join("; ")}`);
   }
   if (normalized.gaps.length) {
-    lines.push(`OPEN GAPS — homework, not copy. Do not invent these onto slides: ${normalized.gaps.join("; ")}`);
+    lines.push(`GAPS — not copy. Do not invent these onto slides: ${normalized.gaps.join("; ")}`);
   }
   return lines;
 }
 
-const HOMEWORK_ANCHOR = /^(?:[-•*]\s+)?(?:RECEIPT\s*—\s*UNVERIFIED|GAP\s*—)/i;
+const HOMEWORK_ANCHOR = /^(?:RECEIPT\s*—\s*UNVERIFIED|GAP\s*—)/i;
+
+export function stripFuelLead(line) {
+  return String(line || "").trim()
+    .replace(/^[-•*]\s+/, "")
+    .replace(/^\d+[.)]\s+/, "");
+}
 
 export function isHomeworkAnchor(line) {
-  return HOMEWORK_ANCHOR.test(String(line || "").trim());
+  return HOMEWORK_ANCHOR.test(stripFuelLead(line));
 }
 
 export function parsePointedSlideCount(text) {
@@ -1160,20 +1166,19 @@ export function countUsableAnchors(context) {
   for (const line of lines) {
     const raw = String(line || "").trim();
     if (!raw) continue;
-    const bullet = raw.replace(/^[-•*]\s+/, "");
+    const bullet = stripFuelLead(raw);
     if (isHomeworkAnchor(raw) || isHomeworkAnchor(bullet)) continue;
     if (/^(?:THESIS|START|SPECIMEN|MECHANISM|FRICTION|DOCUMENT|ARGUMENT|JOIN|NEXT)\s*—/i.test(bullet)) {
       n += 1;
       continue;
     }
-    if (/^[-•*]/.test(raw) && bullet.length > 8 && !/^(?:POV:|OPERATOR HOOK:|COHERENCE:|USE THIS DESK|POINTED SLIDE|UNVERIFIED|OPEN GAPS|CONVERSATION|ANCHORED FACTS|HOMEWORK|SLIDE_PLAN|SLIDE JOBS|The operator named)/i.test(bullet)) {
+    if ((/^[-•*]/.test(raw) || /^\d+[.)]\s+/.test(raw.trim())) && bullet.length > 8 && !/^(?:POV:|OPERATOR HOOK:|COHERENCE:|USE THIS DESK|POINTED SLIDE|UNVERIFIED|OPEN GAPS|GAPS —|CONVERSATION|ANCHORED FACTS|HOMEWORK|SLIDE_PLAN|SLIDE JOBS|NEWS STYLES|The operator named)/i.test(bullet)) {
       n += 1;
     }
   }
   return n;
 }
 
-const LOCATE_DESK_LINE = /^LOCATE DESK:/m;
 const LOCATE_CONTRAST = /\b(?:vs\.?|but|while|instead|still|deficit|tax|killed|because|which means|the trick|who paid)\b/i;
 
 export function isLocateDesk({ hook = "", pov = "", lens = "" } = {}) {
@@ -1188,7 +1193,20 @@ export function isLocateDesk({ hook = "", pov = "", lens = "" } = {}) {
   return !LOCATE_CONTRAST.test(blob);
 }
 
-export function formatDeskSeeLine({ hook = "", pov = "", lens = "", context = "", plan = null } = {}) {
+// Fuel facts as Generate counts them: dashed bullets, plus Check's
+// pointed count when it exists. Raw typed lines (no START prefix)
+// still earn chairs. Check's 3 does not freeze Auto if Fuel earned more.
+export function formatDeskLengthContext({ dataPoints = [], pointed = null } = {}) {
+  const lines = (Array.isArray(dataPoints) ? dataPoints : [])
+    .map((b) => String(b || "").trim())
+    .filter(Boolean)
+    .map((b) => (/^[-•*]/.test(b) ? b : `- ${b}`));
+  const n = Number.parseInt(pointed, 10);
+  if (Number.isFinite(n) && n > 0) lines.push(`POINTED SLIDE COUNT: ${n}`);
+  return lines.join("\n");
+}
+
+export function formatDeskSeeLine({ hook = "", pov = "", lens = "", context = "", plan = null, count = null } = {}) {
   const clean = sanitizeSlidePlan(plan);
   const fromContext = parseSlidePlanFromContext(context);
   const named = clean.jobs.length ? clean.jobs : fromContext.jobs;
@@ -1196,30 +1214,31 @@ export function formatDeskSeeLine({ hook = "", pov = "", lens = "", context = ""
   if (named.length) {
     return `You'll see ${named.length} named cards${newsBit ? ` · News${newsBit}` : ""}.`;
   }
-  if (isLocateDesk({ hook, pov, lens }) || LOCATE_DESK_LINE.test(String(context || ""))) {
-    return `You'll see Cover + News${newsBit} + Done.`;
-  }
-  const n = earnedSlideCount(context);
+  const pinned = typeof count === "number" && Number.isFinite(count) && count > 0
+    ? Math.min(DESK_SLIDE_MAX, Math.max(DESK_SLIDE_MIN, Math.round(count)))
+    : null;
+  const n = pinned || earnedSlideCount(context);
   if (n <= 3) return `You'll see Cover + News${newsBit} + Done.`;
   return `You'll see Cover + News${newsBit} + ${n - 3} more + Done.`;
 }
 
 // Auto length from THIS desk's copy, not a silent 3 and not GST 10.
-// Operator pin and named jobs win. A locate-only Narrowing (who / what /
-// where / when, no contrast) stays Cover + News + Done — Fuel facts are
-// names, not extra chairs. Else countable START / THESIS / SPECIMEN
-// receipts (1 proof → 3, 8 proofs → 10).
+// Operator pin and named jobs win. Countable START / THESIS / SPECIMEN
+// receipts earn chairs (1 proof → 3, 5 proofs → 7, 8 proofs → 10).
+// Locate still means Cover locates (no invented essay arc) — it does
+// not freeze Auto at 3. Check's pointed count flows if it is higher.
 export function earnedSlideCount(context, pinned = null) {
   if (typeof pinned === "number" && Number.isFinite(pinned) && pinned > 0) {
     return Math.min(DESK_SLIDE_MAX, Math.max(DESK_SLIDE_MIN, Math.round(pinned)));
   }
   const namedJobs = parseSlidePlanFromContext(context).jobs;
   if (namedJobs.length) return Math.min(DESK_SLIDE_MAX, Math.max(2, namedJobs.length));
-  if (LOCATE_DESK_LINE.test(String(context || ""))) return DESK_SLIDE_MIN;
   const proofs = countUsableAnchors(context);
-  if (proofs > 0) return Math.min(DESK_SLIDE_MAX, Math.max(DESK_SLIDE_MIN, proofs + 2));
   const pointed = parsePointedSlideCount(context);
-  if (pointed) return Math.min(DESK_SLIDE_MAX, Math.max(DESK_SLIDE_MIN, pointed));
+  const fromProofs = proofs > 0 ? proofs + 2 : 0;
+  const fromCheck = pointed || 0;
+  const n = Math.max(fromProofs, fromCheck);
+  if (n > 0) return Math.min(DESK_SLIDE_MAX, Math.max(DESK_SLIDE_MIN, n));
   return DESK_SLIDE_MIN;
 }
 

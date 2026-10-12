@@ -250,13 +250,13 @@ test("fill seed splits homework off the proof pile", () => {
       },
     },
   });
-  assert.match(seed.context, /ANCHORED FACTS \(write from these\)/);
+  assert.match(seed.context, /ANCHORED FACTS \(write from these/);
   assert.match(seed.context, /START — Parkway towns lose the shoulder season/);
-  assert.match(seed.context, /HOMEWORK — NOT PROOF/);
+  assert.match(seed.context, /GAPS — not proof/i);
   assert.match(seed.context, /RECEIPT — UNVERIFIED: the tax is unpaid/);
   assert.match(seed.context, /GAP — a currently-operating Saturday operator quote/);
   assert.match(seed.context, /UNVERIFIED CLAIMS — OMIT FROM EVERY SLIDE/);
-  assert.match(seed.context, /OPEN GAPS — homework, not copy/);
+  assert.match(seed.context, /GAPS — not copy/);
   assert.equal(earnedSlideCount(seed.context), 6);
 });
 

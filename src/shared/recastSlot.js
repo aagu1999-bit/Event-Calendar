@@ -10,6 +10,32 @@ export const PREVIEW_RECAST_LABELS = {
   cta: "Done",
 };
 
+export const PREVIEW_RECAST_HINTS = {
+  cover: "Stay-line. What this is.",
+  news: "The log. One receipt on this card.",
+  text: "A paragraph — only if this chair needs to explain.",
+  cta: "Done. What to do.",
+};
+
+export function formatPreviewSeeLine(slides = []) {
+  if (!Array.isArray(slides) || !slides.length) return "";
+  const counts = { cover: 0, news: 0, text: 0, cta: 0 };
+  for (const s of slides) {
+    const t = String(s?.type || "");
+    if (t === "cover") counts.cover += 1;
+    else if (t === "news") counts.news += 1;
+    else if (t === "text") counts.text += 1;
+    else if (t === "cta") counts.cta += 1;
+  }
+  const parts = [];
+  if (counts.cover) parts.push(counts.cover === 1 ? "Cover" : `${counts.cover} Cover`);
+  if (counts.news) parts.push(counts.news === 1 ? "News" : `${counts.news} News`);
+  if (counts.text) parts.push(counts.text === 1 ? "Text" : `${counts.text} Text`);
+  if (counts.cta) parts.push("Done");
+  if (!parts.length) return `You got ${slides.length} cards.`;
+  return `You got ${parts.join(" + ")}.`;
+}
+
 function pairFrom(slot) {
   const s = slot && typeof slot === "object" ? slot : {};
   const t = String(s.type || "");

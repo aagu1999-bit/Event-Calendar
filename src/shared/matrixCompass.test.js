@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isListicleHook, isBrochureCopy, hookEvidenceLines, splitHookPhrases, classifyHookRegister, formatHookPhraseLines, buildHookPrompt, buildLensReframePrompt, buildThesisPrompt, buildCoherencePrompt, normalizeCoherenceResult, formatCoherenceSeedLines, defaultCoherenceUseFor, coherenceInputSignature, describeReframeInputs, lensFreshnessSignature, earnedSlideCount, essaySlideSequence, countUsableAnchors, isHomeworkAnchor, isLocateDesk, formatDeskSeeLine, formatEmotionRegister } from "./matrixCompass.js";
+import { isListicleHook, isBrochureCopy, hookEvidenceLines, splitHookPhrases, classifyHookRegister, formatHookPhraseLines, buildHookPrompt, buildLensReframePrompt, buildThesisPrompt, buildCoherencePrompt, normalizeCoherenceResult, formatCoherenceSeedLines, defaultCoherenceUseFor, coherenceInputSignature, describeReframeInputs, lensFreshnessSignature, earnedSlideCount, essaySlideSequence, countUsableAnchors, isHomeworkAnchor, isLocateDesk, formatDeskSeeLine, formatDeskLengthContext, formatEmotionRegister } from "./matrixCompass.js";
 import { buildSubjectLock, subjectLockPromptLines, lockLensDirective } from "./subjectLock.js";
 
 test("listicle hooks are the Google-vs-CGE failure", () => {
@@ -370,7 +370,7 @@ test("coherence seed lines tell the writer what the desk can carry", () => {
   assert.match(blob, /POINTED SLIDE COUNT: 3/);
   assert.match(blob, /UNVERIFIED CLAIMS — OMIT FROM EVERY SLIDE/);
   assert.match(blob, /The tax is unpaid/);
-  assert.match(blob, /OPEN GAPS — homework, not copy/);
+  assert.match(blob, /GAPS — not copy/);
   assert.match(blob, /currently-operating Parkway Saturday/);
   assert.deepEqual(formatCoherenceSeedLines(null), []);
   const sig = coherenceInputSignature({ hook: "a", pov: "b", anchors: ["c"], lens: "d" });
@@ -427,29 +427,50 @@ test("slide count is earned from this desk, not a silent 3", () => {
     pov: "Black commuters feel a walkable deficit.",
   }), false);
   const locateWeek = [
-    "LOCATE DESK: Cover + News + Done. Fuel facts are names to print, not extra chairs.",
+    "LOCATE DESK: Cover locates. Extra Fuel facts are more News cards.",
     "POV: Newark Tech Week is in town.",
     "ANCHORED FACTS (write from these):",
     "- START — Oct. 12 at Ruth Bader Ginsburg Hall",
     "- START — Mixer at Consigliere",
     "- START — Oct. 13 pitch night at Equal Space",
     "- START — NJIT student talks",
+    "POINTED SLIDE COUNT: 7.",
   ].join("\n");
-  assert.equal(earnedSlideCount(locateWeek), 3);
+  assert.equal(countUsableAnchors(locateWeek), 4);
+  assert.equal(earnedSlideCount(locateWeek.replace(/\nPOINTED SLIDE COUNT: 7\./, "")), 6);
+  assert.equal(earnedSlideCount(locateWeek), 7);
   assert.equal(formatDeskSeeLine({
     lens: "newark tech week is coming to newark",
     pov: "Newark Tech Week is in town.",
     context: locateWeek,
-  }), "You'll see Cover + News + Done.");
+  }), "You'll see Cover + News + 4 more + Done.");
   assert.equal(formatDeskSeeLine({
     lens: "newark tech week is coming to newark",
     pov: "Newark Tech Week is in town.",
     context: locateWeek,
     plan: { newsStyles: ["log", "receipt"] },
-  }), "You'll see Cover + News (log + receipt) + Done.");
+  }), "You'll see Cover + News (log + receipt) + 4 more + Done.");
   assert.equal(formatDeskSeeLine({
     plan: { jobs: ["hook", "happened", "todo"] },
   }), "You'll see 3 named cards.");
+  assert.equal(formatDeskSeeLine({
+    context: "LOCATE DESK: Cover locates.\n- START — one night.",
+    count: 7,
+  }), "You'll see Cover + News + 4 more + Done.");
+  const techWeekFuel = formatDeskLengthContext({
+    dataPoints: [
+      "Oct. 12 at Ruth Bader Ginsburg Hall",
+      "Mixer at Consigliere",
+      "Oct. 13 pitch night at Equal Space",
+      "NJIT student talks",
+      "GAP — a currently-operating Saturday operator quote",
+    ],
+    pointed: 3,
+  });
+  assert.equal(countUsableAnchors(techWeekFuel), 4);
+  assert.equal(earnedSlideCount(techWeekFuel), 6);
+  assert.equal(countUsableAnchors("1. START — Oct. 12 at Ruth Bader Ginsburg Hall\n2. GAP — who paid\n3. START — Mixer at Consigliere"), 2);
+  assert.equal(formatDeskSeeLine({ context: techWeekFuel }), "You'll see Cover + News + 3 more + Done.");
   assert.match(formatEmotionRegister("Curiosity/Epiphany"), /cold reader/);
   assert.equal(formatEmotionRegister(""), "");
   assert.equal(earnedSlideCount(locateWeek, 5), 5);

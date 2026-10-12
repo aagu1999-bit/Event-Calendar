@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { recastSlot, PREVIEW_RECAST_TYPES } from "./recastSlot.js";
+import { recastSlot, PREVIEW_RECAST_TYPES, formatPreviewSeeLine } from "./recastSlot.js";
 
 test("essay types only — no flyer catalog", () => {
   assert.deepEqual(PREVIEW_RECAST_TYPES, ["cover", "news", "text", "cta"]);
@@ -77,4 +77,15 @@ test("Text ↔ Cover maps title/body to headline/subtitle", () => {
     headline: "Who this is for",
     subtitle: "Operators already on the desk.",
   });
+});
+
+test("preview see-line names the chairs that actually came back", () => {
+  assert.equal(formatPreviewSeeLine([
+    { type: "cover" },
+    { type: "news" },
+    { type: "news" },
+    { type: "news" },
+    { type: "cta" },
+  ]), "You got Cover + 3 News + Done.");
+  assert.equal(formatPreviewSeeLine([{ type: "cover" }, { type: "news" }, { type: "cta" }]), "You got Cover + News + Done.");
 });

@@ -19,15 +19,19 @@ import {
   hasNamedSlidePlan,
   trifectaWarnings,
   attachTrifectaWarnings,
+  attachEmptyNewsWarnings,
   newsStyleAvailability,
   toggleNewsStyle,
   clampNewsStyles,
   formatNewsStyleParen,
   anchorsFromDeskContext,
+  inferNewsStylesFromSlide,
+  attachNewsStyles,
+  sanitizeNewsStyles,
 } from "./slideJobs.js";
 import { MATRIX_FIELDS } from "./matrixEnums.js";
 import { matrixCompleteness } from "./matrixValidation.js";
-import { eventMatrixToFillSeed } from "./eventMatrixToFillSeed.js";
+import { eventMatrixToFillSeed, emptyDeskPatch } from "./eventMatrixToFillSeed.js";
 import { earnedSlideCount, essaySlideSequence } from "./matrixCompass.js";
 import { CONTENT_ESSAY_SLOTS } from "./cgeMethod.js";
 
@@ -59,7 +63,7 @@ test("looks come from jobs, not a second playbook", () => {
 });
 
 test("empty plan heading is Auto; named plan names the cards", () => {
-  assert.equal(formatSlidePlanHeading({}), "Cover + News + closer from this desk (Auto)");
+  assert.equal(formatSlidePlanHeading({}), "Auto from Fuel / Check");
   assert.match(formatSlidePlanHeading(defaultSlidePlan()), /Stop the scroll → What happened → What to do/);
   assert.match(formatSlidePlanHeading(defaultSlidePlan()), /cover: Announcement/);
   assert.match(formatSlidePlanSeeLine(defaultSlidePlan()), /What you'll see:/);
@@ -111,6 +115,17 @@ test("trifecta warns only on What happened / Prove cards", () => {
   );
   assert.equal(tagged[0]._warnings.length > 0, true);
   assert.equal(tagged[1]._warnings, undefined);
+});
+
+test("empty News body is flagged so Redo can fill the receipt", () => {
+  const tagged = attachEmptyNewsWarnings([
+    { type: "news", newsKicker: "RUTGERS-NEWARK SUMMIT", newsHeadline: "", newsBody: "" },
+    { type: "news", newsKicker: "THE SUMMIT", newsHeadline: "Rutgers–Newark", newsBody: "Oct. 12, 1:30–6 p.m. at Ruth Bader Ginsburg Hall." },
+    { type: "cover", headline: "ok" },
+  ]);
+  assert.equal(tagged[0]._warnings[0].type, "empty_news");
+  assert.equal(tagged[1]._warnings, undefined);
+  assert.equal(tagged[2]._warnings, undefined);
 });
 
 test("matrix stores slide_plan and completeness ignores it", () => {
@@ -262,17 +277,27 @@ test("News styles multi-select stack and clamp when Fuel disappears", () => {
   assert.equal(formatNewsStyleParen(plan), " (log + receipt + the hole + side by side)");
 });
 
-test("stacked News styles seed the writer without adding chairs", () => {
-  const plan = sanitizeSlidePlan({ newsStyles: ["log", "receipt", "hole"] });
-  assert.deepEqual(plan.jobs, []);
-  const lines = formatSlidePlanSeedLines(plan);
-  assert.match(lines[0], /jobs=none; cover=none; news=log,receipt,hole/);
-  assert.match(lines.join("\n"), /stack on every News card/);
-  assert.match(lines.join("\n"), /Log \+ Receipt \+ The hole/);
-  assert.match(lines.join("\n"), /Do not add a slide per style/);
-  const parsed = parseSlidePlanFromContext(lines.join("\n"));
-  assert.deepEqual(parsed.newsStyles, ["log", "receipt", "hole"]);
-  assert.deepEqual(parsed.jobs, []);
+test("each News card picks its own style mix after Generate", () => {
+  const lines = formatSlidePlanSeedLines({});
+  assert.match(lines.join("\n"), /each News card picks its own mix/);
+  assert.match(lines.join("\n"), /Do not apply one stack to every News chair/);
+  assert.equal(/SLIDE_PLAN_KEYS:/.test(lines.join("\n")), false);
+  const inferred = inferNewsStylesFromSlide({
+    type: "news",
+    newsKicker: "THE SUMMIT",
+    newsHeadline: "Ruth Bader Ginsburg Hall",
+    newsBody: "Oct. 12 at Rutgers–Newark. Mayor Jackson said the hall “does not list who paid.”",
+  });
+  assert.equal(inferred.includes("log"), true);
+  assert.equal(inferred.includes("receipt"), true);
+  assert.equal(inferred.includes("quote"), true);
+  const tagged = attachNewsStyles([
+    { type: "cover", headline: "Tech Week" },
+    { type: "news", newsHeadline: "Oct. 12", newsBody: "Ruth Bader Ginsburg Hall.", newsStyles: ["log"] },
+    { type: "news", newsHeadline: "The mixer", newsBody: "Consigliere on Oct. 13." },
+  ]);
+  assert.deepEqual(tagged[1].newsStyles, ["log"]);
+  assert.equal(tagged[2].newsStyles.includes("log"), true);
   const seed = eventMatrixToFillSeed({
     name: "Tech Week",
     matrix: {
@@ -284,11 +309,16 @@ test("stacked News styles seed the writer without adding chairs", () => {
         "START — Mixer at Consigliere",
         "GAP — who paid for the main stages",
       ],
-      slide_plan: { newsStyles: ["log", "receipt", "hole"] },
     },
   });
-  assert.match(seed.context, /news=log,receipt,hole/);
+  assert.match(seed.context, /1\. START — Oct\. 12 at Ruth Bader Ginsburg Hall/);
+  assert.match(seed.context, /3\. GAP — who paid for the main stages/);
+  assert.match(seed.context, /GAPS — not proof/i);
   assert.equal(earnedSlideCount(seed.context), 4);
   assert.deepEqual(essaySlideSequence(earnedSlideCount(seed.context)), ["cover", "news", "news", "cta"]);
-  assert.match(formatSlidePlanHeading(plan), /news: \(log \+ receipt \+ the hole\)/);
+  const cleared = emptyDeskPatch();
+  assert.deepEqual(cleared.data_points, []);
+  assert.deepEqual(cleared.preview_slides, []);
+  assert.equal(cleared.hook_a_side, null);
+  assert.deepEqual(sanitizeNewsStyles(["log", "log", "nope", "receipt"]), ["log", "receipt"]);
 });

@@ -36,6 +36,7 @@ import {
   coherenceInputSignature,
   COMPASS_TOPICS,
   formatDeskSeeLine,
+  formatDeskLengthContext,
   isLocateDesk,
 } from "./matrixCompass.js";
 import {
@@ -49,7 +50,7 @@ import {
   getFacet,
 } from "./subjectLock.js";
 import { validateMatrix, matrixCompleteness, isMatrixReadyForGeneration } from "./matrixValidation.js";
-import { eventMatrixToFillSeed, stripFeedbackMemoryFromEvents } from "./eventMatrixToFillSeed.js";
+import { eventMatrixToFillSeed, stripFeedbackMemoryFromEvents, emptyDeskPatch } from "./eventMatrixToFillSeed.js";
 import {
   CONVERSATION_MAPS,
   CONVERSATION_MAP_ORDER,
@@ -57,7 +58,6 @@ import {
   suggestConversationRank,
   vetoConversationPrimary,
 } from "./conversationMaps.js";
-import { SlideJobStrip, NewsStyleChips } from "./SlideJobStrip.jsx";
 import { sanitizeSlidePlan } from "./slideJobs.js";
 
 // The Curatorial Matrix editor — dedicated modal (not inline in the row)
@@ -398,26 +398,26 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
     [local.cluster, local.editorial_lens, liveLens]
   );
   const liveCheckLens = resolvedLensForCheck.combined || resolvedLensForCheck.base || "";
-  const deskSeeLine = useMemo(() => formatDeskSeeLine({
-    hook: local.hook_a_side,
-    pov: local.editorial_pov,
-    lens: liveCheckLens || local.editorial_lens,
-    context: [
-      isLocateDesk({
-        hook: local.hook_a_side,
-        pov: local.editorial_pov,
-        lens: liveCheckLens || local.editorial_lens,
-      }) ? "LOCATE DESK:" : "",
-      ...(Array.isArray(local.data_points) ? local.data_points : []),
-    ].filter(Boolean).join("\n"),
-    plan: local.slide_plan,
-  }), [local.hook_a_side, local.editorial_pov, liveCheckLens, local.editorial_lens, local.data_points, local.slide_plan]);
+  const deskSeeLine = useMemo(() => {
+    const pointed = coherenceResult?.slideCount || local.argument_check?.slideCount;
+    const context = formatDeskLengthContext({
+      dataPoints: local.data_points,
+      pointed,
+    });
+    return formatDeskSeeLine({
+      hook: local.hook_a_side,
+      pov: local.editorial_pov,
+      lens: liveCheckLens || local.editorial_lens,
+      context,
+      plan: local.slide_plan,
+    });
+  }, [local.hook_a_side, local.editorial_pov, liveCheckLens, local.editorial_lens, local.data_points, local.slide_plan, coherenceResult, local.argument_check]);
   const locateDesk = useMemo(() => isLocateDesk({
     hook: local.hook_a_side,
     pov: local.editorial_pov,
     lens: liveCheckLens || local.editorial_lens,
   }), [local.hook_a_side, local.editorial_pov, liveCheckLens, local.editorial_lens]);
-  const newsDesk = useMemo(() => ({
+  const newsDeskForPreview = useMemo(() => ({
     hook: local.hook_a_side,
     pov: local.editorial_pov,
     lens: liveCheckLens || local.editorial_lens,
@@ -1999,7 +1999,16 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                     borderRadius: 6,
                     padding: "8px 12px",
                   }}>
-                    <span style={{ width: 5, height: 5, borderRadius: "50%", background: orbit, flexShrink: 0, marginTop: 8 }} />
+                    <span style={{
+                      width: 22,
+                      flexShrink: 0,
+                      marginTop: 6,
+                      fontSize: "0.62rem",
+                      fontWeight: 800,
+                      letterSpacing: "0.04em",
+                      fontVariantNumeric: "tabular-nums",
+                      color: orbit,
+                    }}>{i + 1}</span>
                     <textarea
                       value={b || ""}
                       onChange={(e) => setBullet(i, e.target.value)}
@@ -2066,7 +2075,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                   <button
                     type="button"
                     onClick={() => addFuelLine("gap")}
-                    title="What Fuel should look up. Homework — not a slide until it is verified."
+                    title="What Fuel should look up. A gap — not a slide until it is verified."
                     style={{
                       flex: 1,
                       background: "transparent",
@@ -2353,16 +2362,9 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
             </div>
             {locateDesk && !sanitizeSlidePlan(local.slide_plan).jobs.length ? (
               <div style={{ fontSize: "0.68rem", color: muted, lineHeight: 1.45, marginBottom: 4 }}>
-                Fuel facts stay names until you add a night.
+                Cover locates. Extra Fuel facts become more News cards.
               </div>
             ) : null}
-            <div style={{ marginTop: 10 }}>
-              <NewsStyleChips
-                plan={local.slide_plan}
-                desk={newsDesk}
-                onChange={(next) => applyPatch({ slide_plan: sanitizeSlidePlan(next) })}
-              />
-            </div>
             {coherenceError && (
               <div style={{
                 padding: "8px 10px",
@@ -2449,14 +2451,14 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                               </span>
                               {c.claim}
                               <span style={{ marginLeft: 6, color: unverified ? warn : ready, fontSize: "0.62rem" }}>
-                                {unverified ? "unverified" : `anchor ${c.anchor}`}
+                                {unverified ? "unverified" : (c.anchor ? `Fuel #${c.anchor}` : "anchored")}
                               </span>
                             </div>
                             {unverified && bullets.length < LIMITS.BULLETS_MAX ? (
                               <button
                                 type="button"
                                 onClick={() => addBulletForClaim(c.claim)}
-                                title="Add a GAP so Fuel can look this claim up. Homework — not a slide yet."
+                                title="Add a GAP so Fuel can look this claim up. A gap — not a slide yet."
                                 style={{
                                   flexShrink: 0,
                                   background: "transparent",
@@ -2570,7 +2572,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
               color: muted,
               listStyle: "none",
             }}>
-              More · Voice, Hook B, Compass, jobs
+              More · Voice, Hook B, Compass
             </summary>
             <div style={{ padding: "0 4px 12px", display: "flex", flexDirection: "column", gap: 22 }}>
           {/* 🧭 Topic Compass — one-tap seed topics that fill cluster + corridor
@@ -2984,14 +2986,6 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
               </div>
             );
           })()}
-          <div style={{ marginTop: 18, borderTop: `1px dashed ${hair}`, paddingTop: 14 }}>
-            <SlideJobStrip
-              plan={local.slide_plan}
-              desk={newsDesk}
-              showNewsStyles={false}
-              onChange={(next) => applyPatch({ slide_plan: sanitizeSlidePlan(next) })}
-            />
-          </div>
             </div>
           </details>
 
@@ -3023,6 +3017,38 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
               }}
             >Close</button>
             <button
+              type="button"
+              onClick={() => {
+                if (typeof window !== "undefined" && !window.confirm("Clear this desk? Fuel, Check, Hook, and saved cards go. Generate starts empty.")) return;
+                const patch = emptyDeskPatch();
+                setLocal(patch);
+                if (event?.id != null && typeof updateEventMatrix === "function") updateEventMatrix(event.id, patch);
+                setCoherenceResult(null);
+                setCoherenceCheckedAt(null);
+                setCoherenceError(null);
+                setCitations([]);
+                setResearchSources([]);
+                setResearchDesks(null);
+                setResearchPhase(null);
+                setAiFillOverlayOpen(false);
+                setAiFillOverlaySeed(null);
+              }}
+              title="Wipe this desk so you can start a new piece. Saved cards go with it."
+              style={{
+                padding: "12px 14px",
+                borderRadius: 6,
+                border: `1px solid rgba(251,113,133,0.45)`,
+                background: "transparent",
+                color: "#FB7185",
+                cursor: "pointer",
+                fontFamily: "inherit",
+                fontSize: "0.72rem",
+                letterSpacing: "0.1em",
+                textTransform: "uppercase",
+                fontWeight: 700,
+              }}
+            >Clear all</button>
+            <button
               onClick={() => {
                 const seed = eventMatrixToFillSeed({ ...event, matrix: local });
                 if (!seed) return;
@@ -3044,7 +3070,9 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
               }}
               disabled={!isMatrixReadyForGeneration(local)}
               title={isMatrixReadyForGeneration(local)
-                ? (apiKey ? "Generate the cards on this desk" : "Hand off to Generate on Media")
+                ? (Array.isArray(local.preview_slides) && local.preview_slides.length
+                  ? "Open the cards you already generated. Desk stays as you left it."
+                  : (apiKey ? "Generate the cards on this desk" : "Hand off to Generate on Media"))
                 : "Fill required fields first"}
               style={{
                 flex: 1,
@@ -3061,7 +3089,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                 fontWeight: 800,
                 opacity: isMatrixReadyForGeneration(local) ? 1 : 0.5,
               }}
-            >Generate</button>
+            >{Array.isArray(local.preview_slides) && local.preview_slides.length ? "Open cards" : "Generate"}</button>
           </div>
         </div>
       </div>
@@ -3090,9 +3118,13 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
           initialRejectedDrafts={aiFillOverlaySeed.rejectedDrafts || []}
           initialApprovedDrafts={aiFillOverlaySeed.approvedDrafts || []}
           initialSlidePlan={aiFillOverlaySeed.slidePlan || local.slide_plan}
+          initialSlides={Array.isArray(local.preview_slides) ? local.preview_slides : []}
+          previewDesk={newsDeskForPreview}
           onSlidePlanChange={(plan) => applyPatch({ slide_plan: sanitizeSlidePlan(plan) })}
+          onPreviewSave={(slides) => applyPatch({ preview_slides: Array.isArray(slides) ? slides : [] })}
           onClose={() => { setAiFillOverlayOpen(false); setAiFillOverlaySeed(null); }}
           onAccept={(slides) => {
+            applyPatch({ preview_slides: Array.isArray(slides) ? slides : [] });
             if (typeof onAiFillAccept === "function") onAiFillAccept(slides, event);
             setAiFillOverlayOpen(false);
             setAiFillOverlaySeed(null);

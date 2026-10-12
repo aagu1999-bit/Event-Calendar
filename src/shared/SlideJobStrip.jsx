@@ -15,16 +15,20 @@ import {
   newsStyleAvailability,
   clampNewsStyles,
   toggleNewsStyle,
+  toggleNewsStyleList,
 } from "./slideJobs.js";
 
-export function NewsStyleChips({ plan, onChange, desk = {}, disabled = false }) {
+export function NewsStyleChips({ plan, onChange, desk = {}, disabled = false, styles = null, onStylesChange = null, heading = null, hint = null }) {
   const clean = sanitizeSlidePlan(plan);
   const avail = newsStyleAvailability(desk);
-  const selected = new Set(clean.newsStyles);
+  const current = Array.isArray(styles) ? styles : clean.newsStyles;
+  const selected = new Set(current);
   const availSig = NEWS_STYLE_ORDER.map((k) => (avail[k]?.ok ? "1" : "0")).join("");
-  const selSig = clean.newsStyles.join(",");
+  const selSig = current.join(",");
+  const perSlide = typeof onStylesChange === "function";
 
   useEffect(() => {
+    if (perSlide) return;
     const next = clampNewsStyles(plan, desk);
     if (next.newsStyles.join(",") === sanitizeSlidePlan(plan).newsStyles.join(",")) return;
     if (typeof onChange === "function") onChange(next);
@@ -54,14 +58,17 @@ export function NewsStyleChips({ plan, onChange, desk = {}, disabled = false }) 
   return (
     <div style={{ marginBottom: 10 }}>
       <div style={{ fontSize: "0.58rem", letterSpacing: 1.3, textTransform: "uppercase", fontWeight: 800, color: selected.size ? "#63B3ED" : "rgba(245,240,232,0.5)", marginBottom: 6 }}>
-        News styles · stack on the card
+        {heading || (perSlide ? "News styles · this card" : "News styles · stack on the card")}
       </div>
       <div style={{ fontSize: "0.62rem", color: "rgba(245,240,232,0.68)", lineHeight: 1.45, marginBottom: 8 }}>
-        {disabled
-          ? "GST is on — News styles are ignored."
-          : selected.size
-            ? `News will combine ${clean.newsStyles.map((k) => NEWS_STYLES[k].label).join(" + ")}. Not extra slides.`
-            : "Pick any that the desk has earned. Grey means the Fuel / Check is not there yet."}
+        {hint
+          || (disabled
+            ? "GST is on — News styles are ignored."
+            : selected.size
+              ? (perSlide
+                ? `${current.map((k) => NEWS_STYLES[k].label).join(" + ")} on this card. Redo rewrites in this mix.`
+                : `News will combine ${clean.newsStyles.map((k) => NEWS_STYLES[k].label).join(" + ")}. Not extra slides.`)
+              : "Pick any that the desk has earned. Grey means the Fuel / Check is not there yet.")}
       </div>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
         {NEWS_STYLE_ORDER.map((key) => {
@@ -73,7 +80,12 @@ export function NewsStyleChips({ plan, onChange, desk = {}, disabled = false }) 
               disabled={disabled || !ok}
               title={avail[key]?.reason || NEWS_STYLES[key].hint}
               onClick={() => {
-                if (disabled || typeof onChange !== "function") return;
+                if (disabled) return;
+                if (perSlide) {
+                  onStylesChange(toggleNewsStyleList(current, key, desk));
+                  return;
+                }
+                if (typeof onChange !== "function") return;
                 onChange(toggleNewsStyle(plan, key, desk));
               }}
               style={chip(key)}
@@ -86,7 +98,7 @@ export function NewsStyleChips({ plan, onChange, desk = {}, disabled = false }) 
 }
 
 // One strip. Jobs, not Look + Job + Talk menus. GST callers pass disabled.
-export function SlideJobStrip({ plan, onChange, desk = {}, disabled = false, disabledNote = "", showNewsStyles = true }) {
+export function SlideJobStrip({ plan, onChange, desk = {}, disabled = false, disabledNote = "", showNewsStyles = true, autoCount = null }) {
   const clean = sanitizeSlidePlan(plan);
   const named = clean.jobs.length > 0;
   const chip = (on, extra = {}) => ({
@@ -129,14 +141,16 @@ export function SlideJobStrip({ plan, onChange, desk = {}, disabled = false, dis
           ? (disabledNote || "GST is on — this plan is ignored.")
           : named
             ? formatSlidePlanHeading(clean)
-            : "Auto from this desk (Cover + News + closer). Name jobs to lock the cards. GST ignores a named plan."}
+            : (typeof autoCount === "number" && autoCount > 0
+              ? `Auto · ${autoCount} from Fuel / Check. Not a lock at 3.`
+              : "Auto from Fuel / Check. Extra facts are extra News cards, not a lock at 3.")}
       </div>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
-        <button type="button" disabled={disabled} onClick={() => commit({ jobs: [], coverStyle: "" })} style={chip(!named)}>
-          Auto from desk
+        <button type="button" disabled={disabled} onClick={() => commit({ jobs: [], coverStyle: clean.coverStyle, newsStyles: clean.newsStyles })} style={chip(!named)}>
+          {typeof autoCount === "number" && autoCount > 0 ? `Auto · ${autoCount}` : "Auto from desk"}
         </button>
-        <button type="button" disabled={disabled} onClick={() => commit(defaultSlidePlan())} style={chip(named && clean.jobs.join(",") === "hook,happened,todo")}>
-          3-card default
+        <button type="button" disabled={disabled} onClick={() => commit({ ...defaultSlidePlan(), newsStyles: clean.newsStyles })} style={chip(named && clean.jobs.join(",") === "hook,happened,todo")}>
+          Lock 3 cards
         </button>
       </div>
       {named ? (
