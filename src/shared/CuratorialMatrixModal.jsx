@@ -890,8 +890,9 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
     }
   };
 
-  // Draft Hook handler — compresses POV + LENS + Fuel START lines.
-  // Dropdowns are not inputs; they had to feed the LENS first.
+  // Draft Hook handler — reads every POV + Narrowing sentence
+  // (drama / utility / insight), then compresses one lead register
+  // plus Fuel START names. Dropdowns are not inputs.
   const draftHook = async () => {
     if (draftingHook) return;
     setHookError(null);
@@ -1728,7 +1729,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                 letterSpacing: "0.03em",
                 lineHeight: 1.5,
               }}>
-                ◆ This is the LENS downstream reads (with any locked facet labels). Feeds → Draft Thesis, Draft Hook, Fuel Research, Coherence Check, and the carousel writer.
+                ◆ This is the LENS downstream reads (with any locked facet labels). Draft Thesis and Draft Hook read every sentence here — drama, utility, or insight — then write one lead, not a mash. Also feeds Fuel, Check, and the writer.
               </div>
             )}
           </div>
@@ -2085,7 +2086,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                         ? "Draft or write an Editorial POV first — the hook is the POV compressed into a scroll-stopper."
                         : lensStale
                           ? "Re-run Reframe first — Draft Hook still reads the stale LENS box, not the live chips."
-                          : "Compress the POV's contrast into a statement — not a question-mark cover."
+                          : "Read every Narrowing and POV sentence (drama / utility / insight), then write one creative cover — not a mash."
                     }
                     style={{
                       background: disabled ? "transparent" : "rgba(229,188,79,0.14)",
