@@ -20,6 +20,9 @@ import {
   trifectaWarnings,
   attachTrifectaWarnings,
   attachEmptyNewsWarnings,
+  inPlayReceiptsFromContext,
+  fillEmptyNewsFromDesk,
+  dropEmptyNewsChairs,
   newsStyleAvailability,
   toggleNewsStyle,
   clampNewsStyles,
@@ -126,6 +129,40 @@ test("empty News body is flagged so Redo can fill the receipt", () => {
   assert.equal(tagged[0]._warnings[0].type, "empty_news");
   assert.equal(tagged[1]._warnings, undefined);
   assert.equal(tagged[2]._warnings, undefined);
+});
+
+test("empty News chairs fill from IN Fuel, not Gaps or parked lines", () => {
+  const context = [
+    "ANCHORED FACTS (write from these — numbers match Fuel on the desk):",
+    "1. START — Rutgers launched a Black and Latino Angel Investment Fund in 2020.",
+    "4. START — Invest Newark lists Grow Newark Fund on its page.",
+    "",
+    "PARKED FUEL — on the desk, not this carousel. Do not write these:",
+    "2. START — A parked fact about a Brooklyn week.",
+    "",
+    "GAPS — not proof. Do not write these as facts. Unverified claims stay off the slides:",
+    "7. GAP — Fuel #1 × #4 · are these related?",
+  ].join("\n");
+  assert.deepEqual(inPlayReceiptsFromContext(context), [
+    "Rutgers launched a Black and Latino Angel Investment Fund in 2020.",
+    "Invest Newark lists Grow Newark Fund on its page.",
+  ]);
+  const filled = fillEmptyNewsFromDesk([
+    { type: "cover", headline: "Tech Week is on." },
+    { type: "news", newsKicker: "THE WEEK", newsHeadline: "Oct. 12", newsBody: "27 events across Newark." },
+    { type: "news", newsKicker: "INVESTMENT FUND", newsHeadline: "", newsBody: "" },
+    { type: "news", newsKicker: "SUPPORT", newsHeadline: "", newsBody: "" },
+    { type: "news", newsKicker: "SPARE", newsHeadline: "", newsBody: "" },
+    { type: "cta", ctaVenue: "Comment EVENTS" },
+  ], context);
+  assert.match(filled[2].newsBody, /Angel Investment Fund/);
+  assert.match(filled[2].newsHeadline, /Rutgers/);
+  assert.match(filled[3].newsBody, /Invest Newark/);
+  assert.equal(filled[4].newsBody, "");
+  const dropped = dropEmptyNewsChairs(filled);
+  assert.equal(dropped.length, 5);
+  assert.equal(dropped.some((s) => s.newsKicker === "SPARE"), false);
+  assert.equal(dropped[dropped.length - 1].type, "cta");
 });
 
 test("matrix stores slide_plan and completeness ignores it", () => {

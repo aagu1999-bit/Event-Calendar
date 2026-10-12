@@ -56,6 +56,8 @@ import {
   attachTrifectaWarnings,
   attachEmptyNewsWarnings,
   attachNewsStyles,
+  fillEmptyNewsFromDesk,
+  dropEmptyNewsChairs,
 } from "./slideJobs.js";
 
 const MODEL = "gemini-2.5-flash-lite";
@@ -2793,6 +2795,8 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
     if (!evergreen) sanitized = detectCrossContamination(sanitized, workingSpine, filteredContext, workingSequence);
     sanitized = detectGeographicWhiplash(sanitized, workingSequence);
     sanitized = detectSlotDoctrineViolations(sanitized, workingSequence);
+    sanitized = fillEmptyNewsFromDesk(sanitized, filteredContext);
+    sanitized = dropEmptyNewsChairs(sanitized);
     sanitized = attachEmptyNewsWarnings(sanitized);
     sanitized = attachNewsStyles(sanitized);
     if (jobsLocked) sanitized = attachTrifectaWarnings(sanitized, namedPlan.jobs);
@@ -2866,6 +2870,8 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   if (!evergreen) sanitized = detectCrossContamination(sanitized, workingSpine, filteredContext, workingSequence);
   sanitized = detectGeographicWhiplash(sanitized, workingSequence);
   sanitized = detectSlotDoctrineViolations(sanitized, workingSequence);
+  sanitized = fillEmptyNewsFromDesk(sanitized, filteredContext);
+  sanitized = dropEmptyNewsChairs(sanitized);
   sanitized = attachEmptyNewsWarnings(sanitized);
   sanitized = attachNewsStyles(sanitized);
   if (jobsLocked) sanitized = attachTrifectaWarnings(sanitized, namedPlan.jobs);
