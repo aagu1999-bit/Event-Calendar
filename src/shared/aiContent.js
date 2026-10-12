@@ -1740,8 +1740,8 @@ export async function pickTemplate({ apiKey, topic, context, candidates }) {
 // Also skips fields that just happen to CONTAIN a beat label as part of a
 // longer phrase — only strips when the field IS the label (or the label +
 // a trailing colon / dash).
-const SCAFFOLDING_LABEL_PATTERN = /^\s*(?:the\s+)?(paradox|friction|mechanism|gate|thesis|beat|specimen|pattern|join|door|remnant|contrast|cause|explain|next)\s*[:\-–—]?\s*$/i;
-const SCAFFOLDING_PREFIX_PATTERN = /^\s*(?:the\s+)?(paradox|friction|mechanism|gate|thesis|beat|specimen|pattern|join|door|remnant|contrast|cause|explain|next)\s*[:\-–—]\s*/i;
+const SCAFFOLDING_LABEL_PATTERN = /^\s*(?:the\s+)?(paradox|friction|mechanism|gate|thesis|beat|specimen|pattern|join|door|remnant|contrast|cause|explain|next|log)\s*[:\-–—]?\s*$/i;
+const SCAFFOLDING_PREFIX_PATTERN = /^\s*(?:the\s+)?(paradox|friction|mechanism|gate|thesis|beat|specimen|pattern|join|door|remnant|contrast|cause|explain|next|log)\s*[:\-–—]\s*/i;
 const TITLE_FIELDS = new Set([
   "headline", "textTitle", "spotName", "kicker", "ctaKicker", "statLabel",
   "newsHeadline", "newsKicker", "accentWord", "pressTitle", "pressBadge",
@@ -4110,7 +4110,7 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
       const ctaTotal = sequence.filter(t => t === "cta").length;
       extra = `\n\nThis is CTA ${ctaIdxAmong} of ${ctaTotal}. Each CTA is a DIRECTORY LISTING for ONE event. ctaKicker stays BLANK. ctaDate slot becomes the EVENT NAME (uppercased big-bold headline of the card). ctaVenue slot is "<venue> · <day> · <time>". ctaUrl is that event's URL or page link. Pick a DIFFERENT event from the context for each CTA — don't repeat. If context lists fewer events than CTAs, invent plausible ones grounded in the topic.`;
     } else if (slotType === "news") {
-      extra = "\n\nNEWS slide — THE LOG, not a cover and not a supporting explainer. who / what / where / when already on this desk. Real stake + named receipt + a use on THIS card. newsKicker = a 1-3 word eyebrow from the desk (BREAKING / THE VOTE / THE ROOM — never THE BIGGER PICTURE / THE STORY / THE CONTEXT / THE FRAME). newsHeadline = an optional short heading, or empty. newsBody is reported substance, not a manifesto and not an open loop. Conversational or rolling (the default): 1-2 short paragraphs. End on ONE payoff line wrapped in *asterisks* so it bolds (exactly one) only if that payoff is already on the desk. Every specific must be true; never manufacture drama. newsBold true only for a genuinely urgent breaking beat.";
+      extra = "\n\nNEWS slide — the log, not a cover and not a supporting explainer. who / what / where / when already on this desk. Real stake + named receipt + a use on THIS card. newsKicker = a 1-3 word eyebrow from the desk (BREAKING / THE VOTE / THE ROOM — never THE LOG / THE BIGGER PICTURE / THE STORY / THE CONTEXT / THE FRAME). newsHeadline = an optional short heading, or empty. newsBody is reported substance, not a manifesto and not an open loop. Conversational or rolling (the default): 1-2 short paragraphs. End on ONE payoff line wrapped in *asterisks* so it bolds (exactly one) only if that payoff is already on the desk. Every specific must be true; never manufacture drama. newsBold true only for a genuinely urgent breaking beat.";
     } else if (slotType === "features") {
       // The Features slot is the one most prone to filler because each card is
       // tiny — force concrete promises and a single standout card.

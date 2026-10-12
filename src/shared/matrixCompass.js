@@ -24,7 +24,7 @@
 // handles both shapes transparently, so nothing on disk breaks.
 
 import { CGE_VOICE_RATIO, isPlatformThemeLeak } from "./cgeThesis.js";
-import { parseSlidePlanFromContext } from "./slideJobs.js";
+import { parseSlidePlanFromContext, sanitizeSlidePlan } from "./slideJobs.js";
 
 export const CONTENT_CLUSTERS = {
   SUBURBAN_THIRD_PLACE: {
@@ -1168,17 +1168,48 @@ export function countUsableAnchors(context) {
   return n;
 }
 
+const LOCATE_DESK_LINE = /^LOCATE DESK:/m;
+const LOCATE_CONTRAST = /\b(?:vs\.?|but|while|instead|still|deficit|tax|killed|because|which means|the trick|who paid)\b/i;
+
+export function isLocateDesk({ hook = "", pov = "", lens = "" } = {}) {
+  const phrases = [
+    ...splitHookPhrases(hook),
+    ...splitHookPhrases(pov),
+    ...splitHookPhrases(lens),
+  ];
+  if (!phrases.length) return false;
+  if (phrases.some((p) => classifyHookRegister(p) === "drama")) return false;
+  const blob = phrases.join(" ");
+  return !LOCATE_CONTRAST.test(blob);
+}
+
+export function formatDeskSeeLine({ hook = "", pov = "", lens = "", context = "", plan = null } = {}) {
+  const named = sanitizeSlidePlan(plan).jobs.length
+    ? sanitizeSlidePlan(plan).jobs
+    : parseSlidePlanFromContext(context).jobs;
+  if (named.length) {
+    return `You'll see ${named.length} named cards.`;
+  }
+  if (isLocateDesk({ hook, pov, lens }) || LOCATE_DESK_LINE.test(String(context || ""))) {
+    return "You'll see Cover + News + Done.";
+  }
+  const n = earnedSlideCount(context);
+  if (n <= 3) return "You'll see Cover + News + Done.";
+  return `You'll see Cover + News + ${n - 3} more + Done.`;
+}
+
 // Auto length from THIS desk's copy, not a silent 3 and not GST 10.
-// Operator pin wins. Else countable START / THESIS / SPECIMEN receipts
-// (1 proof → 3, 8 proofs → 10). Check's pointed count is only a fallback
-// when the desk has no countable receipts — a JSON example of slideCount:3
-// must not freeze a richer Fuel set.
+// Operator pin and named jobs win. A locate-only Narrowing (who / what /
+// where / when, no contrast) stays Cover + News + Done — Fuel facts are
+// names, not extra chairs. Else countable START / THESIS / SPECIMEN
+// receipts (1 proof → 3, 8 proofs → 10).
 export function earnedSlideCount(context, pinned = null) {
   if (typeof pinned === "number" && Number.isFinite(pinned) && pinned > 0) {
     return Math.min(DESK_SLIDE_MAX, Math.max(DESK_SLIDE_MIN, Math.round(pinned)));
   }
   const namedJobs = parseSlidePlanFromContext(context).jobs;
   if (namedJobs.length) return Math.min(DESK_SLIDE_MAX, Math.max(2, namedJobs.length));
+  if (LOCATE_DESK_LINE.test(String(context || ""))) return DESK_SLIDE_MIN;
   const proofs = countUsableAnchors(context);
   if (proofs > 0) return Math.min(DESK_SLIDE_MAX, Math.max(DESK_SLIDE_MIN, proofs + 2));
   const pointed = parsePointedSlideCount(context);

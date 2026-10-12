@@ -55,7 +55,7 @@ export const SLOT_DOCTRINE = {
         "A named receipt already on the desk (date, vote, number, source) plus a use. Not a hunt for a wider frame.",
     },
     antiPatterns: [
-      "Scaffolding kickers: 'THE BIGGER PICTURE', 'THE STORY', 'THE CONTEXT', 'THE FRAME'. These are labels, not eyebrows.",
+      "Scaffolding kickers: 'THE LOG', 'THE BIGGER PICTURE', 'THE STORY', 'THE CONTEXT', 'THE FRAME'. These are labels, not eyebrows.",
       "Opening a loop or withholding the payoff so they swipe again.",
       "Recap of the cover with no named receipt added.",
       "Body that reads like an introduction to the piece instead of the log.",
