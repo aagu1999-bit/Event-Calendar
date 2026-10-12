@@ -176,19 +176,25 @@ export function researchAiModeRequest(input = {}) {
 // Returns specific pieces that close the holes. Dive comes after.
 export function researchGapScoutRequest(input = {}) {
   const hook = String(input.topic || "").trim() || "Black New Jersey gathering";
+  const gaps = Array.isArray(input.coherenceGaps) ? input.coherenceGaps : [];
+  const hasRelatedness = gaps.some((g) => /\b(?:are these related|related as|fuel #\d+)/i.test(String(g || "")));
+  const hasPlainGap = gaps.some((g) => !/\b(?:are these related|related as|fuel #\d+)/i.test(String(g || "")));
   const extraSearches = [
-    ...coherenceGapSearches({ gaps: input.coherenceGaps, topic: hook }),
-    `${hook} New Jersey currently operating example that closes the argument gap`,
+    ...coherenceGapSearches({ gaps, topic: hook }),
+    ...(hasPlainGap ? [`${hook} New Jersey currently operating example that closes the argument gap`] : []),
   ];
   const instructions = [
     "You are a Google AI Mode pass with ONE job: close the argument-check gaps. This is not another full brief. Do not re-research the whole topic. Do not rewrite the thesis. Do not stack another historical statute.",
     "Search the OPEN web. New Jersey first. No 20-site cap.",
     sourceDoctrineForPrompt(),
     "For EACH gap, return 1–2 specific named pieces a writer can later dive: a currently-operating place, a program still in force, a magazine piece, a Saturday that exists now. Prefix each bullet 'GAP — ' and name the hole it closes in the first clause.",
+    "If a gap asks whether Fuel lines are related: this is an OPEN relation hunt, not a living-Saturday hunt and not a canned facet list. Search whether those named facts share a page, a calendar, a host, a pot of money, or only a city/sector. Return ONE bullet per pair: 'START — RELATED AS [kind]: [sourced fact]. NOT RELATED AS [what you must not claim]. USE AS afterthought | program | omit.' If no page supports any relation beyond the same city, return 'GAP — Fuel #A × #B · NONE beyond same city. Do not mash.' Never invent momentum or growing role without a named investor, filing, or announcement.",
     "OUTPUT: 2–6 bullets. One real piece per hole beats five more archive facts. Different entities. Never invent.",
     "Leave the thesis field empty unless you found one tighter current-example sentence. Do not replace the operator's thesis.",
     "If CLOSE THESE GAPS is missing, return an empty bullets array.",
-    "If you cannot find at least 1 verifiable NJ-tied piece that closes a gap, return an empty bullets array.",
+    hasRelatedness
+      ? "If you cannot verify a relation or a living piece, return the NONE relatedness line rather than an empty array."
+      : "If you cannot find at least 1 verifiable NJ-tied piece that closes a gap, return an empty bullets array.",
     "Output strict JSON with 'thesis', 'bullets', and 'citations'.",
   ];
   return {

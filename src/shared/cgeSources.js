@@ -463,6 +463,20 @@ export function clusterSearchQueries(cluster = "") {
 // named the hole (currently-operating car-centric spots, strip-mall
 // speakeasy, current reconfiguring). General (AI Mode) and
 // structural (desk) searches both run these before they riff.
+function looksLikeRelatednessGap(text) {
+  return /\b(?:are these related|related as|not related as|use as afterthought|fuel #\d+)/i.test(String(text || ""));
+}
+
+function relatednessSearchQuery(gap) {
+  const excerpts = [...String(gap).matchAll(/#\d+:\s*([^·\n]+)/g)]
+    .map((m) => String(m[1] || "").trim().slice(0, 80))
+    .filter(Boolean);
+  if (excerpts.length >= 2) {
+    return `${excerpts[0]} ${excerpts[1]} New Jersey`.slice(0, 200);
+  }
+  return `${String(gap).replace(/^GAP\s*—\s*/i, "").slice(0, 140)} New Jersey`;
+}
+
 export function coherenceGapSearches({ gaps = [], topic = "" } = {}) {
   const clean = (Array.isArray(gaps) ? gaps : [])
     .map((g) => String(g || "").trim())
@@ -470,8 +484,13 @@ export function coherenceGapSearches({ gaps = [], topic = "" } = {}) {
     .slice(0, 4);
   if (!clean.length) return [];
   const hook = String(topic || "").trim() || "Black New Jersey gathering";
-  const hay = clean.join(" ").toLowerCase();
-  const out = clean.map((gap) => `${gap} New Jersey`);
+  const related = clean.filter(looksLikeRelatednessGap);
+  const other = clean.filter((g) => !looksLikeRelatednessGap(g));
+  const hay = other.join(" ").toLowerCase();
+  const out = [
+    ...related.map(relatednessSearchQuery),
+    ...other.map((gap) => `${gap} New Jersey`),
+  ];
   if (/current|operating|reconfigur/.test(hay)) {
     out.push(`${hook} currently operating New Jersey gathering spot 2025 2026`);
   }
@@ -490,8 +509,11 @@ export function coherenceGapPromptLines({ gaps = [], reason = "" } = {}) {
     .filter(Boolean)
     .slice(0, 4);
   if (!clean.length) return [];
+  const related = clean.some(looksLikeRelatednessGap);
   return [
-    "CLOSE THESE GAPS — the argument check already named what's missing. Hunt these before anything else. Do not add another historical statute if the hole is a living Saturday.",
+    related
+      ? "CLOSE THESE GAPS — including open relatedness asks. For 'are these related?': name RELATED AS / NOT RELATED AS / USE AS afterthought|program|omit. Cite a page or NONE. Do not invent growing role or momentum without a named investor, filing, or announcement."
+      : "CLOSE THESE GAPS — the argument check already named what's missing. Hunt these before anything else. Do not add another historical statute if the hole is a living Saturday.",
     ...clean.map((gap) => `- ${gap}`),
     String(reason || "").trim() ? `Check reason: ${String(reason).trim().slice(0, 400)}` : "",
   ].filter(Boolean);

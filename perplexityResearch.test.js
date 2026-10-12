@@ -87,6 +87,22 @@ test("AI Mode scout is unconstrained NJ search with a thesis and starting points
   assert.equal(/STARTING POINTS: 5–8/.test(gapScout.instructions), false);
 });
 
+test("gap-scout treats Fuel relatedness as an open relation hunt", () => {
+  const related = researchGapScoutRequest({
+    topic: "Newark Tech Week",
+    coherenceGaps: [
+      "GAP — Fuel #1 × #2 · are these related? #1: Equal Space hosts Tech Week · #2: HAX $25M Name RELATED AS",
+    ],
+  });
+  assert.match(related.instructions, /OPEN relation hunt/);
+  assert.match(related.instructions, /RELATED AS/);
+  assert.match(related.instructions, /USE AS afterthought/);
+  assert.match(related.instructions, /NONE beyond same city/);
+  assert.equal(/currently operating example that closes the argument gap/.test(related.input), false);
+  assert.match(related.input, /Equal Space/);
+  assert.match(related.input, /HAX/);
+});
+
 test("Feature-tier official desk does not require a named program as the mechanism", () => {
   const official = researchOfficialRequest({ cluster: "DIASPORA_INFRASTRUCTURE", topic: "A Newark hall", tier: "FEATURE" });
   assert.match(official.instructions, /DOCUMENT/);

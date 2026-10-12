@@ -174,6 +174,20 @@ test("coherence gaps become NJ searches for the general brief and the desks", ()
   assert.deepEqual(coherenceGapSearches({ gaps: [] }), []);
 });
 
+test("relatedness Gaps search the named facts, not a living Saturday", () => {
+  const gap = "GAP — Fuel #1 × #2 · are these related? #1: Equal Space hosts Tech Week on Broad Street · #2: HAX committed $25M in Newark Name RELATED AS";
+  const searches = coherenceGapSearches({
+    topic: "Newark Tech Week",
+    gaps: [gap],
+  });
+  assert.ok(searches.some((q) => /Equal Space/i.test(q) && /HAX/i.test(q)));
+  assert.equal(searches.some((q) => /currently operating New Jersey gathering/i.test(q)), false);
+  const lines = coherenceGapPromptLines({ gaps: [gap] });
+  assert.ok(lines.some((l) => /RELATED AS/.test(l)));
+  assert.ok(lines.some((l) => /afterthought/.test(l)));
+  assert.equal(lines.some((l) => /living Saturday/.test(l)), false);
+});
+
 test("preferDeskSources puts official and argument URLs ahead of venue homepages", () => {
   const ranked = preferDeskSources([
     "https://montclairbrewery.com/",
