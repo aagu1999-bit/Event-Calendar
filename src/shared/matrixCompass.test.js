@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isListicleHook, isBrochureCopy, hookEvidenceLines, splitHookPhrases, classifyHookRegister, formatHookPhraseLines, buildHookPrompt, buildLensReframePrompt, buildThesisPrompt, buildCoherencePrompt, normalizeCoherenceResult, formatCoherenceSeedLines, fuelCitationCount, relatednessGapLine, isRelatednessGap, hasRelatednessGapFor, fuelRelatednessGaps, formatRelatednessSeedLines, sanitizeFuelOmit, countPickedStarts, defaultCoherenceUseFor, coherenceInputSignature, describeReframeInputs, lensFreshnessSignature, earnedSlideCount, essaySlideSequence, countUsableAnchors, isHomeworkAnchor, isLocateDesk, formatDeskSeeLine, formatDeskLengthContext, formatEmotionRegister, DESK_SLIDE_MAX } from "./matrixCompass.js";
+import { isListicleHook, isBrochureCopy, hookEvidenceLines, splitHookPhrases, classifyHookRegister, formatHookPhraseLines, buildHookPrompt, buildLensReframePrompt, buildThesisPrompt, buildCoherencePrompt, normalizeCoherenceResult, formatCoherenceSeedLines, fuelCitationCount, relatednessGapLine, isRelatednessGap, hasRelatednessGapFor, fuelRelatednessGaps, formatRelatednessSeedLines, RELATEDNESS_SCOUT_JOB, sanitizeFuelOmit, countPickedStarts, defaultCoherenceUseFor, coherenceInputSignature, describeReframeInputs, lensFreshnessSignature, earnedSlideCount, essaySlideSequence, countUsableAnchors, isHomeworkAnchor, isLocateDesk, formatDeskSeeLine, formatDeskLengthContext, formatEmotionRegister, DESK_SLIDE_MAX } from "./matrixCompass.js";
 import { buildSubjectLock, subjectLockPromptLines, lockLensDirective } from "./subjectLock.js";
 
 test("listicle hooks are the Google-vs-CGE failure", () => {
@@ -521,10 +521,11 @@ test("relatedness Gap is an open ask, not a canned facet list", () => {
   assert.match(line, /^GAP — Fuel #1 × #2 · are these related\?/);
   assert.match(line, /Equal Space/);
   assert.match(line, /HAX/);
-  assert.match(line, /RELATED AS/);
-  assert.match(line, /NOT RELATED AS/);
-  assert.match(line, /USE AS afterthought/);
   assert.match(line, /Cite a page or NONE/);
+  assert.equal(/NOT RELATED AS|same-program|USE AS afterthought/i.test(line), false);
+  assert.match(RELATEDNESS_SCOUT_JOB, /RELATED AS/);
+  assert.match(RELATEDNESS_SCOUT_JOB, /NOT RELATED AS/);
+  assert.match(RELATEDNESS_SCOUT_JOB, /USE AS afterthought/);
   assert.equal(/same night|same door|same public|same clock|same holder/i.test(line), false);
   assert.equal(isRelatednessGap(line), true);
   assert.equal(isRelatednessGap("GAP — who paid for the main stages"), false);

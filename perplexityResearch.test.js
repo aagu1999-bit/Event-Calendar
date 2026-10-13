@@ -91,7 +91,7 @@ test("gap-scout treats Fuel relatedness as an open relation hunt", () => {
   const related = researchGapScoutRequest({
     topic: "Newark Tech Week",
     coherenceGaps: [
-      "GAP — Fuel #1 × #2 · are these related? #1: Equal Space hosts Tech Week · #2: HAX $25M Name RELATED AS",
+      "GAP — Fuel #1 × #2 · are these related? #1: Equal Space hosts Tech Week · #2: HAX $25M Cite a page or NONE.",
     ],
   });
   assert.match(related.instructions, /OPEN relation hunt/);

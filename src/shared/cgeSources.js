@@ -512,7 +512,7 @@ export function coherenceGapPromptLines({ gaps = [], reason = "" } = {}) {
   const related = clean.some(looksLikeRelatednessGap);
   return [
     related
-      ? "CLOSE THESE GAPS — including open relatedness asks. For 'are these related?': name RELATED AS / NOT RELATED AS / USE AS afterthought|program|omit. Cite a page or NONE. Do not invent growing role or momentum without a named investor, filing, or announcement."
+      ? "CLOSE THESE GAPS — including open relatedness asks. For an open 'are these related?' Gap: name RELATED AS (what a named page actually supports), NOT RELATED AS (do not invent same-program / same-host), and USE AS afterthought / climate / program / omit. Cite a page or NONE. Do not invent growing role or momentum without a named investor, filing, or announcement."
       : "CLOSE THESE GAPS — the argument check already named what's missing. Hunt these before anything else. Do not add another historical statute if the hole is a living Saturday.",
     ...clean.map((gap) => `- ${gap}`),
     String(reason || "").trim() ? `Check reason: ${String(reason).trim().slice(0, 400)}` : "",

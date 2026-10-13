@@ -1133,9 +1133,13 @@ export function fuelCitationCount(check, fuelNumber) {
 }
 
 // Open relatedness ask between Fuel numbers. Not a canned facet list
-// (night / door / public / clock / holder). The hunt names RELATED AS /
-// NOT RELATED AS / USE AS afterthought|program|omit — or NONE.
+// (night / door / public / clock / holder). The Fuel line is the human
+// ask. The scout (not the text box) names RELATED AS / NOT RELATED AS /
+// USE AS afterthought|program|omit — or NONE.
 const RELATEDNESS_ASK = /\b(?:are these related|related as|not related as|use as afterthought|fuel #\d+)/i;
+
+export const RELATEDNESS_SCOUT_JOB =
+  "For an open 'are these related?' Gap: name RELATED AS (what a named page actually supports), NOT RELATED AS (do not invent same-program / same-host), and USE AS afterthought / climate / program / omit. Cite a page or NONE. Do not invent growing role or momentum without a named investor, filing, or announcement.";
 
 function uniqueFuelNumbers(indices) {
   return [...new Set((Array.isArray(indices) ? indices : [])
@@ -1181,7 +1185,7 @@ export function relatednessGapLine(indices, bullets = [], limit = 700) {
       .trim();
     return `#${n}: ${body.slice(0, 120) || "(empty)"}`;
   }).join(" · ");
-  const line = `GAP — Fuel ${labels} · are these related? ${excerpts} Name RELATED AS (what a page actually supports), NOT RELATED AS (do not invent same-program / same-host), and USE AS afterthought / climate / program / omit. Cite a page or NONE.`;
+  const line = `GAP — Fuel ${labels} · are these related? ${excerpts} Cite a page or NONE.`;
   return line.slice(0, limit);
 }
 

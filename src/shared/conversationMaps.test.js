@@ -271,7 +271,7 @@ test("fill seed tells the writer relatedness is climate or omit, not a mash", ()
       data_points: [
         "START — Equal Space is hosting Newark Tech Week sessions on Broad Street.",
         "START — HAX / SOSV committed $25M and projects 2,500 jobs in Newark.",
-        "GAP — Fuel #1 × #2 · are these related? #1: Equal Space hosts Tech Week · #2: HAX $25M Name RELATED AS",
+        "GAP — Fuel #1 × #2 · are these related? #1: Equal Space hosts Tech Week · #2: HAX $25M Cite a page or NONE.",
       ],
     },
   });

@@ -59,7 +59,7 @@ test("relatedness omit blocks a plant; afterthought allows weather", () => {
   assert.equal(relatednessPlantMode(a, b, omit), "block");
   const weather = `${CONTEXT}\nGAP — Fuel #1 × #2 · RELATED AS climate / city investment. NOT RELATED AS same program. USE AS afterthought.`;
   assert.equal(relatednessPlantMode(a, b, weather), "afterthought");
-  const open = `${CONTEXT}\nGAP — Fuel #1 × #2 · are these related? #1: Equal Space · #2: HAX Name RELATED AS (what a page actually supports), NOT RELATED AS, and USE AS afterthought / omit.`;
+  const open = `${CONTEXT}\nGAP — Fuel #1 × #2 · are these related? #1: Equal Space · #2: HAX Cite a page or NONE.`;
   assert.equal(relatednessPlantMode(a, b, open), "allow");
   assert.equal(relatednessPlantMode(a, b, CONTEXT), "allow");
 });
