@@ -180,7 +180,7 @@ export function eventMatrixToFillSeed(event) {
   const clusterLabel = m.cluster ? (getClusterLabel(m.cluster) || m.cluster) : "";
   const contextLines = [];
   if (isLocateDesk({ hook: hookA, pov, lens: clusterDirective || m.editorial_lens })) {
-    contextLines.push("LOCATE DESK: Cover locates. Extra Fuel facts are more News cards. Do not write ecosystem / landscape / what's next.");
+    contextLines.push("LOCATE DESK: Cover locates. Extra Fuel facts are more News cards. Do not invent ecosystem / landscape. Last sentence of a News card may point at the next In START — name it and what it is (a space, an event, a title, a location, the commonality), not a second receipt.");
   }
   if (pov) contextLines.push(`POV: ${pov}`);
   if (!lock.empty) {

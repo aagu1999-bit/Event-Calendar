@@ -59,6 +59,19 @@ import {
   fillEmptyNewsFromDesk,
   dropEmptyNewsChairs,
 } from "./slideJobs.js";
+import {
+  nextAdjacentProofKey,
+  previousAdjacentProofKey,
+  relatednessPlantMode,
+  formatNextPlantClause,
+  formatLandingClause,
+  formatReservedProofLine,
+  canPlantOnSlot,
+  isAllowedPlantMention,
+  isAllowedLandingMention,
+  contaminationScanText,
+  plantBodyOf,
+} from "./slideBridge.js";
 
 const MODEL = "gemini-2.5-flash-lite";
 const URL_BASE = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
@@ -2277,7 +2290,7 @@ function detectGeographicWhiplash(slides, sequence = []) {
 //
 // Attached warnings — the UI reads slide._warnings and renders the
 // same red badge treatment as phantom-entity + atomicity findings.
-function detectCrossContamination(slides, narrativeSpine, contextText, sequence = []) {
+export function detectCrossContamination(slides, narrativeSpine, contextText, sequence = []) {
   if (!Array.isArray(slides) || !slides.length) return slides;
   if (!narrativeSpine || !narrativeSpine.proofAssignments) return slides;
   const proofAssignments = narrativeSpine.proofAssignments || {};
@@ -2312,18 +2325,25 @@ function detectCrossContamination(slides, narrativeSpine, contextText, sequence 
     // CTA slots don't carry proof bullets — skip.
     const slotType = String(sequence?.[i] || slide?.type || "").toLowerCase();
     if (slotType === "cta") return slide;
-    const slideText = extractPhantomScanText(slide).toLowerCase();
+    const slideText = contaminationScanText(slide).toLowerCase();
     if (!slideText) return slide;
     const assignedBulletKey = bulletByAssignedSlide[i + 1] || null;
+    const nextKey = bulletByAssignedSlide[i + 2] || null;
+    const prevKey = i > 0 ? (bulletByAssignedSlide[i] || null) : null;
+    const body = plantBodyOf(slide);
     const contaminations = [];
     for (const key of bulletKeys) {
       if (key === assignedBulletKey) continue;
       const nouns = nounsByKey[key] || [];
       for (const noun of nouns) {
         if (noun.length < 4) continue;
-        if (slideText.includes(noun)) {
-          contaminations.push({ leakedFrom: bulletByKey[key].slice(0, 80), entity: noun });
-        }
+        if (!slideText.includes(noun)) continue;
+        // Last-sentence plant of the NEXT chair's proof, or first-sentence
+        // landing of the PREVIOUS chair's proof, is the bridge exception —
+        // not a leak. Anything earlier/later in the body is still mash.
+        if (key === nextKey && isAllowedPlantMention(body, noun)) continue;
+        if (key === prevKey && isAllowedLandingMention(body, noun)) continue;
+        contaminations.push({ leakedFrom: bulletByKey[key].slice(0, 80), entity: noun });
       }
     }
     if (!contaminations.length) return slide;
@@ -3480,31 +3500,35 @@ export async function polishCarousel({ apiKey, topic, context, historicalContext
     "- ENTITY ISOLATION: If any slide blends unrelated cities, decades, or venues into",
     "  the same body copy (Newark 1979 + Asbury Park 2024 in one sentence, or two",
     "  named venues from different eras stacked side-by-side), REWRITE to one slide,",
-    "  one time, one place, one specific.",
+    "  one time, one place, one specific. EXCEPTION: the last sentence of a News/Text",
+    "  card may NAME the next In START with a short definition (what it is, a title,",
+    "  a place, the commonality). That is a pointer, not a second receipt. Two dates",
+    "  or two dollar dumps in the same body is still a mash — rewrite.",
     "- CROSS-SLIDE RESTATEMENT BAN — read the draft end-to-end. If any two slides make",
     "  the SAME CLAIM in different words (a stat paraphrased, a proof restated with new",
     "  adjectives, the same specific dressed up twice), ONE OF THEM IS WRONG. Rewrite the",
     "  later occurrence to advance the argument with something the earlier slide did NOT",
     "  say — a different fact, a different angle, an obstacle, an actor, a mechanism.",
-    "  If you genuinely cannot find a distinct thing to say on the later slide, that slide",
+    "  A last-line plant that NAMES the next START is not restatement. The next card tells",
+    "  that START; this card only points. If you genuinely cannot find a distinct thing to say on the later slide, that slide",
     "  has no reason to exist — say so plainly in its copy ('More below.' + one sharper",
     "  line) rather than fill it with a paraphrase.",
     "- The COVER slide must open with a real HOOK — curiosity gap, before→after, a",
     "  number, or a question. Never a bland label like 'First Annual X'.",
     "- Every slide honest (a claim the event actually delivers) and on the CGE voice.",
     "- Name concrete specifics — numbers, places, moments — over vague description.",
-    "- PULL-THROUGH (the swipe is the product): read the carousel end-to-end and engineer",
-    "  it so a reader can't stop mid-way. Slide 2 continues the cover's hook (pays off its",
-    "  curiosity, doesn't restate it). RATION the information — if the draft front-loads",
-    "  everything by slide 2 so there's no reason to keep swiping, FIX IT: hold the best",
-    "  specific back and move it to the last content slide. Each middle slide should END on a",
-    "  fresh open loop the next slide answers, and ESCALATE over the one before it. The FINAL",
-    "  slide must reward reaching the end with the payoff it was teasing. Rewrite any slide",
-    "  that closes the thread early or leaves the reader with nothing left to wonder.",
-    "- CHECK THE SEAMS: read each pair of adjacent slides back-to-back. If slide N+1 doesn't",
-    "  obviously CONTINUE slide N (a callback, a bridge word, an echoed phrase), rewrite N+1's",
-    "  opening so the handoff is seamless. The set must feel authored as one piece, with a single",
-    "  motif running through it — not a stack of on-topic but disconnected cards.",
+    "- PULL-THROUGH (the swipe is the product): read the carousel end-to-end. Slide 2",
+    "  continues the cover (pays off its curiosity, doesn't restate it). Each News card",
+    "  delivers its own receipt in the body — do not withhold this card's news. Last",
+    "  sentence plants the next In START by naming it and saying what it is. The next",
+    "  card opens on that START. The FINAL slide rewards reaching the end. Rewrite any",
+    "  slide that dumps two receipts, or that restarts as a new poster with a label the",
+    "  reader has to decode.",
+    "- CHECK THE SEAMS: read each pair of adjacent slides back-to-back. Slide N's last",
+    "  sentence should plant slide N+1's START (name + what it is: a space, an event, a",
+    "  title, a location, the commonality). Slide N+1 should open on that START, not as",
+    "  a new poster. If the join is only a name with no definition, rewrite so the",
+    "  reader does not have to figure out what is happening.",
     ...(today ? [`- Today is ${today}. Correct current year everywhere; never a past year.`] : []),
     ...(letterMode ? [
       "- LETTER / MANIFESTO MODE is ON: the carousel is ONE continuous first-person letter.",
@@ -4087,17 +4111,27 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
     // Reword to signal peer-entry semantics instead.
     const spineMode = narrativeSpine?.spineMode || "insight";
     const isShowcasePeer = spineMode === "showcase" && beatLabel === "SHOWCASE";
+    const allowPlant = canPlantOnSlot(slotType, { showcase: isShowcasePeer, letterMode });
+    const proofLine = formatReservedProofLine({
+      reservedProof,
+      timelyClause,
+      showcase: isShowcasePeer,
+      allowPlant,
+    });
     const namedJob = jobsLocked ? slideJobOf(namedPlan.jobs[idx]) : null;
     const namedStyle = (namedJob && namedJob.key === "hook") ? coverStyleOf(namedPlan.coverStyle) : null;
+    const jobProofBit = reservedProof
+      ? formatReservedProofLine({ reservedProof, timelyClause, showcase: false, allowPlant })
+      : "Carry this job from what is already on the desk.";
     const jobPrefix = namedJob
-      ? `>>> JOB: ${namedJob.label} — ${namedJob.writer}${namedStyle ? ` ${namedStyle.writer}` : ""} Look is ${namedJob.look}. Do not invent Locate / Cause / Explain / Paradox beats. ${reservedProof ? `Reserved PROOF for this slide: "${reservedProof}..." — this bullet lands HERE and NOWHERE ELSE.${timelyClause}` : "Carry this job from what is already on the desk."} <<<\n`
+      ? `>>> JOB: ${namedJob.label} — ${namedJob.writer}${namedStyle ? ` ${namedStyle.writer}` : ""} Look is ${namedJob.look}. Do not invent Locate / Cause / Explain / Paradox beats. ${jobProofBit} <<<\n`
       : "";
     const beatPrefix = jobPrefix || (beatLabel
       ? (slotType === "cover"
           ? `>>> BEAT: ${beatLabel} — MACRO-COVER: locate THIS specimen. If this beat is CONTRAST, title the two expressions Fuel already proved. If this beat is LOCATE, name who / what / where / when. Subtitle connects. Do NOT invent a contrast. Do NOT write "is gone". Do NOT write category mush ("discover surprising gathering spots"). Do NOT withhold the point so they swipe. Instances land on later slides, inside paragraphs — not peeled onto venue cards. <<<\n`
           : isShowcasePeer
-            ? `>>> BEAT: SHOWCASE — this is a PEER ENTRY in a directory. Slides sharing this label are equal-weight entries in the collection — do NOT position this one as "the next phase" of an argument the previous slide started. Each SHOWCASE slide carries ONE distinct entity from the collection. ${reservedProof ? `Reserved PROOF (entity) for this slide: "${reservedProof}..." — this entity lands HERE and NOWHERE ELSE in the carousel.${timelyClause}` : "NO proof entity is reserved for this slide — do NOT reach for an entity already assigned to another peer slot; carry this entry with a specific from context marked 'context' or leave it lighter than the sibling entries."} <<<\n`
-            : `>>> BEAT: ${beatLabel} — this slide advances ONLY this beat, no other.${reservedProof ? ` Reserved PROOF for this slide: "${reservedProof}..." — this bullet lands HERE and NOWHERE ELSE in the carousel.${timelyClause}` : " NO proof bullet is reserved for this slide — do NOT reach for a proof already assigned to another slide; carry the beat with tension, framing, or a specific from context marked 'context' (not 'proof')."} <<<\n`)
+            ? `>>> BEAT: SHOWCASE — this is a PEER ENTRY in a directory. Slides sharing this label are equal-weight entries in the collection — do NOT position this one as "the next phase" of an argument the previous slide started. Each SHOWCASE slide carries ONE distinct entity from the collection. ${proofLine} <<<\n`
+            : `>>> BEAT: ${beatLabel} — this slide advances ONLY this beat, no other. ${proofLine} <<<\n`)
       : "");
     if (!rule) {
       return `SLIDE ${idx + 1} (${slotType.toUpperCase()}) — no rule defined; produce reasonable defaults matching brand voice.\n${doctrinePrefix}${beatPrefix}${refPrefix}`;
@@ -4125,11 +4159,23 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
     } else if (slotType === "cta" && /LOCATE DESK:/i.test(String(context || ""))) {
       extra = "\n\nLOCATE DONE: a next step already on the desk (a named night, a map, comment EVENTS). Not 'examine the evidence'. Do not restate the cover as a question.";
     } else if (slotType === "news") {
-      extra = "\n\nNEWS slide — the log, not a cover and not a name-only kicker. who / what / where / when already on this desk. Real stake + named receipt + a use on THIS card. newsKicker = a 1-3 word eyebrow (THE SUMMIT / HACKATHON / OCT 12 — never THE LOG / THE BIGGER PICTURE / THE STORY). newsHeadline = REQUIRED short heading (the event or receipt name). newsBody = REQUIRED: write the START / THESIS receipt into 1-2 short paragraphs. Never leave newsBody empty. A kicker with a blank body is a failed card — the name is not the log. Conversational or rolling (the default). End on ONE payoff line wrapped in *asterisks* so it bolds (exactly one) only if that payoff is already on the desk. Every specific must be true; never manufacture drama. newsBold true only for a genuinely urgent breaking beat. newsStyles = THIS card's mix only (log / receipt / quote / side / hole). Do not copy the same mix onto every News chair. Cite Fuel by number when you plant a receipt (Fuel #2).";
+      extra = "\n\nNEWS slide — the log, not a cover and not a name-only kicker. who / what / where / when already on this desk. Real stake + named receipt + a use on THIS card. newsKicker = a 1-3 word eyebrow (THE SUMMIT / HACKATHON / OCT 12 — never THE LOG / THE BIGGER PICTURE / THE STORY). newsHeadline = REQUIRED short heading (the event or receipt name). newsBody = REQUIRED: write the START / THESIS receipt into 1-2 short paragraphs. Never leave newsBody empty. A kicker with a blank body is a failed card — the name is not the log. Conversational or rolling (the default). End on ONE payoff line wrapped in *asterisks* so it bolds (exactly one) only if that payoff is already on the desk — the last sentence may be the NEXT PLANT (name the next In START and what it is). Every specific must be true; never manufacture drama. newsBold true only for a genuinely urgent breaking beat. newsStyles = THIS card's mix only (log / receipt / quote / side / hole). Do not copy the same mix onto every News chair. Cite Fuel by number when you plant a receipt (Fuel #2).";
     } else if (slotType === "features") {
       // The Features slot is the one most prone to filler because each card is
       // tiny — force concrete promises and a single standout card.
       extra = `\n\nFEATURES: give 3-5 cards. Each card is ONE concrete, specific promise — name the REAL thing (the actual DJ, the exact activity, the real giveaway/prize, the specific format), never a vague benefit. BAN 'good vibes', 'great music', 'fun for all', 'something for everyone', 'good food'. headline = 2-4 punchy words; sub = one concrete detail (a name, a time, a number). Set featured:true on exactly ONE card — the single biggest draw (the headliner / the giveaway) — and featured:false on the rest. Still give each card an apt emoji in case the icon style is used.`;
+    }
+    if (allowPlant) {
+      const assignments = narrativeSpine?.proofAssignments || {};
+      const nextProof = nextAdjacentProofKey(assignments, slideNum);
+      const prevProof = previousAdjacentProofKey(assignments, slideNum);
+      const outMode = nextProof ? relatednessPlantMode(reservedProof, nextProof, context) : "none";
+      extra += `\n\n${formatNextPlantClause({ nextProof, mode: outMode })}`;
+      const landing = formatLandingClause({
+        prevProof,
+        mode: relatednessPlantMode(prevProof, reservedProof, context),
+      });
+      if (landing) extra += `\n${landing}`;
     }
     // SPOTLIGHT PHYSICAL-FOOTPRINT CONTRACT — always applies to spotlight
     // slots (single or multi), regardless of letter mode override above.
@@ -4158,7 +4204,7 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
     ...purposeBlock,
     "You are generating an ENTIRE editorial Instagram carousel for CGE. The slides will be exported in order — write them as ONE coherent story, not isolated cards.",
     "",
-    "NODE 1 — STRUCTURE PASS: your primary job here is STRUCTURE, FACTS, and ROUTING under schema pressure. The BRAND VOICE FINGERPRINT block above is signal, not a straitjacket — a downstream Node 2 (Voice Pass) will rewrite text-string field values to lock voice cadence, stance, and distance without touching JSON shape, facts, or routing. So: hit the schema, honor the beat + reserved proof for each slide. One beat per slide. Extra News chairs ARE the log of START receipts already on the desk — one receipt per News card, written in newsBody. That is not a Spotlight directory. Do not leave a News card as a name-only kicker. If a slot's material is thin, keep it short and specific rather than padding — Node 2 can only rewrite what you route correctly, it cannot rescue empty structure or misrouted facts.",
+    "NODE 1 — STRUCTURE PASS: your primary job here is STRUCTURE, FACTS, and ROUTING under schema pressure. The BRAND VOICE FINGERPRINT block above is signal, not a straitjacket — a downstream Node 2 (Voice Pass) will rewrite text-string field values to lock voice cadence, stance, and distance without touching JSON shape, facts, or routing. So: hit the schema, honor the beat + reserved proof for each slide. One beat per slide. Extra News chairs ARE the log of START receipts already on the desk — one receipt per News card, written in newsBody. Last sentence may plant the next In START: name it and what it is (a space, an event, a title, a location, the commonality) so the reader is not decoding a label. That plant is not a second receipt and not a Spotlight directory. Do not leave a News card as a name-only kicker. If a slot's material is thin, keep it short and specific rather than padding — Node 2 can only rewrite what you route correctly, it cannot rescue empty structure or misrouted facts.",
     "",
     // FEEDBACK MEMORY — operator's Reject / Approve history for THIS matrix.
     // Rejections come with a reason ("wall of text on cover", "slide 3 empty",
@@ -4218,7 +4264,7 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
         "- BANNED sociological fluff still applies: 'the unseen hand', 'the fabric of the community', 'the very essence of', 'at its core', 'speaks to', 'a testament to'. Explain with the brief's names instead.",
       ]
       : [
-        "- ENTITY ISOLATION: Do NOT blend unrelated cities, decades, or venues into a single slide — EXCEPT a JOIN beat IF the brief already named a sideways document, parallel room, or disappearance. JOIN is optional. If there is no JOIN beat, every slide stays one time, one place, one specific. A JOIN slide that only restates the specimen failed. A non-JOIN slide that montages two cities failed.",
+        "- ENTITY ISOLATION: Do NOT blend unrelated cities, decades, or venues into a single slide — EXCEPT a JOIN beat IF the brief already named a sideways document, parallel room, or disappearance, OR the last sentence of a News/Text card planting the next In START (name + what it is, not a second receipt). JOIN is optional. If there is no JOIN beat and no NEXT PLANT, every slide stays one time, one place, one specific. A JOIN slide that only restates the specimen failed. A non-JOIN slide that montages two cities failed. Two full receipts on one News card failed.",
         "- FACT-DENSITY MANDATE: every slide MUST name a specific concrete entity from the material — a transit line, a venue, an intersection, a corridor, a specific ordinance number, a named collective, a specific time-of-day, an actual price point. BANNED sociological fluff: 'the unseen hand', 'access dictates who shows up', 'the fabric of the community', 'the very essence of', 'at its core', 'speaks to', 'a testament to', 'invisible architecture', 'the geography of', 'the way we gather'. These read as academic essay filler and mask the absence of specifics. If your instinct is to write one of those phrases, you're missing a concrete anchor — pull one from the assigned bullet or a context bullet marked 'context', or name the physical place / time / rule the material implies.",
         "- ATOMICITY MANDATE: EACH FIELD CARRIES ONE ATOMIC UNIT. One venue name in spotName, one address in spotMeta, one date in ctaDate, one time in spotTime. If your instinct is to stack Metuchen + Aug 7 + address + Album Club pitch + Crossroads into a single spotMeta separated by `·` or `|`, you're using the WRONG SLOT TYPE for the material and the field will be flagged as a data-dump. Split into multiple slides, or leave the extras out. Rule of thumb: if a field would contain more than TWO `·` separators, or more than ONE date, or BOTH an address AND a date, it's a violation.",
       ]),
@@ -4347,14 +4393,14 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
       "- Do not restate the thesis on every slide — the thesis is the frame, not the copy. Each slide advances ONE beat.",
       ...(isContentRegister(mode, isEvergreen) ? [
         "- A slide labeled LOCATE names who / what / where / when. Not a contrast you invented.",
-        "- A slide labeled NEWS is the proving paragraph for what is already on this desk.",
+        "- A slide labeled NEWS is the proving paragraph for this START. Last sentence may plant the next In START with a short definition.",
         "- A slide labeled CONTRAST names the two expressions already on the brief. Not 'is gone'. Not a withheld loop.",
         "- A slide labeled CAUSE articulates how a pressure the brief already named produced those expressions. The number lives in the paragraph. Do not invent a cause.",
         "- A slide labeled EXPLAIN is a section. Place-names live inside the paragraph. Two names of the same expression is correct.",
         "- A slide labeled NEXT asks the question already on the desk. Not an archive door. Not 'find your next gathering spot'.",
       ] : [
         "- A slide labeled LOCATE names who / what / where / when. Not a paradox you invented.",
-        "- A slide labeled NEWS is the proving paragraph for what is already on this desk.",
+        "- A slide labeled NEWS is the proving paragraph for this START. Last sentence may plant the next In START with a short definition.",
         "- A slide labeled PARADOX must NOT contain the metric that belongs to MECHANISM. Hold the number. Skip PARADOX if the brief did not name a fight.",
         "- A slide labeled FRICTION must name the OBSTACLE, not the resolution. If you write the resolution here, you've written the wrong beat.",
         "- A slide labeled MECHANISM is allowed only if the brief already named that infrastructure. Do not hunt an access illusion.",
