@@ -25,6 +25,7 @@
 
 import { CGE_VOICE_RATIO, isPlatformThemeLeak } from "./cgeThesis.js";
 import { parseSlidePlanFromContext, sanitizeSlidePlan, formatNewsStyleParen } from "./slideJobs.js";
+import { LIMITS } from "./matrixEnums.js";
 
 export const CONTENT_CLUSTERS = {
   SUBURBAN_THIRD_PLACE: {
@@ -998,7 +999,7 @@ export async function synthesizeHook({ apiKey, pov, editorialLens = "", anchors 
 //     for "thin" and "mismatched" verdicts; empty for "coherent"
 //   claims: pointed claim → source rows (hook|pov × anchored|unverified)
 //   useFor: what this desk can actually carry (Cover + News, not GST 10)
-//   slideCount: pointed slides the desk earned (2–10), not GST's locked 10
+//   slideCount: pointed slides the desk earned (Cover + each IN START + Done), not GST's locked 10
 //
 // Bounded to one Flash-Lite call so the check is cheap enough to
 // run automatically after Fuel. Failure returns null; caller treats
@@ -1008,7 +1009,9 @@ const COHERENCE_FROM = ["hook", "pov"];
 const COHERENCE_SUPPORT = ["anchored", "unverified"];
 
 export const DESK_SLIDE_MIN = 3;
-export const DESK_SLIDE_MAX = 10;
+// Cover + one News per IN START + Done. Fuel's pile is the only cap.
+// GST stays a locked 10-slide arc; this number is Auto only.
+export const DESK_SLIDE_MAX = LIMITS.BULLETS_MAX + 2;
 
 export function defaultCoherenceUseFor(slideCount) {
   const n = Math.min(DESK_SLIDE_MAX, Math.max(2, Number(slideCount) || 2));
@@ -1063,7 +1066,7 @@ export function buildCoherencePrompt({ hook, pov, anchors = [], clusterDirective
     "",
     "CLAIMS MAP: extract 1-6 pointed claims the cover/thesis is making. For each: which line it came from (hook or pov), and whether an numbered anchor actually proves it (anchored + 1-based anchor index) or it is still a promise (unverified, anchor 0). A paraphrase of the hook is not a proof. A catalog recitation is not a proof.",
     "",
-    "USE THIS DESK FOR + SLIDE COUNT: say what this material can actually carry. Cover + News is the starting pair. slideCount is the number of pointed slides the desk earned (2-10), NOT a template length and NOT GST's locked 10-slide stance arc. If only two claims are anchored, slideCount is 3 (cover + news + stay) or less — do not recommend stretching.",
+    "USE THIS DESK FOR + SLIDE COUNT: say what this material can actually carry. Cover + News is the starting pair. slideCount is Cover + one News per IN START + Done — as many as the desk earned, NOT a template length and NOT GST's locked 10-slide stance arc. If only two claims are anchored, slideCount is 3 (cover + news + stay) or less — do not recommend stretching. Do not cap at 10 when more IN STARTs are on the desk.",
     "",
     "For 'thin' and 'mismatched': also return 1-3 specific GAPS — each a short (60-120 char) sentence naming what's missing or what's off. Concrete, not vague. Example: 'No anchor names a currently-operating venue — every specific is either historical or a policy metric.' NOT: 'anchors are weak.'",
     "For 'coherent': return an empty gaps array.",
@@ -1315,9 +1318,10 @@ export function formatDeskSeeLine({ hook = "", pov = "", lens = "", context = ""
 
 // Auto length from THIS desk's copy, not a silent 3 and not GST 10.
 // Operator pin and named jobs win. Countable START / THESIS / SPECIMEN
-// receipts earn chairs (1 proof → 3, 5 proofs → 7, 8 proofs → 10).
-// Locate still means Cover locates (no invented essay arc) — it does
-// not freeze Auto at 3. Check's pointed count flows if it is higher.
+// receipts earn chairs (1 proof → 3, 5 proofs → 7, 12 proofs → 14).
+// Fuel's pile is the only ceiling. Locate still means Cover locates
+// (no invented essay arc) — it does not freeze Auto at 3. Check's
+// pointed count flows if it is higher.
 export function earnedSlideCount(context, pinned = null) {
   if (typeof pinned === "number" && Number.isFinite(pinned) && pinned > 0) {
     return Math.min(DESK_SLIDE_MAX, Math.max(DESK_SLIDE_MIN, Math.round(pinned)));
