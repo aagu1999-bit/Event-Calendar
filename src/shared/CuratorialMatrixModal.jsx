@@ -2060,7 +2060,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                 const parked = !homework && isFuelOmitted(fuelOmit, i + 1);
                 return (
                   <div key={i} style={{
-                    display: "flex", alignItems: "flex-start", gap: 8,
+                    display: "flex", alignItems: "stretch", gap: 8,
                     background: picked ? "rgba(167,139,250,0.08)" : parked ? "rgba(251,191,36,0.05)" : "#0e0e10",
                     border: `1px solid ${over ? warn : picked ? orbit : parked ? "rgba(251,191,36,0.32)" : whisper}`,
                     opacity: parked ? 0.72 : 1,
@@ -2071,34 +2071,39 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                       type="button"
                       onClick={() => toggleRelatedPick(i + 1)}
                       aria-pressed={picked}
+                      aria-label={picked
+                        ? `Fuel number box ${i + 1} selected — click again to drop it from the relatedness ask`
+                        : `Fuel number box ${i + 1}. Click the box to pick this line. The text field stays for editing.`}
                       title={picked
-                        ? `Fuel #${i + 1} selected — click again to drop it from the relatedness ask`
+                        ? `Fuel #${i + 1} selected — click the box again to drop it from the relatedness ask`
                         : cites
-                          ? `${cites} hook/POV claim${cites === 1 ? "" : "s"} sit on Fuel #${i + 1}. Click to ask if this line is related to another.`
-                          : `Fuel #${i + 1}. Click to pick this line, then pick another and ask if they're related.`}
+                          ? `${cites} hook/POV claim${cites === 1 ? "" : "s"} sit on Fuel #${i + 1}. Click this number box to ask if this line is related to another.`
+                          : `Fuel #${i + 1}. Click this number box to pick the line, then pick another and ask if they're related. The text field is for the line.`}
                       style={{
-                      width: 22,
+                      width: 40,
+                      minWidth: 40,
                       flexShrink: 0,
-                      marginTop: 2,
+                      alignSelf: "stretch",
                       display: "flex",
                       flexDirection: "column",
                       alignItems: "center",
-                      gap: 3,
-                      fontSize: "0.62rem",
+                      justifyContent: "center",
+                      gap: 4,
+                      fontSize: "0.7rem",
                       fontWeight: 800,
                       letterSpacing: "0.04em",
                       fontVariantNumeric: "tabular-nums",
                       color: picked ? cream : orbit,
-                      background: picked ? orbit : "transparent",
-                      border: `1px solid ${picked ? orbit : "transparent"}`,
-                      borderRadius: 4,
-                      padding: "2px 0 3px",
+                      background: picked ? orbit : "rgba(167,139,250,0.08)",
+                      border: `1px solid ${picked ? orbit : "rgba(167,139,250,0.35)"}`,
+                      borderRadius: 6,
+                      padding: "8px 0",
                       cursor: "pointer",
                       fontFamily: "inherit",
                     }}>
                       {i + 1}
                       {cites > 0 ? (
-                        <span style={{ display: "flex", gap: 2, flexWrap: "wrap", justifyContent: "center", maxWidth: 22 }}>
+                        <span style={{ display: "flex", gap: 2, flexWrap: "wrap", justifyContent: "center", maxWidth: 28 }}>
                           {Array.from({ length: Math.min(cites, 4) }, (_, d) => (
                             <span key={d} style={{ width: 5, height: 5, borderRadius: 99, background: picked ? cream : ready, display: "inline-block" }} />
                           ))}
@@ -2144,6 +2149,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                           : `Fuel #${i + 1} is IN — Generate can print it. Click to park it on the desk.`}
                         style={{
                           flexShrink: 0,
+                          alignSelf: "flex-start",
                           marginTop: 2,
                           background: parked ? "rgba(251,191,36,0.12)" : "rgba(52,211,153,0.12)",
                           border: `1px solid ${parked ? warn : ready}`,
@@ -2163,6 +2169,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                         title="A Gap is homework. Generate will not print it. No In/Park."
                         style={{
                           flexShrink: 0,
+                          alignSelf: "flex-start",
                           marginTop: 3,
                           fontSize: "0.52rem",
                           letterSpacing: "0.08em",
@@ -2172,13 +2179,13 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                         }}
                       >Gap</span>
                     )}
-                    <span style={{ fontSize: "0.6rem", color: over ? warn : faint, fontVariantNumeric: "tabular-nums", marginTop: 4, flexShrink: 0 }}>
+                    <span style={{ fontSize: "0.6rem", color: over ? warn : faint, fontVariantNumeric: "tabular-nums", marginTop: 4, flexShrink: 0, alignSelf: "flex-start" }}>
                       {(b || "").length}/{LIMITS.BULLET_MAX}
                     </span>
                     <button
                       type="button"
                       onClick={() => removeBullet(i)}
-                      style={{ background: "transparent", border: "none", color: faint, cursor: "pointer", padding: "2px 6px", borderRadius: 3, fontSize: "0.8rem", marginTop: 2, flexShrink: 0 }}
+                      style={{ background: "transparent", border: "none", color: faint, cursor: "pointer", padding: "2px 6px", borderRadius: 3, fontSize: "0.8rem", marginTop: 2, flexShrink: 0, alignSelf: "flex-start" }}
                       aria-label="Remove research anchor"
                     >×</button>
                   </div>
@@ -2195,7 +2202,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                   <span style={{ fontSize: "0.62rem", color: bullets.length >= LIMITS.BULLETS_MAX ? warn : muted, lineHeight: 1.5, flex: "1 1 180px" }}>
                     {bullets.length >= LIMITS.BULLETS_MAX
                       ? `Fuel is full (${bullets.length}/${LIMITS.BULLETS_MAX}). Ask still searches. Park STARTs you don't want printed.`
-                      : "Keep the pile. In / Park picks which STARTs Generate prints. Click numbers to ask if they're related. Gaps never print."}
+                      : "Keep the pile. In / Park picks which STARTs Generate prints. Click the number box to ask if they're related. The line is for the line. Gaps never print."}
                   </span>
                   <button
                     type="button"
@@ -2207,7 +2214,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                         ? "That pair is already a Gap — click to Google relatedness"
                         : bullets.length >= LIMITS.BULLETS_MAX
                           ? "Fuel is full. This still searches relatedness without adding a 9th line."
-                          : "Write an open Gap: are these related? Related-as / not / afterthought or omit."}
+                          : "Write an open Gap: are these related? The scout answers related-as / not / afterthought or omit — that recipe does not go in the Fuel line."}
                     style={{
                       background: relatedPick.length >= 2 ? "rgba(167,139,250,0.16)" : "transparent",
                       border: `1px dashed ${relatedPick.length >= 2 ? orbit : whisper}`,
@@ -2231,7 +2238,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                       type="button"
                       onClick={() => fuelResearch("gap-scout")}
                       disabled={researching}
-                      title="Google the relatedness Gaps already on Fuel. Returns RELATED AS / NOT RELATED AS / USE AS, or NONE."
+                      title="Google the relatedness Gaps already on Fuel. The scout names RELATED AS / NOT RELATED AS / USE AS, or NONE — that recipe does not live in the Fuel line."
                       style={{
                         background: researching ? "rgba(167,139,250,0.06)" : "rgba(167,139,250,0.14)",
                         border: `1px solid ${orbit}`,
@@ -2513,10 +2520,11 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
               ARGUMENT COHERENCE CHECK
               ═════════════════════════════
               Adversarial pre-generation critic — verifies the anchors
-              can actually support the hook + POV on THIS LENS before
-              we burn a carousel generation. Auto-runs after Fuel;
-              result is a claim→source map + slide-count advice, not
-              a generation gate. */}
+              can actually support the hook + POV on THIS LENS, and
+              names what a swipe would still have to invent. Coherent
+              is not silent. Auto-runs after Fuel; result is a
+              claim→source map + elaboration gaps + slide-count advice,
+              not a generation gate. */}
           <div style={{
             marginTop: 4,
             padding: "12px 14px",
@@ -2532,7 +2540,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                 type="button"
                 onClick={() => runCoherenceCheck()}
                 disabled={checkingCoherence || !String(local.hook_a_side || "").trim() || !String(local.editorial_pov || "").trim() || bullets.filter(Boolean).length < 2}
-                title="Can these Fuel facts support this Hook and POV? Auto-runs after Fuel; Re-check any time."
+                title="Can these Fuel facts support this Hook and POV — and what would a swipe still have to invent? Auto-runs after Fuel; Re-check any time."
                 style={{
                   background: checkingCoherence ? "rgba(99,179,237,0.06)" : "rgba(99,179,237,0.14)",
                   color: checkingCoherence ? faint : "#63B3ED",
@@ -2589,7 +2597,10 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                 : v === "thin" ? warn
                 : "#FB7185";
               const icon = v === "coherent" ? "✓" : v === "thin" ? "◑" : "✗";
-              const label = v === "coherent" ? "Coherent — argument stands"
+              const label = v === "coherent"
+                ? ((coherenceResult.gaps || []).length
+                  ? "Coherent — argument stands · still holes to elaborate"
+                  : "Coherent — argument stands")
                 : v === "thin" ? "Thin — anchors too few or too shallow"
                 : "Mismatched — anchors don't back the hook / LENS";
               const claims = Array.isArray(coherenceResult.claims) ? coherenceResult.claims : [];
@@ -2683,7 +2694,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                   {(coherenceResult.gaps || []).length > 0 && (
                     <div style={{ marginTop: 6 }}>
                       <div style={{ fontSize: "0.58rem", letterSpacing: "0.08em", textTransform: "uppercase", color: textColor, fontWeight: 700, marginBottom: 4 }}>
-                        Specific gaps to close before generation
+                        Still to elaborate — do not invent onto a swipe
                       </div>
                       {(coherenceResult.gaps || []).map((g, i) => (
                         <div key={i} style={{ color: "rgba(245,240,232,0.75)", marginTop: 3 }}>

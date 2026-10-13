@@ -175,7 +175,7 @@ test("coherence gaps become NJ searches for the general brief and the desks", ()
 });
 
 test("relatedness Gaps search the named facts, not a living Saturday", () => {
-  const gap = "GAP — Fuel #1 × #2 · are these related? #1: Equal Space hosts Tech Week on Broad Street · #2: HAX committed $25M in Newark Name RELATED AS";
+  const gap = "GAP — Fuel #1 × #2 · are these related? #1: Equal Space hosts Tech Week on Broad Street · #2: HAX committed $25M in Newark Cite a page or NONE.";
   const searches = coherenceGapSearches({
     topic: "Newark Tech Week",
     gaps: [gap],
