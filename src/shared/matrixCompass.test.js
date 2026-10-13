@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isListicleHook, isBrochureCopy, hookEvidenceLines, splitHookPhrases, classifyHookRegister, formatHookPhraseLines, buildHookPrompt, buildLensReframePrompt, buildThesisPrompt, buildCoherencePrompt, normalizeCoherenceResult, formatCoherenceSeedLines, fuelCitationCount, relatednessGapLine, isRelatednessGap, hasRelatednessGapFor, fuelRelatednessGaps, formatRelatednessSeedLines, sanitizeFuelOmit, countPickedStarts, defaultCoherenceUseFor, coherenceInputSignature, describeReframeInputs, lensFreshnessSignature, earnedSlideCount, essaySlideSequence, countUsableAnchors, isHomeworkAnchor, isLocateDesk, formatDeskSeeLine, formatDeskLengthContext, formatEmotionRegister } from "./matrixCompass.js";
+import { isListicleHook, isBrochureCopy, hookEvidenceLines, splitHookPhrases, classifyHookRegister, formatHookPhraseLines, buildHookPrompt, buildLensReframePrompt, buildThesisPrompt, buildCoherencePrompt, normalizeCoherenceResult, formatCoherenceSeedLines, fuelCitationCount, relatednessGapLine, isRelatednessGap, hasRelatednessGapFor, fuelRelatednessGaps, formatRelatednessSeedLines, sanitizeFuelOmit, countPickedStarts, defaultCoherenceUseFor, coherenceInputSignature, describeReframeInputs, lensFreshnessSignature, earnedSlideCount, essaySlideSequence, countUsableAnchors, isHomeworkAnchor, isLocateDesk, formatDeskSeeLine, formatDeskLengthContext, formatEmotionRegister, DESK_SLIDE_MAX } from "./matrixCompass.js";
 import { buildSubjectLock, subjectLockPromptLines, lockLensDirective } from "./subjectLock.js";
 
 test("listicle hooks are the Google-vs-CGE failure", () => {
@@ -346,8 +346,8 @@ test("normalizeCoherenceResult maps claims, clamps slides, and fills useFor", ()
   assert.equal(normalized.claims[0].anchor, 1);
   assert.equal(normalized.claims[1].support, "unverified");
   assert.equal(normalized.claims[1].anchor, 0);
-  assert.equal(normalized.slideCount, 10);
-  assert.match(normalized.useFor, /Cap at 10 slides/);
+  assert.equal(normalized.slideCount, DESK_SLIDE_MAX);
+  assert.match(normalized.useFor, new RegExp(`Cap at ${DESK_SLIDE_MAX} slides`));
   assert.equal(normalizeCoherenceResult({ verdict: "nope" }), null);
   assert.equal(defaultCoherenceUseFor(3).includes("Cover + News"), true);
 });
@@ -407,6 +407,17 @@ test("slide count is earned from this desk, not a silent 3", () => {
   ].join("\n");
   assert.equal(countUsableAnchors(eightProofs), 8);
   assert.equal(earnedSlideCount(eightProofs), 10);
+  const twelveProofs = [
+    eightProofs,
+    "- START — a ninth named night.",
+    "- START — a tenth named hall.",
+    "- START — an eleventh named mixer.",
+    "- START — a twelfth named pitch.",
+  ].join("\n");
+  assert.equal(countUsableAnchors(twelveProofs), 12);
+  assert.equal(earnedSlideCount(twelveProofs), 14);
+  assert.equal(essaySlideSequence(14).length, 14);
+  assert.equal(essaySlideSequence(14).filter((t) => t === "news").length, 12);
   assert.deepEqual(essaySlideSequence(6), ["cover", "news", "news", "news", "news", "cta"]);
   assert.deepEqual(essaySlideSequence(3), ["cover", "news", "cta"]);
   assert.deepEqual(essaySlideSequence(4), ["cover", "news", "news", "cta"]);
