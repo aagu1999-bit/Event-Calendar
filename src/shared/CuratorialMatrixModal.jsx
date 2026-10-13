@@ -2520,10 +2520,11 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
               ARGUMENT COHERENCE CHECK
               ═════════════════════════════
               Adversarial pre-generation critic — verifies the anchors
-              can actually support the hook + POV on THIS LENS before
-              we burn a carousel generation. Auto-runs after Fuel;
-              result is a claim→source map + slide-count advice, not
-              a generation gate. */}
+              can actually support the hook + POV on THIS LENS, and
+              names what a swipe would still have to invent. Coherent
+              is not silent. Auto-runs after Fuel; result is a
+              claim→source map + elaboration gaps + slide-count advice,
+              not a generation gate. */}
           <div style={{
             marginTop: 4,
             padding: "12px 14px",
@@ -2539,7 +2540,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                 type="button"
                 onClick={() => runCoherenceCheck()}
                 disabled={checkingCoherence || !String(local.hook_a_side || "").trim() || !String(local.editorial_pov || "").trim() || bullets.filter(Boolean).length < 2}
-                title="Can these Fuel facts support this Hook and POV? Auto-runs after Fuel; Re-check any time."
+                title="Can these Fuel facts support this Hook and POV — and what would a swipe still have to invent? Auto-runs after Fuel; Re-check any time."
                 style={{
                   background: checkingCoherence ? "rgba(99,179,237,0.06)" : "rgba(99,179,237,0.14)",
                   color: checkingCoherence ? faint : "#63B3ED",
@@ -2596,7 +2597,10 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                 : v === "thin" ? warn
                 : "#FB7185";
               const icon = v === "coherent" ? "✓" : v === "thin" ? "◑" : "✗";
-              const label = v === "coherent" ? "Coherent — argument stands"
+              const label = v === "coherent"
+                ? ((coherenceResult.gaps || []).length
+                  ? "Coherent — argument stands · still holes to elaborate"
+                  : "Coherent — argument stands")
                 : v === "thin" ? "Thin — anchors too few or too shallow"
                 : "Mismatched — anchors don't back the hook / LENS";
               const claims = Array.isArray(coherenceResult.claims) ? coherenceResult.claims : [];
@@ -2690,7 +2694,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                   {(coherenceResult.gaps || []).length > 0 && (
                     <div style={{ marginTop: 6 }}>
                       <div style={{ fontSize: "0.58rem", letterSpacing: "0.08em", textTransform: "uppercase", color: textColor, fontWeight: 700, marginBottom: 4 }}>
-                        Specific gaps to close before generation
+                        Still to elaborate — do not invent onto a swipe
                       </div>
                       {(coherenceResult.gaps || []).map((g, i) => (
                         <div key={i} style={{ color: "rgba(245,240,232,0.75)", marginTop: 3 }}>

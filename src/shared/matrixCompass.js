@@ -984,8 +984,12 @@ export async function synthesizeHook({ apiKey, pov, editorialLens = "", anchors 
 // to be flagged before the carousel is generated."
 //
 // The check is CRITIC-role, not generator-role — same discipline as
-// polishCarousel's refuse mechanism. It answers ONE question: given
-// this hook, this POV, and these anchors, does the argument stand?
+// polishCarousel's refuse mechanism. It answers: given this hook, this
+// POV, and these anchors, does the argument stand — AND what would a
+// swipe still have to invent, paraphrase, or mash? Coherent is not
+// silent. The original failure was "slides 2 and 3 metaphors need
+// insightful explanation — if the AI can't put the pieces together,
+// that needs to be flagged before the carousel is generated."
 //
 // Returns { verdict, reason, gaps, claims, useFor, slideCount }:
 //   verdict: "coherent" | "thin" | "mismatched"
@@ -995,8 +999,9 @@ export async function synthesizeHook({ apiKey, pov, editorialLens = "", anchors 
 //     - mismatched = the anchors don't support (or contradict) the
 //       hook's specific claim, OR they wandered off the LENS
 //   reason: one-sentence explanation of the verdict
-//   gaps: array of specific missing pieces (each 60-120 chars)
-//     for "thin" and "mismatched" verdicts; empty for "coherent"
+//   gaps: holes a carousel swipe would have to invent or mash — on any
+//     verdict, including coherent. Empty only when every IN START can
+//     carry its own News card honestly.
 //   claims: pointed claim → source rows (hook|pov × anchored|unverified)
 //   useFor: what this desk can actually carry (Cover + News, not GST 10)
 //   slideCount: pointed slides the desk earned (Cover + each IN START + Done), not GST's locked 10
@@ -1042,7 +1047,7 @@ export function buildCoherencePrompt({ hook, pov, anchors = [], clusterDirective
     "ROLE: You are a critical newsroom editor reading a proposed carousel outline BEFORE any slide is written.",
     "TASK: Answer ONE question — can these anchors support this argument, on THIS LENS?",
     "",
-    "You are NOT proposing better anchors, NOT rewriting the hook, NOT generating slides. You are answering: given what is on the desk, does the argument stand?",
+    "You are NOT proposing better anchors, NOT rewriting the hook, NOT generating slides. You are the critic: given what is on the desk, does the argument stand, and what would a Cover/News swipe still have to invent?",
     "",
     "THE ARGUMENT:",
     `  Hook (cover promise): ${cleanHook}`,
@@ -1068,10 +1073,12 @@ export function buildCoherencePrompt({ hook, pov, anchors = [], clusterDirective
     "",
     "USE THIS DESK FOR + SLIDE COUNT: say what this material can actually carry. Cover + News is the starting pair. slideCount is Cover + one News per IN START + Done — as many as the desk earned, NOT a template length and NOT GST's locked 10-slide stance arc. If only two claims are anchored, slideCount is 3 (cover + news + stay) or less — do not recommend stretching. Do not cap at 10 when more IN STARTs are on the desk.",
     "",
-    "For 'thin' and 'mismatched': also return 1-3 specific GAPS — each a short (60-120 char) sentence naming what's missing or what's off. Concrete, not vague. Example: 'No anchor names a currently-operating venue — every specific is either historical or a policy metric.' NOT: 'anchors are weak.'",
-    "For 'coherent': return an empty gaps array.",
+    "GAPS — stay the critic of what the carousel cannot yet elaborate. Coherent does not mean silent. Return 1-3 specific holes (60-120 chars) a Cover/News swipe would have to invent, paraphrase across cards, mash, or leave as a naked label. Concrete, not vague.",
+    "Examples: 'No START names a currently-operating venue — every specific is archive or a policy metric.' 'Fuel #2 is a name without what it is — a News card will print a kicker.' 'Fuel #1 and #2 would sit as consecutive News; no page names a program, host, or night they share — do not plant them as one session.'",
+    "NOT: 'anchors are weak.' NOT a canned facet list (same night / same door / same host as a default). If two IN STARTs have no sourced commonality, name that as an open hole so the operator can Ask if related. Do not invent same-program / same-host.",
+    "Empty gaps ONLY when every IN START can carry its own News card without invention and adjacent cards do not need a sourced join the desk does not have.",
     "",
-    "Be adversarial. It is better to flag a thin or off-LENS matrix than to green-light a shaky carousel.",
+    "Be adversarial. It is better to flag a thin, unjoined, or off-LENS matrix than to green-light a shaky carousel.",
     "",
     'Return ONLY JSON in this exact shape: {"verdict":"coherent|thin|mismatched","reason":"one sentence","gaps":["..."],"claims":[{"claim":"...","from":"hook|pov","support":"anchored|unverified","anchor":1}],"useFor":"what the desk can carry","slideCount":3}',
   ].join("\n");
@@ -1212,7 +1219,7 @@ export function formatCoherenceSeedLines(check) {
     lines.push(`UNVERIFIED CLAIMS — OMIT FROM EVERY SLIDE. Do not write, paraphrase, or imply these. If the hook or POV used one, rewrite that beat from an anchored START / THESIS / SPECIMEN line. Never treat a RECEIPT — UNVERIFIED line as proof: ${unverified.map((c) => c.claim).join("; ")}`);
   }
   if (normalized.gaps.length) {
-    lines.push(`GAPS — not copy. Do not invent these onto slides: ${normalized.gaps.join("; ")}`);
+    lines.push(`GAPS — not copy. Holes the carousel must not elaborate by inventing. If a gap says two Fuel numbers are unjoined, do not plant them as one session: ${normalized.gaps.join("; ")}`);
   }
   return lines;
 }
