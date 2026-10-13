@@ -28,7 +28,7 @@ export const SLIDE_JOBS = {
     label: "What happened",
     look: "news",
     writer:
-      "THE LOG: who / what / where / when already on this desk. Real stake + named receipt + a use on this card. Not manifesto. Not THE BIGGER PICTURE. Not an open loop.",
+      "THE LOG: who / what / where / when already on this desk. Real stake + named receipt + a use on this card. Last sentence may plant the next In START — name it and what it is, not a second receipt. Not manifesto. Not THE BIGGER PICTURE. Not an open loop.",
   },
   who: {
     key: "who",

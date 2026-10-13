@@ -382,7 +382,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
       voice,
       slotPrompts,
       templateMeta: deskSeq
-        ? { name: jobsLocked ? formatSlidePlanHeading(namedPlan) : `${n} slides from this desk`, keyMove: jobsLocked ? "The operator named these jobs. Look is assigned from the job. Do not invent Locate / Cause / Explain beats." : "Cover locates. Extra chairs are more News — one receipt per card. Omit unverified claims and Gaps. Do not invent gaps onto slides." }
+        ? { name: jobsLocked ? formatSlidePlanHeading(namedPlan) : `${n} slides from this desk`, keyMove: jobsLocked ? "The operator named these jobs. Look is assigned from the job. Do not invent Locate / Cause / Explain beats." : "Cover locates. Extra chairs are more News — one receipt per card. Last sentence may plant the next In START with a short definition. Omit unverified claims and Gaps. Do not invent gaps onto slides." }
         : useTemplate,
       mode,
       letterMode,

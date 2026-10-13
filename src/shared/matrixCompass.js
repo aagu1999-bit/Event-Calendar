@@ -1188,7 +1188,7 @@ export function formatRelatednessSeedLines(bullets = []) {
     .filter((b) => isRelatednessGap(b) || /\bRELATED AS\b|\bUSE AS afterthought\b/i.test(b));
   if (!relevant.length) return [];
   return [
-    "RELATEDNESS — open ask between Fuel numbers, not a canned facet list. If a line says RELATED AS climate / afterthought / momentum, that fact is weather around the piece — one card after the specimen is named, not a session of the week. If NONE or NOT RELATED AS same night / host / program, do not mash them onto one swipe. Opinion about why it matters lives in POV, not in this hunt.",
+    "RELATEDNESS — open ask between Fuel numbers, not a canned facet list. If a line says RELATED AS climate / afterthought / momentum, that fact is weather around the piece — the last sentence of the specimen card may plant it (name it and what it is, plus the commonality: same city / same week / investor interest). The next card lands it. Not a session of the week. If NONE or NOT RELATED AS same night / host / program or USE AS omit, do not mash them onto one swipe and do not plant. Opinion about why it matters lives in POV, not in this hunt.",
   ];
 }
 
