@@ -157,7 +157,8 @@ export function checkMoves(raw, context) {
     const job = MOVE_JOBS.includes(String(m?.job || "").toLowerCase()) ? String(m.job).toLowerCase() : (i === 0 ? "open" : "context");
     const rawHeadline = String(m?.headline || "").trim();
     const headline = fitWords(rawHeadline, HEADLINE_MAX);
-    if (headline !== rawHeadline.replace(/\s+/g, " ")) warn("headline_shortened", n, `Headline was over ${HEADLINE_MAX} characters ("${rawHeadline}"). Kept the whole words: "${headline}".`);
+    if (!headline) warn("no_headline", n, `Move ${n} has no headline.`);
+    else if (headline !== rawHeadline.replace(/\s+/g, " ")) warn("headline_shortened", n, `Headline was over ${HEADLINE_MAX} characters ("${rawHeadline}"). Kept the whole words: "${headline}".`);
     const text = String(m?.text || "").replace(/\s+/g, " ").trim();
     if (wordCount(text) > TEXT_WORDS_MAX + 10) warn("text_long", n, `Move ${n} runs ${wordCount(text)} words; the card holds about ${TEXT_WORDS_MAX}.`);
     const cites = [];

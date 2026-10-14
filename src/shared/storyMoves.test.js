@@ -106,6 +106,11 @@ test("a parked or open-question line cannot be cited", () => {
   assert.ok(types.includes("uncited"));
 });
 
+test("a move with no headline is flagged", () => {
+  const plan = checkMoves({ focus: "x", moves: [{ job: "open", headline: "  ", text: "Zanzibar opened.", cites: [1] }] }, zanzibar);
+  assert.ok(plan.warnings.some((w) => w.type === "no_headline" && w.move === 1));
+});
+
 test("generateStoryCarousel sends one call with the schema and cuts cards", async () => {
   let body;
   const generate = async (key, b) => {
