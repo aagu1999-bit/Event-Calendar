@@ -259,7 +259,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
           ? (slideCount === "auto" ? "✨ Design + generate" : `✨ Generate ${slideCount} slides`)
           : "✨ GST generate (10)")
       : compactMode
-        ? "Generate"
+        ? `Generate ${deskN}`
         : letAiPick
           ? "✨ Let AI pick + generate"
           : `✨ Generate ${template?.sequence?.length || 0} slides`;
@@ -345,9 +345,9 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
       setPickedTemplate(pick.template);
       setPickReasoning(pick.reasoning);
     }
-    // Phase 2: fill from this desk. Length is Check's pointed count /
-    // usable receipts, not a silent 3 and not GST 10. A ranked map
-    // names the talk; it does not freeze the carousel at Cover + News.
+    // Phase 2: fill from this desk. Length is IN receipts + Cover + Done,
+    // not a silent 3, not GST 10, and not Check padding empty chairs.
+    // A ranked map names the talk; it does not freeze Cover + News.
     const pinnedCount = slideCount === "auto" ? null : parseInt(slideCount, 10);
     const namedPlan = sanitizeSlidePlan(slidePlan);
     const jobsLocked = namedPlan.jobs.length > 0;
@@ -387,6 +387,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
         : useTemplate,
       mode,
       letterMode,
+      lockLength: !!deskSeq,
       // Compass override: cluster directive as its own top-level block +
       // deterministic keyword-trigger stitch on the final CTA slot.
       clusterDirective: initialClusterDirective,
@@ -407,6 +408,17 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
       approvedDrafts: approvedMem,
       slideJobs: jobsLocked ? namedPlan : null,
     });
+    const rendered = Array.isArray(result) ? result : [];
+    if (rendered.length && rendered.length !== sequence.length) {
+      setCompressionEvent({
+        from: sequence.length,
+        to: rendered.length,
+        reason: "writer-length",
+        droppedSlots: sequence.slice(rendered.length),
+      });
+    } else {
+      setCompressionEvent(null);
+    }
     setSlides(result);
     if (typeof onPreviewSave === "function") onPreviewSave(result);
   };
@@ -503,6 +515,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
       templateMeta: pickedTemplate || template || { name: "AI-arranged carousel", sequence },
       mode,
       letterMode,
+      lockLength: true,
       clusterDirective: initialClusterDirective,
       clusterLabel: initialClusterLabel,
       keywordTrigger: initialKeywordTrigger,
@@ -2007,10 +2020,10 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
               <div style={{ marginBottom: 12, padding: "8px 12px", background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.32)", borderRadius: 5, display: "flex", alignItems: "center", gap: 10 }}>
                 <span style={{ fontSize: "0.9rem" }}>⚡</span>
                 <div style={{ fontSize: "0.68rem", color: "rgba(245,240,232,0.82)", lineHeight: 1.45 }}>
-                  <b style={{ color: "#FBBF24", letterSpacing: 0.4 }}>Compressed {compressionEvent.from} → {compressionEvent.to} slides.</b>{" "}
-                  The spine's editor pass judged the material didn't earn the extra beats and dropped{" "}
+                  <b style={{ color: "#FBBF24", letterSpacing: 0.4 }}>Told {compressionEvent.from}, got {compressionEvent.to} slides.</b>{" "}
+                  Generate dropped{" "}
                   <b>{compressionEvent.droppedSlots?.join(", ") || "(unknown)"}</b>{" "}
-                  from the tail. Rerun with a richer bullet corpus if you wanted the full count.
+                  after it named the count. The number on Generate is the number that should come back — rerun if this still disagrees.
                 </div>
               </div>
             )}
