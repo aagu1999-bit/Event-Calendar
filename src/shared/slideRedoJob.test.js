@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { diagnoseSlideRedo, formatRedoWriterJob, repairSlideLeaks } from "./slideRedoJob.js";
+import { diagnoseSlideRedo, formatRedoWriterJob, repairSlideLeaks, normalizeNewsLabel, chairsNeedingAutoRepair } from "./slideRedoJob.js";
 
 test("cover wall + grant voice is a named job, not a mystery rewrite", () => {
   const diag = diagnoseSlideRedo({
@@ -166,5 +166,46 @@ test("first-pass repair drops URLs and mid-body stars, keeps a payoff", () => {
   assert.equal(/\*/.test(cleaned.newsHeadline), false);
   assert.equal(/UNIVERSITY/.test(cleaned.newsHeadline), false);
   assert.match(cleaned.newsBody, /\*The dissertation is the local shelf\.\*/);
+});
+
+test("News labels normalize to ALL CAPS; body stays mixed", () => {
+  assert.equal(normalizeNewsLabel("Club Zanzibar"), "CLUB ZANZIBAR");
+  assert.equal(normalizeNewsLabel("THE HALL"), "THE HALL");
+  assert.equal(normalizeNewsLabel("  henry's dissertation  "), "HENRY'S DISSERTATION");
+  assert.equal(normalizeNewsLabel(""), "");
+  const cleaned = repairSlideLeaks({
+    type: "news",
+    newsKicker: "the hall",
+    newsHeadline: "Club Zanzibar",
+    newsBody: "Club Zanzibar trained the Jersey Sound.",
+  });
+  assert.equal(cleaned.newsKicker, "THE HALL");
+  assert.equal(cleaned.newsHeadline, "CLUB ZANZIBAR");
+  assert.match(cleaned.newsBody, /Club Zanzibar trained/);
+});
+
+test("auto-repair skips a missing plant and caps dump chairs at 4", () => {
+  const slides = [
+    {
+      type: "cover",
+      headline: "HOOK",
+      subtitle: "A starting point for encountering Newark's Black house-music history with a 2026 Newark Arts Festival installation revisiting the legendary hub that shaped the sound.",
+    },
+    { type: "news", newsHeadline: "RUTGERS' NEWARK CLUB-MUSIC RESEARCH SHELF (UNIVERSITY — R", newsBody: "Body one." },
+    { type: "news", newsHeadline: "This is a long sentence that belongs in the body not the title field of the card", newsBody: "Body two." },
+    { type: "cta", ctaDate: "How does Newark inform today's music?" },
+    { type: "news", newsHeadline: "KEEP THE SCOUT THESIS", newsBody: "Keep the scout thesis." },
+    { type: "news", newsHeadline: "THE CLEAN CARD", newsBody: "A clean receipt with no plant of the next card." },
+    { type: "news", newsHeadline: "NEXT START", newsBody: "Next." },
+  ];
+  const chairs = chairsNeedingAutoRepair(slides);
+  assert.equal(chairs.length, 4);
+  assert.equal(chairs.every((c) => !c.keys.includes("plant")), true);
+  assert.equal(chairs.some((c) => c.index === 5), false);
+  const plantOnly = chairsNeedingAutoRepair([
+    { type: "news", newsHeadline: "THE HALL", newsBody: "A clean receipt." },
+    { type: "news", newsHeadline: "TONY HUMPHRIES", newsBody: "Tony kept the Friday night." },
+  ]);
+  assert.equal(plantOnly.length, 0);
 });
 

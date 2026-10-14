@@ -17,7 +17,7 @@ import {
   sanitizeNewsStyles,
 } from "./slideJobs.js";
 import { recastSlot, PREVIEW_RECAST_TYPES, PREVIEW_RECAST_LABELS, PREVIEW_RECAST_HINTS, formatPreviewSeeLine } from "./recastSlot.js";
-import { diagnoseSlideRedo, formatRedoWriterJob } from "./slideRedoJob.js";
+import { diagnoseSlideRedo, formatRedoWriterJob, normalizeNewsLabel } from "./slideRedoJob.js";
 import {
   interpretBuildTurn,
   formatDraftForContinue,
@@ -984,13 +984,15 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
           <input
             value={slot.newsKicker || ""}
             onChange={(e) => patchSlide(idx, { newsKicker: e.target.value })}
+            onBlur={() => patchSlide(idx, { newsKicker: normalizeNewsLabel(slot.newsKicker) })}
             style={{ ...fieldStyle, letterSpacing: 1, textTransform: "uppercase", fontWeight: 800, fontSize: "0.7rem" }}
           />
           <div style={labelStyle}>Headline</div>
           <input
             value={slot.newsHeadline || ""}
             onChange={(e) => patchSlide(idx, { newsHeadline: e.target.value })}
-            style={{ ...fieldStyle, fontFamily: "'Syne',sans-serif", fontWeight: 800 }}
+            onBlur={() => patchSlide(idx, { newsHeadline: normalizeNewsLabel(slot.newsHeadline) })}
+            style={{ ...fieldStyle, fontFamily: "'Syne',sans-serif", fontWeight: 800, textTransform: "uppercase" }}
           />
           <div style={labelStyle}>Body</div>
           <textarea
@@ -2031,7 +2033,7 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
               Preview · {slides.length} slides
             </div>
             <div style={{ fontSize: "0.58rem", color: "rgba(245,240,232,0.5)", marginBottom: 8, lineHeight: 1.4 }}>
-              Cover · News · Done are the chairs. Each card names the leak on it and what Redo will do. Recast changes type; Redo then writes that type. Wrong marks a card for the box under the cards. URLs stay off the image — name the source instead.
+              Cover · News · Done are the chairs. Generate already redid up to four dump chairs (cut titles, grant voice, question closers). A missing plant stays a warning — Redo that chair if you want the handoff. Recast changes type; Redo then writes that type. Wrong marks a card for the box under the cards. URLs stay off the image — name the source instead.
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
               {slides.map((slot, idx) => {
