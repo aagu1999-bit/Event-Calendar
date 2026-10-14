@@ -209,3 +209,19 @@ test("auto-repair skips a missing plant and caps dump chairs at 4", () => {
   assert.equal(plantOnly.length, 0);
 });
 
+test("empty News bodies all auto-repair, on top of the dump cap", () => {
+  const slides = [
+    { type: "cover", headline: "HOOK", subtitle: "One line." },
+    { type: "news", newsKicker: "ONE", newsHeadline: "FIRST START", newsBody: "" },
+    { type: "news", newsKicker: "TWO", newsHeadline: "SECOND START", newsBody: "" },
+    { type: "news", newsKicker: "THREE", newsHeadline: "THIRD START", newsBody: "" },
+    { type: "news", newsKicker: "FOUR", newsHeadline: "FOURTH START", newsBody: "" },
+    { type: "news", newsKicker: "FIVE", newsHeadline: "FIFTH START", newsBody: "" },
+    { type: "cta", ctaDate: "How does Newark inform today's music?" },
+  ];
+  const chairs = chairsNeedingAutoRepair(slides);
+  const empty = chairs.filter((c) => c.keys.includes("empty-news"));
+  assert.equal(empty.length, 5);
+  assert.equal(chairs.some((c) => c.keys.includes("question-cta")), true);
+});
+

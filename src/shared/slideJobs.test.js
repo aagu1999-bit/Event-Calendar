@@ -159,6 +159,13 @@ test("empty News chairs fill from IN Fuel, not Gaps or parked lines", () => {
   assert.match(filled[2].newsHeadline, /Rutgers/);
   assert.match(filled[3].newsBody, /Invest Newark/);
   assert.equal(filled[4].newsBody, "");
+  const titledEmpty = fillEmptyNewsFromDesk([
+    { type: "cover", headline: "Tech Week is on.", subtitle: "Rutgers launched a Black and Latino Angel Investment Fund in 2020." },
+    { type: "news", newsKicker: "INVESTMENT FUND", newsHeadline: "Rutgers launched a Black and Latino Angel Investment Fund in 2020.", newsBody: "" },
+    { type: "news", newsKicker: "GROW NEWARK", newsHeadline: "Invest Newark lists Grow Newark Fund", newsBody: "" },
+  ], context);
+  assert.match(titledEmpty[1].newsBody, /Angel Investment Fund/);
+  assert.match(titledEmpty[2].newsBody, /Invest Newark/);
   const dropped = dropEmptyNewsChairs(filled);
   assert.equal(dropped.length, 5);
   assert.equal(dropped.some((s) => s.newsKicker === "SPARE"), false);

@@ -384,29 +384,38 @@ export function repairSlideLeaks(slide) {
 // first-pass "repair" became another stuffed request.
 const AUTO_REPAIR_KEYS = new Set([
   "url", "markdown", "source-tag", "truncated", "title-as-body",
-  "scaffold", "grant", "brochure-cta", "question-cta", "empty-news",
+  "scaffold", "grant", "brochure-cta", "question-cta",
   "landing", "plant-mash", "plant-blocked", "repeat", "cover-wall",
 ]);
 const AUTO_REPAIR_CAP = 4;
 
 function autoRepairRank(keys) {
   if (keys.includes("scaffold") || keys.includes("url") || keys.includes("source-tag")) return 0;
-  if (keys.includes("truncated") || keys.includes("title-as-body") || keys.includes("empty-news")) return 1;
+  if (keys.includes("truncated") || keys.includes("title-as-body")) return 1;
   if (keys.includes("cover-wall") || keys.includes("grant") || keys.includes("question-cta") || keys.includes("brochure-cta")) return 2;
   return 3;
 }
 
 export function chairsNeedingAutoRepair(slides, { context = "", cap = AUTO_REPAIR_CAP } = {}) {
   if (!Array.isArray(slides)) return [];
-  const chairs = [];
+  const empty = [];
+  const dump = [];
   for (let i = 0; i < slides.length; i++) {
     const diag = diagnoseSlideRedo(slides[i], { index: i, slides, context });
-    const keys = (diag.leaks || []).map((l) => l.key).filter((k) => AUTO_REPAIR_KEYS.has(k));
-    if (!keys.length) continue;
-    chairs.push({ index: i, keys, diag });
+    const keys = (diag.leaks || []).map((l) => l.key);
+    const dumpKeys = keys.filter((k) => AUTO_REPAIR_KEYS.has(k));
+    if (keys.includes("empty-news")) {
+      empty.push({ index: i, keys: [...new Set(["empty-news", ...dumpKeys])], diag });
+      continue;
+    }
+    if (!dumpKeys.length) continue;
+    dump.push({ index: i, keys: dumpKeys, diag });
   }
-  chairs.sort((a, b) => autoRepairRank(a.keys) - autoRepairRank(b.keys) || a.index - b.index);
-  return chairs.slice(0, Math.max(0, cap));
+  dump.sort((a, b) => autoRepairRank(a.keys) - autoRepairRank(b.keys) || a.index - b.index);
+  // Empty bodies are token-pressure leftovers, not optional dumps —
+  // fill every one. Dump chairs stay capped so Generate does not Redo
+  // the whole deck.
+  return [...empty, ...dump.slice(0, Math.max(0, cap))];
 }
 
 export function repairCarouselLeaks(slides) {

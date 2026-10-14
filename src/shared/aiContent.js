@@ -2800,12 +2800,14 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   // Both retry the same prompt WITHOUT the schema so generation isn't
   // blocked. Prompt-level FIELD DISCIPLINE + post-generation sanitizer
   // still catch the common failure modes in that path.
-  // maxOutputTokens set explicitly to 8192 so a heavy prompt + schema
-  // constraints don't silently truncate the JSON response.
+  // 8192 is enough for a 3-slide teaser and too small for Cover + a
+  // pile of News: the writer fills kickers/headlines first and the
+  // tail comes back with empty newsBody. Scale with chair count.
+  const fillOutputTokens = Math.min(32768, Math.max(8192, workingSequence.length * 1400));
   const baseConfig = {
     responseMimeType: "application/json",
     temperature: fillTemperature,
-    maxOutputTokens: 8192,
+    maxOutputTokens: fillOutputTokens,
   };
   const withSchema = { ...baseConfig, responseSchema: buildFillResponseSchema(workingSequence) };
   const isSchemaRejection = (err) => {

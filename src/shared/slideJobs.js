@@ -557,25 +557,46 @@ export function inPlayReceiptsFromContext(text) {
     if (!inFacts || !line) continue;
     const bullet = stripFuelLead(line);
     if (HOMEWORK_ANCHOR.test(bullet)) continue;
-    if (!/^(?:THESIS|START|SPECIMEN|DOCUMENT)\s*—/i.test(bullet)) continue;
+    if (!/^(?:THESIS|START|SPECIMEN|DOCUMENT|ARGUMENT|JOIN|NEXT|MECHANISM|FRICTION)\s*—/i.test(bullet)) continue;
     const body = stripAnchorPrefix(bullet);
     if (body.length > 8) out.push(body);
   }
   return out;
 }
 
-function receiptClaimedBy(receipt, slide) {
+function receiptNeedle(receipt) {
   const needle = String(receipt || "").slice(0, 28).toLowerCase();
-  if (needle.length < 8) return false;
+  return needle.length >= 8 ? needle : "";
+}
+
+function receiptInBody(receipt, slide) {
+  const needle = receiptNeedle(receipt);
+  if (!needle) return false;
   const blob = [
-    slide?.newsBody, slide?.newsHeadline, slide?.subtitle, slide?.textBody,
+    slide?.newsBody, slide?.subtitle, slide?.textBody,
   ].map((s) => String(s || "").toLowerCase()).join(" ");
   return blob.includes(needle);
+}
+
+function emptyNewsMatchIndex(receipts, slide, used) {
+  const kicker = String(slide?.newsKicker || "").trim().toLowerCase();
+  const head = String(slide?.newsHeadline || "").trim().toLowerCase();
+  const hay = `${kicker} ${head}`.trim();
+  if (hay.length >= 4) {
+    const slice = (kicker.length >= 4 ? kicker : hay).slice(0, 8);
+    const unusedHit = receipts.findIndex((r, i) => !used.has(i) && r.toLowerCase().includes(slice));
+    if (unusedHit >= 0) return unusedHit;
+    const titledHit = receipts.findIndex((r) => r.toLowerCase().includes(slice));
+    if (titledHit >= 0) return titledHit;
+  }
+  return receipts.findIndex((_, i) => !used.has(i));
 }
 
 // Writer often ships extra News chairs as a kicker only (INVESTMENT FUND
 // / empty body) when token pressure or "omit unverified" hits. Put the
 // unused IN START into the body so Redo is not the only fix.
+// A headline that already names the START does not count as filled —
+// that is how token-pressure decks kept empty bodies after lockLength.
 export function fillEmptyNewsFromDesk(slides, context) {
   if (!Array.isArray(slides)) return slides;
   const receipts = inPlayReceiptsFromContext(context);
@@ -583,18 +604,13 @@ export function fillEmptyNewsFromDesk(slides, context) {
   const used = new Set();
   for (const slide of slides) {
     receipts.forEach((r, i) => {
-      if (receiptClaimedBy(r, slide)) used.add(i);
+      if (receiptInBody(r, slide)) used.add(i);
     });
   }
   return slides.map((slide) => {
     if (!slide || slide.type !== "news") return slide;
     if (String(slide.newsBody || "").trim()) return slide;
-    const kicker = String(slide.newsKicker || "").trim().toLowerCase();
-    let idx = -1;
-    if (kicker.length >= 4) {
-      idx = receipts.findIndex((r, i) => !used.has(i) && r.toLowerCase().includes(kicker.slice(0, 8)));
-    }
-    if (idx < 0) idx = receipts.findIndex((_, i) => !used.has(i));
+    const idx = emptyNewsMatchIndex(receipts, slide, used);
     if (idx < 0) return slide;
     used.add(idx);
     const body = receipts[idx];
