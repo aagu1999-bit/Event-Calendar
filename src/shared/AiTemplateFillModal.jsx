@@ -752,7 +752,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
       const styleLine = slot.type === "news" && Array.isArray(slot.newsStyles) && slot.newsStyles.length
         ? `NEWS STYLES FOR THIS CARD ONLY: ${slot.newsStyles.join(", ")}. Rewrite THIS chair in that mix. Do not copy it onto other News chairs.`
         : "";
-      const redoJob = diagnoseSlideRedo(slot, { index: idx, slides });
+      const redoJob = diagnoseSlideRedo(slot, { index: idx, slides, context });
       const regenContext = appendOperatorQuestions(appendSavedTeaching([
         context.trim(),
         `FULL CAROUSEL (study the voice, the running motif, and what each slide already covers — do not repeat or contradict them):\n${fullMap}`,
@@ -2027,7 +2027,7 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
                 const saved = savedIdx.has(idx);
                 const kept = keptIdx.has(idx);
                 const markedWrong = wrongIdx.has(idx);
-                const redoJob = diagnoseSlideRedo(slot, { index: idx, slides });
+                const redoJob = diagnoseSlideRedo(slot, { index: idx, slides, context });
                 return (
                   <div
                     key={idx}
