@@ -467,18 +467,19 @@ test("slide count is earned from this desk, not a silent 3", () => {
   ].join("\n");
   assert.equal(countUsableAnchors(locateWeek), 4);
   assert.equal(earnedSlideCount(locateWeek.replace(/\nPOINTED SLIDE COUNT: 7\./, "")), 6);
-  assert.equal(earnedSlideCount(locateWeek), 7);
+  // Pointed 7 does not add an empty eighth chair on top of 4 receipts.
+  assert.equal(earnedSlideCount(locateWeek), 6);
   assert.equal(formatDeskSeeLine({
     lens: "newark tech week is coming to newark",
     pov: "Newark Tech Week is in town.",
     context: locateWeek,
-  }), "You'll see Cover + News + 4 more + Done.");
+  }), "You'll see Cover + News + 3 more + Done.");
   assert.equal(formatDeskSeeLine({
     lens: "newark tech week is coming to newark",
     pov: "Newark Tech Week is in town.",
     context: locateWeek,
     plan: { newsStyles: ["log", "receipt"] },
-  }), "You'll see Cover + News (log + receipt) + 4 more + Done.");
+  }), "You'll see Cover + News (log + receipt) + 3 more + Done.");
   assert.equal(formatDeskSeeLine({
     plan: { jobs: ["hook", "happened", "todo"] },
   }), "You'll see 3 named cards.");
@@ -503,6 +504,22 @@ test("slide count is earned from this desk, not a silent 3", () => {
   assert.match(formatEmotionRegister("Curiosity/Epiphany"), /cold reader/);
   assert.equal(formatEmotionRegister(""), "");
   assert.equal(earnedSlideCount(locateWeek, 5), 5);
+  // Check's 11 is not Auto when Fuel only fills 7.
+  const fiveStarts = [
+    "ANCHORED FACTS (write from these):",
+    "- START — one.",
+    "- START — two.",
+    "- START — three.",
+    "- START — four.",
+    "- START — five.",
+    "PARKED FUEL — on the desk, not this carousel. Do not write these:",
+    "- START — a parked sixth.",
+    "- START — a parked seventh.",
+    "POINTED SLIDE COUNT: 11.",
+  ].join("\n");
+  assert.equal(countUsableAnchors(fiveStarts), 5);
+  assert.equal(earnedSlideCount(fiveStarts), 7);
+  assert.equal(essaySlideSequence(earnedSlideCount(fiveStarts)).length, 7);
 
   const namedJobs = [
     fourProofs,

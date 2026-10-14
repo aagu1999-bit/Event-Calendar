@@ -1267,10 +1267,21 @@ export function parsePointedSlideCount(text) {
 
 export function countUsableAnchors(context) {
   const lines = String(context || "").split(/\n/);
+  const hasHeader = lines.some((l) => /^ANCHORED FACTS\b/i.test(String(l || "").trim()));
+  let inFacts = !hasHeader;
   let n = 0;
   for (const line of lines) {
     const raw = String(line || "").trim();
     if (!raw) continue;
+    if (/^ANCHORED FACTS\b/i.test(raw)) {
+      inFacts = true;
+      continue;
+    }
+    if (/^(?:PARKED FUEL|GAPS —)\b/i.test(raw)) {
+      inFacts = false;
+      continue;
+    }
+    if (!inFacts) continue;
     const bullet = stripFuelLead(raw);
     if (isHomeworkAnchor(raw) || isHomeworkAnchor(bullet)) continue;
     if (/^(?:THESIS|START|SPECIMEN|MECHANISM|FRICTION|DOCUMENT|ARGUMENT|JOIN|NEXT)\s*—/i.test(bullet)) {
@@ -1298,9 +1309,9 @@ export function isLocateDesk({ hook = "", pov = "", lens = "" } = {}) {
   return !LOCATE_CONTRAST.test(blob);
 }
 
-// Fuel facts as Generate counts them: dashed bullets, plus Check's
-// pointed count when it exists. Raw typed lines (no START prefix)
-// still earn chairs. Check's 3 does not freeze Auto if Fuel earned more.
+// Fuel facts as Generate counts them: dashed bullets. Raw typed lines
+// (no START prefix) still earn chairs. Check's pointed count is a
+// fallback only when Fuel is empty — it does not add empty chairs.
 export function formatDeskLengthContext({ dataPoints = [], pointed = null } = {}) {
   const lines = (Array.isArray(dataPoints) ? dataPoints : [])
     .map((b) => String(b || "").trim())
@@ -1331,8 +1342,10 @@ export function formatDeskSeeLine({ hook = "", pov = "", lens = "", context = ""
 // Operator pin and named jobs win. Countable START / THESIS / SPECIMEN
 // receipts earn chairs (1 proof → 3, 5 proofs → 7, 12 proofs → 14).
 // Fuel's pile is the only ceiling. Locate still means Cover locates
-// (no invented essay arc) — it does not freeze Auto at 3. Check's
-// pointed count flows if it is higher.
+// (no invented essay arc) — it does not freeze Auto at 3.
+// Check's pointed count does not add empty chairs on top of Fuel —
+// that is how Generate said 11 and shipped 7. If Fuel is empty,
+// pointed is the only number we have.
 export function earnedSlideCount(context, pinned = null) {
   if (typeof pinned === "number" && Number.isFinite(pinned) && pinned > 0) {
     return Math.min(DESK_SLIDE_MAX, Math.max(DESK_SLIDE_MIN, Math.round(pinned)));
@@ -1340,11 +1353,9 @@ export function earnedSlideCount(context, pinned = null) {
   const namedJobs = parseSlidePlanFromContext(context).jobs;
   if (namedJobs.length) return Math.min(DESK_SLIDE_MAX, Math.max(2, namedJobs.length));
   const proofs = countUsableAnchors(context);
+  if (proofs > 0) return Math.min(DESK_SLIDE_MAX, Math.max(DESK_SLIDE_MIN, proofs + 2));
   const pointed = parsePointedSlideCount(context);
-  const fromProofs = proofs > 0 ? proofs + 2 : 0;
-  const fromCheck = pointed || 0;
-  const n = Math.max(fromProofs, fromCheck);
-  if (n > 0) return Math.min(DESK_SLIDE_MAX, Math.max(DESK_SLIDE_MIN, n));
+  if (pointed) return Math.min(DESK_SLIDE_MAX, Math.max(DESK_SLIDE_MIN, pointed));
   return DESK_SLIDE_MIN;
 }
 

@@ -2492,7 +2492,7 @@ function buildFillResponseSchema(sequence) {
 //
 // Output: { slides: [{ type, ...slot-fields }, ...] }
 
-export async function generateTemplateFill({ apiKey, sequence, topic, context, voice, slotPrompts, templateMeta, mode, polish = true, letterMode = false, clusterDirective = "", clusterLabel = "", keywordTrigger = null, spine = true, voiceParams = null, behavioralTags = null, isEvergreen = false, rejectedDrafts = [], approvedDrafts = [], slideJobs = null }) {
+export async function generateTemplateFill({ apiKey, sequence, topic, context, voice, slotPrompts, templateMeta, mode, polish = true, letterMode = false, clusterDirective = "", clusterLabel = "", keywordTrigger = null, spine = true, voiceParams = null, behavioralTags = null, isEvergreen = false, rejectedDrafts = [], approvedDrafts = [], slideJobs = null, lockLength = false }) {
   if (!apiKey) throw new Error("Missing Gemini API key");
   if (!Array.isArray(sequence) || !sequence.length) throw new Error("Missing template sequence");
   if ((!topic || !topic.trim()) && (!context || !context.trim())) throw new Error("Add a topic or event details first");
@@ -2539,7 +2539,7 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   // In code we drop excess content slots from the sequence tail so the
   // spine + writer only ever see a shape that CAN'T echo.
   let cappedSequence = sequence.slice();
-  if (!jobsLocked && !evergreenEarly && suppliedBullets > 0 && atomicContentSlots > suppliedBullets) {
+  if (!lockLength && !jobsLocked && !evergreenEarly && suppliedBullets > 0 && atomicContentSlots > suppliedBullets) {
     const kept = [];
     let contentSeen = 0;
     for (const t of sequence) {
@@ -2642,9 +2642,10 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   // Compression fires only when spine ran successfully AND the operator's
   // sequence contains an atomic-content majority (otherwise compressing a
   // photo-heavy template makes no sense). If spine failed, no compression.
+  // Desk Generate passes lockLength so "Filling 11 slides" cannot become 7.
   let workingSequence = generationSequence;
   let workingSpine = narrativeSpine;
-  if (!jobsLocked && narrativeSpine && narrativeSpine.recommendedSlideCount < generationSequence.length) {
+  if (!lockLength && !jobsLocked && narrativeSpine && narrativeSpine.recommendedSlideCount < generationSequence.length) {
     const atomicSlotsInSeq = generationSequence.filter(t => t === "text" || t === "spotlight" || t === "stat" || t === "news").length;
     if (atomicSlotsInSeq >= 3) {
       const targetLen = narrativeSpine.recommendedSlideCount;
@@ -2817,7 +2818,7 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
     sanitized = detectGeographicWhiplash(sanitized, workingSequence);
     sanitized = detectSlotDoctrineViolations(sanitized, workingSequence);
     sanitized = fillEmptyNewsFromDesk(sanitized, filteredContext);
-    sanitized = dropEmptyNewsChairs(sanitized);
+    if (!lockLength) sanitized = dropEmptyNewsChairs(sanitized);
     sanitized = repairCarouselLeaks(sanitized);
     sanitized = attachRedoLeakWarnings(sanitized, { context: filteredContext });
     sanitized = attachEmptyNewsWarnings(sanitized);
@@ -2894,7 +2895,7 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   sanitized = detectGeographicWhiplash(sanitized, workingSequence);
   sanitized = detectSlotDoctrineViolations(sanitized, workingSequence);
   sanitized = fillEmptyNewsFromDesk(sanitized, filteredContext);
-  sanitized = dropEmptyNewsChairs(sanitized);
+  if (!lockLength) sanitized = dropEmptyNewsChairs(sanitized);
   sanitized = repairCarouselLeaks(sanitized);
   sanitized = attachRedoLeakWarnings(sanitized, { context: filteredContext });
   sanitized = attachEmptyNewsWarnings(sanitized);
