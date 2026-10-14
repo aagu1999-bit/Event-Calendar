@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { diagnoseSlideRedo, formatRedoWriterJob, repairSlideLeaks, normalizeNewsLabel, chairsNeedingAutoRepair } from "./slideRedoJob.js";
+import { diagnoseSlideRedo, formatRedoWriterJob, repairSlideLeaks, normalizeNewsLabel, chairsNeedingAutoRepair, rescueChoppedTitle, rescueCutTitles, titleLooksChopped } from "./slideRedoJob.js";
 
 test("cover wall + grant voice is a named job, not a mystery rewrite", () => {
   const diag = diagnoseSlideRedo({
@@ -225,3 +225,39 @@ test("empty News bodies all auto-repair, on top of the dump cap", () => {
   assert.equal(chairs.some((c) => c.keys.includes("question-cta")), true);
 });
 
+test("a schema-chopped headline becomes the quoted title it was naming", () => {
+  const chopped = "NEWARK’S “A HOUSE CALLED ZANZIBAR” EXHIBITION PUTS A SPECIFI";
+  assert.equal(titleLooksChopped(chopped), true);
+  assert.equal(rescueChoppedTitle(chopped), "NEWARK’S “A HOUSE CALLED ZANZIBAR” EXHIBITION");
+});
+
+test("a chop inside an open source tag keeps the name before it", () => {
+  const chopped = "RUTGERS' NEWARK CLUB-MUSIC RESEARCH SHELF (UNIVERSITY — RUTG";
+  assert.equal(rescueChoppedTitle(chopped), "RUTGERS' NEWARK CLUB-MUSIC RESEARCH SHELF");
+});
+
+test("whole headlines under the cap are left alone", () => {
+  const slides = [
+    { type: "news", newsHeadline: "HENRY'S DISSERTATION", newsBody: "Body." },
+    { type: "news", newsHeadline: "THE QUEER NEWARK ORAL HISTORY PROJECT KEEPS RECORDING", newsBody: "Body." },
+    { type: "cta", ctaDate: "A LONG CLOSER LINE THAT IS NOT A TITLE FIELD AND CAN WRAP ON THE CANVAS" },
+  ];
+  assert.deepEqual(rescueCutTitles(slides), slides);
+});
+
+test("a chopped headline with no clean name is dropped and flagged, body kept", () => {
+  const chopped = "WHY THE CLUB'S SOUND TRAVELED FURTHER THAN ANYONE IN NEWARK EXPE";
+  assert.ok(chopped.length >= 57);
+  const [out] = rescueCutTitles([{ type: "news", newsKicker: "THE REACH", newsHeadline: chopped, newsBody: "The body stays." }]);
+  assert.equal(out.newsHeadline, "");
+  assert.equal(out.newsBody, "The body stays.");
+  assert.equal(out._warnings[0].type, "title_rescued");
+  assert.match(out._warnings[0].message, /removed/);
+});
+
+test("a chopped cover headline keeps its whole words instead of disappearing", () => {
+  const chopped = "WHY THE CLUB'S SOUND TRAVELED FURTHER THAN ANYONE IN NEWARK EXPE";
+  const [out] = rescueCutTitles([{ type: "cover", headline: chopped, subtitle: "One line." }]);
+  assert.equal(out.headline, "WHY THE CLUB'S SOUND TRAVELED FURTHER THAN ANYONE IN NEWARK");
+  assert.equal(out._warnings[0].type, "title_rescued");
+});

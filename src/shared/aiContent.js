@@ -59,7 +59,7 @@ import {
   fillEmptyNewsFromDesk,
   dropEmptyNewsChairs,
 } from "./slideJobs.js";
-import { repairCarouselLeaks, attachRedoLeakWarnings, chairsNeedingAutoRepair, formatRedoWriterJob } from "./slideRedoJob.js";
+import { repairCarouselLeaks, attachRedoLeakWarnings, chairsNeedingAutoRepair, formatRedoWriterJob, rescueCutTitles } from "./slideRedoJob.js";
 import {
   nextAdjacentProofKey,
   previousAdjacentProofKey,
@@ -2918,6 +2918,7 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
         approvedDrafts,
       });
     }
+    sanitized = rescueCutTitles(sanitized);
     sanitized = attachRedoLeakWarnings(sanitized, { context: filteredContext });
     sanitized = attachEmptyNewsWarnings(sanitized);
     sanitized = attachNewsStyles(sanitized);

@@ -2173,7 +2173,7 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
                             <span style={{ flexShrink: 0 }}>⚠️</span>
                             <span>
                               <strong style={{ letterSpacing: "0.3px" }}>
-                                {w.type === "phantom_entity" ? "Unverified Entity Detected" : w.type === "atomicity_violation" ? "Data-Dump Detected" : w.type === "empty_news" ? "Empty News body" : "Warning"}:
+                                {w.type === "phantom_entity" ? "Unverified Entity Detected" : w.type === "atomicity_violation" ? "Data-Dump Detected" : w.type === "empty_news" ? "Empty News body" : w.type === "title_rescued" ? "Headline shortened" : "Warning"}:
                               </strong>{" "}
                               {w.message}
                               {" "}
