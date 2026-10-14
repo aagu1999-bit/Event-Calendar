@@ -2,7 +2,7 @@
 // Storytelling eval runner (docs/storytelling-plan.md, Phase 0).
 //
 //   node scripts/story-eval.mjs score <deck.json> [--desk <id>]
-//   node scripts/story-eval.mjs run [--pipeline current] [--desk <id>|all] [--runs 3]
+//   node scripts/story-eval.mjs run [--pipeline current|moves] [--desk <id>|all] [--runs 3]
 //   node scripts/story-eval.mjs judge [--pipeline current] [--desk <id>|all]
 //   node scripts/story-eval.mjs summary
 //   node scripts/story-eval.mjs review --a current --b <pipeline> [--out evals/review/round-1]
@@ -100,6 +100,17 @@ const PIPELINES = {
     });
     return { sequence, slides };
   },
+  async moves({ apiKey, desk }) {
+    const { generateStoryCarousel } = await import("../src/shared/storyMoves.js");
+    const { plan, sequence, slides } = await generateStoryCarousel({
+      apiKey,
+      topic: desk.topic,
+      context: deskContextText(desk),
+      mode: desk.mode || "content",
+    });
+    const { desk: _desk, ...kept } = plan;
+    return { sequence, slides, plan: kept };
+  },
 };
 
 async function cmdScore() {
@@ -127,11 +138,11 @@ async function cmdRun() {
       process.stderr.write(`${pipeline} · ${id} · run ${n}… `);
       const t0 = Date.now();
       try {
-        const { sequence, slides } = await run({ apiKey, desk });
+        const { sequence, slides, plan } = await run({ apiKey, desk });
         const score = scoreDeck(slides, { deskContext: deskContextText(desk) });
         writeJson(join(RUNS, pipeline, id, `${n}.json`), {
           desk: id, pipeline, run: n, at: new Date().toISOString(), ms: Date.now() - t0,
-          sequence, slides, score: counts(score), details: score.details,
+          sequence, slides, ...(plan ? { plan } : {}), score: counts(score), details: score.details,
         });
         process.stderr.write(`${slides.length} slides, ${score.sourceDumpCards} source-led, ${score.restatementPairs} repeats\n`);
       } catch (e) {

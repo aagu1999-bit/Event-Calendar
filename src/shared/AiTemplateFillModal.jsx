@@ -8,6 +8,8 @@ import { parseConversationRankFromContext } from "./conversationMaps.js";
 import { earnedSlideCount, essaySlideSequence, formatDeskSeeLine } from "./matrixCompass.js";
 import { appendMethodBriefToContext, appendOperatorQuestions } from "./cgeMethod.js";
 import { SlideJobStrip, NewsStyleChips } from "./SlideJobStrip.jsx";
+import { StoryPlanPanel } from "./StoryPlanPanel.jsx";
+import { generateStoryCarousel, movesToSlides } from "./storyMoves.js";
 import {
   sanitizeSlidePlan,
   looksFromJobs,
@@ -39,6 +41,8 @@ const CONTEXT_SCAFFOLD = [
   "WHY NOW: (why THIS weekend; what's new or at stake)",
   "WHO IT'S FOR: (the specific crowd — never \"everyone\")",
 ].join("\n");
+
+const STORY_MODE_KEY = "cge.storyMode";
 
 // Modal for AI-assisted whole-carousel generation. Pick a template,
 // type a topic + context, Gemini fills every slot in the sequence in
@@ -126,6 +130,17 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
     Array.isArray(initialApprovedDrafts) ? initialApprovedDrafts.slice() : []
   ));
   const [slidePlan, setSlidePlan] = useState(() => sanitizeSlidePlan(initialSlidePlan));
+  // Story mode (docs/storytelling-plan.md, Phase 4): plan focus + moves
+  // from the whole desk, then cut cards. Off by default until the blind
+  // review clears it; remembered per browser.
+  const [storyMode, setStoryModeState] = useState(() => {
+    try { return localStorage.getItem(STORY_MODE_KEY) === "1"; } catch { return false; }
+  });
+  const setStoryMode = (on) => {
+    setStoryModeState(!!on);
+    try { localStorage.setItem(STORY_MODE_KEY, on ? "1" : "0"); } catch { /* private mode */ }
+  };
+  const [storyPlan, setStoryPlan] = useState(null);
   // Questions typed while a piece is being built. Research (if any) runs
   // first, then we pause so the operator can ask what came up before
   // slides write. Same box stays live during the look-up.
@@ -204,6 +219,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
       setNewsFound(null);
       setMethodFound(null);
       setGstMeta(null);
+      setStoryPlan(null);
       setLetterMode(false);
       setOperatorQuestions("");
       setAwaitingQuestions(false);
@@ -249,9 +265,14 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
   const pinnedNow = slideCount === "auto" ? null : parseInt(slideCount, 10);
   const deskN = earnedSlideCount(context, Number.isFinite(pinnedNow) ? pinnedNow : null);
   const gstOn = aiArrange && mode !== "promo";
+  // Named slide jobs outrank moves; promo, GST and dots keep their own paths.
+  const storyAllowed = mode !== "promo" && !gstOn && !dotsMode && !slidePlan.jobs.length;
+  const storyOn = storyMode && storyAllowed;
   // Label for the Generate button — must reflect what will actually run.
   const genLabel = slides.length
     ? "↻ Regenerate"
+    : storyOn
+      ? "✨ Plan the story + generate"
     : dotsMode
       ? (dotsAnchor.trim() ? "🧵 Build the case for my event" : dotsDiscover ? "🧵 Find a thread + build" : "🧵 Connect the dots")
       : aiArrange
@@ -276,6 +297,18 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
       setSlideCount("auto");
     }
   };
+  const storyToggle = mode !== "promo" ? (
+    <label
+      title={storyAllowed ? "Plan one focus sentence and 4–7 connected moves from the whole desk, then cut one card per move. You can edit the plan and recut." : "Off while GST, Connect the dots, or named slide jobs are on — those set the cards."}
+      style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.72rem", color: storyOn ? "#E5BC4F" : "rgba(245,240,232,0.7)", cursor: storyAllowed ? "pointer" : "default", opacity: storyAllowed ? 1 : 0.5, margin: "10px 0 0", padding: "7px 9px", background: storyOn ? "rgba(229,188,79,0.08)" : "transparent", border: "1px solid " + (storyOn ? "rgba(229,188,79,0.35)" : "rgba(245,240,232,0.08)"), borderRadius: 4 }}
+    >
+      <input type="checkbox" checked={storyMode} disabled={!storyAllowed} onChange={(e) => setStoryMode(e.target.checked)} />
+      <span style={{ fontWeight: 700, letterSpacing: 0.5 }}>Story mode (beta)</span>
+      <span style={{ marginLeft: "auto", fontSize: "0.55rem", color: "rgba(245,240,232,0.45)", letterSpacing: 0.3 }}>
+        {storyAllowed ? "focus + moves, then cards" : "off — another mode sets the cards"}
+      </span>
+    </label>
+  ) : null;
   const liveTurn = interpretBuildTurn({
     questions: operatorQuestions,
     hasSlides: slides.length > 0,
@@ -329,6 +362,19 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
       setGstMeta(arranged.gst || null);
       setSlides(arranged.slides);
       if (typeof onPreviewSave === "function") onPreviewSave(arranged.slides);
+      return;
+    }
+    setStoryPlan(null);
+    if (storyOn) {
+      setBusyLabel("Planning the story from the whole desk…");
+      const story = await generateStoryCarousel({ apiKey, topic, context: genContext, mode });
+      if (!story.slides.length) { setError("The story plan came back empty. Try again, or turn Story mode off."); return; }
+      setStoryPlan(story.plan);
+      setPickedTemplate({ id: "story-moves", name: `Story · ${story.slides.length} moves`, sequence: story.sequence, custom: true });
+      setPickReasoning(story.plan.focus);
+      setCompressionEvent(null);
+      setSlides(story.slides);
+      if (typeof onPreviewSave === "function") onPreviewSave(story.slides);
       return;
     }
     // Phase 1 (optional): AI picks the template.
@@ -686,7 +732,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
     if (!chosen.length) { setError("Keep at least one slide to push."); return; }
     // Strip diagnostic _warnings before pushing — they're for the preview
     // UI only, not for the carousel render pipeline.
-    const clean = chosen.map(({ _warnings, ...rest }) => rest);
+    const clean = chosen.map(({ _warnings, _move, ...rest }) => rest);
     onAccept(clean, pickedTemplate || template);
     onClose();
   };
@@ -1322,9 +1368,12 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
             <div style={{ fontSize: "0.88rem", color: "#F5F0E8", lineHeight: 1.5, fontWeight: 600 }}>
               {slides.length
                 ? formatPreviewSeeLine(slides)
-                : formatDeskSeeLine({ context, plan: slidePlan, count: deskN })}
+                : storyOn
+                  ? "You'll see 4–7 cards — one per move in the story plan. Length follows the story, not the number of desk lines."
+                  : formatDeskSeeLine({ context, plan: slidePlan, count: deskN })}
             </div>
-            {!gstOn && mode !== "promo" && !slidePlan.jobs.length && !slides.length && (
+            {!slides.length && storyToggle}
+            {!gstOn && !storyOn && mode !== "promo" && !slidePlan.jobs.length && !slides.length && (
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
                 <span style={{ fontSize: "0.65rem", color: "rgba(245,240,232,0.7)", letterSpacing: 0.5, fontWeight: 700 }}>How many slides?</span>
                 <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
@@ -1428,6 +1477,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
                 picks from {allTemplates.length} templates
               </span>
             </label>
+            {storyToggle && <div style={{ margin: "-2px 0 10px" }}>{storyToggle}</div>}
           </>
         )}
 
@@ -2029,6 +2079,20 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
                 </div>
               </div>
             )}
+            {storyPlan && (
+              <StoryPlanPanel
+                plan={storyPlan}
+                context={context}
+                onRecut={(next) => {
+                  const cut = movesToSlides(next);
+                  setStoryPlan(next);
+                  setPickedTemplate({ id: "story-moves", name: `Story · ${cut.length} moves`, sequence: cut.map((s) => s.type), custom: true });
+                  setPickReasoning(next.focus);
+                  setSlides(cut);
+                  if (typeof onPreviewSave === "function") onPreviewSave(cut);
+                }}
+              />
+            )}
             <div style={{ fontSize: "0.55rem", color: "#E5BC4F", letterSpacing: 1.5, textTransform: "uppercase", fontWeight: 700, fontFamily: "'Syne',sans-serif", marginBottom: 4 }}>
               Preview · {slides.length} slides
             </div>
@@ -2173,7 +2237,7 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
                             <span style={{ flexShrink: 0 }}>⚠️</span>
                             <span>
                               <strong style={{ letterSpacing: "0.3px" }}>
-                                {w.type === "phantom_entity" ? "Unverified Entity Detected" : w.type === "atomicity_violation" ? "Data-Dump Detected" : w.type === "empty_news" ? "Empty News body" : "Warning"}:
+                                {w.type === "phantom_entity" ? "Unverified Entity Detected" : w.type === "atomicity_violation" ? "Data-Dump Detected" : w.type === "empty_news" ? "Empty News body" : String(w.type || "").startsWith("story_") ? "Story" : "Warning"}:
                               </strong>{" "}
                               {w.message}
                               {" "}
