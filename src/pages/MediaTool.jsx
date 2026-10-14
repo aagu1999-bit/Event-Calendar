@@ -911,23 +911,31 @@ function renderNews(canvas, cfg) {
     if (hasBody) h += bodyBlockH(bodyLines, bodyFs);
     return h + padBot;
   };
-  const capH = Math.min(Math.round(H * 0.72), H - 200); // always leave room for a photo
+  // A video element exposes videoWidth/videoHeight rather than width/height,
+  // so read whichever is present — that lets the News slot draw live video
+  // frames. videoWidth (video), naturalWidth (a hidden <img>/GIF whose layout
+  // width is 0), then width.
+  const pw = photo ? (photo.videoWidth || photo.naturalWidth || photo.width) : 0;
+  const phh = photo ? (photo.videoHeight || photo.naturalHeight || photo.height) : 0;
+  const hasPhoto = !!(photo && pw && phh);
+
+  // With a photo, always leave room for it. Without one, the block owns the
+  // frame — a reserved photo region with nothing in it exports as an empty
+  // half-slide.
+  const capH = hasPhoto ? Math.min(Math.round(H * 0.72), H - 200) : H - 50;
   let blockH = measureBlockH();
   while (hasBody && blockH > capH && bodyFs > 19) { bodyFs -= 2; bodyLines = wrapBody(bodyFs); blockH = measureBlockH(); }
   blockH = Math.min(blockH, capH);
+  const contentH = blockH - padTop - padBot;
+  if (!hasPhoto) blockH = H;
 
   // Regions: the block sits at the top (photo bottom) or the bottom (photo top).
-  const blockY = photoOnTop ? (H - blockH) : 0;
+  const blockY = hasPhoto && photoOnTop ? (H - blockH) : 0;
   const photoY = photoOnTop ? 0 : blockH;
   const photoH = H - blockH;
 
-  // Photo/VIDEO (or solid bg) fills its region, focal-aware, clipped. A video
-  // element exposes videoWidth/videoHeight rather than width/height, so read
-  // whichever is present — that lets the News slot draw live video frames.
-  // videoWidth (video), naturalWidth (a hidden <img>/GIF whose layout width is 0), then width.
-  const pw = photo ? (photo.videoWidth || photo.naturalWidth || photo.width) : 0;
-  const phh = photo ? (photo.videoHeight || photo.naturalHeight || photo.height) : 0;
-  if (photo && pw && phh) {
+  // Photo/VIDEO fills its region, focal-aware, clipped.
+  if (hasPhoto) {
     const s = Math.max(W / pw, photoH / phh);
     const dw = pw * s, dh = phh * s;
     let dx = (W / 2) - (pw * focalX * s);
@@ -937,20 +945,21 @@ function renderNews(canvas, cfg) {
     ctx.save(); ctx.beginPath(); ctx.rect(0, photoY, W, photoH); ctx.clip();
     ctx.drawImage(photo, dx, dy, dw, dh);
     ctx.restore();
-  } else {
-    const bgc = BG_COLORS[bgKey] || BG_COLORS.black;
-    ctx.fillStyle = bgc.hex; ctx.fillRect(0, photoY, W, photoH);
   }
 
   // Block + accent seam (on the edge touching the photo) + masthead tick.
+  // Without a photo the content sits centered in the full frame.
+  const contentTop = hasPhoto
+    ? blockY + padTop
+    : Math.max(padTop, Math.round((H - contentH) / 2) - 10);
   ctx.fillStyle = blockBg; ctx.fillRect(0, blockY, W, blockH);
   ctx.fillStyle = accent;
-  ctx.fillRect(0, photoOnTop ? blockY : (blockY + blockH - 8), W, 8);
-  ctx.fillStyle = accent; ctx.fillRect(px, blockY + 52, 64, 7);
+  if (hasPhoto) ctx.fillRect(0, photoOnTop ? blockY : (blockY + blockH - 8), W, 8);
+  ctx.fillRect(px, contentTop - (padTop - 52), 64, 7);
 
-  // Block content, top-down from the block's top.
+  // Block content, top-down.
   ctx.textAlign = "left"; ctx.textBaseline = "top";
-  let y = blockY + padTop;
+  let y = contentTop;
   if (hasKicker) {
     ctx.font = ff(`800 ${kickFs}px 'Syne',sans-serif`); ctx.letterSpacing = "4px";
     ctx.fillStyle = kickColor;
@@ -990,7 +999,7 @@ function renderNews(canvas, cfg) {
 
   // Optional one-line caption on the OUTER edge of the photo (the edge away
   // from the block), on a scrim, so it reads over the image either way.
-  if (photo && newsCaption && newsCaption.trim()) {
+  if (hasPhoto && newsCaption && newsCaption.trim()) {
     const capBase = photoY + photoH; // bottom edge of the photo region
     const grd = ctx.createLinearGradient(0, capBase - 150, 0, capBase);
     grd.addColorStop(0, "transparent"); grd.addColorStop(1, "rgba(0,0,0,0.85)");
@@ -1006,7 +1015,7 @@ function renderNews(canvas, cfg) {
   // Footer/dots color follows whatever sits at the BOTTOM of the frame: the
   // photo (dark → light watermark), a cream block (→ dark watermark), or a dark
   // block (→ light watermark).
-  const footerLight = photoOnTop && !dark; // block at bottom AND it's the cream theme
+  const footerLight = hasPhoto ? (photoOnTop && !dark) : !dark;
   drawFooter(ctx, W, H, footerLight);
   drawDots(ctx, W, dots, totalDots, accent, footerLight);
   drawPageNum(ctx, W, H, pageNum, totalPages, accent, footerLight);
@@ -1061,20 +1070,48 @@ function renderCTA(canvas, cfg) {
     ctx.letterSpacing="0px"; ctx.textBaseline="top";
   }
 
-  // Date — biggest text, centered (multi-line via \n)
-  const dateLines = (ctaDate||"").split("\n").map(l=>l.trim()).filter(l=>l);
+  // Date — biggest text, centered (multi-line via \n). Shrinks to a floor,
+  // then wraps: past the floor a long line used to run off both edges.
+  const maxW = W - 120;
+  const rawDate = (ctaDate||"").split("\n").map(l=>l.trim()).filter(l=>l).map(l=>l.toUpperCase());
   let dfs = 84;
   const measureDate = (f) => {
     ctx.font=ff(`800 ${f}px 'Syne',sans-serif`);
-    return dateLines.length ? Math.max(...dateLines.map(l => ctx.measureText(l.toUpperCase()).width)) : 0;
+    return rawDate.length ? Math.max(...rawDate.map(l => ctx.measureText(l).width)) : 0;
   };
-  while (dateLines.length && measureDate(dfs) > W-120 && dfs > 44) { dfs -= 4; }
+  while (rawDate.length && measureDate(dfs) > maxW && dfs > 44) { dfs -= 4; }
+  const wrapDate = (f) => {
+    ctx.font=ff(`800 ${f}px 'Syne',sans-serif`);
+    return rawDate.flatMap(l => wrapToLines(ctx, l, maxW));
+  };
+  let dateLines = wrapDate(dfs);
+  while (dateLines.length > 4 && dfs > 36) { dfs -= 4; dateLines = wrapDate(dfs); }
+  const dlh = dfs*1.1;
+  const dateBlockH = dateLines.length*dlh;
+
+  // Venue wraps; the URL sits under however many lines it took, so the
+  // link can't print over the body.
+  let venueFs = 38;
+  const venueLH = () => Math.round(venueFs*1.16);
+  const wrapVenue = (f) => {
+    ctx.font=ff(`700 ${f}px 'DM Sans',sans-serif`);
+    return ctaVenue?.trim() ? wrapToLines(ctx, ctaVenue.trim(), maxW) : [];
+  };
+  let venueLines = wrapVenue(venueFs);
+  const hasUrl = !!ctaUrl?.trim();
+  const stackH = () => dateBlockH + 36 + 38 + Math.max(1, venueLines.length)*venueLH() + 20 + (hasUrl ? 40 : 0);
+  const minTop = ctaKicker?.trim() ? 262 : 140;
+  const maxBottom = H - 80;
+  let dateY = 340;
+  if (dateY + stackH() > maxBottom) dateY = Math.max(minTop, maxBottom - stackH());
+  while (dateY + stackH() > maxBottom && venueFs > 26) {
+    venueFs -= 2; venueLines = wrapVenue(venueFs);
+    dateY = Math.max(minTop, maxBottom - stackH());
+  }
+
   ctx.font=ff(`800 ${dfs}px 'Syne',sans-serif`);
   ctx.fillStyle=dateColor; ctx.textAlign="center";
-  const dlh = dfs*1.1;
-  const dateY = 340;
-  dateLines.forEach((ln,i) => ctx.fillText(ln.toUpperCase(), W/2, dateY+i*dlh));
-  const dateBlockH = dateLines.length*dlh;
+  dateLines.forEach((ln,i) => ctx.fillText(ln, W/2, dateY+i*dlh));
 
   // Divider
   const divY = dateY + dateBlockH + 36;
@@ -1083,24 +1120,11 @@ function renderCTA(canvas, cfg) {
 
   // Venue
   const venueY = divY + 38;
-  ctx.font=ff("700 38px 'DM Sans',sans-serif"); ctx.fillStyle=venueColor;
-  // wrap venue if too long
-  const venueText = ctaVenue || "";
-  if (ctx.measureText(venueText).width > W-120) {
-    // simple wrap
-    const ws = venueText.split(/\s+/); const ln=[]; let cur="";
-    for (const w of ws) {
-      const t = cur ? cur+" "+w : w;
-      if (ctx.measureText(t).width > W-120 && cur) { ln.push(cur); cur=w; } else cur=t;
-    }
-    if (cur) ln.push(cur);
-    ln.forEach((l,i) => ctx.fillText(l, W/2, venueY + i*44));
-  } else {
-    ctx.fillText(venueText, W/2, venueY);
-  }
+  ctx.font=ff(`700 ${venueFs}px 'DM Sans',sans-serif`); ctx.fillStyle=venueColor;
+  venueLines.forEach((l,i) => ctx.fillText(l, W/2, venueY + i*venueLH()));
 
   // URL — accent color
-  const urlY = venueY + 64;
+  const urlY = venueY + Math.max(1, venueLines.length)*venueLH() + 20;
   ctx.font=ff("700 36px 'DM Sans',sans-serif"); ctx.fillStyle=accent;
   ctx.fillText(ctaUrl||"", W/2, urlY);
 
