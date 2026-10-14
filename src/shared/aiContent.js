@@ -59,7 +59,7 @@ import {
   fillEmptyNewsFromDesk,
   dropEmptyNewsChairs,
 } from "./slideJobs.js";
-import { repairCarouselLeaks, attachRedoLeakWarnings } from "./slideRedoJob.js";
+import { repairCarouselLeaks, attachRedoLeakWarnings, chairsNeedingAutoRepair, formatRedoWriterJob } from "./slideRedoJob.js";
 import {
   nextAdjacentProofKey,
   previousAdjacentProofKey,
@@ -2492,10 +2492,85 @@ function buildFillResponseSchema(sequence) {
 //
 // Output: { slides: [{ type, ...slot-fields }, ...] }
 
-export async function generateTemplateFill({ apiKey, sequence, topic, context, voice, slotPrompts, templateMeta, mode, polish = true, letterMode = false, clusterDirective = "", clusterLabel = "", keywordTrigger = null, spine = true, voiceParams = null, behavioralTags = null, isEvergreen = false, rejectedDrafts = [], approvedDrafts = [], slideJobs = null, lockLength = false }) {
+function slideRepairMapLine(slide, i, target) {
+  const t = String(slide?.type || "").toLowerCase();
+  let text = "";
+  if (t === "news") text = [slide.newsKicker, slide.newsHeadline, slide.newsBody].filter(Boolean).join(" — ");
+  else if (t === "cover") text = [slide.headline, slide.subtitle].filter(Boolean).join(" — ");
+  else if (t === "text") text = [slide.textTitle, slide.textBody].filter(Boolean).join(" — ");
+  else if (t === "cta") text = [slide.ctaKicker, slide.ctaDate, slide.ctaVenue].filter(Boolean).join(" — ");
+  else text = String(slide?.headline || slide?.caption || "");
+  const clipped = String(text).replace(/\s+/g, " ").trim().slice(0, 280);
+  return `Slide ${i + 1} (${t})${i === target ? "  <-- THIS ONE (being repaired)" : ""}: ${clipped || "(no text)"}`;
+}
+
+// Second round after Generate: the same Redo job, on at most four leaking
+// chairs. Do not fold this into the first writer request — that is how
+// leaks survived (too many jobs, schema clip, bibliography dump).
+async function autoRepairLeakingChairs({
+  apiKey, slides, topic, context, voice, slotPrompts, templateMeta, mode,
+  letterMode, clusterDirective, clusterLabel, voiceParams, behavioralTags,
+  isEvergreen, rejectedDrafts, approvedDrafts,
+}) {
+  const chairs = chairsNeedingAutoRepair(slides, { context });
+  if (!chairs.length) return slides;
+  let next = slides.slice();
+  for (const chair of chairs) {
+    const slot = next[chair.index];
+    if (!slot) continue;
+    const fullMap = next.map((s, i) => slideRepairMapLine(s, i, chair.index)).join("\n");
+    const job = formatRedoWriterJob(chair.diag, { index: chair.index, slotType: slot.type });
+    try {
+      const repaired = await generateTemplateFill({
+        apiKey,
+        sequence: [slot.type],
+        topic,
+        context: `${context || ""}\n\nFULL CAROUSEL:\n${fullMap}\n\n${job}`,
+        voice,
+        slotPrompts,
+        templateMeta: templateMeta || { sequence: [slot.type] },
+        mode,
+        polish: false,
+        letterMode,
+        clusterDirective,
+        clusterLabel,
+        voiceParams,
+        behavioralTags,
+        isEvergreen,
+        keywordTrigger: null,
+        spine: false,
+        repairPass: false,
+        rejectedDrafts,
+        approvedDrafts,
+      });
+      const fresh = Array.isArray(repaired) && repaired[0] ? repaired[0] : null;
+      if (!fresh) continue;
+      const { _warnings, ...rest } = fresh;
+      void _warnings;
+      const merged = { ...slot, ...rest, type: slot.type };
+      if (slot.type === "news" && Array.isArray(slot.newsStyles) && slot.newsStyles.length) {
+        merged.newsStyles = slot.newsStyles;
+      }
+      next = next.map((s, i) => (i === chair.index ? merged : s));
+      if (typeof console !== "undefined") {
+        console.info(`Auto-repaired slide ${chair.index + 1} (${slot.type}) for ${chair.keys.join(", ")}.`);
+      }
+    } catch (e) {
+      if (typeof console !== "undefined") {
+        console.warn(`Auto-repair of slide ${chair.index + 1} failed:`, e?.message || e);
+      }
+    }
+  }
+  return repairCarouselLeaks(next);
+}
+
+export async function generateTemplateFill({ apiKey, sequence, topic, context, voice, slotPrompts, templateMeta, mode, polish = true, letterMode = false, clusterDirective = "", clusterLabel = "", keywordTrigger = null, spine = true, voiceParams = null, behavioralTags = null, isEvergreen = false, rejectedDrafts = [], approvedDrafts = [], slideJobs = null, repairPass, lockLength = false }) {
   if (!apiKey) throw new Error("Missing Gemini API key");
   if (!Array.isArray(sequence) || !sequence.length) throw new Error("Missing template sequence");
   if ((!topic || !topic.trim()) && (!context || !context.trim())) throw new Error("Add a topic or event details first");
+  // Default on for a full Generate; off for a single-slot Redo so we
+  // do not recurse. Missing plant is not in this pass.
+  const wantRepairPass = repairPass !== false && sequence.length > 1;
 
   // Content / Feature: do not auto-run method homework here. Fuel is
   // the research. A 2-bullet desk stays 2 bullets — do not invent a
@@ -2806,12 +2881,8 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   } catch (e) {
     if (typeof console !== "undefined") console.warn("Node 2 voice pass failed, keeping Node 1 draft:", e?.message || e);
   }
-  if (!polish) {
-    // Even without polish, deterministic CTA stitch runs (drift-removal).
-    // Sanitizer runs too — belt-and-suspenders on scaffolding-label leaks.
-    // Phantom + atomicity detectors run last so warnings attach to
-    // whatever the pipeline finally emits.
-    let sanitized = sanitizeScaffoldingLabels(slides);
+  const finishCarousel = async (draft) => {
+    let sanitized = sanitizeScaffoldingLabels(draft);
     sanitized = detectPhantomEntities(sanitized, filteredContext, historicalBullets, workingSequence);
     sanitized = detectAtomicityViolations(sanitized);
     if (!evergreen) sanitized = detectCrossContamination(sanitized, workingSpine, filteredContext, workingSequence);
@@ -2820,11 +2891,38 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
     sanitized = fillEmptyNewsFromDesk(sanitized, filteredContext);
     if (!lockLength) sanitized = dropEmptyNewsChairs(sanitized);
     sanitized = repairCarouselLeaks(sanitized);
+    if (wantRepairPass) {
+      sanitized = await autoRepairLeakingChairs({
+        apiKey,
+        slides: sanitized,
+        topic,
+        context: filteredContext,
+        voice,
+        slotPrompts,
+        templateMeta,
+        mode,
+        letterMode,
+        clusterDirective,
+        clusterLabel,
+        voiceParams,
+        behavioralTags,
+        isEvergreen,
+        rejectedDrafts,
+        approvedDrafts,
+      });
+    }
     sanitized = attachRedoLeakWarnings(sanitized, { context: filteredContext });
     sanitized = attachEmptyNewsWarnings(sanitized);
     sanitized = attachNewsStyles(sanitized);
     if (jobsLocked) sanitized = attachTrifectaWarnings(sanitized, namedPlan.jobs);
     return willStitchCta ? appendStitchedCtaIfNeeded(sanitized) : stitchKeywordCta(sanitized, workingSequence, keywordTrigger);
+  };
+  if (!polish) {
+    // Even without polish, deterministic CTA stitch runs (drift-removal).
+    // Sanitizer runs too — belt-and-suspenders on scaffolding-label leaks.
+    // Auto-repair is a second round of at most 4 Redos, not more rules
+    // stuffed into the first writer request.
+    return finishCarousel(slides);
   }
   // Deterministic pre-polish dedup: scan adjacent slides for a shared numeric
   // token (a "1 in 5", "$1M", "28.5%", "1979", etc.). If any is repeated,
@@ -2880,28 +2978,11 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   } catch (e) {
     if (typeof console !== "undefined") console.warn("Carousel polish failed, returning draft:", e?.message || e);
   }
-  // Structural post-processing runs LAST (after polish, before CTA stitch):
-  //   1. Sanitizer strips scaffolding-label leaks in title fields.
-  //   2. Phantom-entity detector attaches _warnings when a proper noun in
-  //      a slide isn't present in the context.
-  //   3. Atomicity detector attaches _warnings when a single field stacks
-  //      multiple discrete facts.
-  // Warnings are attached to slides, not scrubbed — the UI renders them
-  // as red badges so the operator can decide whether to REDO or keep.
-  let sanitized = sanitizeScaffoldingLabels(slides);
-  sanitized = detectPhantomEntities(sanitized, filteredContext, historicalBullets, workingSequence);
-  sanitized = detectAtomicityViolations(sanitized);
-  if (!evergreen) sanitized = detectCrossContamination(sanitized, workingSpine, filteredContext, workingSequence);
-  sanitized = detectGeographicWhiplash(sanitized, workingSequence);
-  sanitized = detectSlotDoctrineViolations(sanitized, workingSequence);
-  sanitized = fillEmptyNewsFromDesk(sanitized, filteredContext);
-  if (!lockLength) sanitized = dropEmptyNewsChairs(sanitized);
-  sanitized = repairCarouselLeaks(sanitized);
-  sanitized = attachRedoLeakWarnings(sanitized, { context: filteredContext });
-  sanitized = attachEmptyNewsWarnings(sanitized);
-  sanitized = attachNewsStyles(sanitized);
-  if (jobsLocked) sanitized = attachTrifectaWarnings(sanitized, namedPlan.jobs);
-  return willStitchCta ? appendStitchedCtaIfNeeded(sanitized) : stitchKeywordCta(sanitized, workingSequence, keywordTrigger);
+  // Structural post-processing runs LAST (after polish, before CTA stitch).
+  // Auto-repair is a second round of named Redo jobs, not more rules in
+  // the first writer request. Remaining leaks (usually a missing plant)
+  // attach as warnings so the operator can keep or Redo.
+  return finishCarousel(slides);
 }
 
 // === NARRATIVE SPINE — the outline step (the missing intermediate) ===
@@ -3281,7 +3362,7 @@ export function buildDedupPreamble(slides) {
 function fillSlotShape(t) {
   if (t === "cover")     return '{"type":"cover","headline":"...","subtitle":"...","accentWord":"..."}';
   if (t === "text")      return '{"type":"text","textTitle":"...","textBody":"..."}';
-  if (t === "news")      return '{"type":"news","newsKicker":"<1-3 word eyebrow like THE SUMMIT or OCT 12 — never THE LOG>","newsHeadline":"<required short heading — the event or receipt name>","newsBody":"<required 1-2 short paragraphs of the log — never empty>","newsBold":false,"newsStyles":["log"]}';
+  if (t === "news")      return '{"type":"news","newsKicker":"<1-3 word ALL CAPS eyebrow like THE SUMMIT or OCT 12 — never THE LOG>","newsHeadline":"<required 2-7 word ALL CAPS name — CLUB ZANZIBAR, not a sentence>","newsBody":"<required 1-2 short paragraphs of the log — never empty>","newsBold":false,"newsStyles":["log"]}';
   if (t === "spotlight") return '{"type":"spotlight","spotName":"...","spotMeta":"...","spotTime":"","spotPrice":"","spotCta":""}';
   if (t === "cta")       return '{"type":"cta","ctaKicker":"","ctaDate":"...","ctaVenue":"...","ctaUrl":"..."}';
   if (t === "photo")     return '{"type":"photo","caption":"...","captionSecondary":"..."}';
@@ -4165,7 +4246,7 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
     } else if (slotType === "cta" && /LOCATE DESK:/i.test(String(context || ""))) {
       extra = "\n\nLOCATE DONE: a next step already on the desk (a named night, a map, comment EVENTS). Not 'examine the evidence'. Do not restate the cover as a question.";
     } else if (slotType === "news") {
-      extra = "\n\nNEWS slide — the log, not a cover and not a name-only kicker. who / what / where / when already on this desk. Real stake + named receipt + a use on THIS card. newsKicker = a 1-3 word eyebrow (THE SUMMIT / HACKATHON / OCT 12 — never THE LOG / THE BIGGER PICTURE / THE STORY). newsHeadline = REQUIRED short heading (the event or receipt name). newsBody = REQUIRED: write the START / THESIS receipt into 1-2 short paragraphs. Never leave newsBody empty. A kicker with a blank body is a failed card — the name is not the log. Conversational or rolling (the default). End on ONE payoff line wrapped in *asterisks* so it bolds (exactly one) only if that payoff is already on the desk — the last sentence may be the NEXT PLANT (name the next In START and what it is). Every specific must be true; never manufacture drama. newsBold true only for a genuinely urgent breaking beat. newsStyles = THIS card's mix only (log / receipt / quote / side / hole). Do not copy the same mix onto every News chair. Cite Fuel by number when you plant a receipt (Fuel #2).";
+      extra = "\n\nNEWS slide — the log, not a cover and not a name-only kicker. who / what / where / when already on this desk. Real stake + named receipt + a use on THIS card. newsKicker = a 1-3 word ALL CAPS eyebrow (THE SUMMIT / HACKATHON / OCT 12 — never THE LOG / THE BIGGER PICTURE / THE STORY). newsHeadline = REQUIRED 2–7 word ALL CAPS name (CLUB ZANZIBAR / HENRY'S DISSERTATION), never a sentence and never a cut-off clause. newsBody = REQUIRED: write the START / THESIS receipt into 1-2 short paragraphs. Never leave newsBody empty. A kicker with a blank body is a failed card — the name is not the log. Conversational or rolling (the default). End on ONE payoff line wrapped in *asterisks* so it bolds (exactly one) only if that payoff is already on the desk — the last sentence may be the NEXT PLANT (name the next In START and what it is). Every specific must be true; never manufacture drama. newsBold true only for a genuinely urgent breaking beat. newsStyles = THIS card's mix only (log / receipt / quote / side / hole). Do not copy the same mix onto every News chair. Cite Fuel by number when you plant a receipt (Fuel #2).";
     } else if (slotType === "features") {
       // The Features slot is the one most prone to filler because each card is
       // tiny — force concrete promises and a single standout card.
@@ -4266,7 +4347,7 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
     ...(isContentRegister(mode, isEvergreen)
       ? [
         "- CONNECTION MANDATE: names and numbers live INSIDE the explanation. Sunken Silo and Autodidact belong in the same Route 22 paragraph when they are the same expression. Do not isolate one venue per slide. Do not peel 1:3000 onto its own card.",
-        "- PARAGRAPH MANDATE: textBody / newsBody / subtitle are 2-5 connecting sentences that explain WHY. textTitle / newsHeadline name the SECTION ('Route 22's Parking Lot Breweries'), not a stacked manifesto. Five short sentences banging the same point is a failed slide.",
+        "- PARAGRAPH MANDATE: textBody / newsBody / subtitle are 2-5 connecting sentences that explain WHY. textTitle / newsHeadline name the SECTION (newsHeadline is ALL CAPS: \"ROUTE 22'S PARKING LOT BREWERIES\"), not a stacked manifesto. Five short sentences banging the same point is a failed slide.",
         "- BANNED sociological fluff still applies: 'the unseen hand', 'the fabric of the community', 'the very essence of', 'at its core', 'speaks to', 'a testament to'. Explain with the brief's names instead.",
       ]
       : [
@@ -4275,6 +4356,7 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
         "- ATOMICITY MANDATE: EACH FIELD CARRIES ONE ATOMIC UNIT. One venue name in spotName, one address in spotMeta, one date in ctaDate, one time in spotTime. If your instinct is to stack Metuchen + Aug 7 + address + Album Club pitch + Crossroads into a single spotMeta separated by `·` or `|`, you're using the WRONG SLOT TYPE for the material and the field will be flagged as a data-dump. Split into multiple slides, or leave the extras out. Rule of thumb: if a field would contain more than TWO `·` separators, or more than ONE date, or BOTH an address AND a date, it's a violation.",
       ]),
     "- FIELD DISCIPLINE: Title / headline / label / kicker fields (headline, textTitle, spotName, kicker, ctaKicker, statLabel, newsHeadline, newsKicker, accentWord, pressTitle, pressBadge, countEvent, countCta, spotTime, spotPrice, spotCta) are SHORT LABELS — one clause, aim under 60 characters. Body fields (textBody, newsBody, subtitle, spotMeta, subLine, statSub, countText, caption, pressLineup) carry the sentences. If a title field reads like body copy — two sentences separated by a period, multiple ideas stacked — you're in the wrong field: move it to the body and shorten the title. Example of failed output: `textTitle: \"Young's Skating Center keeps a hardwood ritual alive. Forget the casino strip.\"` That's two sentences of body prose stuffed into a title slot. Correct: `textTitle: \"THE HARDWOOD RITUAL\"`, `textBody: \"Young's Skating Center keeps Friday nights alive off the casino strip.\"`",
+    "- NEWS LABELS: newsKicker and newsHeadline are ALL CAPS names (THE HALL / CLUB ZANZIBAR / HENRY'S DISSERTATION). A sentence or a 60-character clip in newsHeadline is a failed card — shorten the name, move the sentence to newsBody.",
     "- TEXT SLOT — worked examples (title is a LABEL, body is the PROSE):",
     "    FAILED: `textTitle: \"Route 1 is trading volume for curated sound. Here's why.\"` `textBody: \"\"` — title carries the whole thought, body is empty. Reader has nothing to read.",
     "    FAILED: `textTitle: \"THE OLD PLAYBOOK IS GETTING COMPLICATED\"` `textBody: \"THE OLD PLAYBOOK IS GETTING COMPLICATED. Route 1 is trading volume for curated sound.\"` — body repeats the title verbatim.",

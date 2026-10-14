@@ -5,9 +5,14 @@
 // drop a URL, or just reshuffle the same Fuel line. Diagnose the leaks
 // on the card, show them, and send that job into the rewrite.
 //
-// First-pass repair uses the same library: strip URLs / mid-body stars
-// in the receipt zone, leave a real last-line *payoff* and plant, then
-// attach whatever is still wrong as a warning.
+// Two repair layers, not one stuffed Generate prompt:
+//   1. First-pass (deterministic): strip URLs / mid-body stars, ALL CAPS
+//      news labels. Leave a real last-line *payoff* and plant.
+//   2. Auto-repair (Generate, after the writer): at most AUTO_REPAIR_CAP
+//      single-slot Redos on dump / cut-title / grant chairs. Missing
+//      plant stays a warning — firing it on every News card is why the
+//      operator was clicking Redo on every slide.
+// Attach whatever is still wrong as a warning.
 
 import { plantZone, landingZone } from "./slideBridge.js";
 
@@ -345,6 +350,12 @@ function stripReceiptStars(text) {
   return [cleanBefore, cleanLast].filter((p) => String(p || "").trim()).join(" ").trim();
 }
 
+export function normalizeNewsLabel(text) {
+  const s = String(text || "").replace(/\s+/g, " ").trim();
+  if (!s) return "";
+  return s.toUpperCase();
+}
+
 export function repairSlideLeaks(slide) {
   if (!slide || typeof slide !== "object") return slide;
   const next = { ...slide };
@@ -357,7 +368,45 @@ export function repairSlideLeaks(slide) {
     if (typeof next[field] !== "string" || !next[field]) continue;
     next[field] = stripReceiptStars(stripUrls(next[field]));
   }
+  if (String(next.type || "").toLowerCase() === "news") {
+    if (typeof next.newsHeadline === "string" && next.newsHeadline) {
+      next.newsHeadline = normalizeNewsLabel(next.newsHeadline);
+    }
+    if (typeof next.newsKicker === "string" && next.newsKicker) {
+      next.newsKicker = normalizeNewsLabel(next.newsKicker);
+    }
+  }
   return next;
+}
+
+// Rewrite jobs worth a Generate auto-Redo. `plant` is left out on
+// purpose: almost every News chair fails it, and auto-firing it is how
+// first-pass "repair" became another stuffed request.
+const AUTO_REPAIR_KEYS = new Set([
+  "url", "markdown", "source-tag", "truncated", "title-as-body",
+  "scaffold", "grant", "brochure-cta", "question-cta", "empty-news",
+  "landing", "plant-mash", "plant-blocked", "repeat", "cover-wall",
+]);
+const AUTO_REPAIR_CAP = 4;
+
+function autoRepairRank(keys) {
+  if (keys.includes("scaffold") || keys.includes("url") || keys.includes("source-tag")) return 0;
+  if (keys.includes("truncated") || keys.includes("title-as-body") || keys.includes("empty-news")) return 1;
+  if (keys.includes("cover-wall") || keys.includes("grant") || keys.includes("question-cta") || keys.includes("brochure-cta")) return 2;
+  return 3;
+}
+
+export function chairsNeedingAutoRepair(slides, { context = "", cap = AUTO_REPAIR_CAP } = {}) {
+  if (!Array.isArray(slides)) return [];
+  const chairs = [];
+  for (let i = 0; i < slides.length; i++) {
+    const diag = diagnoseSlideRedo(slides[i], { index: i, slides, context });
+    const keys = (diag.leaks || []).map((l) => l.key).filter((k) => AUTO_REPAIR_KEYS.has(k));
+    if (!keys.length) continue;
+    chairs.push({ index: i, keys, diag });
+  }
+  chairs.sort((a, b) => autoRepairRank(a.keys) - autoRepairRank(b.keys) || a.index - b.index);
+  return chairs.slice(0, Math.max(0, cap));
 }
 
 export function repairCarouselLeaks(slides) {
