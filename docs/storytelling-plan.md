@@ -1,8 +1,9 @@
 # Storytelling plan — content & editorial carousels
 
-Status: **proposal, awaiting operator approval.** Nothing below is built.
-Approve, change, or cut each phase independently. Each phase has a gate:
-the next one does not start until the gate is met or you waive it.
+Status: **approved as a starting point (Oct 14, 2026).** Phase 1 is built
+(#240). Everything else is not built yet. Each phase has a gate: the next
+one does not start until the gate is met or the operator waives it.
+Decisions are recorded at the end.
 
 ## The problem, in one paragraph
 
@@ -84,7 +85,7 @@ questions and the win bar *before* any new pipeline runs.
 
 ---
 
-## Phase 1 — Fix the broken cards (independent, small)
+## Phase 1 — Fix the broken cards (independent, small) — built in #240
 
 These are bugs. They ship regardless of the rest.
 
@@ -116,7 +117,7 @@ source desk. Add the material a story is made of, as labeled desk lines.
 
 | Prefix | What it is | Rule |
 |---|---|---|
-| `LOCATE —` | where / when / who runs it (exhibition venue + dates, club address + years open) | required before Generate for any live subject |
+| `LOCATE —` | where / when / who runs it (exhibition venue + dates, club address + years open) | warn before Generate when a live subject has none |
 | `SCENE —` | a sourced moment with people in a place | must cite the page it came from |
 | `VOICE —` | a short quote from a named person | verbatim + URL; otherwise rejected |
 | `CHANGE —` | then → now, with both ends sourced | |
@@ -141,8 +142,7 @@ and a spot-check of every `VOICE —` in the eval set.
 `LOCATE` and one of `SCENE` / `VOICE`; spot-check finds zero fabricated
 quotes.
 
-**Decision for you**: whether `LOCATE —` is a hard requirement or a
-warning.
+**Decided**: a missing `LOCATE —` is a warning, not a requirement.
 
 ---
 
@@ -157,6 +157,7 @@ sentence**; can this desk carry it; what is missing to tell it?
 - New verdicts: `ready` · `needs` (names the missing pieces: "no scene",
   "no where/when for the exhibition") · `not-a-carousel-yet` (all secondary
   sources, no scene, no locate — suggest a short post or more research).
+  All three are warnings; none blocks Generate.
 - `needs` items feed the existing gap search (`coherenceGapSearches` /
   `researchGapScoutRequest`) as targeted hunts, not another full Fuel run.
 - Keep the old verdict fields so non-story paths are untouched.
@@ -301,12 +302,16 @@ material make tidier decks out of the same documents.
 | Small judge pool | Phase 0 | 3 runs per desk; bar set before running |
 | Regressions on promo / roundups | all | `storyMode` scoped to content/editorial; eval includes 2 promo desks as controls |
 
-## Decisions needed from you
+## Decisions (operator, Oct 14, 2026)
 
-1. Approve / change the phase order.
-2. Pick the eval desks (Phase 0).
-3. Set the win bar (proposed: ≥ 60% of blind pairs, no rise in unsupported
-   claims).
-4. `LOCATE —` required or warning (Phase 2).
-5. Whether `not-a-carousel-yet` can block Generate or only warn (Phase 3).
-6. Whether Phase 1 ships immediately, ahead of everything else.
+1. **Phase order:** approved as a starting point.
+2. **Eval desks:** agent picks. Zanzibar plus 10–15 content/editorial
+   desks weighted toward rejected ones, plus 2 promo desks as controls.
+3. **Win bar:** ≥ 60% of blind pairs, no rise in unsupported claims.
+4. **`LOCATE —`:** warning, not a requirement.
+5. **`not-a-carousel-yet`:** warning only; never blocks Generate. It fires
+   when a desk is all secondary material (documents *about* the subject)
+   with no scene, no voice, and no where/when — the shape the Zanzibar
+   desk had. The warning names what is missing so the gap search can hunt
+   it.
+6. **Phase 1:** ships first, on its own (#240).
