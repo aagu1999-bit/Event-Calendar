@@ -17,6 +17,7 @@ import {
   sanitizeNewsStyles,
 } from "./slideJobs.js";
 import { recastSlot, PREVIEW_RECAST_TYPES, PREVIEW_RECAST_LABELS, PREVIEW_RECAST_HINTS, formatPreviewSeeLine } from "./recastSlot.js";
+import { diagnoseSlideRedo, formatRedoWriterJob } from "./slideRedoJob.js";
 import {
   interpretBuildTurn,
   formatDraftForContinue,
@@ -751,12 +752,14 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
       const styleLine = slot.type === "news" && Array.isArray(slot.newsStyles) && slot.newsStyles.length
         ? `NEWS STYLES FOR THIS CARD ONLY: ${slot.newsStyles.join(", ")}. Rewrite THIS chair in that mix. Do not copy it onto other News chairs.`
         : "";
+      const redoJob = diagnoseSlideRedo(slot, { index: idx, slides });
       const regenContext = appendOperatorQuestions(appendSavedTeaching([
         context.trim(),
         `FULL CAROUSEL (study the voice, the running motif, and what each slide already covers — do not repeat or contradict them):\n${fullMap}`,
-        `YOUR JOB: rewrite ONLY slide ${idx + 1} as a ${slot.type} card so it fits SEAMLESSLY between its neighbors — continue/pay off what the slide before sets up, and tee up the slide after. Match the established voice + motif + pattern, and fill the specific missing beat this position needs. Don't duplicate what other slides already say.\n${neighborLines}`,
+        formatRedoWriterJob(redoJob, { index: idx, slotType: slot.type }),
+        neighborLines,
         styleLine,
-        prevVersion && `PREVIOUS VERSION OF THIS SLIDE (make the new one clearly DIFFERENT — fresh angle/wording, not a rephrase — while still bridging the neighbors):\n${prevVersion}`,
+        prevVersion && `PREVIOUS VERSION OF THIS SLIDE (do the job above — do not only rephrase this):\n${prevVersion}`,
       ].filter(Boolean).join("\n\n"), {
         voice,
         approvedDrafts: approvedMem,
@@ -2015,7 +2018,7 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
               Preview · {slides.length} slides
             </div>
             <div style={{ fontSize: "0.58rem", color: "rgba(245,240,232,0.5)", marginBottom: 8, lineHeight: 1.4 }}>
-              Cover · News · Done are the chairs. News styles live on each News card after Generate. Back to desk keeps Fuel as you left it. Keep sends the chair to the canvas. Write about these slides sits under the cards. Wrong marks a card for that box. Redo rewrites this chair as the type showing now.
+              Cover · News · Done are the chairs. Each card names the leak on it and what Redo will do. Recast changes type; Redo then writes that type. Wrong marks a card for the box under the cards. URLs stay off the image — name the source instead.
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
               {slides.map((slot, idx) => {
@@ -2024,6 +2027,7 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
                 const saved = savedIdx.has(idx);
                 const kept = keptIdx.has(idx);
                 const markedWrong = wrongIdx.has(idx);
+                const redoJob = diagnoseSlideRedo(slot, { index: idx, slides });
                 return (
                   <div
                     key={idx}
@@ -2082,7 +2086,7 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
                       <button
                         onClick={() => handleRegenerateSlide(idx)}
                         disabled={regenIdx !== null}
-                        title="Re-roll just this slide — keeps every other slide as-is"
+                        title={redoJob.redo}
                         style={{
                           background: regenIdx === idx ? "rgba(139,92,246,0.25)" : "transparent",
                           border: "1px solid rgba(139,92,246,0.45)",
@@ -2123,6 +2127,20 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
                           {saved ? "✓ Saved" : "🔖 Save"}
                         </button>
                       )}
+                    </div>
+                    <div style={{
+                      marginBottom: 8,
+                      marginTop: 28,
+                      padding: "7px 10px",
+                      background: redoJob.leaks.length ? "rgba(229,188,79,0.10)" : "rgba(245,240,232,0.04)",
+                      border: `1px solid ${redoJob.leaks.length ? "rgba(229,188,79,0.35)" : "rgba(245,240,232,0.10)"}`,
+                      borderRadius: 4,
+                      fontSize: "0.62rem",
+                      color: "rgba(245,240,232,0.78)",
+                      lineHeight: 1.45,
+                    }}>
+                      <div><b style={{ color: "#E5BC4F", letterSpacing: 0.4 }}>This card.</b> {redoJob.see}</div>
+                      <div style={{ marginTop: 3 }}><b style={{ color: "#A78BFA", letterSpacing: 0.4 }}>Redo will.</b> {redoJob.redo}</div>
                     </div>
                     {Array.isArray(slot?._warnings) && slot._warnings.length > 0 && (
                       <div style={{
