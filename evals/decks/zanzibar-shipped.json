@@ -1,0 +1,75 @@
+{
+  "id": "zanzibar-shipped",
+  "desk": "zanzibar",
+  "pipeline": "current",
+  "note": "Transcribed from the 11 exported slides the operator shared on Oct 14, 2026. The closer's centre line ran off both edges; its visible text ends at 'CONNE' and the rest is not recoverable.",
+  "slides": [
+    {
+      "type": "cover",
+      "headline": "NEWARK'S CLUB ZANZIBAR: FROM LOCAL HITS TO GLOBAL BEATS",
+      "subtitle": "An exhibition and Rutgers scholarship trace the club's lasting influence on house music's global sound.",
+      "accentWord": "BEATS"
+    },
+    {
+      "type": "news",
+      "newsKicker": "ZANZIBAR'S LEGACY IN NEWARK MUSIC SCENE",
+      "newsHeadline": "NEWARK’S “A HOUSE CALLED ZANZIBAR” EXHIBITION PUTS A SPECIFI",
+      "newsBody": "Newark’s “A House Called Zanzibar” exhibition puts a specific Newark club’s photographs, films and sound back into public view; Rutgers scholarship offers a locally grounded way to trace the relationship between that club, the Jersey Sound and contemporary Jersey Club without collapsing distinct scenes into one origin story."
+    },
+    {
+      "type": "news",
+      "newsKicker": "THE SCHOLARSHIP",
+      "newsHeadline": "JASMINE HENRY'S DISSERTATION",
+      "newsBody": "Jasmine A. Henry's 2022 dissertation, \"Jersey Club: Race, Place and Black Independent Music-making in Newark, New Jersey,\" uses oral history and ethnography. It traces contemporary Newark Jersey Club makers and public-space performances, including a Zanzibar case study, without collapsing distinct scenes into one origin story."
+    },
+    {
+      "type": "news",
+      "newsKicker": "THE RESEARCH ROUTE",
+      "newsHeadline": "RUTGERS MUSIC GUIDE",
+      "newsBody": "Rutgers' \"Newark Experience: Music in Newark—Club Music\" research guide points to primary sources. It references Blue Newark Culture (1993) for first-person accounts and Vincent Bryant’s A Journey Through the House: Photo Memoirs of Club Zanzibar, offering a route into Newark-held material."
+    },
+    {
+      "type": "news",
+      "newsKicker": "THE SOCIAL SPACE",
+      "newsHeadline": "QUEER CLUB HISTORY",
+      "newsBody": "Rutgers’ “History of Queer Club Spaces in Newark” identifies Tony Humphries’ role in Zanzibar's sonic shift. It tracks the club's move from disco roots toward deep house, framing the club as a social and nightlife space."
+    },
+    {
+      "type": "news",
+      "newsKicker": "THE JERSEY SOUND",
+      "newsHeadline": "BLACK NJ PRESS",
+      "newsBody": "NJ Urban News offers a Black-NJ press argument about \"Jersey Sound: How One State Influenced American Music.\" The piece situates the state's contribution to American music and highlights Newark's deep ties to the Jersey Club sound."
+    },
+    {
+      "type": "news",
+      "newsKicker": "THE DEEPER ROOTS",
+      "newsHeadline": "ORAL HISTORY PROJECT",
+      "newsBody": "The Queer Newark Oral History Project expands on the club's role as a social and nightlife space. It investigates the broader cultural impact of Newark's club scene, complementing the specific Zanzibar narrative."
+    },
+    {
+      "type": "news",
+      "newsKicker": "THE GLOBAL REACH",
+      "newsHeadline": "JERSEY CLUB'S LEGACY",
+      "newsBody": "Club Zanzibar's legacy is intrinsically linked to the global sound of Jersey Club. The club's influence continues to shape contemporary music scenes, with this exhibition and research highlighting that enduring connection."
+    },
+    {
+      "type": "news",
+      "newsKicker": "THE DISSERTATION'S SCOPE",
+      "newsHeadline": "HENRY'S CASE STUDY",
+      "newsBody": "Jasmine Henry’s dissertation tracks contemporary Newark Jersey Club makers and public-space performances. It analyzes the effects of viral songs on the scene, avoiding the claim that Zanzibar was the sole origin of Jersey Club."
+    },
+    {
+      "type": "news",
+      "newsKicker": "THE CONTINUING CONVERSATION",
+      "newsHeadline": "NEWARK'S MUSICAL LEGACY",
+      "newsBody": "The exhibition and accompanying research put Club Zanzibar's story back into public view. Rutgers scholarship offers a locally grounded way to trace its influence on the Jersey Sound and contemporary Jersey Club, ensuring the legacy is properly contextualized."
+    },
+    {
+      "type": "cta",
+      "ctaKicker": "THE LEGACY CONTINUES",
+      "ctaDate": "NEWARK'S CURRENT SCENE IS EXAMINED THROUGH THIS EXHIBITION AND RESEARCH, CONNE",
+      "ctaVenue": "An exhibition and research initiative exploring the enduring impact of Zanzibar's sonic landscape on contemporary Newark.",
+      "ctaUrl": "@cge_nj"
+    }
+  ]
+}

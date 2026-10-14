@@ -1,0 +1,18 @@
+{
+  "id": "zanzibar",
+  "title": "Newark's Club Zanzibar",
+  "reconstructed": true,
+  "note": "Rebuilt from the facts on the shipped deck (evals/decks/zanzibar-shipped.json). The real desk had more lines — the shipped deck has 9 News cards. Replace with the exported matrix when available.",
+  "mode": "content",
+  "isEvergreen": true,
+  "topic": "Newark's Club Zanzibar: from local hits to global beats",
+  "context": [
+    "POV: Rutgers scholarship offers a locally grounded way to trace the relationship between Club Zanzibar, the Jersey Sound and contemporary Jersey Club without collapsing distinct scenes into one origin story.",
+    "- START — Newark's \"A House Called Zanzibar\" exhibition puts the club's photographs, films and sound back into public view.",
+    "- START — Jasmine A. Henry's 2022 dissertation, \"Jersey Club: Race, Place and Black Independent Music-making in Newark, New Jersey,\" uses oral history and ethnography, traces contemporary Newark Jersey Club makers and public-space performances, and includes a Zanzibar case study.",
+    "- START — Rutgers' \"Newark Experience: Music in Newark—Club Music\" research guide references Blue Newark Culture (1993) for first-person accounts and Vincent Bryant's A Journey Through the House: Photo Memoirs of Club Zanzibar.",
+    "- START — Rutgers' \"History of Queer Club Spaces in Newark\" identifies Tony Humphries' role in Zanzibar's move from disco roots toward deep house.",
+    "- START — NJ Urban News: \"Jersey Sound: How One State Influenced American Music\" situates the state's contribution to American music and Newark's ties to the Jersey Club sound.",
+    "- START — The Queer Newark Oral History Project records the club's role as a social and nightlife space."
+  ]
+}
