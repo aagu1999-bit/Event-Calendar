@@ -2390,6 +2390,15 @@ export function detectCrossContamination(slides, narrativeSpine, contextText, se
 //
 // Falls back to no schema if Gemini rejects even the compact one — see
 // the try/catch in generateTemplateFill.
+// Whole-carousel JSON (fill, voice, polish) used to share a hard 8192
+// cap. That is enough for a 3-slide teaser. Cover + a pile of News
+// needs room for every newsBody or the tail ships empty. Scale with
+// chair count; stay under a 32k ceiling.
+function fillOutputTokenBudget(sequenceLength) {
+  const n = Number(sequenceLength) || 1;
+  return Math.min(32768, Math.max(8192, n * 1400));
+}
+
 const FIELDS_BY_SLOT = {
   cover:     { headline: 60, subtitle: 200, accentWord: 25 },
   text:      { textTitle: 60, textBody: 400 },
@@ -2800,14 +2809,10 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   // Both retry the same prompt WITHOUT the schema so generation isn't
   // blocked. Prompt-level FIELD DISCIPLINE + post-generation sanitizer
   // still catch the common failure modes in that path.
-  // 8192 is enough for a 3-slide teaser and too small for Cover + a
-  // pile of News: the writer fills kickers/headlines first and the
-  // tail comes back with empty newsBody. Scale with chair count.
-  const fillOutputTokens = Math.min(32768, Math.max(8192, workingSequence.length * 1400));
   const baseConfig = {
     responseMimeType: "application/json",
     temperature: fillTemperature,
-    maxOutputTokens: fillOutputTokens,
+    maxOutputTokens: fillOutputTokenBudget(workingSequence.length),
   };
   const withSchema = { ...baseConfig, responseSchema: buildFillResponseSchema(workingSequence) };
   const isSchemaRejection = (err) => {
@@ -3463,7 +3468,7 @@ export async function generateVoicePass({ apiKey, slides, sequence, voice, voice
   ].join("\n");
 
   const voicePassTemperature = (mode === "story" || mode === "editorial" || mode === "content") ? 0.72 : 0.85;
-  const voiceBaseConfig = { responseMimeType: "application/json", temperature: voicePassTemperature, maxOutputTokens: 8192 };
+  const voiceBaseConfig = { responseMimeType: "application/json", temperature: voicePassTemperature, maxOutputTokens: fillOutputTokenBudget(sequence.length) };
   const voiceWithSchema = { ...voiceBaseConfig, responseSchema: buildFillResponseSchema(sequence) };
   const isSchemaRejection = (err) => {
     const msg = String(err?.message || err || "");
@@ -3678,7 +3683,7 @@ export async function polishCarousel({ apiKey, topic, context, historicalContext
   // Gemini rejects it (HTTP layer) OR when the schema-constrained
   // response comes back truncated / unparseable. maxOutputTokens set
   // explicitly so polish doesn't silently truncate.
-  const polishBaseConfig = { responseMimeType: "application/json", temperature: 0.4, maxOutputTokens: 8192 };
+  const polishBaseConfig = { responseMimeType: "application/json", temperature: 0.4, maxOutputTokens: fillOutputTokenBudget(sequence.length) };
   const polishWithSchema = { ...polishBaseConfig, responseSchema: buildFillResponseSchema(sequence) };
   const isSchemaRejection = (err) => {
     const msg = String(err?.message || err || "");
