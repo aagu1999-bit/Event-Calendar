@@ -4,8 +4,12 @@
 // so the operator could not tell whether it would fix the cut-off title,
 // drop a URL, or just reshuffle the same Fuel line. Diagnose the leaks
 // on the card, show them, and send that job into the rewrite.
+//
+// First-pass repair uses the same library: strip URLs / mid-body stars
+// in the receipt zone, leave a real last-line *payoff* and plant, then
+// attach whatever is still wrong as a warning.
 
-import { plantZone } from "./slideBridge.js";
+import { plantZone, landingZone } from "./slideBridge.js";
 
 const URL_RE = /https?:\/\/\S+/i;
 const MD_STAR_RE = /\*[^*\n]{2,}\*/;
@@ -13,6 +17,12 @@ const SOURCE_TAG_RE = /\((?:UNIVERSITY|CULTURAL|SPECIALIST|COMMUNITY\s+HIST)[^)]
 const SCAFFOLD_RE = /\b(?:KEEP THE SCOUT THESIS|SCOUT THESIS|\bTHESIS\b|\bBEAT:|\bTHE LOG\b|\bTHE BIGGER PICTURE\b|\bTHE STORY\b|\bTHE FRAME\b|\bTHE CONTEXT\b)\b/i;
 const BROCHURE_RE = /\b(?:explore the|legacy continues|learn more|find out more|link in bio|the journey|must-visit)\b/i;
 const GRANT_RE = /\b(?:starting point for encountering|burgeoning|highlights the|future potential|vibrant community)\b/i;
+const OMIT_RE = /\b(?:USE AS omit|NONE beyond same city|do not mash|NOT RELATED AS)\b/i;
+
+const BODY_FIELDS = ["subtitle", "newsBody", "textBody", "ctaVenue", "ctaDate"];
+const TITLE_FIELDS = [
+  "headline", "newsKicker", "newsHeadline", "textTitle", "ctaKicker", "ctaDate",
+];
 
 function words(text) {
   return String(text || "").trim().split(/\s+/).filter(Boolean);
@@ -59,7 +69,63 @@ function nextName(slides, idx) {
   ).replace(/\s+/g, " ").trim().slice(0, 80);
 }
 
-export function diagnoseSlideRedo(slide, { index = 0, slides = [] } = {}) {
+function isPayoffLine(last, before) {
+  if (!String(before || "").trim()) return false;
+  const t = String(last || "").trim();
+  if (!/^\*[\s\S]+\*$/.test(t)) return false;
+  if (words(t).length > 18) return false;
+  if (URL_RE.test(t) || SOURCE_TAG_RE.test(t)) return false;
+  return true;
+}
+
+function receiptHasMarkdown(headline, kicker, body) {
+  const { before, last } = plantZone(body);
+  const hay = [
+    headline, kicker, before,
+    isPayoffLine(last, before) ? "" : last,
+  ].join("\n");
+  return MD_STAR_RE.test(hay);
+}
+
+function distinctiveTokens(text) {
+  return String(text || "")
+    .replace(/[^a-zA-Z0-9\s]/g, " ")
+    .split(/\s+/)
+    .map((w) => w.toLowerCase())
+    .filter((w) => w.length >= 6);
+}
+
+function relatednessBlocksPlant(context, nextHeadline) {
+  const tokens = distinctiveTokens(nextHeadline).slice(0, 2);
+  if (!tokens.length) return false;
+  return String(context || "").split("\n").some((line) => {
+    if (!OMIT_RE.test(line)) return false;
+    const l = line.toLowerCase();
+    return tokens.some((w) => l.includes(w));
+  });
+}
+
+function lastIsMash(last, nextHeadline) {
+  const t = String(last || "").trim();
+  if (!t) return false;
+  if (URL_RE.test(t) || SOURCE_TAG_RE.test(t)) return true;
+  if (words(t).length > 22) return true;
+  const tokens = distinctiveTokens(nextHeadline);
+  if (tokens.length && tokens.some((w) => t.toLowerCase().includes(w)) && words(t).length > 12) {
+    return true;
+  }
+  return false;
+}
+
+function isQuestionCloser(slide) {
+  const date = String(slide?.ctaDate || "").trim();
+  const venue = String(slide?.ctaVenue || "").trim();
+  const hay = `${date} ${venue}`;
+  if (/\?\s*$/.test(date) || /\?\s*$/.test(venue)) return true;
+  return /^(how|why|what|who|does|is|are|can)\b/i.test(date);
+}
+
+export function diagnoseSlideRedo(slide, { index = 0, slides = [], context = "" } = {}) {
   const leaks = [];
   const type = String(slide?.type || "").toLowerCase();
   const blob = blobOf(slide);
@@ -70,6 +136,11 @@ export function diagnoseSlideRedo(slide, { index = 0, slides = [] } = {}) {
           : type === "cta" ? slide?.ctaDate
             : "",
   ).trim();
+  const kicker = String(
+    type === "news" ? slide?.newsKicker
+      : type === "cta" ? slide?.ctaKicker
+        : "",
+  ).trim();
   const body = String(
     type === "cover" ? slide?.subtitle
       : type === "news" ? slide?.newsBody
@@ -77,6 +148,8 @@ export function diagnoseSlideRedo(slide, { index = 0, slides = [] } = {}) {
           : type === "cta" ? slide?.ctaVenue
             : "",
   ).trim();
+  const zones = plantZone(body);
+  const dump = URL_RE.test(blob) || SOURCE_TAG_RE.test(blob);
 
   if (SCAFFOLD_RE.test(blob)) {
     leaks.push({
@@ -92,11 +165,11 @@ export function diagnoseSlideRedo(slide, { index = 0, slides = [] } = {}) {
       fix: "Drop the URL. Name the source (the dissertation, the oral history, the radio show) in the body.",
     });
   }
-  if (MD_STAR_RE.test(blob)) {
+  if (receiptHasMarkdown(headline, kicker, body)) {
     leaks.push({
       key: "markdown",
       see: "Markdown stars are showing as stars.",
-      fix: "Drop the *asterisks*. Use the name in plain words. One *payoff* line at the end is enough if the desk already has that payoff.",
+      fix: "Drop the *asterisks* in the receipt. A closing *payoff* line may stay. Do not wrap the whole body.",
     });
   }
   if (SOURCE_TAG_RE.test(blob)) {
@@ -147,6 +220,13 @@ export function diagnoseSlideRedo(slide, { index = 0, slides = [] } = {}) {
       fix: "A next step already on the desk (the named installation, a night, comment EVENTS). Not 'explore' / 'legacy continues'.",
     });
   }
+  if (type === "cta" && isQuestionCloser(slide)) {
+    leaks.push({
+      key: "question-cta",
+      see: "The closer is a question.",
+      fix: "Done is a next step already on the desk, not 'How does X inform Y?'.",
+    });
+  }
   if (type === "news" && !String(slide?.newsBody || "").trim()) {
     leaks.push({
       key: "empty-news",
@@ -155,17 +235,51 @@ export function diagnoseSlideRedo(slide, { index = 0, slides = [] } = {}) {
     });
   }
 
-  const next = nextName(slides, index);
-  const canPlant = (type === "news" || type === "text") && next && !leaks.some((l) => l.key === "scaffold");
-  if (canPlant) {
-    const last = plantZone(body).last.toLowerCase();
-    const needle = next.toLowerCase().replace(/[^a-z0-9\s]/g, " ").trim().split(/\s+/).slice(0, 3).join(" ");
-    const planted = needle.length >= 8 && last.includes(needle.slice(0, Math.min(18, needle.length)));
-    if (!planted) {
+  const prev = Array.isArray(slides) ? slides[index - 1] : null;
+  if ((type === "news" || type === "text") && prev && String(prev.type || "").toLowerCase() === "cover" && body) {
+    const tokens = distinctiveTokens(prev.headline || prev.newsHeadline);
+    const first = landingZone(body).first.toLowerCase();
+    if (tokens.length && !tokens.some((t) => first.includes(t))) {
       leaks.push({
-        key: "plant",
-        see: "Last line does not hand the next card to the reader.",
-        fix: `Last sentence names the next START and what it is ("${next}"), not a second receipt.`,
+        key: "landing",
+        see: "This card does not open on the cover's fact.",
+        fix: "First sentence names the cover's news (the club, the exhibition, the week). Do not recap the dek. Cover does not plant — this card lands.",
+      });
+    }
+  }
+
+  const next = nextName(slides, index);
+  const blocked = relatednessBlocksPlant(context, next);
+  const canPlant = (type === "news" || type === "text") && next
+    && !dump
+    && !leaks.some((l) => l.key === "scaffold")
+    && !blocked;
+  if (canPlant) {
+    const last = zones.last;
+    if (lastIsMash(last, next)) {
+      leaks.push({
+        key: "plant-mash",
+        see: "The last line is a second receipt, not a pointer.",
+        fix: `End by naming the next START and what it is ("${next}"), not by telling its whole story.`,
+      });
+    } else {
+      const planted = distinctiveTokens(next).some((w) => last.toLowerCase().includes(w));
+      if (!planted) {
+        leaks.push({
+          key: "plant",
+          see: "Last line does not hand the next card to the reader.",
+          fix: `Last sentence names the next START and what it is ("${next}"), not a second receipt. Keep a closing *payoff* if the desk already has that line.`,
+        });
+      }
+    }
+  }
+  if ((type === "news" || type === "text") && next && blocked) {
+    const planted = distinctiveTokens(next).some((w) => zones.last.toLowerCase().includes(w));
+    if (planted) {
+      leaks.push({
+        key: "plant-blocked",
+        see: "Relatedness said omit — this card still plants the next START.",
+        fix: "End on this receipt. Do not plant an unjoined next card.",
       });
     }
   }
@@ -182,7 +296,7 @@ export function diagnoseSlideRedo(slide, { index = 0, slides = [] } = {}) {
     return {
       leaks: [],
       see: "No named leak on this chair.",
-      redo: next && (type === "news" || type === "text")
+      redo: next && (type === "news" || type === "text") && !blocked
         ? `Rewrite this chair only. Keep the same Fuel receipt. Different wording, not a rephrase. Last sentence plants "${next}" and says what it is.`
         : "Rewrite this chair only. Keep the same Fuel receipt. Different wording, not a rephrase.",
     };
@@ -201,7 +315,72 @@ export function formatRedoWriterJob(diag, { index = 0, slotType = "news" } = {})
     `YOUR JOB: rewrite ONLY slide ${index + 1} as a ${slotType} card.`,
     `WHAT IS WRONG ON THIS CARD: ${d.see || "no named leak."}`,
     `WHAT REDO MUST DO: ${d.redo}`,
-    "Keep every other slide's facts off this body except a last-line plant of the next In START.",
-    "Do not invent a second receipt. Do not print URLs. Do not print THESIS / scout / UNIVERSITY tags.",
+    "Keep every other slide's facts off this body except a last-line plant of the next In START when relatedness allows.",
+    "A last-line plant is a name plus what it is, not a second receipt. Do not invent a join. Do not print URLs. Do not print THESIS / scout / UNIVERSITY tags.",
+    "Do not strip a closing *payoff* line. Cover does not plant; the first News card lands the cover's fact.",
   ].join(" ");
+}
+
+function stripUrls(s) {
+  return String(s || "")
+    .replace(/https?:\/\/\S+/gi, "")
+    .replace(/\(\s*\)/g, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\s+\n/g, "\n")
+    .trim();
+}
+
+function stripReceiptStars(text) {
+  const raw = String(text || "");
+  const trail = raw.match(/^(.*?)(\s+\*[^*]{2,}\*\s*[.!]?\s*)$/);
+  if (trail && trail[1].trim()) {
+    const before = trail[1].replace(/\*([^*]+)\*/g, "$1").replace(/\s+/g, " ").trim();
+    return `${before} ${trail[2].trim()}`.trim();
+  }
+  const { before, last } = plantZone(raw);
+  const cleanBefore = String(before || "").replace(/\*([^*]+)\*/g, "$1");
+  const cleanLast = isPayoffLine(last, before)
+    ? last
+    : String(last || "").replace(/\*([^*]+)\*/g, "$1");
+  return [cleanBefore, cleanLast].filter((p) => String(p || "").trim()).join(" ").trim();
+}
+
+export function repairSlideLeaks(slide) {
+  if (!slide || typeof slide !== "object") return slide;
+  const next = { ...slide };
+  for (const field of TITLE_FIELDS) {
+    if (typeof next[field] !== "string" || !next[field]) continue;
+    let v = stripUrls(next[field]).replace(SOURCE_TAG_RE, "").replace(/\*+/g, "").trim();
+    next[field] = v;
+  }
+  for (const field of BODY_FIELDS) {
+    if (typeof next[field] !== "string" || !next[field]) continue;
+    next[field] = stripReceiptStars(stripUrls(next[field]));
+  }
+  return next;
+}
+
+export function repairCarouselLeaks(slides) {
+  if (!Array.isArray(slides)) return slides;
+  return slides.map((s) => repairSlideLeaks(s));
+}
+
+export function attachRedoLeakWarnings(slides, { context = "" } = {}) {
+  if (!Array.isArray(slides)) return slides;
+  return slides.map((slide, i) => {
+    const diag = diagnoseSlideRedo(slide, { index: i, slides, context });
+    if (!diag.leaks.length) return slide;
+    const existing = Array.isArray(slide._warnings) ? slide._warnings : [];
+    return {
+      ...slide,
+      _warnings: [
+        ...existing,
+        {
+          type: "redo_leak",
+          message: diag.see,
+          fix: diag.redo,
+        },
+      ],
+    };
+  });
 }

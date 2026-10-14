@@ -59,6 +59,7 @@ import {
   fillEmptyNewsFromDesk,
   dropEmptyNewsChairs,
 } from "./slideJobs.js";
+import { repairCarouselLeaks, attachRedoLeakWarnings } from "./slideRedoJob.js";
 import {
   nextAdjacentProofKey,
   previousAdjacentProofKey,
@@ -2817,6 +2818,8 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
     sanitized = detectSlotDoctrineViolations(sanitized, workingSequence);
     sanitized = fillEmptyNewsFromDesk(sanitized, filteredContext);
     sanitized = dropEmptyNewsChairs(sanitized);
+    sanitized = repairCarouselLeaks(sanitized);
+    sanitized = attachRedoLeakWarnings(sanitized, { context: filteredContext });
     sanitized = attachEmptyNewsWarnings(sanitized);
     sanitized = attachNewsStyles(sanitized);
     if (jobsLocked) sanitized = attachTrifectaWarnings(sanitized, namedPlan.jobs);
@@ -2892,6 +2895,8 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   sanitized = detectSlotDoctrineViolations(sanitized, workingSequence);
   sanitized = fillEmptyNewsFromDesk(sanitized, filteredContext);
   sanitized = dropEmptyNewsChairs(sanitized);
+  sanitized = repairCarouselLeaks(sanitized);
+  sanitized = attachRedoLeakWarnings(sanitized, { context: filteredContext });
   sanitized = attachEmptyNewsWarnings(sanitized);
   sanitized = attachNewsStyles(sanitized);
   if (jobsLocked) sanitized = attachTrifectaWarnings(sanitized, namedPlan.jobs);
