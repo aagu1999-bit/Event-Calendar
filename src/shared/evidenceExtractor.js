@@ -69,10 +69,12 @@ async function geminiGenerate(apiKey, requestBody, { tries = 3 } = {}) {
   throw lastErr;
 }
 
-// Structured output schema — one shot per Fuel run, so the schema is
-// strict. Gemini sometimes rejects over-constrained schemas with a
-// "too many states" error, so we keep enums light and let Gemini fill
-// free-text where typing it would blow the ceiling.
+// Structured output schema — minimal nested requirements so Gemini
+// doesn't pad every object with required fields it would otherwise
+// omit. Only `claim` is required on a fact and only `name` is required
+// on an entity. The normalizer fills in sensible defaults for everything
+// else, so a lean response that only names claims + entities still
+// produces a valid packet. This keeps output tokens honest.
 const EXTRACTOR_SCHEMA = {
   type: "object",
   properties: {
@@ -88,7 +90,7 @@ const EXTRACTOR_SCHEMA = {
           specificity: { type: "number" },
           has_hedge: { type: "boolean" },
         },
-        required: ["id", "claim", "specificity", "source_bullets"],
+        required: ["claim"],
       },
     },
     entities: {
@@ -102,7 +104,7 @@ const EXTRACTOR_SCHEMA = {
           attributes: { type: "object", properties: {} },
           fact_ids: { type: "array", items: { type: "string" } },
         },
-        required: ["id", "name", "type"],
+        required: ["name"],
       },
     },
     hedges: {
@@ -114,18 +116,17 @@ const EXTRACTOR_SCHEMA = {
           source_bullet: { type: "integer" },
           kind: { type: "string" },
         },
-        required: ["text", "kind"],
+        required: ["text"],
       },
     },
     coverage: {
       type: "object",
       properties: {
         gaps: { type: "array", items: { type: "string" } },
-        notes: { type: "string" },
       },
     },
   },
-  required: ["facts", "entities", "hedges"],
+  required: ["facts"],
 };
 
 function buildPrompt({ bullets = [], thesis = "", cluster = "", corridor = "", lensOverride = "", topic = "" } = {}) {
@@ -212,6 +213,23 @@ function buildPrompt({ bullets = [], thesis = "", cluster = "", corridor = "", l
     "   operator what to re-fuel for. Keep gaps short, one line each.",
     "",
     "═══════════════════════════════════",
+    "OUTPUT BUDGET — PREFER FEWER STRONG FACTS OVER MANY WEAK ONES",
+    "═══════════════════════════════════",
+    "- At most 15 facts total. Prefer the 10–15 that score highest on",
+    "  specificity. Dropping a 0.3-specificity fact is correct behavior,",
+    "  not a loss. The writer wants concrete anchors, not an exhaustive",
+    "  inventory of everything mentioned.",
+    "- At most 10 entities. Collapse near-duplicates ('Rutgers iHub' /",
+    "  'Rutgers Innovation Hub' / 'the iHub' = ONE entity).",
+    "- At most 5 hedges. Only distinct disclaimer sentences.",
+    "- At most 5 coverage gaps. The 2–3 most actionable ones.",
+    "",
+    "KEEP THE OUTPUT TIGHT. The schema does not require fields like",
+    "entity_ids on every fact or attributes on every entity — omit them",
+    "when you'd otherwise emit an empty array / object. Shorter output",
+    "that captures the essentials beats a padded output that truncates.",
+    "",
+    "═══════════════════════════════════",
     "OUTPUT: strict JSON matching the schema. No prose outside the JSON.",
     "═══════════════════════════════════",
   ].filter(Boolean).join("\n");
@@ -233,72 +251,64 @@ export async function extractEvidencePacket({
 
   const prompt = buildPrompt({ bullets: cleanBullets, thesis, cluster, corridor, lensOverride, topic });
 
-  // Gemini 2.5 Flash-Lite does invisible "thinking" by default. For a
-  // structured extraction task we want the output tokens spent on the
-  // JSON, not on internal reasoning — a 4K maxOutputTokens budget
-  // silently truncates mid-object when thinking eats half of it.
-  // Disable thinking explicitly, and give the output room to breathe
-  // (the packet is bounded by input bullet count; 8K is generous).
+  // Flash-Lite burns output tokens on structured JSON padding. Give the
+  // budget serious headroom (16K); the loose schema + explicit prompt
+  // caps keep output nowhere near that in practice, but a MAX_TOKENS
+  // truncation gives the operator garbage so we'd rather over-allocate.
+  // thinkingBudget: 0 is a no-op on Flash-Lite (no thinking by default)
+  // but keeps the config explicit for future model swaps.
   const baseConfig = {
     responseMimeType: "application/json",
     temperature: 0.2,
-    maxOutputTokens: 8192,
+    maxOutputTokens: 16384,
     thinkingConfig: { thinkingBudget: 0 },
   };
 
-  let data;
+  // Try schema call first. If it throws OR returns a response we can't
+  // parse (e.g. MAX_TOKENS truncation), fall through to a no-schema
+  // retry. The parse check lives inside this helper so both failure
+  // modes share the fall-through path.
+  const tryCall = async (useSchema) => {
+    const promptText = useSchema
+      ? prompt
+      : "RESPOND WITH VALID JSON ONLY. No prose, no markdown fences, no commentary. Start with { and end with }. Keep output under 10KB — prefer fewer high-specificity facts over many weak ones.\n\n" + prompt;
+    const generationConfig = useSchema
+      ? { ...baseConfig, responseSchema: EXTRACTOR_SCHEMA }
+      : baseConfig;
+    const data = await geminiGenerate(apiKey, {
+      contents: [{ parts: [{ text: promptText }] }],
+      generationConfig,
+    });
+    const raw = extractResponseText(data);
+    const finishReason = data?.candidates?.[0]?.finishReason || "unknown";
+    if (!raw) throw new Error(`empty response (finishReason: ${finishReason})`);
+    try {
+      return { parsed: extractJson(raw) };
+    } catch (parseErr) {
+      const snippet = String(raw).slice(0, 200).replace(/\s+/g, " ").trim();
+      try { console.warn("[evidenceExtractor] unparseable response:", raw); } catch { /* noop */ }
+      throw new Error(`parse failed (finishReason: ${finishReason}; ${parseErr?.message || "unknown"}). First 200 chars: ${snippet || "(empty)"}`);
+    }
+  };
+
+  let result;
   let schemaErr = null;
   try {
-    data = await geminiGenerate(apiKey, {
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { ...baseConfig, responseSchema: EXTRACTOR_SCHEMA },
-    });
+    result = await tryCall(true);
   } catch (err) {
     schemaErr = err;
     try {
-      // Fallback without schema. Flash-Lite is less reliable at pure
-      // JSON output without the schema constraint, so prepend a
-      // belt-and-suspenders JSON-only instruction to the prompt.
-      const promptNoSchema = "RESPOND WITH VALID JSON ONLY. No prose, no markdown fences, no commentary. Start with { and end with }.\n\n" + prompt;
-      data = await geminiGenerate(apiKey, {
-        contents: [{ parts: [{ text: promptNoSchema }] }],
-        generationConfig: baseConfig,
-      });
+      result = await tryCall(false);
     } catch (err2) {
       return {
         ok: false,
-        code: "upstream",
-        message: `Extractor call failed. Schema attempt: ${schemaErr?.message || "unknown"}. Fallback attempt: ${err2?.message || "unknown"}`,
+        code: "bad_response",
+        message: `Extractor failed on both attempts. Schema: ${schemaErr?.message || "unknown"}. Fallback: ${err2?.message || "unknown"}`,
       };
     }
   }
 
-  const raw = extractResponseText(data);
-  if (!raw) {
-    const finishReason = data?.candidates?.[0]?.finishReason || "unknown";
-    return {
-      ok: false,
-      code: "empty",
-      message: `Extractor returned empty response (finishReason: ${finishReason}${schemaErr ? "; schema call failed" : ""})`,
-    };
-  }
-
-  let parsed;
-  try {
-    parsed = extractJson(raw);
-  } catch (parseErr) {
-    const snippet = String(raw).slice(0, 200).replace(/\s+/g, " ").trim();
-    const finishReason = data?.candidates?.[0]?.finishReason || "unknown";
-    // Log full response for console inspection — the UI error carries
-    // the first 200 chars + finishReason so the operator can tell at a
-    // glance whether it was truncated, prose, or garbled.
-    try { console.warn("[evidenceExtractor] raw response:", raw); } catch { /* noop */ }
-    return {
-      ok: false,
-      code: "bad_response",
-      message: `Extractor returned invalid JSON (finishReason: ${finishReason}; ${parseErr?.message || "parse failed"}). First 200 chars: ${snippet || "(empty)"}`,
-    };
-  }
+  const parsed = result.parsed;
 
   const packet = normalizePacket(parsed, { citations });
   if (!packet) return { ok: false, code: "bad_shape", message: "Extractor returned invalid packet shape" };
