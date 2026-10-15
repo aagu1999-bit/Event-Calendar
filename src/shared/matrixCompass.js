@@ -1454,6 +1454,193 @@ export async function checkArgumentCoherence({ apiKey, hook, pov, anchors = [], 
   return normalizeCoherenceResult(parsed, { anchors: cleanAnchors });
 }
 
+// ─── THESIS DEVELOPER ────────────────────────────────────────────
+// The missing synthesis step between POV (one-sentence thesis) and
+// Spine (generic 4-beat template). Reads POV + hook + anchors +
+// narrowing + cluster + corridor and produces a 4–7 beat ARGUMENT
+// PROGRESSION specific to this material — not generic PARADOX /
+// FRICTION labels. Each beat names its claim, the anchor index it
+// uses to prove the claim, and the "handoff" sentence that
+// explicitly ties it to the next beat (used downstream as the
+// cross-slide reference contract).
+//
+// Also classifies the piece as 'argument' or 'observation':
+//   argument    — thesis + evidence + counterexample unfolds across
+//                 beats (the normal case for insight pieces)
+//   observation — a catalog of related things with a through-line
+//                 (the normal case for directory / showcase pieces,
+//                 where SHOWCASE spine mode already handles sequencing)
+//
+// CORRIDOR is a HARD constraint — every beat and every anchor
+// reference must land inside the operator's picked corridor. The
+// Developer is told to drop a beat before it jumps corridors.
+//
+// Returns null on failure (same convention as checkArgumentCoherence)
+// so the pipeline degrades gracefully to generic spine beats.
+export async function developThesis({
+  apiKey,
+  cluster,
+  corridor,
+  pov,
+  hook,
+  narrowing = "",
+  anchors = [],
+  demographics = [],
+  emotion = "",
+  slideCount = 6,
+} = {}) {
+  if (!apiKey || !String(apiKey).trim()) return null;
+  const cleanPOV = String(pov || "").trim();
+  const cleanHook = String(hook || "").trim();
+  const cleanNarrowing = String(narrowing || "").trim();
+  const cleanAnchors = Array.isArray(anchors)
+    ? anchors.map((a) => String(a || "").trim()).filter(Boolean)
+    : [];
+  const cleanCorridor = String(corridor || "").trim();
+  // Developer requires POV + at least 2 anchors to synthesize an
+  // argument. Fewer than that and there's no material to develop.
+  if (!cleanPOV || cleanAnchors.length < 2) return null;
+
+  const clusterKey = resolveClusterKey(cluster);
+  const clusterLabel = clusterKey ? CONTENT_CLUSTERS[clusterKey].label : "";
+  const clusterDirective = clusterKey ? CONTENT_CLUSTERS[clusterKey].directive : "";
+  const demoList = Array.isArray(demographics)
+    ? demographics.filter((d) => typeof d === "string" && d.trim()).map((d) => d.trim())
+    : [];
+
+  const anchorBlock = cleanAnchors
+    .map((a, i) => `  ${i + 1}. ${a.slice(0, 400)}`)
+    .join("\n");
+
+  const prompt = [
+    "ROLE: You are the EDITORIAL DEVELOPER at a regional culture magazine. The reporter has handed you a thesis, a hook, and a set of research anchors. Your ONE job is to develop the thesis into an unfolding argument the carousel will dramatize — not a template, not a list.",
+    "",
+    "WHY YOU EXIST: without this step, the writer treats anchors as interchangeable items to distribute across slides. The output reads as 'here are 3 bars, here is a policy fact' — a summary of pages next to each other. Your output replaces that siloed shape with a progression where each beat has a specific JOB in the argument.",
+    "",
+    "INPUTS:",
+    `  Cluster: ${clusterLabel || "(none)"}${clusterDirective ? ` — ${clusterDirective}` : ""}`,
+    `  Corridor (HARD CONSTRAINT — every beat and every anchor used MUST land inside this corridor): ${cleanCorridor || "(none specified — treat as whole-state scope)"}`,
+    `  POV (thesis): ${cleanPOV}`,
+    `  Hook (slide 1 promise): ${cleanHook || "(not yet written)"}`,
+    ...(cleanNarrowing ? [`  LENS Narrowing (per-piece angle, LAYERS UNDER cluster directive): ${cleanNarrowing}`] : []),
+    ...(demoList.length ? [`  Audience: ${demoList.join(", ")}`] : []),
+    ...(emotion ? [`  Target emotion: ${emotion}`] : []),
+    "",
+    "ANCHORS (research facts the writer will anchor beats onto):",
+    anchorBlock,
+    "",
+    `TARGET BEAT COUNT: aim for ${Math.max(4, Math.min(7, slideCount - 1))} beats (the carousel is ${slideCount} slides; last slide is the gate/CTA, which is NOT a beat you develop — the writer stitches it).`,
+    "",
+    "TWO POSSIBLE SHAPES — classify the material and pick ONE:",
+    "",
+    "  ARGUMENT shape — the material has: a thesis, evidence that lands it, ideally a counterexample that complicates it, and specific actors doing it. Beats unfold a progression: SETUP → TURN → MECHANISM → ANCHOR (specific landing) → GATE. Use when the anchors genuinely compose an argument.",
+    "",
+    "  OBSERVATION shape — the material is a catalog of related things (several venues of the same type, several ordinances in the same vein) with a through-line but no genuine argument. Beats are peer entries: OVERTURE → PEER × N → CODA. Use when forcing an argument would flatten the material. BE WILLING TO PICK THIS — not every piece is an argument.",
+    "",
+    "FOR EACH BEAT, return:",
+    "  label        — short all-caps name (SETUP / TURN / MECHANISM / ANCHOR / GATE for argument; OVERTURE / PEER / CODA for observation; OR a specific one you invent that fits the material better)",
+    "  claim        — the ONE sentence this beat makes. Specific, not abstract. Names a specific actor or specific condition.",
+    "  anchorIndex  — the 1-based index of the anchor this beat uses as proof (0 if the beat is scene-setting and doesn't anchor on a specific fact)",
+    "  handoff      — one short clause (10–20 words) naming the specific entity, number, or claim the NEXT beat should pick up from this one. This is the connective tissue. Example: 'next beat should pick up from the 50-cap number and show what it enables.'",
+    "",
+    "HARD RULES:",
+    "  1. Every beat and every anchor used must sit inside the Corridor named above. If an anchor is from a different corridor, DO NOT use it; mark that anchor as 'skipped — out of corridor' in the summary.",
+    "  2. Each anchor is used by AT MOST ONE beat. No anchor reuse across beats.",
+    "  3. The handoff must be CONCRETE — name the entity or number the next beat will reference. 'The next beat should continue the theme' is a failed handoff; 'The next beat should pick up on BKS's 85-cap and show what that pricing lets them do' is correct.",
+    "  4. If the material is observation-shaped, say so and use OVERTURE/PEER/CODA. Don't force argument structure on a catalog.",
+    "  5. If the anchors don't support any argument at all (too thin, off-topic, collapsed to one entity), return mode='observation' with as many PEER beats as the anchors support, even if that's fewer than target.",
+    "",
+    'Return ONLY JSON in this exact shape: {"mode":"argument|observation","summary":"one sentence naming what the piece is doing","beats":[{"label":"…","claim":"…","anchorIndex":N,"handoff":"…"}, ...],"skippedAnchors":[{"index":N,"reason":"…"}]}',
+  ].join("\n");
+
+  const MODEL = "gemini-2.5-flash-lite";
+  const URL_BASE = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
+  const requestBody = {
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: {
+      responseMimeType: "application/json",
+      temperature: 0.5, // Developer wants some judgment, not deterministic
+      maxOutputTokens: 2048,
+      responseSchema: {
+        type: "object",
+        properties: {
+          mode: { type: "string", enum: ["argument", "observation"] },
+          summary: { type: "string", maxLength: 300 },
+          beats: {
+            type: "array",
+            minItems: 3,
+            maxItems: 8,
+            items: {
+              type: "object",
+              properties: {
+                label: { type: "string", maxLength: 24 },
+                claim: { type: "string", maxLength: 240 },
+                anchorIndex: { type: "integer" },
+                handoff: { type: "string", maxLength: 200 },
+              },
+              required: ["label", "claim", "anchorIndex", "handoff"],
+            },
+          },
+          skippedAnchors: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                index: { type: "integer" },
+                reason: { type: "string", maxLength: 160 },
+              },
+              required: ["index", "reason"],
+            },
+          },
+        },
+        required: ["mode", "summary", "beats"],
+      },
+    },
+  };
+
+  let res;
+  try {
+    res = await fetch(`${URL_BASE}?key=${encodeURIComponent(apiKey)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(requestBody),
+    });
+  } catch (err) {
+    if (typeof console !== "undefined") console.warn("Thesis Developer network error:", err?.message || err);
+    return null;
+  }
+  if (!res.ok) {
+    if (typeof console !== "undefined") console.warn(`Thesis Developer HTTP ${res.status}`);
+    return null;
+  }
+  let data;
+  try { data = await res.json(); } catch { return null; }
+  const parts = data?.candidates?.[0]?.content?.parts || [];
+  const textPart = parts.find((p) => p && !p.thought && typeof p.text === "string") || parts[0];
+  const raw = textPart?.text || "";
+  if (!raw) return null;
+  let parsed;
+  try { parsed = JSON.parse(raw); }
+  catch {
+    const trimmed = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+    try { parsed = JSON.parse(trimmed); } catch { return null; }
+  }
+  const mode = parsed?.mode === "observation" ? "observation" : "argument";
+  const summary = String(parsed?.summary || "").trim().slice(0, 300);
+  const beats = Array.isArray(parsed?.beats) ? parsed.beats.map((b) => ({
+    label: String(b?.label || "").trim().toUpperCase().slice(0, 24),
+    claim: String(b?.claim || "").trim().slice(0, 240),
+    anchorIndex: Number.isInteger(b?.anchorIndex) ? b.anchorIndex : 0,
+    handoff: String(b?.handoff || "").trim().slice(0, 200),
+  })).filter((b) => b.label && b.claim) : [];
+  if (!beats.length) return null;
+  const skippedAnchors = Array.isArray(parsed?.skippedAnchors) ? parsed.skippedAnchors.map((s) => ({
+    index: Number.isInteger(s?.index) ? s.index : 0,
+    reason: String(s?.reason || "").trim().slice(0, 160),
+  })).filter((s) => s.index > 0 && s.reason) : [];
+  return { mode, summary, beats, skippedAnchors, developedAt: new Date().toISOString() };
+}
+
 // Seed topics — the operator's curated beat board. Clicking one auto-
 // fills cluster + corridor + hook_a_side + target_emotion +
 // target_demographic on the matrix. Numbers preserve the operator's
