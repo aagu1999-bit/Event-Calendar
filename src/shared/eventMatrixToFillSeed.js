@@ -305,6 +305,12 @@ export function eventMatrixToFillSeed(event) {
     // role-aware guidance when a slide's reserved proof has a
     // classified role. Absent = pipeline unchanged.
     anchorRoles: Array.isArray(m.anchor_roles) ? m.anchor_roles : null,
+    // Evidence packet (Layer 1 Phase 2 wire). Produced by the
+    // evidenceExtractor after Fuel. When present with ≥5 facts, the
+    // writer gets a register-stripped FACTS + ENTITIES block before
+    // the raw bullets, and is instructed to prefer the facts' phrasing.
+    // Absent / thin packet = writer behaves as before (reads bullets).
+    evidencePacket: (m.evidence_packet && typeof m.evidence_packet === "object") ? m.evidence_packet : null,
     // Named jobs. Empty = Auto from Fuel / Check. GST ignores this.
     slidePlan,
     eventId: event.id ?? null,
