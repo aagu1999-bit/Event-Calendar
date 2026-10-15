@@ -3729,6 +3729,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
           initialIsEvergreen={aiFillOverlaySeed.isEvergreen}
           initialRejectedDrafts={aiFillOverlaySeed.rejectedDrafts || []}
           initialApprovedDrafts={aiFillOverlaySeed.approvedDrafts || []}
+          initialThesisDevelopment={aiFillOverlaySeed.thesisDevelopment || null}
           initialSlidePlan={aiFillOverlaySeed.slidePlan || local.slide_plan}
           initialSlides={Array.isArray(local.preview_slides) ? local.preview_slides : []}
           previewDesk={newsDeskForPreview}

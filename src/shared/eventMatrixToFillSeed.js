@@ -292,6 +292,14 @@ export function eventMatrixToFillSeed(event) {
     // Empty arrays when the matrix has no history.
     rejectedDrafts: Array.isArray(m.rejected_drafts) ? m.rejected_drafts.slice(-3) : [],
     approvedDrafts: Array.isArray(m.approved_drafts) ? m.approved_drafts.slice(-3) : [],
+    // THESIS DEVELOPER output (Phase 2 wire-through) — when present,
+    // the spine inherits these beats instead of generic PARADOX/
+    // FRICTION labels, and the writer gets the per-beat handoff
+    // clause as a cross-slide reference contract. Absent = pipeline
+    // falls back to pre-Developer behavior with no regression.
+    thesisDevelopment: (m.thesis_development && Array.isArray(m.thesis_development.beats) && m.thesis_development.beats.length > 0)
+      ? m.thesis_development
+      : null,
     // Named jobs. Empty = Auto from Fuel / Check. GST ignores this.
     slidePlan,
     eventId: event.id ?? null,
