@@ -2541,7 +2541,13 @@ export function detectCrossContamination(slides, narrativeSpine, contextText, se
 // chair count; stay under a 32k ceiling.
 function fillOutputTokenBudget(sequenceLength) {
   const n = Number(sequenceLength) || 1;
-  return Math.min(32768, Math.max(8192, n * 1400));
+  // Bumped per-slide from 1400 → 1800 to make room for the new fields
+  // writer emits (fact_ids per slide, optional take on the peak slide,
+  // the longer prompt-level grounding sentences that may push output).
+  // Ceiling raised 32768 → 49152 so a 20+-slide carousel doesn't clip
+  // in a near-the-ceiling case — Gemini Flash supports up to 65535
+  // output tokens, so this is still conservative.
+  return Math.min(49152, Math.max(8192, n * 1800));
 }
 
 const FIELDS_BY_SLOT = {
@@ -3083,24 +3089,72 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
     // the critic rewrites a restater instead of making the operator
     // hit Redo.
     sanitized = detectFactRestatement(sanitized).slides;
-    // Peak-missing-take detector. If the Developer tagged a beat as
-    // peak but the writer didn't populate the `take` field on that
-    // slide, flag it. The peak slot is the ONE place in an editorial
-    // carousel where an explicit opinion sentence is required.
-    // Silent when editorial_role wasn't set (packet/dev-less flow
-    // or promo register).
+    // Peak-slide grounding detectors — three checks on the slide
+    // whose Developer beat was tagged editorial_role: peak. All
+    // produce _warnings (red badges) so the operator sees them on
+    // preview and decides Redo vs ship. None auto-rewrite. Silent
+    // when editorial_role wasn't set (packet-less / dev-less / promo).
+    //
+    //   1. peak_missing_take — the take sentence is empty. No
+    //      editorial commitment at the slot built to carry it.
+    //   2. take_missing_fact_ids — the take exists but the slide
+    //      didn't cite which facts the take is an editorial reading
+    //      of. Un-moored editorial — the detector can't verify the
+    //      take rests on anything in the research.
+    //   3. take_specificity_floor — the take exists but doesn't
+    //      point at ANY named entity from the packet, number, or
+    //      date. "This matters" without a specific noun is empty
+    //      editorial; the take has to point at a thing.
     if (thesisDevelopment && Array.isArray(thesisDevelopment.beats) && thesisDevelopment.beats.length) {
       const peakIdx = thesisDevelopment.beats.findIndex((b) => b && b.editorial_role === "peak");
       if (peakIdx >= 0 && peakIdx < sanitized.length) {
         const peakSlide = sanitized[peakIdx];
+        const peakBeat = thesisDevelopment.beats[peakIdx];
         const takeText = typeof peakSlide?.take === "string" ? peakSlide.take.trim() : "";
+        const slideFactIds = Array.isArray(peakSlide?.fact_ids)
+          ? peakSlide.fact_ids.filter((x) => typeof x === "string" && x.trim())
+          : [];
+        const peakWarnings = [];
         if (!takeText) {
-          const existing = Array.isArray(peakSlide._warnings) ? peakSlide._warnings : [];
-          const warning = {
+          peakWarnings.push({
             type: "peak_missing_take",
-            message: `This slide is the carousel's EDITORIAL PEAK (beat "${thesisDevelopment.beats[peakIdx].label || "?"}") but has no take sentence. The peak slot is where the piece commits to its answer to the lens question — without a take, the carousel builds toward nothing.`,
-          };
-          sanitized[peakIdx] = { ...peakSlide, _warnings: [...existing, warning] };
+            message: `This slide is the carousel's EDITORIAL PEAK (beat "${peakBeat.label || "?"}") but has no take sentence. The peak slot is where the piece commits to its answer to the lens question — without a take, the carousel builds toward nothing.`,
+          });
+        } else {
+          // Only run the grounding checks when there IS a take.
+          // Missing take is reported separately above.
+          if (!slideFactIds.length) {
+            peakWarnings.push({
+              type: "take_missing_fact_ids",
+              message: `This slide's take ("${takeText.slice(0, 80)}${takeText.length > 80 ? "…" : ""}") has no fact_ids on the slide. An un-cited take is un-moored editorial — we can't verify what research the take rests on. Add the fact ids the take is an editorial reading of, or rewrite the take to draw from a specific fact.`,
+            });
+          }
+          // Specificity floor: the take must contain at least one
+          // named entity from the packet, OR a number (2+ digits
+          // optionally with a unit), OR a 4-digit year, OR a month
+          // name. If none of these appear in the take, it's pure
+          // abstraction. Only runs when a packet is present —
+          // packet-less generation can't check entity names.
+          if (evidencePacket && Array.isArray(evidencePacket.entities)) {
+            const takeLower = takeText.toLowerCase();
+            const entityNames = evidencePacket.entities
+              .map((e) => String(e?.name || "").trim())
+              .filter(Boolean);
+            const matchesEntity = entityNames.some((name) => takeLower.includes(name.toLowerCase()));
+            const matchesNumber = /\b\d{2,}(?:[a-zA-Z%$]{1,4})?\b/.test(takeText) || /\$\d/.test(takeText);
+            const matchesYear = /\b(19|20)\d{2}\b/.test(takeText);
+            const matchesMonth = /\b(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sept?|Oct|Nov|Dec)\b/i.test(takeText);
+            if (!matchesEntity && !matchesNumber && !matchesYear && !matchesMonth) {
+              peakWarnings.push({
+                type: "take_specificity_floor",
+                message: `The take ("${takeText.slice(0, 80)}${takeText.length > 80 ? "…" : ""}") doesn't point at a specific thing — no named entity from the packet, no number, no date. Empty editorial. Rewrite to name a venue, person, org, number, or date from the research pool.`,
+              });
+            }
+          }
+        }
+        if (peakWarnings.length) {
+          const existing = Array.isArray(peakSlide._warnings) ? peakSlide._warnings : [];
+          sanitized[peakIdx] = { ...peakSlide, _warnings: [...existing, ...peakWarnings] };
         }
       }
     }
@@ -4646,7 +4700,25 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
     const EDITORIAL_ROLE_HINTS = {
       "tease": "EDITORIAL ROLE: TEASE. This slide is the HOOK — establish stakes, hint at the take, EARN the swipe. Do NOT commit to the piece's answer here; the peak slide lands it. One strong curiosity-opener, specific enough to show the piece has a point of view, not so complete that reading the rest feels optional.",
       "build": "EDITORIAL ROLE: BUILD. This slide provides EVIDENCE toward the piece's take. Stay in REPORTING register — report what happened, who, where, when. The facts carry the argument; you do NOT need to editorialize here. Save the explicit opinion for the peak slide.",
-      "peak": "EDITORIAL ROLE: PEAK — THIS IS THE SLIDE THAT LANDS THE TAKE. The piece has been building toward this slot. Required: populate the `take` field with ONE sentence that explicitly answers the LENS question (or if no lens, states the piece's thesis in direct form). Not a hedge, not an abstraction — a direct editorial sentence a reader walks away repeating. The body still carries the specific fact, but the take sentence commits to what the fact MEANS.",
+      "peak": [
+        "EDITORIAL ROLE: PEAK — THIS IS THE SLIDE THAT LANDS THE TAKE. The piece has been building toward this slot. Required: populate the `take` field with ONE sentence that explicitly answers the LENS question (or if no lens, states the piece's thesis in direct form). Not a hedge, not an abstraction — a direct editorial sentence a reader walks away repeating. The body still carries the specific fact, but the take sentence commits to what the fact MEANS.",
+        "",
+        "GROUNDING RULES FOR THE TAKE — the ONE place in the pipeline where fabrication risk re-enters, because a take by definition goes beyond the facts to say what they MEAN. These rules walk the line between connecting dots (allowed) and reframing (not allowed):",
+        "",
+        "  SHARPEN, DON'T INTRODUCE. The take is the EDITORIAL READING of the Developer's peak claim above. It sharpens that claim into an opinion a reader can agree or disagree with — it does NOT introduce new claims, new facts, or new entities that weren't already in the research. If your take says something the Developer's claim doesn't support, you've drifted.",
+        "",
+        "  CONNECT DOTS, DON'T REFRAME. You may draw a line between facts the research gave you WHEN THE CONNECTION IS DEFENSIBLE FROM THE FACTS ALONE. 'A happened and B happened in the same year, so they're linked' is a defensible connection the research supports. 'A happened because of B's class politics' is a reframe if the research never named class. Walk through the research; don't pull the subject into a frame it didn't ask for.",
+        "",
+        "  FAILURE MODES TO AVOID:",
+        "    · Hallucinated causality — DON'T say 'because X' unless X is explicit in the research. If you want to show two things in relationship, use 'while', 'when', 'alongside' — put two facts next to each other and let the reader draw the line.",
+        "    · Overclaiming — DON'T say 'proves', 'shows', 'reveals' when the research only 'suggests' or 'points to'. Use the strongest verb the facts support, no stronger. 'Suggests' is honest when 'proves' is a stretch.",
+        "    · Prior-dumping — DON'T editorialize from priors unrelated to this research. If your take could have been written without reading the facts above, it's not grounded in them.",
+        "    · Framing drift — The take answers the LENS QUESTION as written. If the lens asks about X, the take answers X; it does not pivot to your preferred frame Y.",
+        "",
+        "  SPECIFICITY FLOOR: the take must point at a specific thing. At least one named entity from the fact pool, OR a specific number, OR a specific date, OR a direct proper noun from the research must appear in the take sentence. 'This matters because of the community' is empty. 'Newark bet $X on a tech sector most residents can't enter' points at Newark and $X.",
+        "",
+        "  FACT ID CITATION ON TAKE: when you populate the take, the slide's fact_ids array must include the ids of the facts the take is an editorial reading of. If the take has no fact_ids, the detector will flag it as unmoored.",
+      ].join("\n"),
       "resolve": "EDITORIAL ROLE: RESOLVE. This slide extends the take or closes the piece. Not a soft repeat of the peak — ADVANCE: the implication of the take, the next question it opens, the sideways room it points to. If this slide reads as a paraphrase of what the peak already said, rewrite it to do something the peak did not.",
     };
     const editorialHint = slideEditorialRole ? EDITORIAL_ROLE_HINTS[slideEditorialRole] : null;
