@@ -2573,6 +2573,13 @@ function buildFillResponseSchema(sequence) {
       type: "array",
       items: { type: "string" },
     },
+    // Explicit editorial take — required on the PEAK slide (the one
+    // beat per editorial carousel that lands the piece's answer to
+    // the lens question). One sentence; writer populates it when a
+    // Developer-tagged peak role is set on the slide. Optional on
+    // every other slide (build / tease / resolve); the body carries
+    // the content, the take sentence lives here only when needed.
+    take: { type: "string", maxLength: 280 },
   };
   for (const slotType of slotTypesInSeq) {
     const fields = FIELDS_BY_SLOT[slotType];
@@ -3076,6 +3083,27 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
     // the critic rewrites a restater instead of making the operator
     // hit Redo.
     sanitized = detectFactRestatement(sanitized).slides;
+    // Peak-missing-take detector. If the Developer tagged a beat as
+    // peak but the writer didn't populate the `take` field on that
+    // slide, flag it. The peak slot is the ONE place in an editorial
+    // carousel where an explicit opinion sentence is required.
+    // Silent when editorial_role wasn't set (packet/dev-less flow
+    // or promo register).
+    if (thesisDevelopment && Array.isArray(thesisDevelopment.beats) && thesisDevelopment.beats.length) {
+      const peakIdx = thesisDevelopment.beats.findIndex((b) => b && b.editorial_role === "peak");
+      if (peakIdx >= 0 && peakIdx < sanitized.length) {
+        const peakSlide = sanitized[peakIdx];
+        const takeText = typeof peakSlide?.take === "string" ? peakSlide.take.trim() : "";
+        if (!takeText) {
+          const existing = Array.isArray(peakSlide._warnings) ? peakSlide._warnings : [];
+          const warning = {
+            type: "peak_missing_take",
+            message: `This slide is the carousel's EDITORIAL PEAK (beat "${thesisDevelopment.beats[peakIdx].label || "?"}") but has no take sentence. The peak slot is where the piece commits to its answer to the lens question — without a take, the carousel builds toward nothing.`,
+          };
+          sanitized[peakIdx] = { ...peakSlide, _warnings: [...existing, warning] };
+        }
+      }
+    }
     sanitized = fillEmptyNewsFromDesk(sanitized, filteredContext);
     if (!lockLength) sanitized = dropEmptyNewsChairs(sanitized);
     sanitized = repairCarouselLeaks(sanitized);
@@ -4600,6 +4628,29 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
     const devClaimLine = thisDevBeat && thisDevBeat.claim
       ? ` [DEVELOPER CLAIM for this beat: "${thisDevBeat.claim}" — this is the argumentative move this slide makes.]`
       : "";
+    // Editorial-role injection — orthogonal to topical beat label. The
+    // Developer tags one middle beat per carousel as `peak` (the slide
+    // that lands the piece's take explicitly), with first=`tease`,
+    // last=`resolve`, others=`build`. The peak slot is the ONLY slot
+    // required to carry an explicit opinion sentence; build slides stay
+    // in reporting register so the arc doesn't become one-take-per-
+    // slide (which recreates the "isolated slides" failure the
+    // Developer was built to fix).
+    //
+    // Gated on register: editorial / content / story get the role
+    // hints; promo doesn't (promo isn't editorial, no take required).
+    const editorialMode = (mode === "editorial" || mode === "content" || mode === "story");
+    const slideEditorialRole = (editorialMode && thisDevBeat && typeof thisDevBeat.editorial_role === "string")
+      ? thisDevBeat.editorial_role
+      : null;
+    const EDITORIAL_ROLE_HINTS = {
+      "tease": "EDITORIAL ROLE: TEASE. This slide is the HOOK — establish stakes, hint at the take, EARN the swipe. Do NOT commit to the piece's answer here; the peak slide lands it. One strong curiosity-opener, specific enough to show the piece has a point of view, not so complete that reading the rest feels optional.",
+      "build": "EDITORIAL ROLE: BUILD. This slide provides EVIDENCE toward the piece's take. Stay in REPORTING register — report what happened, who, where, when. The facts carry the argument; you do NOT need to editorialize here. Save the explicit opinion for the peak slide.",
+      "peak": "EDITORIAL ROLE: PEAK — THIS IS THE SLIDE THAT LANDS THE TAKE. The piece has been building toward this slot. Required: populate the `take` field with ONE sentence that explicitly answers the LENS question (or if no lens, states the piece's thesis in direct form). Not a hedge, not an abstraction — a direct editorial sentence a reader walks away repeating. The body still carries the specific fact, but the take sentence commits to what the fact MEANS.",
+      "resolve": "EDITORIAL ROLE: RESOLVE. This slide extends the take or closes the piece. Not a soft repeat of the peak — ADVANCE: the implication of the take, the next question it opens, the sideways room it points to. If this slide reads as a paraphrase of what the peak already said, rewrite it to do something the peak did not.",
+    };
+    const editorialHint = slideEditorialRole ? EDITORIAL_ROLE_HINTS[slideEditorialRole] : null;
+    const editorialHintLine = editorialHint ? ` [${editorialHint}]` : "";
     // Specialized anchor role injection — Phase 2 wire for
     // intervention #2. When this slide has a reservedProof AND the
     // operator classified anchor roles, look up the role for this
@@ -4638,10 +4689,10 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
       : "";
     const beatPrefix = jobPrefix || (beatLabel
       ? (slotType === "cover"
-          ? `>>> BEAT: ${beatLabel} — MACRO-COVER: locate THIS specimen. If this beat is CONTRAST, title the two expressions Fuel already proved. If this beat is LOCATE, name who / what / where / when. Subtitle connects. Do NOT invent a contrast. Do NOT write "is gone". Do NOT write category mush ("discover surprising gathering spots"). Do NOT withhold the point so they swipe. Instances land on later slides, inside paragraphs — not peeled onto venue cards.${devClaimLine} <<<\n`
+          ? `>>> BEAT: ${beatLabel} — MACRO-COVER: locate THIS specimen. If this beat is CONTRAST, title the two expressions Fuel already proved. If this beat is LOCATE, name who / what / where / when. Subtitle connects. Do NOT invent a contrast. Do NOT write "is gone". Do NOT write category mush ("discover surprising gathering spots"). Do NOT withhold the point so they swipe. Instances land on later slides, inside paragraphs — not peeled onto venue cards.${devClaimLine}${editorialHintLine} <<<\n`
           : isShowcasePeer
-            ? `>>> BEAT: SHOWCASE — this is a PEER ENTRY in a directory. Slides sharing this label are equal-weight entries in the collection — do NOT position this one as "the next phase" of an argument the previous slide started. Each SHOWCASE slide carries ONE distinct entity from the collection. ${proofLine}${devClaimLine}${roleHintLine} <<<\n`
-            : `>>> BEAT: ${beatLabel} — this slide advances ONLY this beat, no other. ${proofLine}${devClaimLine}${crossSlideContract}${roleHintLine} <<<\n`)
+            ? `>>> BEAT: SHOWCASE — this is a PEER ENTRY in a directory. Slides sharing this label are equal-weight entries in the collection — do NOT position this one as "the next phase" of an argument the previous slide started. Each SHOWCASE slide carries ONE distinct entity from the collection. ${proofLine}${devClaimLine}${roleHintLine}${editorialHintLine} <<<\n`
+            : `>>> BEAT: ${beatLabel} — this slide advances ONLY this beat, no other. ${proofLine}${devClaimLine}${crossSlideContract}${roleHintLine}${editorialHintLine} <<<\n`)
       : "");
     if (!rule) {
       return `SLIDE ${idx + 1} (${slotType.toUpperCase()}) — no rule defined; produce reasonable defaults matching brand voice.\n${doctrinePrefix}${beatPrefix}${refPrefix}`;
@@ -5007,6 +5058,10 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
     ...(evidencePacket && Array.isArray(evidencePacket.facts) && evidencePacket.facts.length >= 5 ? [
       "",
       `IMPORTANT — add a "fact_ids" field to EACH slide object with the ids of the evidence packet facts you drew from (e.g. "fact_ids":["f3","f7"]). Empty array [] is fine when a slide doesn't cite a specific fact (cover hook, CTA). The downstream critic uses these to detect cross-slide restatement, so be honest: cite only what you actually used.`,
+    ] : []),
+    ...(thesisDevelopment && Array.isArray(thesisDevelopment.beats) && thesisDevelopment.beats.some((b) => b && b.editorial_role === "peak") ? [
+      "",
+      `IMPORTANT — the slide marked EDITORIAL ROLE: PEAK (see the per-slot instructions) MUST include a "take" field with ONE sentence that explicitly answers the LENS question. All other slides may omit the "take" field entirely (or set it to ""). Example: "take":"The real story isn't the week itself — it's the city betting that tech attracts the professionals Newark has been losing."`,
     ] : []),
   ].join("\n");
 }
