@@ -2755,6 +2755,165 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
             })()}
           </div>
 
+          {/* ═════════════════════════════
+              FEEDBACK MEMORY · VIEW & EDIT
+              ═════════════════════════════
+              The operator asked for a view/edit UI so misclicked
+              Rejects or stale Approvals don't quietly steer future
+              generations with wrong signal. Shows every entry on
+              THIS matrix with its reason, timestamp, slide digest,
+              and a per-entry delete button. The "Wipe all memory"
+              action in the AI Fill modal nukes memory across every
+              event — this panel is targeted, this matrix only. */}
+          {(() => {
+            const rejected = Array.isArray(local.rejected_drafts) ? local.rejected_drafts : [];
+            const approved = Array.isArray(local.approved_drafts) ? local.approved_drafts : [];
+            const totalCount = rejected.length + approved.length;
+            const deleteEntry = (kind, idx) => {
+              const field = kind === "reject" ? "rejected_drafts" : "approved_drafts";
+              const list = kind === "reject" ? rejected : approved;
+              const next = list.filter((_, i) => i !== idx);
+              applyPatch({ [field]: next });
+            };
+            const prettyDate = (iso) => {
+              if (!iso) return "unknown time";
+              try {
+                const d = new Date(iso);
+                return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+              } catch { return String(iso).slice(0, 16); }
+            };
+            const renderEntry = (entry, idx, kind) => {
+              const digest = Array.isArray(entry?.digest) ? entry.digest : [];
+              const color = kind === "reject" ? "#FB7185" : "#34D399";
+              const bg = kind === "reject" ? "rgba(251,113,133,0.06)" : "rgba(52,211,153,0.05)";
+              const border = kind === "reject" ? "rgba(251,113,133,0.3)" : "rgba(52,211,153,0.3)";
+              return (
+                <div key={`${kind}-${idx}`} style={{
+                  marginTop: 6,
+                  padding: "10px 12px",
+                  background: bg,
+                  border: `1px solid ${border}`,
+                  borderRadius: 6,
+                }}>
+                  <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10, marginBottom: digest.length ? 6 : 0 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: "0.6rem", letterSpacing: "0.08em", textTransform: "uppercase", color, fontWeight: 700, marginBottom: 3 }}>
+                        {kind === "reject" ? "👎 Rejected" : "👍 Approved"} · {prettyDate(entry?.at)}
+                      </div>
+                      {kind === "reject" && (
+                        <div style={{ fontSize: "0.72rem", color: cream, lineHeight: 1.5 }}>
+                          Reason: <i>{String(entry?.reason || "(no reason given)").trim()}</i>
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => deleteEntry(kind, idx)}
+                      title={`Delete this ${kind === "reject" ? "rejection" : "approval"} from the matrix's memory. The next generation won't see it.`}
+                      style={{
+                        background: "transparent",
+                        border: `1px solid ${border}`,
+                        color,
+                        borderRadius: 3,
+                        padding: "3px 8px",
+                        fontSize: "0.55rem",
+                        fontWeight: 700,
+                        letterSpacing: "0.1em",
+                        textTransform: "uppercase",
+                        cursor: "pointer",
+                        fontFamily: "inherit",
+                        whiteSpace: "nowrap",
+                      }}
+                    >🗑 Delete</button>
+                  </div>
+                  {digest.length > 0 && (
+                    <div style={{
+                      marginTop: 4,
+                      padding: "6px 8px",
+                      background: "rgba(0,0,0,0.25)",
+                      borderRadius: 4,
+                      fontFamily: "ui-monospace, 'JetBrains Mono', monospace",
+                      fontSize: "0.6rem",
+                      color: "rgba(245,240,232,0.65)",
+                      lineHeight: 1.6,
+                    }}>
+                      {digest.slice(0, 8).map((d, i) => (
+                        <div key={i}>Slide {d?.idx ?? "?"} ({d?.type ?? "?"}): {String(d?.digest || "(empty)").slice(0, 80)}</div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            };
+            return (
+              <details style={{
+                border: `1px dashed ${whisper}`,
+                borderRadius: 8,
+                background: "transparent",
+                marginTop: 4,
+              }}>
+                <summary style={{
+                  padding: "10px 12px",
+                  cursor: "pointer",
+                  fontSize: "0.66rem",
+                  letterSpacing: "0.12em",
+                  textTransform: "uppercase",
+                  fontWeight: 700,
+                  color: totalCount ? cream : muted,
+                  listStyle: "none",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 8,
+                }}>
+                  <span>◆ Feedback Memory · what the writer will see on the next generation</span>
+                  <span style={{ fontSize: "0.58rem", color: faint, letterSpacing: "0.08em", fontWeight: 600, textTransform: "none" }}>
+                    {totalCount
+                      ? `${rejected.length} rejected · ${approved.length} approved`
+                      : "no entries yet"}
+                  </span>
+                </summary>
+                <div style={{ padding: "0 12px 14px" }}>
+                  <div style={{ fontSize: "0.62rem", color: faint, lineHeight: 1.55, marginTop: 2, marginBottom: 8 }}>
+                    This matrix's reject/approve history. The spine, writer, and polish all read it on the next generation. Capped at 3 each — the oldest drops when a 4th comes in. Delete here if you misclicked or want the signal gone.
+                  </div>
+                  {totalCount === 0 ? (
+                    <div style={{
+                      padding: "10px 12px",
+                      background: "rgba(245,240,232,0.03)",
+                      border: `1px dashed ${whisper}`,
+                      borderRadius: 6,
+                      fontSize: "0.68rem",
+                      color: faint,
+                      lineHeight: 1.5,
+                    }}>
+                      No feedback saved yet. Click "Reject &amp; learn" or "Approve &amp; push" on a generated draft to teach this matrix.
+                    </div>
+                  ) : (
+                    <>
+                      {rejected.length > 0 && (
+                        <div>
+                          <div style={{ fontSize: "0.58rem", color: "#FB7185", letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 700, marginBottom: 2 }}>
+                            Rejected ({rejected.length})
+                          </div>
+                          {rejected.map((e, i) => renderEntry(e, i, "reject"))}
+                        </div>
+                      )}
+                      {approved.length > 0 && (
+                        <div style={{ marginTop: 14 }}>
+                          <div style={{ fontSize: "0.58rem", color: "#34D399", letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 700, marginBottom: 2 }}>
+                            Approved ({approved.length})
+                          </div>
+                          {approved.map((e, i) => renderEntry(e, i, "approve"))}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              </details>
+            );
+          })()}
+
           {syncError && (
             <div style={{
               padding: "10px 12px",
