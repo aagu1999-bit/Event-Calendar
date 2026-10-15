@@ -2646,7 +2646,7 @@ async function autoRepairLeakingChairs({
   return repairCarouselLeaks(next);
 }
 
-export async function generateTemplateFill({ apiKey, sequence, topic, context, voice, slotPrompts, templateMeta, mode, polish = true, letterMode = false, clusterDirective = "", clusterLabel = "", keywordTrigger = null, spine = true, voiceParams = null, behavioralTags = null, isEvergreen = false, rejectedDrafts = [], approvedDrafts = [], thesisDevelopment = null, anchorRoles = null, slideJobs = null, repairPass, lockLength = false }) {
+export async function generateTemplateFill({ apiKey, sequence, topic, context, voice, slotPrompts, templateMeta, mode, polish = true, letterMode = false, clusterDirective = "", clusterLabel = "", keywordTrigger = null, spine = true, voiceParams = null, behavioralTags = null, isEvergreen = false, rejectedDrafts = [], approvedDrafts = [], thesisDevelopment = null, anchorRoles = null, evidencePacket = null, slideJobs = null, repairPass, lockLength = false }) {
   if (!apiKey) throw new Error("Missing Gemini API key");
   if (!Array.isArray(sequence) || !sequence.length) throw new Error("Missing template sequence");
   if ((!topic || !topic.trim()) && (!context || !context.trim())) throw new Error("Add a topic or event details first");
@@ -2869,6 +2869,7 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
     approvedDrafts,
     thesisDevelopment,
     anchorRoles,
+    evidencePacket,
     slideJobs: jobsLocked ? namedPlan : null,
   });
 
@@ -4290,7 +4291,71 @@ function parseContextBullets(context) {
 // voice (brand fingerprint), slotPrompts, templateMeta, mode, today,
 // letterMode, narrativeSpine. Every field the writer sees here has a
 // direct impact on how a slide is written. If it doesn't, cut it.
-function buildTemplatePrompt({ sequence, topic, context, historicalContext = [], imminentBullets = [], voice, slotPrompts, templateMeta, mode, today, letterMode = false, narrativeSpine = null, behavioralTags = null, isEvergreen = false, rejectedDrafts = [], approvedDrafts = [], thesisDevelopment = null, anchorRoles = null, slideJobs = null }) {
+// Format an evidence_packet (Layer 1 output) as a prompt block the writer
+// reads BEFORE the raw context bullets. The thesis: the writer completes
+// in the register of what it reads; raw research bullets carry
+// research-report register that the writer paraphrases into slides. The
+// packet's facts are register-stripped atomic claims — same facts, cleaner
+// register. By presenting them FIRST and framing the bullets as "raw
+// source material those facts were extracted from," we lean the writer
+// toward the packet's phrasing. The bullets stay in context because the
+// spine, developer, and role classifier key off them by index (see
+// reservedProof / proofAssignments) — pulling them would break all three.
+//
+// Hedges never render here. The packet separates them out and this
+// formatter only reads packet.facts + packet.entities.
+function formatEvidencePacketBlock(packet) {
+  if (!packet || typeof packet !== "object") return [];
+  const facts = Array.isArray(packet.facts) ? packet.facts : [];
+  const entities = Array.isArray(packet.entities) ? packet.entities : [];
+  if (facts.length < 5) return [];
+  const factLines = facts.map((f) => {
+    const spec = Number.isFinite(f.specificity) ? Number(f.specificity).toFixed(2) : "—";
+    const srcRefs = Array.isArray(f.source_bullets) && f.source_bullets.length
+      ? ` [↳ bullet${f.source_bullets.length === 1 ? "" : "s"} ${f.source_bullets.join(", ")}]`
+      : "";
+    return `  [${f.id}] spec ${spec} · ${String(f.claim || "").trim()}${srcRefs}`;
+  });
+  const entityLines = entities.slice(0, 20).map((e) => {
+    const attrs = e.attributes && typeof e.attributes === "object" && Object.keys(e.attributes).length
+      ? ` · ${Object.entries(e.attributes).map(([k, v]) => `${k}: ${v}`).join(" · ")}`
+      : "";
+    return `  [${e.id}] ${e.type} · ${String(e.name || "").trim()}${attrs}`;
+  });
+  const hedgeCount = Array.isArray(packet.hedges) ? packet.hedges.length : 0;
+  return [
+    "═════════════════════════════",
+    "EVIDENCE PACKET — write from these atomic facts (Layer 1 output)",
+    "═════════════════════════════",
+    "",
+    "These facts are REGISTER-STRIPPED versions of the raw research bullets",
+    "that appear in Context below. Each is one claim, one subject + one",
+    "predicate. Prefer these facts' concrete claims and news-register",
+    "phrasing when writing slides. The raw bullets below are the source",
+    "material — do NOT quote them verbatim; the facts are what the pipeline",
+    "trusts you to write from.",
+    "",
+    `FACTS (${facts.length}):`,
+    ...factLines,
+    "",
+    ...(entities.length ? [
+      `NAMED ENTITIES (${entities.length} — refer to these specifically; do not invent new named entities beyond this list):`,
+      ...entityLines,
+      "",
+    ] : []),
+    ...(hedgeCount ? [
+      `(${hedgeCount} research hedge${hedgeCount === 1 ? "" : "s"} were held out of this packet — do NOT reconstruct disclaimer language like "has not been verified", "should be confirmed", "as of this report". If a fact is in the packet, state it; if it is not, don't invent it.)`,
+      "",
+    ] : [
+      "(No research hedges in this packet — write with confidence; the facts are the facts.)",
+      "",
+    ]),
+    "═════════════════════════════",
+    "",
+  ];
+}
+
+function buildTemplatePrompt({ sequence, topic, context, historicalContext = [], imminentBullets = [], voice, slotPrompts, templateMeta, mode, today, letterMode = false, narrativeSpine = null, behavioralTags = null, isEvergreen = false, rejectedDrafts = [], approvedDrafts = [], thesisDevelopment = null, anchorRoles = null, slideJobs = null, evidencePacket = null }) {
   const hasVoiceDesc = voice && typeof voice.description === "string" && voice.description.trim();
   const exemplars = Array.isArray(voice?.exemplars) ? voice.exemplars.filter(e => e && e.trim()) : [];
   const hasExemplars = exemplars.length > 0;
@@ -4751,10 +4816,13 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
     ] : []),
     ...variationDirective(),
     ...((topic && topic.trim()) ? [`Carousel topic: ${topic.trim()}`, ""] : []),
+    ...formatEvidencePacketBlock(evidencePacket),
     ...(context && context.trim() ? [
-      isContentRegister(mode, isEvergreen)
-        ? "Context (research evidence — locate THIS specimen first. Pattern, document, join only if they are already on the desk — NOT selling points or lineup). Break this up across slides as the method dictates:"
-        : "Context (event details, selling points, lineup — break this up across slides as the rules below dictate):",
+      evidencePacket && Array.isArray(evidencePacket.facts) && evidencePacket.facts.length >= 5
+        ? "Context (RAW SOURCE BULLETS — these were extracted into the FACTS above. Treat these as reference material only; write slide copy from the facts' register-stripped claims, not from the raw bullets below):"
+        : isContentRegister(mode, isEvergreen)
+          ? "Context (research evidence — locate THIS specimen first. Pattern, document, join only if they are already on the desk — NOT selling points or lineup). Break this up across slides as the method dictates:"
+          : "Context (event details, selling points, lineup — break this up across slides as the rules below dictate):",
       context.trim(),
       "",
       "─────────────────────────────",
