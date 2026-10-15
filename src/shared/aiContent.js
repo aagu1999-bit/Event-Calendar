@@ -2362,6 +2362,78 @@ export function detectMissingCrossSlideRef(slides, narrativeSpine, thesisDevelop
   });
 }
 
+// Fact-ID restatement detector — mechanically catches "two slides making
+// the same point." When Layer 1 is wired, each slide's output carries
+// fact_ids (the ids of the evidence packet facts it drew from). If two
+// slides cite the same fact set, one is restating the other — the exact
+// "summarizations of pages next to each other" failure the three-layer
+// rebuild was built to catch.
+//
+// Returns:
+//   { slides: [...] with _warnings annotations on the later slide of
+//              each restatement pair,
+//     restatements: [{ a, b, overlapRatio, sharedIds }] } for the polish
+//              critic to read and act on.
+//
+// Overlap ratio = |A ∩ B| / min(|A|, |B|). Using min() instead of union
+// handles the case where slide A cites [f1,f2,f3,f4] and slide B cites
+// [f1,f2]: that's a full subset restatement (ratio 1.0), even though
+// |A ∪ B| would score it 0.5.
+//
+// Thresholds:
+//   - Both slides must have ≥2 fact_ids (a 1-fact overlap isn't
+//     meaningful; many slides legitimately cite the same single
+//     anchor from different angles).
+//   - Overlap ratio ≥ 0.6 flags a restatement.
+//
+// Silent (no annotations, empty restatements array) when no slides
+// carry fact_ids — the detector is only live for packet-driven
+// matrices. Zero regression on legacy generation.
+export function detectFactRestatement(slides) {
+  if (!Array.isArray(slides) || slides.length < 2) {
+    return { slides, restatements: [] };
+  }
+  const factSets = slides.map((s) => {
+    const ids = Array.isArray(s?.fact_ids) ? s.fact_ids.filter((x) => typeof x === "string" && x.trim()) : [];
+    return new Set(ids);
+  });
+  const restatements = [];
+  for (let i = 0; i < slides.length; i++) {
+    for (let j = i + 1; j < slides.length; j++) {
+      const a = factSets[i];
+      const b = factSets[j];
+      if (a.size < 2 || b.size < 2) continue;
+      const shared = [...a].filter((id) => b.has(id));
+      if (!shared.length) continue;
+      const ratio = shared.length / Math.min(a.size, b.size);
+      if (ratio >= 0.6) {
+        restatements.push({ a: i, b: j, overlapRatio: ratio, sharedIds: shared });
+      }
+    }
+  }
+  if (!restatements.length) return { slides, restatements };
+  // Annotate the LATER slide of each pair with a warning. The earlier
+  // slide ran first in the arc; if there's a duplicate, the later one
+  // is the one the critic should rewrite.
+  const warnedIndices = new Map();
+  for (const r of restatements) {
+    const list = warnedIndices.get(r.b) || [];
+    list.push(r);
+    warnedIndices.set(r.b, list);
+  }
+  const annotated = slides.map((slide, idx) => {
+    const warnings = warnedIndices.get(idx);
+    if (!warnings) return slide;
+    const existing = Array.isArray(slide._warnings) ? slide._warnings : [];
+    const newWarnings = warnings.map((r) => ({
+      type: "fact_restatement",
+      message: `This slide cites ${r.sharedIds.join(", ")} — the same fact${r.sharedIds.length === 1 ? "" : "s"} slide ${r.a + 1} already used (${Math.round(r.overlapRatio * 100)}% overlap). Pick different facts, do a different beat with the same facts, or this slide is restating.`,
+    }));
+    return { ...slide, _warnings: [...existing, ...newWarnings] };
+  });
+  return { slides: annotated, restatements };
+}
+
 // Attached warnings — the UI reads slide._warnings and renders the
 // same red badge treatment as phantom-entity + atomicity findings.
 export function detectCrossContamination(slides, narrativeSpine, contextText, sequence = []) {
@@ -2491,6 +2563,16 @@ function buildFillResponseSchema(sequence) {
   const properties = {
     // Every slide carries a type discriminator.
     type: { type: "string" },
+    // Fact IDs the slide drew from, when an evidence packet (Layer 1)
+    // was in context. Optional — writer may omit it when no packet
+    // was present or no facts applied to this slot (e.g. the cover's
+    // hook, which doesn't cite a specific fact). The detector reads
+    // these to catch cross-slide restatement: two slides citing the
+    // same fact set are restating the same claim.
+    fact_ids: {
+      type: "array",
+      items: { type: "string" },
+    },
   };
   for (const slotType of slotTypesInSeq) {
     const fields = FIELDS_BY_SLOT[slotType];
@@ -2980,6 +3062,20 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
     // reference is missing — operator sees it on the preview and
     // decides Redo vs ship.
     sanitized = detectMissingCrossSlideRef(sanitized, workingSpine, thesisDevelopment);
+    // Fact-ID restatement detector — Layer 1 Phase 2.1. Reads the
+    // fact_ids each slide carries (writer populates these when a
+    // packet is in context) and flags any pair of slides that share
+    // ≥60% of their cited facts. The later slide of the pair gets a
+    // _warnings annotation so the operator sees a red badge on the
+    // preview card. Silent on packet-less generations (no fact_ids
+    // → no check). This is the mechanical catch for "summarizations
+    // of pages next to each other."
+    //
+    // The restatements[] list produced here is currently just used
+    // for the annotations; a follow-up PR can feed it into polish so
+    // the critic rewrites a restater instead of making the operator
+    // hit Redo.
+    sanitized = detectFactRestatement(sanitized).slides;
     sanitized = fillEmptyNewsFromDesk(sanitized, filteredContext);
     if (!lockLength) sanitized = dropEmptyNewsChairs(sanitized);
     sanitized = repairCarouselLeaks(sanitized);
@@ -4335,6 +4431,16 @@ function formatEvidencePacketBlock(packet) {
     "material — do NOT quote them verbatim; the facts are what the pipeline",
     "trusts you to write from.",
     "",
+    "FACT-ID CITATIONS — IMPORTANT: on every slide you write, populate the",
+    "optional `fact_ids` field in the JSON with the ids of the facts you",
+    "actually drew from (e.g. [\"f3\", \"f7\"]). Leave it empty [] for the cover",
+    "hook or a slide that doesn't cite a specific fact (CTA, tagline). This",
+    "lets a downstream check catch cross-slide restatement — if two slides",
+    "cite the same facts, one of them is restating the other and will be",
+    "rewritten. So: if slide N is going to make the same point as slide M,",
+    "pick different facts, or do a different beat with the same facts, or",
+    "collapse the slides. Fact ids are the mechanical ground truth.",
+    "",
     `FACTS (${facts.length}):`,
     ...factLines,
     "",
@@ -4898,6 +5004,10 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
     "",
     "Return JSON ONLY in this exact shape (no markdown fences, no prose):",
     `{"slides":[${sequence.map(fillSlotShape).join(",")}]}`,
+    ...(evidencePacket && Array.isArray(evidencePacket.facts) && evidencePacket.facts.length >= 5 ? [
+      "",
+      `IMPORTANT — add a "fact_ids" field to EACH slide object with the ids of the evidence packet facts you drew from (e.g. "fact_ids":["f3","f7"]). Empty array [] is fine when a slide doesn't cite a specific fact (cover hook, CTA). The downstream critic uses these to detect cross-slide restatement, so be honest: cite only what you actually used.`,
+    ] : []),
   ].join("\n");
 }
 
