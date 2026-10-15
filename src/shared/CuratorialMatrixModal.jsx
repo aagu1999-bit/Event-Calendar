@@ -29,6 +29,7 @@ import {
   synthesizeHook,
   isListicleHook,
   checkArgumentCoherence,
+  developThesis,
   synthesizeLensReframe,
   describeReframeInputs,
   lensFreshnessSignature,
@@ -362,6 +363,13 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
   // keystroke watcher — that would burn Flash-Lite on every letter.
   const [checkingCoherence, setCheckingCoherence] = useState(false);
   const [coherenceResult, setCoherenceResult] = useState(null);
+  // Thesis Developer state — Phase 1 ship: produce + display beats so
+  // operator can see the Developer's output before the deeper pipeline
+  // integration (spine + writer + cross-slide contract) lands.
+  // Persisted on matrix.thesis_development so re-opening the modal
+  // shows the last Developer run.
+  const [developingThesis, setDevelopingThesis] = useState(false);
+  const [developError, setDevelopError] = useState(null);
   const [coherenceError, setCoherenceError] = useState(null);
   const [coherenceFromFuel, setCoherenceFromFuel] = useState(false);
   // Track which matrix inputs the last coherence check was run on —
@@ -1008,6 +1016,55 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
   // runs after Fuel lands (pass overrides so the merged bullets are
   // what the critic sees — React state has not flushed yet). Still
   // a warning, not a generation gate.
+  // Develop Thesis — Phase 1. Runs the Gemini Flash-Lite Developer
+  // and stores the result on matrix.thesis_development. Phase 2 will
+  // wire it into generateNarrativeSpine + buildTemplatePrompt as the
+  // beat progression + cross-slide handoff hints. For now, operator
+  // sees the output so they can judge whether beats are useful before
+  // we invest in the pipeline integration.
+  const runDevelopThesis = async () => {
+    if (developingThesis) return;
+    setDevelopError(null);
+    const apiKey = resolveGeminiKey();
+    if (!apiKey) {
+      setDevelopError("Paste your Gemini API key in the MediaTool toolbar first.");
+      return;
+    }
+    const cleanPOV = String(local.editorial_pov || "").trim();
+    const cleanAnchors = bullets.filter(Boolean);
+    if (!cleanPOV || cleanAnchors.length < 2) {
+      setDevelopError("Fill in Editorial POV and at least 2 Research Anchors first — the Developer needs material to synthesize.");
+      return;
+    }
+    setDevelopingThesis(true);
+    try {
+      // Thread CORRIDOR explicitly — it's a hard constraint the
+      // Developer must respect. Without this, beats can drift
+      // geographically.
+      const result = await developThesis({
+        apiKey,
+        cluster: local.cluster,
+        corridor: local.corridor,
+        pov: cleanPOV,
+        hook: local.hook_a_side,
+        narrowing: local.editorial_lens,
+        anchors: cleanAnchors,
+        demographics: selectedDemographics,
+        emotion: local.target_emotion,
+        slideCount: Number(local.slide_plan?.target || local.slide_plan?.count) || 6,
+      });
+      if (!result) {
+        setDevelopError("Thesis Developer returned no beats — Gemini may be rate-limited. Retry.");
+        return;
+      }
+      applyPatch({ thesis_development: result });
+    } catch (err) {
+      setDevelopError(String(err?.message || err));
+    } finally {
+      setDevelopingThesis(false);
+    }
+  };
+
   const runCoherenceCheck = async (overrides = {}) => {
     if (checkingCoherence && !overrides.anchors) return;
     setCoherenceError(null);
@@ -2754,6 +2811,186 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
               );
             })()}
           </div>
+
+          {/* ═════════════════════════════
+              THESIS DEVELOPER · Phase 1 (output only)
+              ═════════════════════════════
+              Produces 4–7 beats SPECIFIC to this material instead of
+              the generic PARADOX/FRICTION template. Each beat names:
+              the claim it makes, which anchor it uses as proof, and
+              the handoff clause that tells the NEXT beat what
+              specific to reference. Also classifies the material as
+              'argument' (unfolds a thesis) or 'observation' (catalog
+              with through-line) — not every piece should be forced
+              into argument shape.
+
+              PHASE 1 scope: button, result display, storage on
+              matrix.thesis_development. The spine + writer DON'T yet
+              read it. Operator decides whether the beats look useful
+              before Phase 2 wires them into generation (which also
+              adds the cross-slide reference contract using these
+              handoff lines). */}
+          {(() => {
+            const dev = local.thesis_development;
+            const hasDev = dev && Array.isArray(dev.beats) && dev.beats.length > 0;
+            const canRun = String(local.editorial_pov || "").trim() && bullets.filter(Boolean).length >= 2;
+            const modeColor = dev?.mode === "observation" ? "#A78BFA" : "#63B3ED";
+            const modeBg = dev?.mode === "observation" ? "rgba(167,139,250,0.08)" : "rgba(99,179,237,0.08)";
+            const modeBorder = dev?.mode === "observation" ? "rgba(167,139,250,0.35)" : "rgba(99,179,237,0.35)";
+            return (
+              <div style={{
+                marginTop: 4,
+                padding: "12px 14px",
+                background: modeBg,
+                border: `1px solid ${modeBorder}`,
+                borderRadius: 8,
+              }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
+                  <div style={{ fontSize: "0.66rem", color: modeColor, letterSpacing: "0.12em", fontWeight: 700, textTransform: "uppercase" }}>
+                    ✨ Thesis Developer
+                    {hasDev ? <span style={{ marginLeft: 8, color: faint, fontSize: "0.58rem", letterSpacing: "0.08em" }}>· {dev.beats.length} beats · {dev.mode}</span> : null}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={runDevelopThesis}
+                    disabled={developingThesis || !canRun}
+                    title={canRun
+                      ? "Produce a specific beat progression for THIS material. Reads POV + hook + anchors + narrowing + corridor. Phase 1: output only — not yet wired into generation."
+                      : "Fill in Editorial POV and at least 2 Research Anchors first."}
+                    style={{
+                      background: developingThesis ? "rgba(99,179,237,0.06)" : (canRun ? modeBg : "transparent"),
+                      color: canRun ? modeColor : faint,
+                      border: `1px solid ${modeBorder}`,
+                      borderRadius: 4,
+                      padding: "5px 12px",
+                      fontFamily: "inherit",
+                      fontSize: "0.6rem",
+                      letterSpacing: "0.14em",
+                      textTransform: "uppercase",
+                      fontWeight: 700,
+                      cursor: canRun && !developingThesis ? "pointer" : "not-allowed",
+                      opacity: canRun ? 1 : 0.5,
+                    }}
+                  >
+                    {developingThesis ? "…Developing" : hasDev ? "↻ Re-develop" : "Develop"}
+                  </button>
+                </div>
+                <div style={{ fontSize: "0.62rem", color: faint, lineHeight: 1.55, marginBottom: hasDev || developError ? 8 : 0 }}>
+                  Produces beats specific to THIS material — not generic templates. <b style={{ color: cream }}>Phase 1</b>: output shown here; the spine &amp; writer don't yet read these beats. Phase 2 (next PR) wires them into generation + a cross-slide reference contract.
+                </div>
+                {developError && (
+                  <div style={{
+                    padding: "8px 10px",
+                    background: warnBg,
+                    border: `1px solid rgba(251,191,36,0.32)`,
+                    borderRadius: 6,
+                    fontSize: "0.68rem",
+                    color: warn,
+                  }}>
+                    ⚠ {developError}
+                  </div>
+                )}
+                {hasDev && (
+                  <div>
+                    {/* Summary line */}
+                    <div style={{
+                      padding: "8px 10px",
+                      background: "rgba(0,0,0,0.2)",
+                      borderRadius: 6,
+                      fontSize: "0.7rem",
+                      color: cream,
+                      lineHeight: 1.55,
+                      marginBottom: 10,
+                      fontStyle: "italic",
+                    }}>
+                      ◆ {dev.summary || "(no summary)"}
+                    </div>
+                    {/* Beats */}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {dev.beats.map((b, i) => {
+                        const anchorRef = Number.isInteger(b.anchorIndex) && b.anchorIndex > 0 && b.anchorIndex <= bullets.length
+                          ? bullets[b.anchorIndex - 1]
+                          : null;
+                        return (
+                          <div key={i} style={{
+                            padding: "10px 12px",
+                            background: "rgba(0,0,0,0.18)",
+                            border: `1px solid ${modeBorder}`,
+                            borderRadius: 6,
+                          }}>
+                            <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 4, flexWrap: "wrap" }}>
+                              <span style={{ fontFamily: "ui-monospace, monospace", fontSize: "0.58rem", color: modeColor, letterSpacing: "0.14em", fontWeight: 700 }}>
+                                BEAT {i + 1}
+                              </span>
+                              <span style={{ fontSize: "0.68rem", color: modeColor, letterSpacing: "0.08em", fontWeight: 700, textTransform: "uppercase" }}>
+                                {b.label}
+                              </span>
+                              {anchorRef ? (
+                                <span style={{ fontSize: "0.55rem", color: faint, letterSpacing: "0.06em" }}>
+                                  anchor #{b.anchorIndex}: {String(anchorRef).slice(0, 50)}{String(anchorRef).length > 50 ? "…" : ""}
+                                </span>
+                              ) : (
+                                <span style={{ fontSize: "0.55rem", color: faint, letterSpacing: "0.06em", fontStyle: "italic" }}>
+                                  no anchor · scene-setting
+                                </span>
+                              )}
+                            </div>
+                            <div style={{ fontSize: "0.72rem", color: cream, lineHeight: 1.55, marginBottom: 6 }}>
+                              {b.claim}
+                            </div>
+                            {b.handoff ? (
+                              <div style={{
+                                fontSize: "0.6rem",
+                                color: muted,
+                                borderTop: `1px dashed ${whisper}`,
+                                paddingTop: 6,
+                                fontStyle: "italic",
+                                lineHeight: 1.5,
+                              }}>
+                                ↳ handoff: {b.handoff}
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {/* Skipped anchors (out of corridor or redundant) */}
+                    {Array.isArray(dev.skippedAnchors) && dev.skippedAnchors.length > 0 && (
+                      <div style={{ marginTop: 10, padding: "8px 10px", background: warnBg, border: `1px solid rgba(251,191,36,0.28)`, borderRadius: 6 }}>
+                        <div style={{ fontSize: "0.58rem", color: warn, letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: 700, marginBottom: 4 }}>
+                          Skipped anchors ({dev.skippedAnchors.length})
+                        </div>
+                        {dev.skippedAnchors.map((s, i) => (
+                          <div key={i} style={{ fontSize: "0.66rem", color: muted, marginTop: 2, lineHeight: 1.5 }}>
+                            Anchor #{s.index}: {s.reason}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div style={{ marginTop: 8, fontSize: "0.56rem", color: faint, letterSpacing: "0.06em", textAlign: "right" }}>
+                      developed {dev.developedAt ? new Date(dev.developedAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "just now"}
+                      {" · "}
+                      <button
+                        type="button"
+                        onClick={() => applyPatch({ thesis_development: null })}
+                        style={{
+                          background: "transparent",
+                          border: "none",
+                          color: faint,
+                          cursor: "pointer",
+                          fontSize: "0.56rem",
+                          letterSpacing: "0.06em",
+                          textDecoration: "underline",
+                          padding: 0,
+                          fontFamily: "inherit",
+                        }}
+                      >clear</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {/* ═════════════════════════════
               FEEDBACK MEMORY · VIEW & EDIT
