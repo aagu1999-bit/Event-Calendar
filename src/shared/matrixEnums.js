@@ -156,4 +156,11 @@ export const MATRIX_FIELDS = [
   // Last generated preview. Completeness ignores it — going back to
   // the desk should still show Fuel / Check, not a blank Generate.
   "preview_slides",
+  // Evidence packet — Layer 1 output. Produced by evidenceExtractor
+  // after Fuel succeeds. Shape: { facts[], entities[], hedges[],
+  // coverage{}, sources[], extracted_at, model, schema_version }.
+  // Completeness ignores it — it's a derived artifact, not editorial
+  // content, and legacy matrices without one keep working. Writer
+  // currently does NOT read it; PR 2 wires it in behind a flag.
+  "evidence_packet",
 ];

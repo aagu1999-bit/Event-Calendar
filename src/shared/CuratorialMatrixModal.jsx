@@ -68,6 +68,7 @@ import {
   vetoConversationPrimary,
 } from "./conversationMaps.js";
 import { sanitizeSlidePlan } from "./slideJobs.js";
+import { extractEvidencePacket, packetSpecificityMedian, packetSummaryCounts } from "./evidenceExtractor.js";
 
 // The Curatorial Matrix editor — dedicated modal (not inline in the row)
 // per operator preference: matrix curation is deep editorial work that
@@ -290,6 +291,13 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
   // operator can vet sources before adding.
   const [researching, setResearching] = useState(false);
   const [researchError, setResearchError] = useState(null);
+  // Evidence Extractor (Layer 1) — runs after Fuel succeeds. Produces
+  // the evidence_packet persisted on the matrix. Writer does NOT read
+  // this yet (that lands in a follow-up PR); for now the panel below
+  // lets the operator inspect what Layer 1 would feed downstream.
+  const [extracting, setExtracting] = useState(false);
+  const [extractError, setExtractError] = useState(null);
+  const [extractPanelOpen, setExtractPanelOpen] = useState(false);
   const [citations, setCitations] = useState([]);
   // Two-phase research status — set from the last successful Fuel Research
   // call. phase is "verified" (Phase 2 approved these bullets) or
@@ -782,6 +790,58 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
     applyPatch({ fuel_omit: sanitizeFuelOmit(next, bullets.length) });
   };
 
+  // Evidence Extractor runner — Layer 1 of the three-layer rebuild
+  // under the writer. Takes the current fuel bullets + thesis +
+  // editorial context, calls Gemini Flash-Lite to atomize them into
+  // {facts, entities, hedges, coverage}, and persists the packet
+  // on the matrix as `evidence_packet`. The writer still reads
+  // data_points as before — this packet is produced + inspected here
+  // but not fed downstream yet. That wiring is PR 2.
+  //
+  // Failure-tolerant: if the extractor fails, the matrix keeps its
+  // bullets and everything downstream works as before. Zero
+  // regression. The operator can re-run via the "Re-extract" button.
+  const runEvidenceExtractor = async (overrideBullets = null) => {
+    if (extracting) return;
+    const apiKey = resolveGeminiKey();
+    if (!apiKey) {
+      setExtractError("No Gemini key available. Set VITE_GEMINI_API_KEY or paste one in localStorage.");
+      return;
+    }
+    const sourceBullets = Array.isArray(overrideBullets)
+      ? overrideBullets
+      : (Array.isArray(local.data_points) ? local.data_points : []);
+    const cleanBullets = sourceBullets.map((b) => String(b || "").trim()).filter(Boolean);
+    if (!cleanBullets.length) {
+      setExtractError("No research bullets to extract from. Run Fuel first.");
+      return;
+    }
+    setExtracting(true);
+    setExtractError(null);
+    try {
+      const result = await extractEvidencePacket({
+        apiKey,
+        bullets: cleanBullets,
+        citations: Array.isArray(citations) ? citations : [],
+        thesis: String(local.editorial_pov || "").trim(),
+        cluster: String(local.cluster || "").trim(),
+        corridor: String(local.corridor || "").trim(),
+        lensOverride: String(local.editorial_lens || "").trim(),
+        topic: String(local.hook_a_side || event?.name || "").trim(),
+      });
+      if (!result?.ok) {
+        setExtractError(result?.message || "Extraction failed");
+        return;
+      }
+      applyPatch({ evidence_packet: result.packet });
+      setExtractPanelOpen(true);
+    } catch (err) {
+      setExtractError(String(err?.message || err));
+    } finally {
+      setExtracting(false);
+    }
+  };
+
   // Fuel Research — calls the server's /api/matrix/research endpoint,
   // which relays to Perplexity's web-grounded Agent API. Response bullets append to
   // data_points (up to BULLETS_MAX cap); citations render below the
@@ -893,6 +953,14 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
       const nextAnchors = merged.filter(Boolean);
       if (nextHook && nextPov && nextAnchors.length >= 2) {
         void runCoherenceCheck({ hook: nextHook, pov: nextPov, anchors: nextAnchors, fromFuel: true });
+      }
+      // Fire the evidence extractor against the merged bullet list.
+      // Non-blocking — fuel UI returns and the extractor runs in the
+      // background. If it fails, the matrix is still fine; writer
+      // doesn't read the packet yet (PR 2) so a missing packet is
+      // not a blocker on anything downstream.
+      if (nextAnchors.length) {
+        void runEvidenceExtractor(nextAnchors);
       }
     } catch (err) {
       setResearchError(String(err?.message || err));
@@ -2735,6 +2803,147 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
               </div>
             )}
           </div>
+
+          {/* ═════════════════════════════
+              EVIDENCE PACKET (LAYER 1)
+              ═════════════════════════════
+              Produced by evidenceExtractor after Fuel. Atomizes bullets
+              into {facts, entities, hedges, coverage} so a follow-up PR
+              can swap the writer's input from raw bullets to this
+              structured packet. For now it's inspection-only — the
+              operator can see what Layer 1 would feed downstream before
+              we wire the writer in PR 2. */}
+          {(() => {
+            const packet = local.evidence_packet || null;
+            const hasPacket = !!(packet && Array.isArray(packet.facts) && packet.facts.length);
+            const anyBullets = Array.isArray(local.data_points) && local.data_points.filter(Boolean).length > 0;
+            if (!hasPacket && !extracting && !extractError && !anyBullets) return null;
+            const counts = hasPacket ? packetSummaryCounts(packet) : { facts: 0, entities: 0, hedges: 0, gaps: 0 };
+            const medianSpec = hasPacket ? packetSpecificityMedian(packet) : null;
+            const specLabel = medianSpec == null ? "—" : medianSpec.toFixed(2);
+            return (
+              <div style={{
+                marginTop: 10,
+                padding: "10px 14px",
+                background: "rgba(143,168,150,0.08)",
+                border: "1px solid rgba(143,168,150,0.3)",
+                borderRadius: 6,
+                fontSize: "0.68rem",
+              }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    onClick={() => setExtractPanelOpen((v) => !v)}
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      color: orbit,
+                      fontFamily: "inherit",
+                      fontSize: "0.56rem",
+                      letterSpacing: "0.14em",
+                      textTransform: "uppercase",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      padding: 0,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                    }}
+                    aria-expanded={extractPanelOpen}
+                  >
+                    {extractPanelOpen ? "▾" : "▸"} ◆ Evidence packet · Layer 1
+                    {hasPacket && ` · ${counts.facts} fact${counts.facts === 1 ? "" : "s"} · ${counts.entities} entit${counts.entities === 1 ? "y" : "ies"} · ${counts.hedges} hedge${counts.hedges === 1 ? "" : "s"} · median spec ${specLabel}`}
+                    {extracting && !hasPacket && " · extracting…"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => runEvidenceExtractor()}
+                    disabled={extracting || !anyBullets}
+                    title="Re-run the extractor against the current bullet list"
+                    style={{
+                      background: "transparent",
+                      border: `1px solid rgba(143,168,150,0.4)`,
+                      color: orbit,
+                      fontFamily: "inherit",
+                      fontSize: "0.56rem",
+                      letterSpacing: "0.1em",
+                      textTransform: "uppercase",
+                      fontWeight: 700,
+                      cursor: extracting || !anyBullets ? "default" : "pointer",
+                      opacity: extracting || !anyBullets ? 0.4 : 1,
+                      padding: "3px 8px",
+                      borderRadius: 4,
+                    }}
+                  >{extracting ? "Extracting…" : (hasPacket ? "↺ Re-extract" : "Extract")}</button>
+                </div>
+                {extractError && (
+                  <div style={{ marginTop: 6, color: warn, fontSize: "0.6rem" }}>
+                    Extractor error: {extractError}
+                  </div>
+                )}
+                {extractPanelOpen && hasPacket && (
+                  <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 10 }}>
+                    <div>
+                      <div style={{ fontSize: "0.56rem", letterSpacing: "0.14em", textTransform: "uppercase", color: faint, marginBottom: 4 }}>Facts ({counts.facts})</div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                        {packet.facts.map((f) => (
+                          <div key={f.id} style={{ fontSize: "0.64rem", color: cream, lineHeight: 1.4 }}>
+                            <span style={{ color: faint, fontVariantNumeric: "tabular-nums" }}>{f.id} · spec {Number(f.specificity || 0).toFixed(2)}{f.has_hedge ? " · ⚠" : ""} · </span>
+                            {f.claim}
+                            {Array.isArray(f.source_bullets) && f.source_bullets.length ? (
+                              <span style={{ color: faint, marginLeft: 6 }}>↳ bullet{f.source_bullets.length === 1 ? "" : "s"} {f.source_bullets.join(", ")}</span>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    {counts.entities > 0 && (
+                      <div>
+                        <div style={{ fontSize: "0.56rem", letterSpacing: "0.14em", textTransform: "uppercase", color: faint, marginBottom: 4 }}>Entities ({counts.entities})</div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                          {packet.entities.map((e) => (
+                            <div key={e.id} style={{ fontSize: "0.62rem", color: cream }}>
+                              <span style={{ color: faint }}>{e.id} · {e.type} · </span>
+                              <b>{e.name}</b>
+                              {e.attributes && Object.keys(e.attributes).length ? (
+                                <span style={{ color: faint, marginLeft: 6 }}>{Object.entries(e.attributes).map(([k, v]) => `${k}: ${v}`).join(" · ")}</span>
+                              ) : null}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {counts.hedges > 0 && (
+                      <div>
+                        <div style={{ fontSize: "0.56rem", letterSpacing: "0.14em", textTransform: "uppercase", color: warn, marginBottom: 4 }}>Hedges held out ({counts.hedges})</div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                          {packet.hedges.map((h, i) => (
+                            <div key={i} style={{ fontSize: "0.6rem", color: warn, lineHeight: 1.4 }}>
+                              <span style={{ opacity: 0.7 }}>{h.kind}{h.source_bullet != null ? ` · bullet ${h.source_bullet}` : ""} · </span>
+                              {h.text}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {counts.gaps > 0 && (
+                      <div>
+                        <div style={{ fontSize: "0.56rem", letterSpacing: "0.14em", textTransform: "uppercase", color: faint, marginBottom: 4 }}>Coverage gaps</div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                          {packet.coverage.gaps.map((g, i) => (
+                            <div key={i} style={{ fontSize: "0.6rem", color: faint, lineHeight: 1.4 }}>· {g}</div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    <div style={{ fontSize: "0.56rem", color: faint, letterSpacing: "0.08em" }}>
+                      Writer currently reads data_points, not this packet. PR 2 wires it in.
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {/* ═════════════════════════════
               ARGUMENT COHERENCE CHECK
