@@ -2289,6 +2289,79 @@ function detectGeographicWhiplash(slides, sequence = []) {
 //      scan text (textBody + spotMeta), attach a warning naming which
 //      bullet leaked into which slide.
 //
+// ─── CROSS-SLIDE REFERENCE DETECTOR ─────────────────────────────
+// Phase 2 safety net for the Thesis Developer wire. The writer prompt
+// gets a per-slide "CROSS-SLIDE REFERENCE CONTRACT" that tells slide
+// N to literally reference the specific entity/number/claim named in
+// slide N-1's Developer handoff. This detector verifies that it
+// actually happened in the output — not metaphorically but with the
+// actual token appearing in slide N's copy.
+//
+// Fires ONLY when the Thesis Developer ran. Without a Developer, we
+// have no handoffs to check against and skip silently.
+//
+// Heuristic: pull proper nouns, numbers, and distinctive 4+ letter
+// tokens from each slide's handoff. If none of them appear in the
+// next slide's rendered copy, attach a warning. False positives are
+// acceptable (operator can ignore); the goal is to catch the
+// obvious summary-shaped failure where slides don't talk to each
+// other at all.
+export function detectMissingCrossSlideRef(slides, narrativeSpine, thesisDevelopment) {
+  if (!Array.isArray(slides) || slides.length < 2) return slides;
+  if (!thesisDevelopment || !Array.isArray(thesisDevelopment.beats) || !thesisDevelopment.beats.length) return slides;
+  if (!narrativeSpine || !Array.isArray(narrativeSpine.slideAssignments)) return slides;
+  // Build label → beat lookup once.
+  const beatByLabel = {};
+  for (const b of thesisDevelopment.beats) {
+    if (b && b.label) beatByLabel[String(b.label).toUpperCase()] = b;
+  }
+  const extractText = (s) => {
+    if (!s || typeof s !== "object") return "";
+    return [s.headline, s.subtitle, s.textTitle, s.textBody, s.spotName, s.spotMeta, s.newsHeadline, s.newsBody, s.statSub]
+      .filter((v) => typeof v === "string")
+      .join(" ");
+  };
+  // Pull "distinctive tokens" from a handoff clause — proper nouns,
+  // 2+ digit numbers, and 5+ letter uncapitalized words that aren't
+  // common stopwords.
+  const STOP = new Set(["about", "above", "after", "again", "being", "below", "could", "doing", "first", "where", "which", "while", "would", "every", "there", "these", "those", "their", "other", "another", "beats", "beat", "next", "slide", "pick", "bring", "specific", "entity", "claim", "number"]);
+  const distinctiveTokens = (text) => {
+    const out = new Set();
+    const str = String(text || "");
+    // Multi-word proper nouns (2-5 Title-Case words)
+    for (const m of str.match(/\b[A-Z][a-z0-9]+(?:\s+[A-Z][a-z0-9]+){0,4}\b/g) || []) {
+      out.add(m.trim().toLowerCase());
+    }
+    // Numbers of 2+ digits (with optional unit)
+    for (const m of str.match(/\b\d{2,}(?:dBA|dB|pm|am|cap|%)?\b/gi) || []) {
+      out.add(m.trim().toLowerCase());
+    }
+    // Longer uncapitalized words (5+ letters, not stopwords)
+    for (const m of str.match(/\b[a-z]{5,}\b/g) || []) {
+      const lower = m.toLowerCase();
+      if (!STOP.has(lower)) out.add(lower);
+    }
+    return [...out];
+  };
+  return slides.map((slide, idx) => {
+    if (idx === 0) return slide; // Cover — nothing to reference
+    const prevLabel = narrativeSpine.slideAssignments[idx - 1];
+    const prevBeat = prevLabel ? beatByLabel[String(prevLabel).toUpperCase()] : null;
+    if (!prevBeat || !prevBeat.handoff) return slide;
+    const tokens = distinctiveTokens(prevBeat.handoff);
+    if (!tokens.length) return slide;
+    const thisText = extractText(slide).toLowerCase();
+    const matched = tokens.some((t) => thisText.includes(t));
+    if (matched) return slide;
+    const existingWarnings = Array.isArray(slide._warnings) ? slide._warnings : [];
+    const warning = {
+      type: "missing_cross_slide_ref",
+      message: `This slide was supposed to reference something specific from slide ${idx}'s handoff ("${prevBeat.handoff.slice(0, 100)}${prevBeat.handoff.length > 100 ? "…" : ""}") but no distinctive token from the handoff appears in this slide's copy. Carousel may read as summary rather than chain.`,
+    };
+    return { ...slide, _warnings: [...existingWarnings, warning] };
+  });
+}
+
 // Attached warnings — the UI reads slide._warnings and renders the
 // same red badge treatment as phantom-entity + atomicity findings.
 export function detectCrossContamination(slides, narrativeSpine, contextText, sequence = []) {
@@ -2573,7 +2646,7 @@ async function autoRepairLeakingChairs({
   return repairCarouselLeaks(next);
 }
 
-export async function generateTemplateFill({ apiKey, sequence, topic, context, voice, slotPrompts, templateMeta, mode, polish = true, letterMode = false, clusterDirective = "", clusterLabel = "", keywordTrigger = null, spine = true, voiceParams = null, behavioralTags = null, isEvergreen = false, rejectedDrafts = [], approvedDrafts = [], slideJobs = null, repairPass, lockLength = false }) {
+export async function generateTemplateFill({ apiKey, sequence, topic, context, voice, slotPrompts, templateMeta, mode, polish = true, letterMode = false, clusterDirective = "", clusterLabel = "", keywordTrigger = null, spine = true, voiceParams = null, behavioralTags = null, isEvergreen = false, rejectedDrafts = [], approvedDrafts = [], thesisDevelopment = null, slideJobs = null, repairPass, lockLength = false }) {
   if (!apiKey) throw new Error("Missing Gemini API key");
   if (!Array.isArray(sequence) || !sequence.length) throw new Error("Missing template sequence");
   if ((!topic || !topic.trim()) && (!context || !context.trim())) throw new Error("Add a topic or event details first");
@@ -2710,7 +2783,7 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
     try {
       narrativeSpine = await generateNarrativeSpine({
         apiKey, topic, context: filteredContext, clusterDirective, clusterLabel, sequence: generationSequence, mode, today, letterMode, isEvergreen: evergreen,
-        rejectedDrafts, approvedDrafts,
+        rejectedDrafts, approvedDrafts, thesisDevelopment,
       });
     } catch (e) {
       // The spine is an assist, not a blocker — if it fails the pipeline
@@ -2744,7 +2817,7 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
       try {
         workingSpine = await generateNarrativeSpine({
           apiKey, topic, context: filteredContext, clusterDirective, clusterLabel, sequence: workingSequence, mode, today, letterMode, isEvergreen: evergreen,
-          rejectedDrafts, approvedDrafts,
+          rejectedDrafts, approvedDrafts, thesisDevelopment,
         });
       } catch (e) {
         // If the re-plan fails, fall back to the compressed sequence with
@@ -2794,6 +2867,7 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
     isEvergreen: evergreen,
     rejectedDrafts,
     approvedDrafts,
+    thesisDevelopment,
     slideJobs: jobsLocked ? namedPlan : null,
   });
 
@@ -2897,6 +2971,13 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
     if (!evergreen) sanitized = detectCrossContamination(sanitized, workingSpine, filteredContext, workingSequence);
     sanitized = detectGeographicWhiplash(sanitized, workingSequence);
     sanitized = detectSlotDoctrineViolations(sanitized, workingSequence);
+    // Cross-slide reference detector — fires only when Thesis Developer
+    // produced beats + handoff lines. Checks each slide N (N > 0) for
+    // a literal reference to the specific entity/number/claim named
+    // in slide N-1's Developer handoff. Attaches a warning when the
+    // reference is missing — operator sees it on the preview and
+    // decides Redo vs ship.
+    sanitized = detectMissingCrossSlideRef(sanitized, workingSpine, thesisDevelopment);
     sanitized = fillEmptyNewsFromDesk(sanitized, filteredContext);
     if (!lockLength) sanitized = dropEmptyNewsChairs(sanitized);
     sanitized = repairCarouselLeaks(sanitized);
@@ -3037,7 +3118,7 @@ export function inferSpineMode(sequence = [], { mode, isEvergreen } = {}) {
   return spotlightCount >= 3 ? "showcase" : "insight";
 }
 
-export async function generateNarrativeSpine({ apiKey, topic, context, clusterDirective, clusterLabel, sequence, mode, today, letterMode, isEvergreen = false, rejectedDrafts = [], approvedDrafts = [] }) {
+export async function generateNarrativeSpine({ apiKey, topic, context, clusterDirective, clusterLabel, sequence, mode, today, letterMode, isEvergreen = false, rejectedDrafts = [], approvedDrafts = [], thesisDevelopment = null }) {
   const slideCount = sequence.length;
   const spineMode = inferSpineMode(sequence, { mode, isEvergreen });
 
@@ -3102,6 +3183,34 @@ export async function generateNarrativeSpine({ apiKey, topic, context, clusterDi
     ] : []),
     ...(Array.isArray(approvedDrafts) && approvedDrafts.length ? [
       `FEEDBACK MEMORY — APPROVED DRAFTS: ${approvedDrafts.length} previous draft${approvedDrafts.length === 1 ? "" : "s"} shipped. Hold the shape that worked — same beat distribution, same proof-per-slide discipline.`,
+      "",
+    ] : []),
+    // THESIS DEVELOPER OVERRIDE — when the operator ran the Developer
+    // and we have beats, inject them as a strict override: the spine
+    // DOES NOT invent beats, it USES these beats and does slide
+    // assignments + proof routing against them. This is the Phase 2
+    // wire — the Developer's argumentative progression replaces the
+    // generic PARADOX/FRICTION template.
+    ...(thesisDevelopment && Array.isArray(thesisDevelopment.beats) && thesisDevelopment.beats.length > 0 ? [
+      "═════════════════════════════",
+      "THESIS DEVELOPER OVERRIDE — USE THESE BEATS, DO NOT INVENT NEW ONES",
+      "═════════════════════════════",
+      `The operator ran the Thesis Developer and the Developer produced ${thesisDevelopment.beats.length} beats in ${thesisDevelopment.mode.toUpperCase()} shape. Your job at the OUTLINING step is to use these beats verbatim and do slide assignments + proof routing against them. Do NOT invent new beat labels, do NOT replace a beat with a generic PARADOX/FRICTION/MECHANISM.`,
+      "",
+      `DEVELOPER SUMMARY: ${thesisDevelopment.summary || "(no summary)"}`,
+      "",
+      "DEVELOPED BEATS (use these as the beats array, in this exact order):",
+      ...thesisDevelopment.beats.map((b, i) => `  Beat ${i + 1} · ${b.label}: ${b.claim}${b.anchorIndex > 0 ? ` [anchor #${b.anchorIndex}]` : " [scene-setting, no anchor]"}${b.handoff ? ` ↳ handoff to next: ${b.handoff}` : ""}`),
+      "",
+      "YOUR JOB:",
+      "  1. Return the Developer's beats as the 'beats' array (label + description).",
+      "  2. Build slideAssignments by mapping each slide index to the Developer beat that slide should serve. Multiple slides can serve one beat if the carousel is longer than the beat count; prefer giving each beat its own slide where possible.",
+      "  3. Build proofAssignments by routing each proof anchor to the slide whose Developer beat uses that anchor's index. The Developer already named which anchor each beat uses — honor that.",
+      "  4. recommendedSlideCount should match or trim to the Developer's beat count + 1 (for CTA/gate) when the material doesn't earn more.",
+      "  5. causalSynthesis should restate the Developer's summary and the first-to-last beat progression.",
+      "",
+      "If the Developer's beats conflict with the slot sequence (e.g. Developer wants 6 beats but you have 4 non-CTA slots), compress the Developer's beats by merging adjacent beats, keeping the LABEL of the first and the CLAIM that combines both. Never silently drop a Developer beat.",
+      "═════════════════════════════",
       "",
     ] : []),
     `Topic: ${topic?.trim() || "(unspecified)"}`,
@@ -4152,7 +4261,7 @@ function parseContextBullets(context) {
 // voice (brand fingerprint), slotPrompts, templateMeta, mode, today,
 // letterMode, narrativeSpine. Every field the writer sees here has a
 // direct impact on how a slide is written. If it doesn't, cut it.
-function buildTemplatePrompt({ sequence, topic, context, historicalContext = [], imminentBullets = [], voice, slotPrompts, templateMeta, mode, today, letterMode = false, narrativeSpine = null, behavioralTags = null, isEvergreen = false, rejectedDrafts = [], approvedDrafts = [], slideJobs = null }) {
+function buildTemplatePrompt({ sequence, topic, context, historicalContext = [], imminentBullets = [], voice, slotPrompts, templateMeta, mode, today, letterMode = false, narrativeSpine = null, behavioralTags = null, isEvergreen = false, rejectedDrafts = [], approvedDrafts = [], thesisDevelopment = null, slideJobs = null }) {
   const hasVoiceDesc = voice && typeof voice.description === "string" && voice.description.trim();
   const exemplars = Array.isArray(voice?.exemplars) ? voice.exemplars.filter(e => e && e.trim()) : [];
   const hasExemplars = exemplars.length > 0;
@@ -4249,6 +4358,48 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
       showcase: isShowcasePeer,
       allowPlant,
     });
+    // THESIS DEVELOPER integration — Phase 2 wire.
+    // If the Developer ran, match this slide to the Developer beat
+    // that corresponds to its spine beatLabel. Then look up the
+    // PREVIOUS slide's Developer beat so we have its handoff clause
+    // to use as a cross-slide reference contract: "slide N must
+    // reference [handoff-named specific] from slide N-1."
+    //
+    // Also expose this slide's own Developer claim as additional
+    // guidance (the writer sees what argumentative move this slide
+    // is supposed to make, not just the beat label).
+    //
+    // Failure-tolerant: if any lookup fails or the Developer never
+    // ran, fall back to the pre-Phase-2 beat prefix with no
+    // regression.
+    const devBeats = thesisDevelopment && Array.isArray(thesisDevelopment.beats) ? thesisDevelopment.beats : null;
+    const findDevBeat = (label) => {
+      if (!devBeats || !label) return null;
+      const upperLabel = String(label).toUpperCase();
+      return devBeats.find((b) => b.label === upperLabel) || null;
+    };
+    const thisDevBeat = findDevBeat(beatLabel);
+    const prevBeatLabel = (idx > 0 && narrativeSpine && Array.isArray(narrativeSpine.slideAssignments))
+      ? narrativeSpine.slideAssignments[idx - 1]
+      : null;
+    const prevDevBeat = findDevBeat(prevBeatLabel);
+    // Cross-slide reference contract: when the previous slide's
+    // Developer beat has a non-empty handoff clause, this slide
+    // MUST honor it by referencing the specific entity/number/claim
+    // the handoff names. This is the structural fix for "summaries
+    // next to each other" — slides can no longer be swappable.
+    //
+    // Skipped on cover (nothing precedes) and on the last slide
+    // when it's a stitched CTA (CTA stitch is deterministic).
+    const crossSlideContract = (idx > 0 && prevDevBeat && prevDevBeat.handoff && !isShowcasePeer)
+      ? ` [CROSS-SLIDE REFERENCE CONTRACT — the previous slide's handoff was: "${prevDevBeat.handoff}". This slide MUST literally reference the specific entity, number, or claim named in that handoff. Not metaphorically — the actual noun or number. If you don't anchor to the handoff, the carousel reads as a summary; if you do, it reads as a chain.]`
+      : "";
+    // Developer claim injection — when this slide maps to a developed
+    // beat, add the Developer's one-sentence claim as the beat's
+    // actual argumentative content, not just a label.
+    const devClaimLine = thisDevBeat && thisDevBeat.claim
+      ? ` [DEVELOPER CLAIM for this beat: "${thisDevBeat.claim}" — this is the argumentative move this slide makes.]`
+      : "";
     const namedJob = jobsLocked ? slideJobOf(namedPlan.jobs[idx]) : null;
     const namedStyle = (namedJob && namedJob.key === "hook") ? coverStyleOf(namedPlan.coverStyle) : null;
     const jobProofBit = reservedProof
@@ -4259,10 +4410,10 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
       : "";
     const beatPrefix = jobPrefix || (beatLabel
       ? (slotType === "cover"
-          ? `>>> BEAT: ${beatLabel} — MACRO-COVER: locate THIS specimen. If this beat is CONTRAST, title the two expressions Fuel already proved. If this beat is LOCATE, name who / what / where / when. Subtitle connects. Do NOT invent a contrast. Do NOT write "is gone". Do NOT write category mush ("discover surprising gathering spots"). Do NOT withhold the point so they swipe. Instances land on later slides, inside paragraphs — not peeled onto venue cards. <<<\n`
+          ? `>>> BEAT: ${beatLabel} — MACRO-COVER: locate THIS specimen. If this beat is CONTRAST, title the two expressions Fuel already proved. If this beat is LOCATE, name who / what / where / when. Subtitle connects. Do NOT invent a contrast. Do NOT write "is gone". Do NOT write category mush ("discover surprising gathering spots"). Do NOT withhold the point so they swipe. Instances land on later slides, inside paragraphs — not peeled onto venue cards.${devClaimLine} <<<\n`
           : isShowcasePeer
-            ? `>>> BEAT: SHOWCASE — this is a PEER ENTRY in a directory. Slides sharing this label are equal-weight entries in the collection — do NOT position this one as "the next phase" of an argument the previous slide started. Each SHOWCASE slide carries ONE distinct entity from the collection. ${proofLine} <<<\n`
-            : `>>> BEAT: ${beatLabel} — this slide advances ONLY this beat, no other. ${proofLine} <<<\n`)
+            ? `>>> BEAT: SHOWCASE — this is a PEER ENTRY in a directory. Slides sharing this label are equal-weight entries in the collection — do NOT position this one as "the next phase" of an argument the previous slide started. Each SHOWCASE slide carries ONE distinct entity from the collection. ${proofLine}${devClaimLine} <<<\n`
+            : `>>> BEAT: ${beatLabel} — this slide advances ONLY this beat, no other. ${proofLine}${devClaimLine}${crossSlideContract} <<<\n`)
       : "");
     if (!rule) {
       return `SLIDE ${idx + 1} (${slotType.toUpperCase()}) — no rule defined; produce reasonable defaults matching brand voice.\n${doctrinePrefix}${beatPrefix}${refPrefix}`;
