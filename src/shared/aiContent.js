@@ -2710,6 +2710,7 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
     try {
       narrativeSpine = await generateNarrativeSpine({
         apiKey, topic, context: filteredContext, clusterDirective, clusterLabel, sequence: generationSequence, mode, today, letterMode, isEvergreen: evergreen,
+        rejectedDrafts, approvedDrafts,
       });
     } catch (e) {
       // The spine is an assist, not a blocker — if it fails the pipeline
@@ -2743,6 +2744,7 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
       try {
         workingSpine = await generateNarrativeSpine({
           apiKey, topic, context: filteredContext, clusterDirective, clusterLabel, sequence: workingSequence, mode, today, letterMode, isEvergreen: evergreen,
+          rejectedDrafts, approvedDrafts,
         });
       } catch (e) {
         // If the re-plan fails, fall back to the compressed sequence with
@@ -2944,7 +2946,7 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   // the pipeline respawns that slot from scratch instead of shipping a
   // half-rewritten dead slide.
   try {
-    const polishResult = await polishCarousel({ apiKey, topic, context: filteredContext, historicalContext: historicalBullets, voice, sequence: workingSequence, slides, mode, today, letterMode, dedupPreamble, narrativeSpine: workingSpine, voiceParams });
+    const polishResult = await polishCarousel({ apiKey, topic, context: filteredContext, historicalContext: historicalBullets, voice, sequence: workingSequence, slides, mode, today, letterMode, dedupPreamble, narrativeSpine: workingSpine, voiceParams, rejectedDrafts, approvedDrafts });
     const improved = polishResult?.slides;
     const unrecoverable = polishResult?.unrecoverable || [];
     if (Array.isArray(improved) && improved.length === workingSequence.length) {
@@ -3035,7 +3037,7 @@ export function inferSpineMode(sequence = [], { mode, isEvergreen } = {}) {
   return spotlightCount >= 3 ? "showcase" : "insight";
 }
 
-export async function generateNarrativeSpine({ apiKey, topic, context, clusterDirective, clusterLabel, sequence, mode, today, letterMode, isEvergreen = false }) {
+export async function generateNarrativeSpine({ apiKey, topic, context, clusterDirective, clusterLabel, sequence, mode, today, letterMode, isEvergreen = false, rejectedDrafts = [], approvedDrafts = [] }) {
   const slideCount = sequence.length;
   const spineMode = inferSpineMode(sequence, { mode, isEvergreen });
 
@@ -3084,6 +3086,24 @@ export async function generateNarrativeSpine({ apiKey, topic, context, clusterDi
     "You are the OUTLINING editor for a CGE Instagram carousel — the step before any copy is written.",
     "Your job is NOT to write slides. Your job is to pin down the argument arc so the writer can't improvise it on the fly.",
     "",
+    // FEEDBACK MEMORY (per-matrix). Spine reads it so the OUTLINING
+    // step can route around the specific failure modes the operator
+    // already named — not just the Structure Writer at fill time.
+    ...(Array.isArray(rejectedDrafts) && rejectedDrafts.length ? [
+      "═════════════════════════════",
+      "FEEDBACK MEMORY — SPINE SHOULD ROUTE AROUND THESE FAILURE MODES",
+      "═════════════════════════════",
+      `The operator rejected ${rejectedDrafts.length} previous draft${rejectedDrafts.length === 1 ? "" : "s"} of this matrix. Each reason is the operator's exact complaint. Your JOB at the OUTLINING step is to route around the named failure mode — if 'slide 3 was empty' was rejected, make sure slide 3's reserved proof is strong this time; if 'wall of text on cover' was rejected, tighten the cover's thesis so slide 1 is a hook, not a paragraph; if 'voice drifted grantwriter' was rejected, note which beat invited the drift and adjust the beat description to resist it.`,
+      "",
+      ...rejectedDrafts.slice(-3).map((r, i) => `  Rejected draft ${i + 1} — REASON: ${String(r?.reason || "(no reason recorded)").trim()}`),
+      "",
+      "═════════════════════════════",
+      "",
+    ] : []),
+    ...(Array.isArray(approvedDrafts) && approvedDrafts.length ? [
+      `FEEDBACK MEMORY — APPROVED DRAFTS: ${approvedDrafts.length} previous draft${approvedDrafts.length === 1 ? "" : "s"} shipped. Hold the shape that worked — same beat distribution, same proof-per-slide discipline.`,
+      "",
+    ] : []),
     `Topic: ${topic?.trim() || "(unspecified)"}`,
     ...(clusterDirective ? [`Cluster: ${clusterLabel || "(cluster)"} — Analytical lens: ${clusterDirective}`] : []),
     `Register: ${mode || "editorial"}${letterMode ? " (letter/manifesto mode)" : ""}`,
@@ -3517,7 +3537,7 @@ export async function generateVoicePass({ apiKey, slides, sequence, voice, voice
 // that raises EVERY slide to its quality bar (kill filler, make the cover hook,
 // keep facts honest) while preserving each slide's type, order, and JSON shape.
 // Returns the improved slides; throws on failure so the caller falls back to the draft.
-export async function polishCarousel({ apiKey, topic, context, historicalContext = [], voice, sequence, slides, mode, today, letterMode = false, dedupPreamble = "", narrativeSpine = null, voiceParams = null }) {
+export async function polishCarousel({ apiKey, topic, context, historicalContext = [], voice, sequence, slides, mode, today, letterMode = false, dedupPreamble = "", narrativeSpine = null, voiceParams = null, rejectedDrafts = [], approvedDrafts = [] }) {
   if (!apiKey) throw new Error("Missing Gemini API key");
   if (!Array.isArray(slides) || !slides.length) throw new Error("No slides to polish");
 
@@ -3559,6 +3579,22 @@ export async function polishCarousel({ apiKey, topic, context, historicalContext
     "You are a ruthless CGE editor reviewing a DRAFT Instagram carousel before it",
     "ships. Raise EVERY slide to the quality bar, then return the full carousel.",
     "",
+    // FEEDBACK MEMORY (per-matrix). Polish critic reads it so it
+    // raises the bar on the exact failure modes already named —
+    // not generic rewrite.
+    ...(Array.isArray(rejectedDrafts) && rejectedDrafts.length ? [
+      "═════════════════════════════",
+      "FEEDBACK MEMORY — POLISH MUST SPECIFICALLY CHECK FOR THESE FAILURES",
+      "═════════════════════════════",
+      `The operator rejected ${rejectedDrafts.length} previous draft${rejectedDrafts.length === 1 ? "" : "s"} of this matrix. For each reason below, check EVERY slide for a recurrence and rewrite aggressively if found. A rejection reason is more important than any other quality bar line below — if the writer slipped back into a named failure mode, that's the first thing to fix.`,
+      ...rejectedDrafts.slice(-3).map((r, i) => `  Rejected draft ${i + 1} — REASON: ${String(r?.reason || "(no reason)").trim()}`),
+      "═════════════════════════════",
+      "",
+    ] : []),
+    ...(Array.isArray(approvedDrafts) && approvedDrafts.length ? [
+      `FEEDBACK MEMORY — ${approvedDrafts.length} approved draft${approvedDrafts.length === 1 ? "" : "s"} shipped. Hold at least that bar; don't rewrite polish-passed copy into something weaker.`,
+      "",
+    ] : []),
     "QUALITY BAR:",
     "- Concrete over generic. KILL filler: 'educate/inspire/uplift', 'for all',",
     "  'something for everyone', 'come out and enjoy', 'delicious food', 'great vibes'.",

@@ -721,6 +721,25 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
     setFeedbackSaved("approved");
   };
 
+  // Approve & push — the "no silent accept" path. In matrix flow,
+  // every push writes to approved_drafts first so the next generation
+  // of this same matrix sees the shape as the bar. Rejection remains
+  // the only exit that doesn't accrue approval; closing the modal
+  // without pushing also doesn't accrue (as expected — you didn't
+  // ship, you walked away).
+  const handleApproveAndPush = () => {
+    if (!Array.isArray(slides) || !slides.length) return;
+    if (typeof onSaveFeedback === "function") {
+      const digest = summarizeSlidesForFeedback(slides);
+      const entry = { at: new Date().toISOString(), digest };
+      onSaveFeedback("approve", entry);
+      // Don't set feedbackSaved — the modal closes before the toast
+      // would be seen, and we want push to feel like push, not a
+      // two-step. Memory writes happen in the background.
+    }
+    handlePush();
+  };
+
   const handleWipeFeedback = () => {
     if (typeof onSaveFeedback !== "function") return;
     const ok = typeof window !== "undefined"
@@ -2441,7 +2460,10 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
                   >Wipe all memory</button>
                 ) : null}
                 <button
-                  onClick={handlePush}
+                  onClick={typeof onSaveFeedback === "function" ? handleApproveAndPush : handlePush}
+                  title={typeof onSaveFeedback === "function"
+                    ? "In matrix flow, every push ALSO writes this draft to the matrix's approved memory. No silent accepts — the next generation of this same matrix reads it as 'hold at least this bar.' Reject is the only exit that doesn't accrue approval."
+                    : "Push the kept slides to the carousel"}
                   style={{
                     flex: 1,
                     padding: "12px 18px",
@@ -2456,7 +2478,23 @@ For Editorial Roundup: 5 events with name · day · time · venue · URL each, o
                     cursor: "pointer",
                     fontFamily: "'Syne',sans-serif",
                   }}
-                >→ Push {keptIdx.size} of {slides.length} slides to carousel</button>
+                >{typeof onSaveFeedback === "function"
+                  ? `👍 Approve & push ${keptIdx.size} of ${slides.length} slides`
+                  : `→ Push ${keptIdx.size} of ${slides.length} slides to carousel`}</button>
+              </div>
+            )}
+            {/* No-silent-accept note: in matrix flow, every push writes
+                to approved_drafts. Spelling this out so the operator
+                never wonders which action trains the memory. */}
+            {typeof onSaveFeedback === "function" && !rejectPromptOpen && !feedbackSaved && (
+              <div style={{
+                marginTop: 8,
+                fontSize: "0.6rem",
+                color: "rgba(245,240,232,0.42)",
+                letterSpacing: "0.04em",
+                lineHeight: 1.55,
+              }}>
+                ◆ Every push writes to this matrix's approved memory. The spine, writer, and polish all read it on the next generation. The only exit without approving is Reject &amp; learn (which writes a different signal) or closing the modal.
               </div>
             )}
           </>
