@@ -1513,7 +1513,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
           <div style={{ marginTop: 4 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 4 }}>
               <label style={{ ...labelStyle, marginBottom: 0 }}>
-                Narrowing
+                Narrowing · <span style={{ color: faint, fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>the question this piece answers</span>
               </label>
               <div style={{ display: "flex", gap: 6 }}>
                 {(() => {
@@ -1575,10 +1575,14 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
               style={{ ...textareaStyle, minHeight: 56, fontSize: "0.78rem" }}
               value={local.editorial_lens || ""}
               onChange={(e) => applyPatch({ editorial_lens: e.target.value })}
-              placeholder="This is the piece. Type the topic, then Reframe if you want the chips stitched in."
+              placeholder={`Phrase this as a QUESTION the piece will answer. Example: "What are these new Hillside/Newark/Elizabeth rooms doing differently from the mega-club era they replaced?"\n\nA question forces an answer — slides inherit a beginning, middle, end. A statement is just an observation the writer can list facts around.`}
               maxLength={800}
             />
-            <div style={hintStyle}>This is the piece.</div>
+            <div style={hintStyle}>
+              {String(local.editorial_lens || "").trim().endsWith("?")
+                ? "◆ Question-shaped — the carousel's job is to answer it. Spine, Hook, Fuel, and the writer all inherit the answer-structure."
+                : "This is the piece. Phrasing it as a question (ending in ?) gives downstream synthesizers an answer-structure to build toward instead of a theme to riff on."}
+            </div>
             {lensReframeError ? (
               <div style={{
                 fontSize: "0.66rem",
@@ -3889,6 +3893,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
           initialRejectedDrafts={aiFillOverlaySeed.rejectedDrafts || []}
           initialApprovedDrafts={aiFillOverlaySeed.approvedDrafts || []}
           initialThesisDevelopment={aiFillOverlaySeed.thesisDevelopment || null}
+          initialAnchorRoles={aiFillOverlaySeed.anchorRoles || null}
           initialSlidePlan={aiFillOverlaySeed.slidePlan || local.slide_plan}
           initialSlides={Array.isArray(local.preview_slides) ? local.preview_slides : []}
           previewDesk={newsDeskForPreview}

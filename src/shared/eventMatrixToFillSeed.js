@@ -300,6 +300,11 @@ export function eventMatrixToFillSeed(event) {
     thesisDevelopment: (m.thesis_development && Array.isArray(m.thesis_development.beats) && m.thesis_development.beats.length > 0)
       ? m.thesis_development
       : null,
+    // Specialized anchor roles (Phase 2 wire). Parallel array to
+    // data_points indices. When present, writer gets per-slide
+    // role-aware guidance when a slide's reserved proof has a
+    // classified role. Absent = pipeline unchanged.
+    anchorRoles: Array.isArray(m.anchor_roles) ? m.anchor_roles : null,
     // Named jobs. Empty = Auto from Fuel / Check. GST ignores this.
     slidePlan,
     eventId: event.id ?? null,

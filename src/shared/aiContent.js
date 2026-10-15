@@ -2646,7 +2646,7 @@ async function autoRepairLeakingChairs({
   return repairCarouselLeaks(next);
 }
 
-export async function generateTemplateFill({ apiKey, sequence, topic, context, voice, slotPrompts, templateMeta, mode, polish = true, letterMode = false, clusterDirective = "", clusterLabel = "", keywordTrigger = null, spine = true, voiceParams = null, behavioralTags = null, isEvergreen = false, rejectedDrafts = [], approvedDrafts = [], thesisDevelopment = null, slideJobs = null, repairPass, lockLength = false }) {
+export async function generateTemplateFill({ apiKey, sequence, topic, context, voice, slotPrompts, templateMeta, mode, polish = true, letterMode = false, clusterDirective = "", clusterLabel = "", keywordTrigger = null, spine = true, voiceParams = null, behavioralTags = null, isEvergreen = false, rejectedDrafts = [], approvedDrafts = [], thesisDevelopment = null, anchorRoles = null, slideJobs = null, repairPass, lockLength = false }) {
   if (!apiKey) throw new Error("Missing Gemini API key");
   if (!Array.isArray(sequence) || !sequence.length) throw new Error("Missing template sequence");
   if ((!topic || !topic.trim()) && (!context || !context.trim())) throw new Error("Add a topic or event details first");
@@ -2868,6 +2868,7 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
     rejectedDrafts,
     approvedDrafts,
     thesisDevelopment,
+    anchorRoles,
     slideJobs: jobsLocked ? namedPlan : null,
   });
 
@@ -3027,7 +3028,7 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
   // the pipeline respawns that slot from scratch instead of shipping a
   // half-rewritten dead slide.
   try {
-    const polishResult = await polishCarousel({ apiKey, topic, context: filteredContext, historicalContext: historicalBullets, voice, sequence: workingSequence, slides, mode, today, letterMode, dedupPreamble, narrativeSpine: workingSpine, voiceParams, rejectedDrafts, approvedDrafts });
+    const polishResult = await polishCarousel({ apiKey, topic, context: filteredContext, historicalContext: historicalBullets, voice, sequence: workingSequence, slides, mode, today, letterMode, dedupPreamble, narrativeSpine: workingSpine, voiceParams, rejectedDrafts, approvedDrafts, thesisDevelopment });
     const improved = polishResult?.slides;
     const unrecoverable = polishResult?.unrecoverable || [];
     if (Array.isArray(improved) && improved.length === workingSequence.length) {
@@ -3646,7 +3647,7 @@ export async function generateVoicePass({ apiKey, slides, sequence, voice, voice
 // that raises EVERY slide to its quality bar (kill filler, make the cover hook,
 // keep facts honest) while preserving each slide's type, order, and JSON shape.
 // Returns the improved slides; throws on failure so the caller falls back to the draft.
-export async function polishCarousel({ apiKey, topic, context, historicalContext = [], voice, sequence, slides, mode, today, letterMode = false, dedupPreamble = "", narrativeSpine = null, voiceParams = null, rejectedDrafts = [], approvedDrafts = [] }) {
+export async function polishCarousel({ apiKey, topic, context, historicalContext = [], voice, sequence, slides, mode, today, letterMode = false, dedupPreamble = "", narrativeSpine = null, voiceParams = null, rejectedDrafts = [], approvedDrafts = [], thesisDevelopment = null }) {
   if (!apiKey) throw new Error("Missing Gemini API key");
   if (!Array.isArray(slides) || !slides.length) throw new Error("No slides to polish");
 
@@ -3660,6 +3661,33 @@ export async function polishCarousel({ apiKey, topic, context, historicalContext
     const beatTag = beat ? ` [BEAT: ${beat}]` : "";
     return `SLIDE ${i + 1} (${s?.type || sequence[i]})${beatTag}:\n${JSON.stringify(s)}`;
   }).join("\n\n");
+
+  // Developer block for polish — if the Thesis Developer ran upstream, the
+  // critic needs to know what the per-beat claims and handoffs were so it
+  // can verify (a) slide N's body still advances beat N's claim rather than
+  // paraphrasing beat (N-1), and (b) the cross-slide reference each
+  // handoff asked for actually survived into the draft. Without this block
+  // polish only sees spine labels (PARADOX / MECHANISM / etc.), not the
+  // concrete claims the Developer wrote, so it can't catch beat-drift.
+  const devBeatsForPolish = (thesisDevelopment && Array.isArray(thesisDevelopment.beats) && thesisDevelopment.beats.length)
+    ? thesisDevelopment.beats
+    : null;
+  const developerBlock = devBeatsForPolish ? [
+    "═════════════════════════════",
+    "THESIS DEVELOPER BEATS — CHECK EACH SLIDE AGAINST ITS BEAT",
+    "═════════════════════════════",
+    `The operator ran the Thesis Developer upstream (${thesisDevelopment.mode?.toUpperCase() || "INSIGHT"} shape, ${devBeatsForPolish.length} beats). The draft was built against these beats. Verify each slide is still doing the job its beat assigned.`,
+    "",
+    "BEATS:",
+    ...devBeatsForPolish.map((b, i) => `  Beat ${i + 1} · ${b.label}: ${b.claim}${b.handoff ? ` ↳ handoff to next: ${b.handoff}` : ""}`),
+    "",
+    "CRITIC CHECKLIST FOR BEATS:",
+    "- Beat alignment: Does slide N still advance beat N's CLAIM, or did it drift back to paraphrasing beat (N-1)? If drifted, rewrite to do beat N's actual argumentative work.",
+    "- Cross-slide references: Each beat with a `handoff` told the writer to reference back to a specific thing from the previous slide. If the handoff was dropped (slide N opens as a fresh poster with no bridge from slide N-1), REWRITE slide N's opening to carry that specific reference. 'The same room that…', 'That price point…', 'What they ran in 1979…' — a concrete bridge, not a transition word.",
+    "- No beat-collapse: Two adjacent slides should not both be doing the same beat's claim. If they are, one of them is wrong — rewrite the later one to do its own assigned beat.",
+    "═════════════════════════════",
+    "",
+  ] : [];
 
   // Spine block for polish — the editor checks not just per-slide quality
   // but whether each slide is still serving the beat the outline assigned it.
@@ -3788,6 +3816,7 @@ export async function polishCarousel({ apiKey, topic, context, historicalContext
     // polish critic too, so it can catch a slide that drifted to a
     // different distance / cadence than the writer was told to use.
     ...(voiceParams ? [composeVoiceParamsDirective(voiceParams), ""].filter(Boolean) : []),
+    ...developerBlock,
     ...spineBlock,
     ...(context && context.trim() ? ["Event facts (do NOT invent beyond these):", context.trim(), ""] : []),
     `Topic: ${topic?.trim() || "(unspecified)"}`,
@@ -4261,7 +4290,7 @@ function parseContextBullets(context) {
 // voice (brand fingerprint), slotPrompts, templateMeta, mode, today,
 // letterMode, narrativeSpine. Every field the writer sees here has a
 // direct impact on how a slide is written. If it doesn't, cut it.
-function buildTemplatePrompt({ sequence, topic, context, historicalContext = [], imminentBullets = [], voice, slotPrompts, templateMeta, mode, today, letterMode = false, narrativeSpine = null, behavioralTags = null, isEvergreen = false, rejectedDrafts = [], approvedDrafts = [], thesisDevelopment = null, slideJobs = null }) {
+function buildTemplatePrompt({ sequence, topic, context, historicalContext = [], imminentBullets = [], voice, slotPrompts, templateMeta, mode, today, letterMode = false, narrativeSpine = null, behavioralTags = null, isEvergreen = false, rejectedDrafts = [], approvedDrafts = [], thesisDevelopment = null, anchorRoles = null, slideJobs = null }) {
   const hasVoiceDesc = voice && typeof voice.description === "string" && voice.description.trim();
   const exemplars = Array.isArray(voice?.exemplars) ? voice.exemplars.filter(e => e && e.trim()) : [];
   const hasExemplars = exemplars.length > 0;
@@ -4400,6 +4429,34 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
     const devClaimLine = thisDevBeat && thisDevBeat.claim
       ? ` [DEVELOPER CLAIM for this beat: "${thisDevBeat.claim}" — this is the argumentative move this slide makes.]`
       : "";
+    // Specialized anchor role injection — Phase 2 wire for
+    // intervention #2. When this slide has a reservedProof AND the
+    // operator classified anchor roles, look up the role for this
+    // slide's reserved anchor and inject role-specific writing
+    // guidance. This is what finally makes slides do different
+    // JOBS by construction instead of all treating anchors the
+    // same way.
+    //
+    // Map reservedProof → anchor index via contextBullets prefix
+    // match. Nullable all the way through for graceful degradation.
+    const roleForThisSlide = (() => {
+      if (!Array.isArray(anchorRoles) || !anchorRoles.length) return null;
+      if (!reservedProof) return null;
+      const bullets = parseContextBullets(String(context || ""));
+      const lowerPrefix = String(reservedProof).toLowerCase();
+      const idx = bullets.findIndex((b) => String(b).toLowerCase().startsWith(lowerPrefix));
+      if (idx < 0 || idx >= anchorRoles.length) return null;
+      return anchorRoles[idx];
+    })();
+    const ROLE_WRITER_HINTS = {
+      "scene-setter": "This anchor was classified as a SCENE-SETTER. This slide ESTABLISHES THE WORLD / the pattern. Do NOT name a specific entity as the subject — frame the pattern the anchor exemplifies. The anchor's venue name, if any, is scaffolding; the point is the shape it represents.",
+      "hard-proof": "This anchor was classified as a HARD PROOF. The specific number / metric / policy IS the point. Lead with the data. Do not bury the metric in prose.",
+      "living-actor": "This anchor was classified as a LIVING ACTOR. Anchor the slide on the specific entity. Name it, locate it, show it operating today. This is the slide that gives the reader a real place to go.",
+      "counterexample": "This anchor was classified as a COUNTEREXAMPLE. This slide COMPLICATES the main thesis — show the edge case, the exception, the different take. Do NOT restate the pattern. If every other slide reads as 'look at this quiet room', this slide reads as 'but Rahway is still loud and sold out — the split isn't volume, it's who's listening.'",
+      "generic": null,
+    };
+    const roleHint = roleForThisSlide ? ROLE_WRITER_HINTS[roleForThisSlide] : null;
+    const roleHintLine = roleHint ? ` [ANCHOR ROLE: ${roleHint}]` : "";
     const namedJob = jobsLocked ? slideJobOf(namedPlan.jobs[idx]) : null;
     const namedStyle = (namedJob && namedJob.key === "hook") ? coverStyleOf(namedPlan.coverStyle) : null;
     const jobProofBit = reservedProof
@@ -4412,8 +4469,8 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
       ? (slotType === "cover"
           ? `>>> BEAT: ${beatLabel} — MACRO-COVER: locate THIS specimen. If this beat is CONTRAST, title the two expressions Fuel already proved. If this beat is LOCATE, name who / what / where / when. Subtitle connects. Do NOT invent a contrast. Do NOT write "is gone". Do NOT write category mush ("discover surprising gathering spots"). Do NOT withhold the point so they swipe. Instances land on later slides, inside paragraphs — not peeled onto venue cards.${devClaimLine} <<<\n`
           : isShowcasePeer
-            ? `>>> BEAT: SHOWCASE — this is a PEER ENTRY in a directory. Slides sharing this label are equal-weight entries in the collection — do NOT position this one as "the next phase" of an argument the previous slide started. Each SHOWCASE slide carries ONE distinct entity from the collection. ${proofLine}${devClaimLine} <<<\n`
-            : `>>> BEAT: ${beatLabel} — this slide advances ONLY this beat, no other. ${proofLine}${devClaimLine}${crossSlideContract} <<<\n`)
+            ? `>>> BEAT: SHOWCASE — this is a PEER ENTRY in a directory. Slides sharing this label are equal-weight entries in the collection — do NOT position this one as "the next phase" of an argument the previous slide started. Each SHOWCASE slide carries ONE distinct entity from the collection. ${proofLine}${devClaimLine}${roleHintLine} <<<\n`
+            : `>>> BEAT: ${beatLabel} — this slide advances ONLY this beat, no other. ${proofLine}${devClaimLine}${crossSlideContract}${roleHintLine} <<<\n`)
       : "");
     if (!rule) {
       return `SLIDE ${idx + 1} (${slotType.toUpperCase()}) — no rule defined; produce reasonable defaults matching brand voice.\n${doctrinePrefix}${beatPrefix}${refPrefix}`;
