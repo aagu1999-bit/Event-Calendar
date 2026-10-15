@@ -423,6 +423,116 @@ export function repairCarouselLeaks(slides) {
   return slides.map((s) => repairSlideLeaks(s));
 }
 
+// Title fields share a 60-char schema cap. The schema truncates mid-word
+// ("…EXHIBITION PUTS A SPECIFI"), and an auto-Redo runs under the same cap,
+// so it can chop again. This runs after auto-repair: turn the chop into a
+// whole name, or drop it, and say so on the card.
+export const TITLE_CAP = 60;
+const TITLE_FIELD_BY_TYPE = { cover: "headline", news: "newsHeadline", text: "textTitle" };
+const BODY_FIELD_BY_TYPE = { cover: "subtitle", news: "newsBody", text: "textBody" };
+const TITLE_NOUNS = new Set([
+  "EXHIBITION", "EXHIBIT", "SHOW", "FILM", "BOOK", "PROJECT", "SERIES", "ALBUM",
+  "PARTY", "NIGHT", "FESTIVAL", "DOCUMENTARY", "ARCHIVE", "INSTALLATION",
+  "MEMOIR", "DISSERTATION", "GUIDE", "RETROSPECTIVE", "PODCAST", "MURAL",
+]);
+const TAIL_STOPWORDS = new Set([
+  "a", "an", "the", "of", "and", "or", "to", "in", "on", "at", "for", "with",
+  "from", "by", "as", "into", "that", "which", "who", "its", "their", "his",
+  "her", "is", "are", "was", "were", "—", "–", "-", ":", "&",
+]);
+
+function countChar(s, re) {
+  return (String(s).match(re) || []).length;
+}
+
+function hasUnbalancedMarks(t) {
+  if (countChar(t, /\(/g) > countChar(t, /\)/g)) return true;
+  if (countChar(t, /"/g) % 2 === 1) return true;
+  if (countChar(t, /“/g) > countChar(t, /”/g)) return true;
+  return false;
+}
+
+export function titleLooksChopped(text, cap = TITLE_CAP) {
+  const t = String(text || "").trim();
+  if (!t) return false;
+  return t.length >= cap - 3 || hasUnbalancedMarks(t);
+}
+
+function trimTail(tokens) {
+  const out = tokens.slice();
+  while (out.length && TAIL_STOPWORDS.has(out[out.length - 1].toLowerCase().replace(/[,;]+$/, ""))) out.pop();
+  if (out.length) out[out.length - 1] = out[out.length - 1].replace(/[,;:—–-]+$/, "");
+  return out.filter(Boolean);
+}
+
+function fitsAsName(tokens) {
+  return tokens.length >= 2 && tokens.length <= 7 && tokens.join(" ").length <= 50;
+}
+
+export function rescueChoppedTitle(text, cap = TITLE_CAP) {
+  let t = String(text || "").replace(/\s+/g, " ").trim();
+  if (!t) return null;
+
+  const quoted = t.match(/(\S+\s+)?(["“])([^"“”]{3,}?)(["”])(\s+\S+)?/);
+  if (quoted) {
+    const before = (quoted[1] || "").trim();
+    const after = (quoted[5] || "").trim();
+    const parts = [];
+    if (/['’]S$/i.test(before)) parts.push(before);
+    parts.push(`${quoted[2]}${quoted[3].trim()}${quoted[4]}`);
+    if (TITLE_NOUNS.has(after.toUpperCase().replace(/[^A-Z]/g, ""))) parts.push(after);
+    const name = parts.join(" ");
+    if (name.split(/\s+/).length <= 8 && name.length <= 50) return name;
+  }
+
+  const paren = t.lastIndexOf("(");
+  const cutAtParen = paren > 0 && countChar(t, /\(/g) > countChar(t, /\)/g);
+  if (cutAtParen) t = t.slice(0, paren).trim();
+  let tokens = t.split(/\s+/).filter(Boolean);
+  if (!cutAtParen && String(text).trim().length >= cap - 3 && tokens.length > 1) tokens = tokens.slice(0, -1);
+  tokens = trimTail(tokens);
+  if (fitsAsName(tokens)) return tokens.join(" ");
+
+  const clause = t.split(/\s+[—–]\s+|:\s+|,\s+/)[0];
+  const clauseTokens = trimTail(clause.split(/\s+/).filter(Boolean));
+  if (clause !== t && fitsAsName(clauseTokens)) return clauseTokens.join(" ");
+  return null;
+}
+
+export function rescueCutTitles(slides, { cap = TITLE_CAP } = {}) {
+  if (!Array.isArray(slides)) return slides;
+  return slides.map((slide) => {
+    if (!slide || typeof slide !== "object") return slide;
+    const type = String(slide.type || "").toLowerCase();
+    const field = TITLE_FIELD_BY_TYPE[type];
+    if (!field) return slide;
+    const original = String(slide[field] || "").trim();
+    if (!titleLooksChopped(original, cap)) return slide;
+
+    const next = { ...slide };
+    const name = rescueChoppedTitle(original, cap);
+    let message;
+    if (name) {
+      next[field] = name;
+      message = `The headline was cut off at the length limit ("${original}"). Shortened to "${name}".`;
+    } else if (type === "cover") {
+      const whole = original.split(/\s+/).slice(0, -1).join(" ").trim();
+      next[field] = whole || original;
+      message = `The cover headline was cut off at the length limit. Kept the whole words: "${next[field]}".`;
+    } else {
+      next[field] = "";
+      const bodyField = BODY_FIELD_BY_TYPE[type];
+      if (bodyField && !String(next[bodyField] || "").trim()) {
+        next[bodyField] = original.split(/\s+/).slice(0, -1).join(" ");
+      }
+      message = `The headline was cut off at the length limit ("${original}") and had no clean short name, so it was removed.`;
+    }
+    const existing = Array.isArray(slide._warnings) ? slide._warnings : [];
+    next._warnings = [...existing, { type: "title_rescued", message }];
+    return next;
+  });
+}
+
 export function attachRedoLeakWarnings(slides, { context = "" } = {}) {
   if (!Array.isArray(slides)) return slides;
   return slides.map((slide, i) => {
