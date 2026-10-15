@@ -1641,6 +1641,139 @@ export async function developThesis({
   return { mode, summary, beats, skippedAnchors, developedAt: new Date().toISOString() };
 }
 
+// ─── ANCHOR ROLE CLASSIFIER ──────────────────────────────────────
+// Specialized anchor roles · Phase 1 ship. The operator's observation:
+// Fuel Research returns 3-5 anchors of the same SHAPE (venue +
+// specific detail), which the writer distributes as "slide 2 about
+// anchor 1, slide 3 about anchor 2…" — a summary of pages. If
+// anchors have DIFFERENT ROLES by construction, slides inherit
+// different jobs.
+//
+// This is a POST-PROCESS classifier, not a Perplexity prompt
+// modification. Non-invasive and reversible. Tags each anchor with
+// one of:
+//   scene-setter   — frames the world / context (not a specific
+//                    actor or metric)
+//   hard-proof     — a specific number / metric / policy that
+//                    lands the thesis
+//   living-actor   — a named entity currently operating today
+//   counterexample — complicates the thesis / shows a different
+//                    take than the main pattern
+//   generic        — none of the above fit well; writer should use
+//                    the anchor flexibly
+//
+// Returns array of role strings parallel to the input bullets array.
+// Returns null on failure for graceful degradation (UI falls back
+// to no role chips, writer still gets anchors as-is).
+export async function classifyAnchorRoles({
+  apiKey,
+  anchors = [],
+  pov = "",
+  hook = "",
+  cluster,
+  corridor,
+} = {}) {
+  if (!apiKey || !String(apiKey).trim()) return null;
+  const cleanAnchors = Array.isArray(anchors)
+    ? anchors.map((a) => String(a || "").trim()).filter(Boolean)
+    : [];
+  if (cleanAnchors.length < 2) return null;
+  const clusterKey = resolveClusterKey(cluster);
+  const clusterLabel = clusterKey ? CONTENT_CLUSTERS[clusterKey].label : "";
+  const anchorBlock = cleanAnchors
+    .map((a, i) => `  ${i + 1}. ${a.slice(0, 400)}`)
+    .join("\n");
+
+  const prompt = [
+    "ROLE: You are an editor categorizing research anchors by the JOB each one does in a cultural piece.",
+    "TASK: Tag each anchor below with ONE of five roles. The goal is to detect whether the research has structurally diverse anchors (which produce different slide jobs) or whether it's a flat list of the same shape (which produces a summary).",
+    "",
+    "THE ROLES:",
+    "  scene-setter   — frames the world or context. Does NOT name a specific actor or metric. Example: 'NJ's commuter-corridor nightlife ran on mega-clubs until ~2019.'",
+    "  hard-proof     — a specific number, metric, policy, or statute that lands the thesis. The anchor's power is in the data. Example: 'NJ noise cap caps residential-adjacent at 50dBA after 10pm.'",
+    "  living-actor   — a named entity (venue, operator, collective) currently operating today. The anchor's power is in the specific real thing. Example: 'BKS Hillside opened 2024 at 85-cap, no bottle service.'",
+    "  counterexample — complicates or contradicts the main thesis. Shows a different take or a case where the pattern doesn't hold. Example: 'Not every new room is quiet: Soundbar in Rahway still runs 100dB on Fridays and sells out.'",
+    "  generic        — none of the above fit well. The anchor is on-topic but doesn't have a specific job. Use sparingly.",
+    "",
+    "CONTEXT (what the piece is about — informs role assignment):",
+    `  Cluster: ${clusterLabel || "(none)"}`,
+    `  Corridor: ${String(corridor || "").trim() || "(none)"}`,
+    ...(pov ? [`  POV: ${String(pov).trim().slice(0, 400)}`] : []),
+    ...(hook ? [`  Hook: ${String(hook).trim().slice(0, 220)}`] : []),
+    "",
+    "ANCHORS TO CLASSIFY:",
+    anchorBlock,
+    "",
+    "RULES:",
+    "  - Assign exactly ONE role per anchor.",
+    "  - Prefer the MOST SPECIFIC fitting role. If an anchor names a venue AND has a number, lean 'living-actor' unless the number is the point.",
+    "  - 'counterexample' requires the anchor to actually push against the thesis. An anchor that merely adds a different venue is still 'living-actor', not counterexample.",
+    "  - If no anchor fits 'counterexample', that's fine — do not force one.",
+    "  - If multiple anchors are same-role (e.g. 3 living-actors), that's informative — the operator sees the lack of role diversity in the UI and can choose to vary the research.",
+    "",
+    'Return ONLY JSON in this exact shape: {"roles":["role1","role2",...]} — one role per input anchor, in the same order.',
+  ].join("\n");
+
+  const MODEL = "gemini-2.5-flash-lite";
+  const URL_BASE = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
+  const requestBody = {
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: {
+      responseMimeType: "application/json",
+      temperature: 0.2,
+      maxOutputTokens: 512,
+      responseSchema: {
+        type: "object",
+        properties: {
+          roles: {
+            type: "array",
+            items: {
+              type: "string",
+              enum: ["scene-setter", "hard-proof", "living-actor", "counterexample", "generic"],
+            },
+          },
+        },
+        required: ["roles"],
+      },
+    },
+  };
+
+  let res;
+  try {
+    res = await fetch(`${URL_BASE}?key=${encodeURIComponent(apiKey)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(requestBody),
+    });
+  } catch (err) {
+    if (typeof console !== "undefined") console.warn("Anchor classifier network error:", err?.message || err);
+    return null;
+  }
+  if (!res.ok) {
+    if (typeof console !== "undefined") console.warn(`Anchor classifier HTTP ${res.status}`);
+    return null;
+  }
+  let data;
+  try { data = await res.json(); } catch { return null; }
+  const parts = data?.candidates?.[0]?.content?.parts || [];
+  const textPart = parts.find((p) => p && !p.thought && typeof p.text === "string") || parts[0];
+  const raw = textPart?.text || "";
+  if (!raw) return null;
+  let parsed;
+  try { parsed = JSON.parse(raw); }
+  catch {
+    const trimmed = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+    try { parsed = JSON.parse(trimmed); } catch { return null; }
+  }
+  const validRoles = new Set(["scene-setter", "hard-proof", "living-actor", "counterexample", "generic"]);
+  const roles = Array.isArray(parsed?.roles)
+    ? parsed.roles.map((r) => validRoles.has(r) ? r : "generic")
+    : [];
+  // Pad or truncate to match the input anchor count — defensive.
+  while (roles.length < cleanAnchors.length) roles.push("generic");
+  return roles.slice(0, cleanAnchors.length);
+}
+
 // Seed topics — the operator's curated beat board. Clicking one auto-
 // fills cluster + corridor + hook_a_side + target_emotion +
 // target_demographic on the matrix. Numbers preserve the operator's
