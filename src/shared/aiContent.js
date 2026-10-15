@@ -88,7 +88,7 @@ const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
 // POST a request body to Gemini and return the parsed JSON response,
 // retrying transient failures. Replaces the raw fetch + res.ok check that
 // every generator here duplicated (and which gave up after one attempt).
-async function geminiGenerate(apiKey, requestBody, { tries = 4, model } = {}) {
+export async function geminiGenerate(apiKey, requestBody, { tries = 4, model } = {}) {
   if (!apiKey) throw new Error("Missing Gemini API key");
   // Per-call model override — most calls use the cheap flash-lite default, but
   // the grounded research calls pass a stronger model for better web reasoning.
@@ -1895,7 +1895,7 @@ function extractPhantomScanText(slide) {
   }
   return parts.join("\n");
 }
-function detectPhantomEntities(slides, contextText, historicalText, sequence = []) {
+export function detectPhantomEntities(slides, contextText, historicalText, sequence = []) {
   if (!Array.isArray(slides) || !slides.length) return slides;
   // Build whitelist from context bullets + historical bullets + common allowlist.
   const contextNouns = new Set([
