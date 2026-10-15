@@ -1538,10 +1538,18 @@ export async function developThesis({
     "  OBSERVATION shape — the material is a catalog of related things (several venues of the same type, several ordinances in the same vein) with a through-line but no genuine argument. Beats are peer entries: OVERTURE → PEER × N → CODA. Use when forcing an argument would flatten the material. BE WILLING TO PICK THIS — not every piece is an argument.",
     "",
     "FOR EACH BEAT, return:",
-    "  label        — short all-caps name (SETUP / TURN / MECHANISM / ANCHOR / GATE for argument; OVERTURE / PEER / CODA for observation; OR a specific one you invent that fits the material better)",
-    "  claim        — the ONE sentence this beat makes. Specific, not abstract. Names a specific actor or specific condition.",
-    "  anchorIndex  — the 1-based index of the anchor this beat uses as proof (0 if the beat is scene-setting and doesn't anchor on a specific fact)",
-    "  handoff      — one short clause (10–20 words) naming the specific entity, number, or claim the NEXT beat should pick up from this one. This is the connective tissue. Example: 'next beat should pick up from the 50-cap number and show what it enables.'",
+    "  label           — short all-caps name (SETUP / TURN / MECHANISM / ANCHOR / GATE for argument; OVERTURE / PEER / CODA for observation; OR a specific one you invent that fits the material better)",
+    "  claim           — the ONE sentence this beat makes. Specific, not abstract. Names a specific actor or specific condition.",
+    "  anchorIndex     — the 1-based index of the anchor this beat uses as proof (0 if the beat is scene-setting and doesn't anchor on a specific fact)",
+    "  handoff         — one short clause (10–20 words) naming the specific entity, number, or claim the NEXT beat should pick up from this one. This is the connective tissue. Example: 'next beat should pick up from the 50-cap number and show what it enables.'",
+    "  editorial_role  — WHERE this beat sits in the carousel's intensity curve (independent of topical label).",
+    "                    Values: 'tease' | 'build' | 'peak' | 'resolve'.",
+    "                    RULES:",
+    "                      - The FIRST beat is always 'tease'. The hook establishes stakes, does NOT commit to the take yet.",
+    "                      - The LAST beat is always 'resolve'. It extends the take into implications or closes.",
+    "                      - EXACTLY ONE middle beat is 'peak'. The peak slide lands the take explicitly — the sentence where the piece commits to its answer to the LENS question. Pick the beat whose CLAIM most directly answers the LENS Narrowing (or the POV if no narrowing). If no middle beat clearly answers the lens, make the second-to-last middle beat the peak.",
+    "                      - All other middle beats are 'build'. They provide evidence toward the peak's take, staying in reporting register.",
+    "                      - If the carousel has fewer than 4 beats total, OMIT editorial_role entirely (no peak concept at that scale — the single middle beat does everything).",
     "",
     "HARD RULES:",
     "  1. Every beat and every anchor used must sit inside the Corridor named above. If an anchor is from a different corridor, DO NOT use it; mark that anchor as 'skipped — out of corridor' in the summary.",
@@ -1549,8 +1557,9 @@ export async function developThesis({
     "  3. The handoff must be CONCRETE — name the entity or number the next beat will reference. 'The next beat should continue the theme' is a failed handoff; 'The next beat should pick up on BKS's 85-cap and show what that pricing lets them do' is correct.",
     "  4. If the material is observation-shaped, say so and use OVERTURE/PEER/CODA. Don't force argument structure on a catalog.",
     "  5. If the anchors don't support any argument at all (too thin, off-topic, collapsed to one entity), return mode='observation' with as many PEER beats as the anchors support, even if that's fewer than target.",
+    "  6. editorial_role is ORTHOGONAL to label — a MECHANISM beat can be the peak, a PARADOX beat can be a build. Pick peak based on which CLAIM best answers the lens, not based on topical shape.",
     "",
-    'Return ONLY JSON in this exact shape: {"mode":"argument|observation","summary":"one sentence naming what the piece is doing","beats":[{"label":"…","claim":"…","anchorIndex":N,"handoff":"…"}, ...],"skippedAnchors":[{"index":N,"reason":"…"}]}',
+    'Return ONLY JSON in this exact shape: {"mode":"argument|observation","summary":"one sentence naming what the piece is doing","beats":[{"label":"…","claim":"…","anchorIndex":N,"handoff":"…","editorial_role":"tease|build|peak|resolve"}, ...],"skippedAnchors":[{"index":N,"reason":"…"}]}',
   ].join("\n");
 
   const MODEL = "gemini-2.5-flash-lite";
@@ -1577,6 +1586,7 @@ export async function developThesis({
                 claim: { type: "string", maxLength: 240 },
                 anchorIndex: { type: "integer" },
                 handoff: { type: "string", maxLength: 200 },
+                editorial_role: { type: "string", enum: ["tease", "build", "peak", "resolve"] },
               },
               required: ["label", "claim", "anchorIndex", "handoff"],
             },
@@ -1627,13 +1637,48 @@ export async function developThesis({
   }
   const mode = parsed?.mode === "observation" ? "observation" : "argument";
   const summary = String(parsed?.summary || "").trim().slice(0, 300);
-  const beats = Array.isArray(parsed?.beats) ? parsed.beats.map((b) => ({
-    label: String(b?.label || "").trim().toUpperCase().slice(0, 24),
-    claim: String(b?.claim || "").trim().slice(0, 240),
-    anchorIndex: Number.isInteger(b?.anchorIndex) ? b.anchorIndex : 0,
-    handoff: String(b?.handoff || "").trim().slice(0, 200),
-  })).filter((b) => b.label && b.claim) : [];
+  const EDITORIAL_ROLES = new Set(["tease", "build", "peak", "resolve"]);
+  const beats = Array.isArray(parsed?.beats) ? parsed.beats.map((b) => {
+    const rawRole = String(b?.editorial_role || "").trim().toLowerCase();
+    return {
+      label: String(b?.label || "").trim().toUpperCase().slice(0, 24),
+      claim: String(b?.claim || "").trim().slice(0, 240),
+      anchorIndex: Number.isInteger(b?.anchorIndex) ? b.anchorIndex : 0,
+      handoff: String(b?.handoff || "").trim().slice(0, 200),
+      editorial_role: EDITORIAL_ROLES.has(rawRole) ? rawRole : null,
+    };
+  }).filter((b) => b.label && b.claim) : [];
   if (!beats.length) return null;
+
+  // Enforce editorial_role invariants post-hoc. The Developer sometimes
+  // forgets to tag, assigns multiple peaks, or picks an invalid first/
+  // last. Rules:
+  //   - Skip entirely if < 4 beats (no room for a dedicated peak).
+  //   - First beat = tease (forced).
+  //   - Last beat = resolve (forced).
+  //   - Exactly one middle beat = peak. If the Developer picked one
+  //     and it's in a valid middle slot, keep it. If zero or multiple,
+  //     fall back to second-to-last beat as peak.
+  //   - All other middle beats = build.
+  if (beats.length >= 4) {
+    const lastIdx = beats.length - 1;
+    const middleIndices = beats.map((_, i) => i).filter((i) => i !== 0 && i !== lastIdx);
+    const developerPicked = middleIndices.filter((i) => beats[i].editorial_role === "peak");
+    const peakIdx = developerPicked.length === 1
+      ? developerPicked[0]
+      : (middleIndices.length ? middleIndices[middleIndices.length - 1] : null);
+    beats.forEach((b, i) => {
+      if (i === 0) b.editorial_role = "tease";
+      else if (i === lastIdx) b.editorial_role = "resolve";
+      else if (i === peakIdx) b.editorial_role = "peak";
+      else b.editorial_role = "build";
+    });
+  } else {
+    // Too few beats for a dedicated peak — strip any Developer-assigned
+    // roles so the writer treats everything as default (no peak contract).
+    beats.forEach((b) => { b.editorial_role = null; });
+  }
+
   const skippedAnchors = Array.isArray(parsed?.skippedAnchors) ? parsed.skippedAnchors.map((s) => ({
     index: Number.isInteger(s?.index) ? s.index : 0,
     reason: String(s?.reason || "").trim().slice(0, 160),
