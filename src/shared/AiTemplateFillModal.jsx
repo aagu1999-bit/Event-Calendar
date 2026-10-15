@@ -51,7 +51,7 @@ const CONTEXT_SCAFFOLD = [
 //   onClose()
 //   onAccept(slides)   — slides array matching the template's sequence
 
-export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTopic = "", initialContext = "", initialArrange = false, initialRegister = null, initialClusterDirective = "", initialClusterLabel = "", initialKeywordTrigger = null, initialVoiceParams = null, initialBehavioralTags = null, initialIsEvergreen = false, initialRejectedDrafts = [], initialApprovedDrafts = [], initialThesisDevelopment = null, initialSlidePlan = null, initialSlides = [], previewDesk = null, compactMode = false, onClose, onAccept, onSaveFeedback = null, onSlidePlanChange = null, onPreviewSave = null }) {
+export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTopic = "", initialContext = "", initialArrange = false, initialRegister = null, initialClusterDirective = "", initialClusterLabel = "", initialKeywordTrigger = null, initialVoiceParams = null, initialBehavioralTags = null, initialIsEvergreen = false, initialRejectedDrafts = [], initialApprovedDrafts = [], initialThesisDevelopment = null, initialAnchorRoles = null, initialSlidePlan = null, initialSlides = [], previewDesk = null, compactMode = false, onClose, onAccept, onSaveFeedback = null, onSlidePlanChange = null, onPreviewSave = null }) {
   const voice = useBrandStore((s) => s.voice);
   const slotPrompts = useBrandStore((s) => s.slotPrompts);
   const addExemplar = useBrandStore((s) => s.addExemplar);
@@ -318,6 +318,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
         rejectedDrafts: rejectedMem,
         approvedDrafts: approvedMem,
         thesisDevelopment: initialThesisDevelopment,
+        anchorRoles: initialAnchorRoles,
       });
       setPickedTemplate({
         id: arranged.gst ? "gst-pipeline" : "ai-arranged",
@@ -408,6 +409,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
       rejectedDrafts: rejectedMem,
       approvedDrafts: approvedMem,
       thesisDevelopment: initialThesisDevelopment,
+      anchorRoles: initialAnchorRoles,
       slideJobs: jobsLocked ? namedPlan : null,
     });
     const rendered = Array.isArray(result) ? result : [];
@@ -527,6 +529,7 @@ export function AiTemplateFillModal({ open, apiKey, initialTemplateId, initialTo
       rejectedDrafts: rejectedMem,
       approvedDrafts: approvedMem,
       thesisDevelopment: initialThesisDevelopment,
+      anchorRoles: initialAnchorRoles,
     });
     setSlides(result);
     if (typeof onPreviewSave === "function") onPreviewSave(result);
