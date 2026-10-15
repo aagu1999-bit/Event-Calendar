@@ -30,6 +30,7 @@ import {
   isListicleHook,
   checkArgumentCoherence,
   developThesis,
+  classifyAnchorRoles,
   synthesizeLensReframe,
   describeReframeInputs,
   lensFreshnessSignature,
@@ -370,6 +371,13 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
   // shows the last Developer run.
   const [developingThesis, setDevelopingThesis] = useState(false);
   const [developError, setDevelopError] = useState(null);
+  // Anchor role classifier state — Phase 1 ship for intervention #2.
+  // Tags each anchor with scene-setter / hard-proof / living-actor /
+  // counterexample / generic. Role chips render below each anchor;
+  // operator sees whether anchors have structural diversity or
+  // collapse to the same role (which produces summary-shaped slides).
+  const [classifyingRoles, setClassifyingRoles] = useState(false);
+  const [classifyError, setClassifyError] = useState(null);
   const [coherenceError, setCoherenceError] = useState(null);
   const [coherenceFromFuel, setCoherenceFromFuel] = useState(false);
   // Track which matrix inputs the last coherence check was run on —
@@ -1062,6 +1070,46 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
       setDevelopError(String(err?.message || err));
     } finally {
       setDevelopingThesis(false);
+    }
+  };
+
+  // Classify Anchor Roles handler — Phase 1 ship for intervention #2.
+  // Tags each anchor with a role (scene-setter / hard-proof /
+  // living-actor / counterexample / generic) so the operator can see
+  // whether their anchors have structural diversity. Pure read-only
+  // for now — writer doesn't use the roles yet (Phase 2).
+  const runClassifyRoles = async () => {
+    if (classifyingRoles) return;
+    setClassifyError(null);
+    const apiKey = resolveGeminiKey();
+    if (!apiKey) {
+      setClassifyError("Paste your Gemini API key in the MediaTool toolbar first.");
+      return;
+    }
+    const cleanAnchors = bullets.filter(Boolean);
+    if (cleanAnchors.length < 2) {
+      setClassifyError("Add at least 2 Research Anchors first — the classifier needs multiple anchors to compare roles.");
+      return;
+    }
+    setClassifyingRoles(true);
+    try {
+      const roles = await classifyAnchorRoles({
+        apiKey,
+        anchors: cleanAnchors,
+        pov: local.editorial_pov,
+        hook: local.hook_a_side,
+        cluster: local.cluster,
+        corridor: local.corridor,
+      });
+      if (!roles) {
+        setClassifyError("Classifier returned no roles — Gemini may be rate-limited. Retry.");
+        return;
+      }
+      applyPatch({ anchor_roles: roles });
+    } catch (err) {
+      setClassifyError(String(err?.message || err));
+    } finally {
+      setClassifyingRoles(false);
     }
   };
 
@@ -2386,6 +2434,117 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                 ))}
               </div>
             )}
+            {/* ANCHOR ROLE DIVERSITY panel · Phase 1 of intervention #2.
+                Classifies each anchor by role (scene-setter, hard-proof,
+                living-actor, counterexample, generic). Operator sees
+                diversity count — low diversity (all same role) is the
+                root cause of summary-shaped slides. */}
+            {(() => {
+              const roles = Array.isArray(local.anchor_roles) ? local.anchor_roles : [];
+              const canClassify = bullets.filter(Boolean).length >= 2;
+              const hasRoles = roles.length > 0 && roles.length === bullets.filter(Boolean).length;
+              const ROLE_META = {
+                "scene-setter":   { label: "Scene-setter",   color: "#A78BFA" },
+                "hard-proof":     { label: "Hard proof",     color: "#63B3ED" },
+                "living-actor":   { label: "Living actor",   color: "#34D399" },
+                "counterexample": { label: "Counterexample", color: "#FB7185" },
+                "generic":        { label: "Generic",        color: "rgba(242,232,219,0.5)" },
+              };
+              const roleCounts = {};
+              for (const r of roles) roleCounts[r] = (roleCounts[r] || 0) + 1;
+              const distinctRoles = Object.keys(roleCounts).filter((r) => r !== "generic").length;
+              const diversityWarning = hasRoles && distinctRoles <= 1 && bullets.filter(Boolean).length >= 3;
+              return (
+                <div style={{
+                  marginTop: 8,
+                  padding: "8px 10px",
+                  background: hasRoles ? "rgba(99,179,237,0.04)" : "rgba(242,232,219,0.02)",
+                  border: `1px solid ${diversityWarning ? "rgba(251,191,36,0.32)" : hasRoles ? "rgba(99,179,237,0.25)" : whisper}`,
+                  borderRadius: 6,
+                  fontSize: "0.68rem",
+                  color: muted,
+                  lineHeight: 1.55,
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: hasRoles ? 6 : 0, flexWrap: "wrap" }}>
+                    <div style={{ fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", fontSize: "0.58rem", color: hasRoles ? "#63B3ED" : faint }}>
+                      ✨ Anchor role diversity {hasRoles ? ` · ${distinctRoles} distinct role${distinctRoles === 1 ? "" : "s"}` : ""}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={runClassifyRoles}
+                      disabled={classifyingRoles || !canClassify}
+                      title={canClassify
+                        ? "Tag each anchor with its role (scene-setter, hard-proof, living-actor, counterexample). Low diversity = summary-shaped slides."
+                        : "Add at least 2 Research Anchors first."}
+                      style={{
+                        background: "rgba(99,179,237,0.14)",
+                        color: canClassify ? "#63B3ED" : faint,
+                        border: `1px solid rgba(99,179,237,0.4)`,
+                        borderRadius: 4,
+                        padding: "3px 10px",
+                        fontFamily: "inherit",
+                        fontSize: "0.55rem",
+                        letterSpacing: "0.14em",
+                        textTransform: "uppercase",
+                        fontWeight: 700,
+                        cursor: canClassify && !classifyingRoles ? "pointer" : "not-allowed",
+                        opacity: canClassify ? 1 : 0.5,
+                      }}
+                    >{classifyingRoles ? "…" : hasRoles ? "↻ Reclassify" : "Classify"}</button>
+                  </div>
+                  {classifyError && (
+                    <div style={{ color: warn, fontSize: "0.62rem", marginTop: 2 }}>⚠ {classifyError}</div>
+                  )}
+                  {!hasRoles && !classifyError && (
+                    <div style={{ fontSize: "0.6rem", color: faint, lineHeight: 1.55 }}>
+                      Click Classify to tag each anchor by its editorial job. When all anchors are the same role (e.g. 4 living-actors), slides end up doing the same job in sequence — a summary. Different roles → different slide jobs.
+                    </div>
+                  )}
+                  {hasRoles && (
+                    <>
+                      {/* Role counts row */}
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: diversityWarning ? 6 : 0 }}>
+                        {Object.entries(roleCounts).map(([role, n]) => {
+                          const meta = ROLE_META[role] || ROLE_META.generic;
+                          return (
+                            <span key={role} style={{
+                              fontSize: "0.56rem",
+                              padding: "2px 7px",
+                              background: `${meta.color}22`,
+                              border: `1px solid ${meta.color}`,
+                              color: meta.color,
+                              borderRadius: 3,
+                              letterSpacing: "0.06em",
+                              fontWeight: 700,
+                              textTransform: "uppercase",
+                            }}>
+                              {meta.label} · {n}
+                            </span>
+                          );
+                        })}
+                      </div>
+                      {diversityWarning && (
+                        <div style={{ color: warn, fontSize: "0.62rem", marginTop: 2, lineHeight: 1.55 }}>
+                          ⚠ Only one editorial role across your anchors. Slides will inherit the same job in sequence — classic summary shape. Consider: adding a counterexample, swapping one living-actor for a hard-proof, or opening with a scene-setter.
+                        </div>
+                      )}
+                      {/* Per-anchor role list */}
+                      <div style={{ marginTop: 6, fontSize: "0.6rem", color: faint, lineHeight: 1.65 }}>
+                        {roles.map((role, i) => {
+                          const meta = ROLE_META[role] || ROLE_META.generic;
+                          return (
+                            <div key={i}>
+                              <span style={{ color: meta.color, fontWeight: 700 }}>#{i + 1} {meta.label}</span>
+                              <span style={{ color: faint }}>: {String(bullets[i] || "").slice(0, 70)}{String(bullets[i] || "").length > 70 ? "…" : ""}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+                </div>
+              );
+            })()}
             {researchError && (
               <div style={{
                 marginTop: 8,
