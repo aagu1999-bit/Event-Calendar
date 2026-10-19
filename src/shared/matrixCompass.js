@@ -1732,17 +1732,28 @@ export async function checkPovVsEvidence({
     "",
     "WHY YOU EXIST: without this check, when a POV asserts something unsupported (counts, dates, categorical claims like 'every X did Y'), the writer sees a POV and research that disagree. The writer either silently drops the POV or writes the disagreement itself into the slides. Neither is useful. Your flag lets the operator resolve the conflict BEFORE generation.",
     "",
-    "WHAT COUNTS AS A CONTRADICTION — fact vs. fact only:",
-    "  - POV says 'every X did Y' / 'all X are Y' / 'no X does Y' — a categorical claim — and the facts show counterexamples that are specific and dated.",
-    "  - POV asserts a specific count ('three', 'five', '27') — and the facts show a different count that's named and dated.",
-    "  - POV asserts a specific date / timeframe ('in the past 18 months', 'during the 2010s') — and the facts show the event is outside that window.",
-    "  - POV names a specific entity doing a specific thing — and the facts show that entity isn't doing that or doesn't exist.",
+    "SEVERITY LEVELS (three — pick the right one for each flag):",
     "",
-    "WHAT DOES NOT COUNT AS A CONTRADICTION — stance, framing, interpretation:",
+    "  'contradicted' — the POV's factual claim is DEMONSTRABLY WRONG by the facts. The facts actively disprove it. Examples:",
+    "    - POV says 'every X did Y' / 'all X are Y' / 'no X does Y' — a categorical claim — and the facts show specific dated counterexamples.",
+    "    - POV asserts a specific count ('three', 'five', '27') — and the facts show a different count that's named and dated.",
+    "    - POV asserts a specific date / timeframe ('in the past 18 months', 'during the 2010s') — and the facts show the event is outside that window.",
+    "    - POV names a specific entity doing a specific thing — and the facts show that entity isn't doing that or doesn't exist.",
+    "",
+    "  'rhetorical_sharpening' — the POV uses a SHARPENED CONTRAST STRUCTURE ('X isn't X, it's Y' / 'these aren't N, they're M' / 'this isn't a Q, it's an R wearing Q's clothes'). Read literally, it IS false — X is X. But the POV is making a RHETORICAL MOVE, not a factual claim: it's saying 'X isn't PRIMARILY X; the more interesting read is Y'. This is a writing technique, not a factual error. Flag it so the operator can decide to keep (editorial choice) or soften (defuse the literal trap), but do NOT treat it the same as a contradicted claim. Examples:",
+    "    - 'The new bookstores aren't opening as bookstores — they're opening as cultural anchors' (literally they ARE bookstores; the POV means 'primarily cultural anchors')",
+    "    - 'This isn't a tech conference, it's municipal infrastructure wearing a conference's clothes' (literally it IS a tech conference)",
+    "    - 'These restaurants aren't restaurants, they're waiting rooms with food'",
+    "    IMPORTANT: only use this severity for the specific 'X isn't X' construction. A regular factual error dressed up as a contrast is still 'contradicted'.",
+    "",
+    "  'unverified' — the facts don't CONFIRM but don't DISPROVE either. Research is silent on the specific claim. Examples:",
+    "    - POV is more specific than the facts (research doesn't contradict, just doesn't confirm).",
+    "    - POV asserts something plausible that's just not in the fact pool.",
+    "",
+    "WHAT DOES NOT COUNT AS ANY FLAG — stance, framing, interpretation:",
     "  - POV expresses an opinion ('these new rooms matter more than the old ones') — this is a stance, not a factual claim. Not your job.",
     "  - POV frames the subject in a particular light ('a quiet renaissance', 'a return') — framing, not fact. Not your job.",
     "  - POV draws a conclusion from the facts ('this shows X') — interpretation of the research, not contradiction OF it.",
-    "  - POV is more specific than the facts (research doesn't contradict, just doesn't confirm) — mark severity 'unverified', not 'contradicted'.",
     "",
     "INPUTS:",
     `  POV: ${cleanPov}`,
@@ -1751,16 +1762,16 @@ export async function checkPovVsEvidence({
     "EVIDENCE FACTS (research extractor output — ground truth for this check):",
     factBlock,
     "",
-    "FOR EACH CONTRADICTION YOU FIND, return:",
-    "  claim      — short quote of the POV's factual claim (as written in the POV)",
-    "  evidence   — specific fact id(s) + what they actually say that contradicts (not just the fact id — explain the mismatch)",
-    "  severity   — 'contradicted' (facts actively disprove the claim) | 'unverified' (facts don't confirm but don't disprove either; worth flagging but weaker)",
+    "FOR EACH FLAG YOU RAISE, return:",
+    "  claim      — short quote of the POV's claim (as written in the POV)",
+    "  evidence   — specific fact id(s) + what they actually say (not just the fact id — explain the relationship)",
+    "  severity   — 'contradicted' | 'rhetorical_sharpening' | 'unverified' (see the SEVERITY LEVELS section above for when to use each)",
     "",
     "ALSO return:",
-    "  aligned    — true if NO contradictions found at any severity; false if any contradiction (any severity) found",
-    "  notes      — one short sentence describing the overall shape (e.g. 'POV is a clean stance, facts support it' or 'POV asserts a count the facts don't confirm')",
+    "  aligned    — true if NO 'contradicted' AND NO 'unverified' flags were raised. 'rhetorical_sharpening' flags do NOT count against aligned (they're informational, not problems — the operator decides keep or soften).",
+    "  notes      — one short sentence describing the overall shape (e.g. 'POV is a clean stance, facts support it' or 'POV asserts a count the facts don't confirm' or 'POV uses a rhetorical reframe — technically false if read literally').",
     "",
-    'Return ONLY JSON in this exact shape: {"aligned":true|false,"contradictions":[{"claim":"…","evidence":"…","severity":"contradicted|unverified"}],"notes":"…"}',
+    'Return ONLY JSON in this exact shape: {"aligned":true|false,"contradictions":[{"claim":"…","evidence":"…","severity":"contradicted|rhetorical_sharpening|unverified"}],"notes":"…"}',
   ].join("\n");
 
   const MODEL = "gemini-2.5-flash-lite";
@@ -1783,7 +1794,7 @@ export async function checkPovVsEvidence({
               properties: {
                 claim: { type: "string", maxLength: 400 },
                 evidence: { type: "string", maxLength: 500 },
-                severity: { type: "string", enum: ["contradicted", "unverified"] },
+                severity: { type: "string", enum: ["contradicted", "rhetorical_sharpening", "unverified"] },
               },
               required: ["claim", "evidence"],
             },
@@ -1822,13 +1833,19 @@ export async function checkPovVsEvidence({
     const trimmed = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
     try { parsed = JSON.parse(trimmed); } catch { return null; }
   }
+  const SEVERITIES = new Set(["contradicted", "rhetorical_sharpening", "unverified"]);
   const contradictions = Array.isArray(parsed?.contradictions) ? parsed.contradictions.map((c) => ({
     claim: String(c?.claim || "").trim().slice(0, 400),
     evidence: String(c?.evidence || "").trim().slice(0, 500),
-    severity: c?.severity === "contradicted" ? "contradicted" : "unverified",
+    severity: SEVERITIES.has(c?.severity) ? c.severity : "unverified",
   })).filter((c) => c.claim && c.evidence) : [];
+  // aligned = no contradicted AND no unverified. rhetorical_sharpening
+  // doesn't count against aligned — those are informational writing-
+  // technique flags, not factual problems. The operator decides keep
+  // or soften, not resolve.
+  const nonRhetorical = contradictions.filter((c) => c.severity !== "rhetorical_sharpening");
   return {
-    aligned: !!parsed?.aligned && contradictions.length === 0,
+    aligned: nonRhetorical.length === 0,
     contradictions,
     notes: String(parsed?.notes || "").trim().slice(0, 300),
     checkedAt: new Date().toISOString(),
