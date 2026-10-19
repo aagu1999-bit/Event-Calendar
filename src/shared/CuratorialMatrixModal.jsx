@@ -31,6 +31,7 @@ import {
   checkArgumentCoherence,
   developThesis,
   classifyAnchorRoles,
+  checkPovVsEvidence,
   synthesizeLensReframe,
   describeReframeInputs,
   lensFreshnessSignature,
@@ -298,6 +299,14 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
   const [extracting, setExtracting] = useState(false);
   const [extractError, setExtractError] = useState(null);
   const [extractPanelOpen, setExtractPanelOpen] = useState(false);
+  // POV ↔ evidence coherence check. Fires after the extractor returns
+  // a packet. When POV asserts factual claims the evidence contradicts,
+  // the operator sees a red block they can act on BEFORE generation —
+  // prevents the "writer renders the critique as slides" failure mode.
+  const [povCheckRunning, setPovCheckRunning] = useState(false);
+  const [povCheckError, setPovCheckError] = useState(null);
+  const [povCheckPanelOpen, setPovCheckPanelOpen] = useState(false);
+  const [povCheckOverride, setPovCheckOverride] = useState(false);
   const [citations, setCitations] = useState([]);
   // Two-phase research status — set from the last successful Fuel Research
   // call. phase is "verified" (Phase 2 approved these bullets) or
@@ -835,10 +844,62 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
       }
       applyPatch({ evidence_packet: result.packet });
       setExtractPanelOpen(true);
+      // Chain the POV ↔ evidence coherence check against the fresh
+      // packet. Non-blocking (operator can inspect contradictions
+      // afterward); clears any stale override state so a new check
+      // starts clean.
+      setPovCheckOverride(false);
+      void runPovEvidenceCheck(result.packet);
     } catch (err) {
       setExtractError(String(err?.message || err));
     } finally {
       setExtracting(false);
+    }
+  };
+
+  // POV ↔ evidence coherence check runner. Takes the current (or
+  // just-produced) packet, pulls the POV + lens narrowing off the
+  // matrix, calls the checkPovVsEvidence synth. Stores the result on
+  // the matrix. Non-blocking — if it fails, the matrix is unchanged
+  // and the operator can still generate (no gate).
+  const runPovEvidenceCheck = async (packetOverride = null) => {
+    if (povCheckRunning) return;
+    const apiKey = resolveGeminiKey();
+    if (!apiKey) {
+      setPovCheckError("No Gemini key available.");
+      return;
+    }
+    const packet = packetOverride || local.evidence_packet || null;
+    const pov = String(local.editorial_pov || "").trim();
+    if (!packet || !Array.isArray(packet.facts) || packet.facts.length < 3) {
+      setPovCheckError("No evidence packet with ≥3 facts. Run Fuel + Extract first.");
+      return;
+    }
+    if (!pov) {
+      setPovCheckError("No POV to check. Draft a POV first.");
+      return;
+    }
+    setPovCheckRunning(true);
+    setPovCheckError(null);
+    try {
+      const result = await checkPovVsEvidence({
+        apiKey,
+        pov,
+        lensNarrowing: String(local.editorial_lens || "").trim(),
+        evidencePacket: packet,
+      });
+      if (!result) {
+        setPovCheckError("POV ↔ evidence check returned no result. Retry.");
+        return;
+      }
+      applyPatch({ pov_evidence_check: result });
+      // Auto-open the panel when contradictions found so the operator
+      // sees them immediately. Keep closed when clean.
+      if (!result.aligned) setPovCheckPanelOpen(true);
+    } catch (err) {
+      setPovCheckError(String(err?.message || err));
+    } finally {
+      setPovCheckRunning(false);
     }
   };
 
@@ -2937,8 +2998,156 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                       </div>
                     )}
                     <div style={{ fontSize: "0.56rem", color: faint, letterSpacing: "0.08em" }}>
-                      Writer currently reads data_points, not this packet. PR 2 wires it in.
+                      Writer reads this packet when ≥5 facts (prefers register-stripped claims over raw bullets).
                     </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* ═════════════════════════════
+              POV ↔ EVIDENCE COHERENCE CHECK
+              ═════════════════════════════
+              Fires after extraction. Catches the "POV asserts facts
+              the research contradicts" failure mode. When
+              contradictions exist, the operator sees them BEFORE
+              hitting Preview Carousel, with an override checkbox for
+              cases where the operator wants to generate anyway (e.g.
+              the check misfired, or the operator wants to see what
+              the writer does with the mismatch). */}
+          {(() => {
+            const check = local.pov_evidence_check || null;
+            const hasPacket = local.evidence_packet && Array.isArray(local.evidence_packet.facts) && local.evidence_packet.facts.length >= 3;
+            const hasPov = !!String(local.editorial_pov || "").trim();
+            if (!check && !povCheckRunning && !povCheckError && !(hasPacket && hasPov)) return null;
+            const contradictions = Array.isArray(check?.contradictions) ? check.contradictions : [];
+            const contradicted = contradictions.filter((c) => c.severity === "contradicted");
+            const unverified = contradictions.filter((c) => c.severity === "unverified");
+            const hasBlocking = contradicted.length > 0;
+            const borderColor = hasBlocking ? "rgba(239,68,68,0.5)" : (unverified.length > 0 ? "rgba(251,191,36,0.4)" : "rgba(143,168,150,0.3)");
+            const headerColor = hasBlocking ? "#F87171" : (unverified.length > 0 ? warn : orbit);
+            return (
+              <div style={{
+                marginTop: 10,
+                padding: "10px 14px",
+                background: hasBlocking ? "rgba(239,68,68,0.08)" : (unverified.length > 0 ? "rgba(251,191,36,0.06)" : "rgba(143,168,150,0.06)"),
+                border: `1px solid ${borderColor}`,
+                borderRadius: 6,
+                fontSize: "0.68rem",
+              }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    onClick={() => setPovCheckPanelOpen((v) => !v)}
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      color: headerColor,
+                      fontFamily: "inherit",
+                      fontSize: "0.56rem",
+                      letterSpacing: "0.14em",
+                      textTransform: "uppercase",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      padding: 0,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                    }}
+                    aria-expanded={povCheckPanelOpen}
+                  >
+                    {povCheckPanelOpen ? "▾" : "▸"} ◆ POV ↔ Evidence coherence
+                    {check && (
+                      hasBlocking
+                        ? ` · ${contradicted.length} contradicted${unverified.length > 0 ? ` · ${unverified.length} unverified` : ""}`
+                        : unverified.length > 0
+                          ? ` · ${unverified.length} unverified`
+                          : " · aligned"
+                    )}
+                    {povCheckRunning && !check && " · checking…"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => runPovEvidenceCheck()}
+                    disabled={povCheckRunning || !hasPacket || !hasPov}
+                    title="Re-run the POV ↔ evidence check"
+                    style={{
+                      background: "transparent",
+                      border: `1px solid ${borderColor}`,
+                      color: headerColor,
+                      fontFamily: "inherit",
+                      fontSize: "0.56rem",
+                      letterSpacing: "0.1em",
+                      textTransform: "uppercase",
+                      fontWeight: 700,
+                      cursor: (povCheckRunning || !hasPacket || !hasPov) ? "default" : "pointer",
+                      opacity: (povCheckRunning || !hasPacket || !hasPov) ? 0.4 : 1,
+                      padding: "3px 8px",
+                      borderRadius: 4,
+                    }}
+                  >{povCheckRunning ? "Checking…" : (check ? "↺ Re-check" : "Check")}</button>
+                </div>
+                {povCheckError && (
+                  <div style={{ marginTop: 6, color: warn, fontSize: "0.6rem" }}>
+                    Check error: {povCheckError}
+                  </div>
+                )}
+                {povCheckPanelOpen && check && (
+                  <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 10 }}>
+                    {check.notes && (
+                      <div style={{ fontSize: "0.64rem", color: cream, lineHeight: 1.4 }}>
+                        <span style={{ color: faint, fontSize: "0.56rem", letterSpacing: "0.14em", textTransform: "uppercase", marginRight: 6 }}>Overall:</span>
+                        {check.notes}
+                      </div>
+                    )}
+                    {contradicted.length > 0 && (
+                      <div>
+                        <div style={{ fontSize: "0.56rem", letterSpacing: "0.14em", textTransform: "uppercase", color: "#F87171", marginBottom: 4 }}>
+                          Contradicted ({contradicted.length}) — the POV asserts these; the evidence disagrees.
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          {contradicted.map((c, i) => (
+                            <div key={i} style={{ fontSize: "0.62rem", color: cream, lineHeight: 1.4, paddingLeft: 10, borderLeft: "2px solid rgba(239,68,68,0.4)" }}>
+                              <div style={{ color: "#F87171", marginBottom: 2 }}>POV claim: "{c.claim}"</div>
+                              <div style={{ color: faint }}>Evidence: {c.evidence}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {unverified.length > 0 && (
+                      <div>
+                        <div style={{ fontSize: "0.56rem", letterSpacing: "0.14em", textTransform: "uppercase", color: warn, marginBottom: 4 }}>
+                          Unverified ({unverified.length}) — not disproved, but research doesn't confirm either.
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          {unverified.map((c, i) => (
+                            <div key={i} style={{ fontSize: "0.62rem", color: cream, lineHeight: 1.4, paddingLeft: 10, borderLeft: `2px solid rgba(251,191,36,0.4)` }}>
+                              <div style={{ color: warn, marginBottom: 2 }}>POV claim: "{c.claim}"</div>
+                              <div style={{ color: faint }}>Note: {c.evidence}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {hasBlocking && (
+                      <div style={{ fontSize: "0.6rem", color: cream, lineHeight: 1.5, padding: "8px 10px", background: "rgba(239,68,68,0.1)", borderRadius: 4 }}>
+                        <strong style={{ color: "#F87171" }}>Suggested:</strong> rewrite the POV to a stance that doesn't depend on the contradicted claims (POVs own the argument; let the research own the facts), OR re-fuel for more evidence, OR override below to generate anyway.
+                        <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 6 }}>
+                          <input
+                            type="checkbox"
+                            id="pov-check-override"
+                            checked={povCheckOverride}
+                            onChange={(e) => setPovCheckOverride(e.target.checked)}
+                            style={{ cursor: "pointer" }}
+                          />
+                          <label htmlFor="pov-check-override" style={{ cursor: "pointer", fontSize: "0.6rem" }}>
+                            Override — I understand; generate using the pivot rule (writer writes the piece the evidence supports, not a critique).
+                          </label>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -4104,6 +4313,7 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
           initialThesisDevelopment={aiFillOverlaySeed.thesisDevelopment || null}
           initialAnchorRoles={aiFillOverlaySeed.anchorRoles || null}
           initialEvidencePacket={aiFillOverlaySeed.evidencePacket || null}
+          initialPovEvidenceCheck={aiFillOverlaySeed.povEvidenceCheck || null}
           initialSlidePlan={aiFillOverlaySeed.slidePlan || local.slide_plan}
           initialSlides={Array.isArray(local.preview_slides) ? local.preview_slides : []}
           previewDesk={newsDeskForPreview}

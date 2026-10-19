@@ -163,4 +163,11 @@ export const MATRIX_FIELDS = [
   // content, and legacy matrices without one keep working. Writer
   // currently does NOT read it; PR 2 wires it in behind a flag.
   "evidence_packet",
+  // POV ↔ evidence coherence check output. Fires after the extractor
+  // runs; catches cases where the POV asserts factual claims the
+  // research contradicts. Shape: { aligned, contradictions[], notes,
+  // checkedAt }. Completeness ignores it — derived artifact. Writer
+  // reads it to add a pivot-rule block when unresolved contradictions
+  // exist.
+  "pov_evidence_check",
 ];
