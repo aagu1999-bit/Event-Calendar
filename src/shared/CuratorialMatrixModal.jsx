@@ -3024,7 +3024,12 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
             const contradictions = Array.isArray(check?.contradictions) ? check.contradictions : [];
             const contradicted = contradictions.filter((c) => c.severity === "contradicted");
             const unverified = contradictions.filter((c) => c.severity === "unverified");
+            const rhetorical = contradictions.filter((c) => c.severity === "rhetorical_sharpening");
             const hasBlocking = contradicted.length > 0;
+            // rhetorical_sharpening is informational — doesn't drive the
+            // border / background color. Only contradicted (red) and
+            // unverified (amber) do. Rhetorical uses orbit (purple) in
+            // the body section but inherits the outer frame color.
             const borderColor = hasBlocking ? "rgba(239,68,68,0.5)" : (unverified.length > 0 ? "rgba(251,191,36,0.4)" : "rgba(143,168,150,0.3)");
             const headerColor = hasBlocking ? "#F87171" : (unverified.length > 0 ? warn : orbit);
             return (
@@ -3058,13 +3063,17 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                     aria-expanded={povCheckPanelOpen}
                   >
                     {povCheckPanelOpen ? "▾" : "▸"} ◆ POV ↔ Evidence coherence
-                    {check && (
-                      hasBlocking
-                        ? ` · ${contradicted.length} contradicted${unverified.length > 0 ? ` · ${unverified.length} unverified` : ""}`
-                        : unverified.length > 0
-                          ? ` · ${unverified.length} unverified`
-                          : " · aligned"
-                    )}
+                    {check && (() => {
+                      const parts = [];
+                      if (contradicted.length > 0) parts.push(`${contradicted.length} contradicted`);
+                      if (unverified.length > 0) parts.push(`${unverified.length} unverified`);
+                      if (rhetorical.length > 0) parts.push(`${rhetorical.length} rhetorical`);
+                      if (!parts.length) return " · aligned";
+                      // "aligned" prefix when only rhetorical flags exist
+                      // (those don't block generation; informational).
+                      const prefix = (!hasBlocking && unverified.length === 0 && rhetorical.length > 0) ? "aligned · " : "";
+                      return ` · ${prefix}${parts.join(" · ")}`;
+                    })()}
                     {povCheckRunning && !check && " · checking…"}
                   </button>
                   <button
@@ -3125,6 +3134,21 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                           {unverified.map((c, i) => (
                             <div key={i} style={{ fontSize: "0.62rem", color: cream, lineHeight: 1.4, paddingLeft: 10, borderLeft: `2px solid rgba(251,191,36,0.4)` }}>
                               <div style={{ color: warn, marginBottom: 2 }}>POV claim: "{c.claim}"</div>
+                              <div style={{ color: faint }}>Note: {c.evidence}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {rhetorical.length > 0 && (
+                      <div>
+                        <div style={{ fontSize: "0.56rem", letterSpacing: "0.14em", textTransform: "uppercase", color: orbit, marginBottom: 4 }}>
+                          Rhetorical sharpening ({rhetorical.length}) — informational · the POV uses an "X isn't X, it's Y" construction. Literally false, rhetorically defensible. Keep or soften — your call.
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          {rhetorical.map((c, i) => (
+                            <div key={i} style={{ fontSize: "0.62rem", color: cream, lineHeight: 1.4, paddingLeft: 10, borderLeft: `2px solid rgba(167,139,250,0.4)` }}>
+                              <div style={{ color: orbit, marginBottom: 2 }}>POV claim: "{c.claim}"</div>
                               <div style={{ color: faint }}>Note: {c.evidence}</div>
                             </div>
                           ))}
