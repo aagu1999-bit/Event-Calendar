@@ -455,7 +455,23 @@ function hasUnbalancedMarks(t) {
 export function titleLooksChopped(text, cap = TITLE_CAP) {
   const t = String(text || "").trim();
   if (!t) return false;
-  return t.length >= cap - 3 || hasUnbalancedMarks(t);
+  if (t.length >= cap - 3) return true;
+  if (hasUnbalancedMarks(t)) return true;
+  // Mid-word truncation catch: a title that got near the cap and ends
+  // on a suspiciously short last token is almost certainly a chopped
+  // longer word. This is the Newark Tech Week + bookstores failure
+  // ("OPENED A PHYS" at 56 chars with cap 60 — just under the primary
+  // length trigger but clearly "PHYSICAL" cut mid-word). Threshold:
+  // within 10 chars of the cap AND last token is 2–5 chars AND not a
+  // common short word (prepositions, articles, conjunctions, verbs).
+  if (t.length >= cap - 10) {
+    const lastWord = (t.split(/\s+/).pop() || "").replace(/[.,;:—–-]+$/, "");
+    if (lastWord.length >= 2 && lastWord.length <= 5
+        && !/^(a|an|is|or|and|the|of|in|at|on|to|for|up|but|not|was|were|be|by|its|it|we|our|us|he|she|his|her|do|did|can|has|had|get|got|all|new|one|two|three|four|five|six|ten|day|way|now|yet|out|off)$/i.test(lastWord)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function trimTail(tokens) {

@@ -1686,6 +1686,155 @@ export async function developThesis({
   return { mode, summary, beats, skippedAnchors, developedAt: new Date().toISOString() };
 }
 
+// ─── POV ↔ EVIDENCE COHERENCE CHECK ──────────────────────────────
+// Catches the specific failure mode where the operator's POV asserts
+// factual claims (counts, dates, "all X did Y in year Z") that the
+// research then contradicts. Without this check, the writer sees a
+// POV and an evidence packet that disagree, and either (a) writes
+// the critique of the POV into the shipped slides, or (b) picks
+// one and silently drops the other. Both are bad outcomes — the
+// operator deserves to KNOW and resolve the conflict before the
+// pipeline tries to generate anything.
+//
+// Fires AFTER the evidence extractor returns a packet. If the POV
+// has no verifiable factual claims (pure stance), returns aligned:
+// true with no contradictions. If POV asserts something the packet
+// contradicts, returns the specific contradictions so the operator
+// can rewrite the POV, override, or re-fuel.
+//
+// This is a detector, not a gate. The UI decides whether to warn or
+// hard-block (we warn + require explicit confirm to generate when
+// unresolved contradictions exist — see CuratorialMatrixModal).
+//
+// Returns:
+//   { aligned: boolean, contradictions: [{claim, evidence, severity}],
+//     notes, checkedAt }
+// or null on failure (silent, pipeline keeps working as before).
+export async function checkPovVsEvidence({
+  apiKey,
+  pov = "",
+  lensNarrowing = "",
+  evidencePacket = null,
+} = {}) {
+  if (!apiKey || !String(apiKey).trim()) return null;
+  const cleanPov = String(pov || "").trim();
+  if (!cleanPov) return null;
+  const facts = Array.isArray(evidencePacket?.facts) ? evidencePacket.facts : [];
+  if (facts.length < 3) return null;
+
+  const factBlock = facts
+    .slice(0, 20)
+    .map((f) => `  [${f.id || "?"}] (spec ${Number.isFinite(f.specificity) ? Number(f.specificity).toFixed(2) : "—"}) ${String(f.claim || "").trim()}`)
+    .join("\n");
+
+  const prompt = [
+    "ROLE: You are a FACT-CHECKER comparing a magazine's editorial POV against the research facts the pipeline has pulled. Your ONE job is to flag factual claims in the POV that the research does NOT support — not every stance, not every opinion, only VERIFIABLE claims the research actually contradicts.",
+    "",
+    "WHY YOU EXIST: without this check, when a POV asserts something unsupported (counts, dates, categorical claims like 'every X did Y'), the writer sees a POV and research that disagree. The writer either silently drops the POV or writes the disagreement itself into the slides. Neither is useful. Your flag lets the operator resolve the conflict BEFORE generation.",
+    "",
+    "WHAT COUNTS AS A CONTRADICTION — fact vs. fact only:",
+    "  - POV says 'every X did Y' / 'all X are Y' / 'no X does Y' — a categorical claim — and the facts show counterexamples that are specific and dated.",
+    "  - POV asserts a specific count ('three', 'five', '27') — and the facts show a different count that's named and dated.",
+    "  - POV asserts a specific date / timeframe ('in the past 18 months', 'during the 2010s') — and the facts show the event is outside that window.",
+    "  - POV names a specific entity doing a specific thing — and the facts show that entity isn't doing that or doesn't exist.",
+    "",
+    "WHAT DOES NOT COUNT AS A CONTRADICTION — stance, framing, interpretation:",
+    "  - POV expresses an opinion ('these new rooms matter more than the old ones') — this is a stance, not a factual claim. Not your job.",
+    "  - POV frames the subject in a particular light ('a quiet renaissance', 'a return') — framing, not fact. Not your job.",
+    "  - POV draws a conclusion from the facts ('this shows X') — interpretation of the research, not contradiction OF it.",
+    "  - POV is more specific than the facts (research doesn't contradict, just doesn't confirm) — mark severity 'unverified', not 'contradicted'.",
+    "",
+    "INPUTS:",
+    `  POV: ${cleanPov}`,
+    ...(lensNarrowing ? [`  LENS Narrowing (per-piece question): ${lensNarrowing}`] : []),
+    "",
+    "EVIDENCE FACTS (research extractor output — ground truth for this check):",
+    factBlock,
+    "",
+    "FOR EACH CONTRADICTION YOU FIND, return:",
+    "  claim      — short quote of the POV's factual claim (as written in the POV)",
+    "  evidence   — specific fact id(s) + what they actually say that contradicts (not just the fact id — explain the mismatch)",
+    "  severity   — 'contradicted' (facts actively disprove the claim) | 'unverified' (facts don't confirm but don't disprove either; worth flagging but weaker)",
+    "",
+    "ALSO return:",
+    "  aligned    — true if NO contradictions found at any severity; false if any contradiction (any severity) found",
+    "  notes      — one short sentence describing the overall shape (e.g. 'POV is a clean stance, facts support it' or 'POV asserts a count the facts don't confirm')",
+    "",
+    'Return ONLY JSON in this exact shape: {"aligned":true|false,"contradictions":[{"claim":"…","evidence":"…","severity":"contradicted|unverified"}],"notes":"…"}',
+  ].join("\n");
+
+  const MODEL = "gemini-2.5-flash-lite";
+  const URL_BASE = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
+  const requestBody = {
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: {
+      responseMimeType: "application/json",
+      temperature: 0.2,
+      maxOutputTokens: 2048,
+      thinkingConfig: { thinkingBudget: 0 },
+      responseSchema: {
+        type: "object",
+        properties: {
+          aligned: { type: "boolean" },
+          contradictions: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                claim: { type: "string", maxLength: 400 },
+                evidence: { type: "string", maxLength: 500 },
+                severity: { type: "string", enum: ["contradicted", "unverified"] },
+              },
+              required: ["claim", "evidence"],
+            },
+          },
+          notes: { type: "string", maxLength: 300 },
+        },
+        required: ["aligned"],
+      },
+    },
+  };
+
+  let res;
+  try {
+    res = await fetch(`${URL_BASE}?key=${encodeURIComponent(apiKey)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(requestBody),
+    });
+  } catch (err) {
+    if (typeof console !== "undefined") console.warn("POV-evidence check network error:", err?.message || err);
+    return null;
+  }
+  if (!res.ok) {
+    if (typeof console !== "undefined") console.warn(`POV-evidence check HTTP ${res.status}`);
+    return null;
+  }
+  let data;
+  try { data = await res.json(); } catch { return null; }
+  const parts = data?.candidates?.[0]?.content?.parts || [];
+  const textPart = parts.find((p) => p && !p.thought && typeof p.text === "string") || parts[0];
+  const raw = textPart?.text || "";
+  if (!raw) return null;
+  let parsed;
+  try { parsed = JSON.parse(raw); }
+  catch {
+    const trimmed = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+    try { parsed = JSON.parse(trimmed); } catch { return null; }
+  }
+  const contradictions = Array.isArray(parsed?.contradictions) ? parsed.contradictions.map((c) => ({
+    claim: String(c?.claim || "").trim().slice(0, 400),
+    evidence: String(c?.evidence || "").trim().slice(0, 500),
+    severity: c?.severity === "contradicted" ? "contradicted" : "unverified",
+  })).filter((c) => c.claim && c.evidence) : [];
+  return {
+    aligned: !!parsed?.aligned && contradictions.length === 0,
+    contradictions,
+    notes: String(parsed?.notes || "").trim().slice(0, 300),
+    checkedAt: new Date().toISOString(),
+  };
+}
+
 // ─── ANCHOR ROLE CLASSIFIER ──────────────────────────────────────
 // Specialized anchor roles · Phase 1 ship. The operator's observation:
 // Fuel Research returns 3-5 anchors of the same SHAPE (venue +

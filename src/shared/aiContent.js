@@ -2741,7 +2741,7 @@ async function autoRepairLeakingChairs({
   return repairCarouselLeaks(next);
 }
 
-export async function generateTemplateFill({ apiKey, sequence, topic, context, voice, slotPrompts, templateMeta, mode, polish = true, letterMode = false, clusterDirective = "", clusterLabel = "", keywordTrigger = null, spine = true, voiceParams = null, behavioralTags = null, isEvergreen = false, rejectedDrafts = [], approvedDrafts = [], thesisDevelopment = null, anchorRoles = null, evidencePacket = null, slideJobs = null, repairPass, lockLength = false }) {
+export async function generateTemplateFill({ apiKey, sequence, topic, context, voice, slotPrompts, templateMeta, mode, polish = true, letterMode = false, clusterDirective = "", clusterLabel = "", keywordTrigger = null, spine = true, voiceParams = null, behavioralTags = null, isEvergreen = false, rejectedDrafts = [], approvedDrafts = [], thesisDevelopment = null, anchorRoles = null, evidencePacket = null, povEvidenceCheck = null, slideJobs = null, repairPass, lockLength = false }) {
   if (!apiKey) throw new Error("Missing Gemini API key");
   if (!Array.isArray(sequence) || !sequence.length) throw new Error("Missing template sequence");
   if ((!topic || !topic.trim()) && (!context || !context.trim())) throw new Error("Add a topic or event details first");
@@ -2965,6 +2965,7 @@ export async function generateTemplateFill({ apiKey, sequence, topic, context, v
     thesisDevelopment,
     anchorRoles,
     evidencePacket,
+    povEvidenceCheck,
     slideJobs: jobsLocked ? namedPlan : null,
   });
 
@@ -4469,6 +4470,77 @@ function parseContextBullets(context) {
 // voice (brand fingerprint), slotPrompts, templateMeta, mode, today,
 // letterMode, narrativeSpine. Every field the writer sees here has a
 // direct impact on how a slide is written. If it doesn't, cut it.
+// Strip Perplexity's research-source citation tags from context bullets
+// before the writer sees them. These tags — "(PRESS — nj.com; WNYC)",
+// "(STORE — Cindelle's)", "(OFFICIAL — newarktechweek.com)", "(DOCUMENT — …)",
+// "(EVENT — NJ Monthly)", etc. — are research scaffolding, not shippable
+// copy. Writers that read bullets with these tags embedded tend to copy
+// them into slide bodies verbatim (the Newark Tech Week + bookstores
+// carousels both shipped slides ending with "(PRESS — …);" because of
+// this). Strip them at writer-context time; the evidence extractor still
+// sees them when atomizing facts, so entity resolution isn't affected.
+function stripResearchCitationTags(text) {
+  if (typeof text !== "string" || !text) return text;
+  // Match parenthetical tags that open with a known research-source
+  // tag label and dash/em-dash. Non-greedy to the closing paren so a
+  // single bullet with multiple parentheticals doesn't collapse into
+  // one match. Trailing semicolon or whitespace is cleaned up.
+  const TAG_LABEL = "(?:PRESS|STORE|OFFICIAL|CULTURAL|UNIVERSITY|EVENT|DOCUMENT|UNRANKED|DOOR|ARGUMENT|GAP|THESIS|START|NEXT|JOIN|SPECIMEN|MECHANISM|FRICTION|CONTRAST|LOCATE|FUEL)";
+  const paren = new RegExp(`\\s*\\(${TAG_LABEL}\\s*[—–-][^)]*\\)\\s*;?`, "gi");
+  // Also catch the bare prefix form at a bullet's start: "PRESS — url, …"
+  // in cases where Perplexity emitted a bullet without wrapping parens.
+  const linePrefix = new RegExp(`^${TAG_LABEL}\\s*[—–-]\\s*`, "i");
+  const lines = text.split(/\r?\n/).map((line) => {
+    let out = line;
+    // Strip trailing (TAG — ...); patterns anywhere in the line
+    out = out.replace(paren, " ").replace(/\s{2,}/g, " ").trimEnd();
+    // Strip a leading TAG — prefix on the bullet (but keep the dash
+    // prefix for bullet shape)
+    const bulletMatch = out.match(/^(\s*[-•*]\s+)(.*)$/);
+    if (bulletMatch) {
+      const prefix = bulletMatch[1];
+      const rest = bulletMatch[2].replace(linePrefix, "").trim();
+      out = `${prefix}${rest}`;
+    }
+    return out;
+  });
+  return lines.join("\n");
+}
+
+// Pivot-rule block for when the POV ↔ evidence coherence check found
+// contradictions. The failure mode this prevents: writer sees POV
+// asserting X, evidence contradicting X, and writes the critique of
+// the POV into the shipped slides (every slide becomes meta-commentary
+// on how the POV is wrong). The fix: tell the writer explicitly to
+// PIVOT — write the piece the EVIDENCE supports, not a critique of
+// the POV. If pivot would require a wholly different thesis, surface
+// that intent in the output rather than attempting to write both.
+function formatPovEvidencePivotBlock(povEvidenceCheck) {
+  if (!povEvidenceCheck || typeof povEvidenceCheck !== "object") return [];
+  const contradictions = Array.isArray(povEvidenceCheck.contradictions) ? povEvidenceCheck.contradictions : [];
+  const contradicted = contradictions.filter((c) => c && c.severity === "contradicted");
+  if (!contradicted.length) return [];
+  return [
+    "═════════════════════════════",
+    "POV ↔ EVIDENCE CONTRADICTION — PIVOT RULE",
+    "═════════════════════════════",
+    "",
+    "The operator's POV asserts factual claims that the evidence pool contradicts. The operator reviewed this and chose to generate anyway with the understanding that YOU WILL PIVOT.",
+    "",
+    "SPECIFIC CONTRADICTIONS:",
+    ...contradicted.map((c, i) => `  ${i + 1}. POV claims: "${String(c.claim || "").slice(0, 200)}" — Evidence: ${String(c.evidence || "").slice(0, 300)}`),
+    "",
+    "WHAT TO DO:",
+    "  - WRITE THE PIECE THE EVIDENCE SUPPORTS, not a critique of the POV. Do NOT make any slide meta-commentary about how the POV is wrong. Do NOT quote the POV's contradicted claims as facts in the slides.",
+    "  - KEEP the POV's STANCE / FRAMING / angle when it is independent of the contradicted factual claims. (e.g. if POV asserted a false count but the stance 'these new rooms are cultural anchors first' is a defensible interpretation of the evidence, keep the stance; drop the count.)",
+    "  - DROP the contradicted claims silently. Don't say 'actually it's four, not three' — just write the piece with the real numbers / dates / entities from the evidence.",
+    "  - If the entire thesis depends on a contradicted claim and you can't salvage the stance from the evidence alone, write the strongest piece the evidence CAN support — a narrower, verifiable piece. The operator will see the result and decide whether to rewrite the POV.",
+    "",
+    "═════════════════════════════",
+    "",
+  ];
+}
+
 // Format an evidence_packet (Layer 1 output) as a prompt block the writer
 // reads BEFORE the raw context bullets. The thesis: the writer completes
 // in the register of what it reads; raw research bullets carry
@@ -4543,7 +4615,7 @@ function formatEvidencePacketBlock(packet) {
   ];
 }
 
-function buildTemplatePrompt({ sequence, topic, context, historicalContext = [], imminentBullets = [], voice, slotPrompts, templateMeta, mode, today, letterMode = false, narrativeSpine = null, behavioralTags = null, isEvergreen = false, rejectedDrafts = [], approvedDrafts = [], thesisDevelopment = null, anchorRoles = null, slideJobs = null, evidencePacket = null }) {
+function buildTemplatePrompt({ sequence, topic, context, historicalContext = [], imminentBullets = [], voice, slotPrompts, templateMeta, mode, today, letterMode = false, narrativeSpine = null, behavioralTags = null, isEvergreen = false, rejectedDrafts = [], approvedDrafts = [], thesisDevelopment = null, anchorRoles = null, slideJobs = null, evidencePacket = null, povEvidenceCheck = null }) {
   const hasVoiceDesc = voice && typeof voice.description === "string" && voice.description.trim();
   const exemplars = Array.isArray(voice?.exemplars) ? voice.exemplars.filter(e => e && e.trim()) : [];
   const hasExemplars = exemplars.length > 0;
@@ -5045,6 +5117,7 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
     ] : []),
     ...variationDirective(),
     ...((topic && topic.trim()) ? [`Carousel topic: ${topic.trim()}`, ""] : []),
+    ...formatPovEvidencePivotBlock(povEvidenceCheck),
     ...formatEvidencePacketBlock(evidencePacket),
     ...(context && context.trim() ? [
       evidencePacket && Array.isArray(evidencePacket.facts) && evidencePacket.facts.length >= 5
@@ -5052,7 +5125,7 @@ function buildTemplatePrompt({ sequence, topic, context, historicalContext = [],
         : isContentRegister(mode, isEvergreen)
           ? "Context (research evidence — locate THIS specimen first. Pattern, document, join only if they are already on the desk — NOT selling points or lineup). Break this up across slides as the method dictates:"
           : "Context (event details, selling points, lineup — break this up across slides as the rules below dictate):",
-      context.trim(),
+      stripResearchCitationTags(context.trim()),
       "",
       "─────────────────────────────",
       "",

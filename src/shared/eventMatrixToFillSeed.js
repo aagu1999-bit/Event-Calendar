@@ -311,6 +311,10 @@ export function eventMatrixToFillSeed(event) {
     // the raw bullets, and is instructed to prefer the facts' phrasing.
     // Absent / thin packet = writer behaves as before (reads bullets).
     evidencePacket: (m.evidence_packet && typeof m.evidence_packet === "object") ? m.evidence_packet : null,
+    // POV ↔ evidence coherence check output. When contradictions
+    // exist, the writer gets a pivot-rule block telling it to write
+    // the piece the evidence supports, not a critique of the POV.
+    povEvidenceCheck: (m.pov_evidence_check && typeof m.pov_evidence_check === "object") ? m.pov_evidence_check : null,
     // Named jobs. Empty = Auto from Fuel / Check. GST ignores this.
     slidePlan,
     eventId: event.id ?? null,
