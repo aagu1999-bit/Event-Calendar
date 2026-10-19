@@ -4285,27 +4285,52 @@ function CuratorialMatrixModalContent({ open, event, onClose, onFeatureToggle, a
                   navigate("/media");
                 }
               }}
-              disabled={!isMatrixReadyForGeneration(local)}
-              title={isMatrixReadyForGeneration(local)
-                ? (Array.isArray(local.preview_slides) && local.preview_slides.length
+              disabled={!isMatrixReadyForGeneration(local) || (() => {
+                // Hard-gate: block generation when POV ↔ evidence check
+                // has `contradicted` severity flags AND operator has not
+                // checked Override. Without this gate, the writer runs
+                // with no pivot block AND no block on proceeding, and
+                // defaults to writing the critique directly into slides
+                // (the bookstores failure mode this gate exists to
+                // prevent). Rhetorical and unverified flags do NOT gate
+                // — only contradicted does.
+                const check = local.pov_evidence_check;
+                if (!check || !Array.isArray(check.contradictions)) return false;
+                const hasContradicted = check.contradictions.some((c) => c && c.severity === "contradicted");
+                return hasContradicted && !povCheckOverride;
+              })()}
+              title={(() => {
+                if (!isMatrixReadyForGeneration(local)) return "Fill required fields first";
+                const check = local.pov_evidence_check;
+                const hasContradicted = check && Array.isArray(check.contradictions) && check.contradictions.some((c) => c && c.severity === "contradicted");
+                if (hasContradicted && !povCheckOverride) {
+                  return "POV ↔ Evidence has unresolved contradictions. Rewrite POV, re-fuel, or check the Override box in the coherence panel above.";
+                }
+                return Array.isArray(local.preview_slides) && local.preview_slides.length
                   ? "Open the cards you already generated. Desk stays as you left it."
-                  : (apiKey ? "Generate the cards on this desk" : "Hand off to Generate on Media"))
-                : "Fill required fields first"}
-              style={{
-                flex: 1,
-                padding: "13px 20px",
-                borderRadius: 6,
-                border: `1px solid ${isMatrixReadyForGeneration(local) ? "#E5BC4F" : whisper}`,
-                background: isMatrixReadyForGeneration(local) ? "#E5BC4F" : "transparent",
-                color: isMatrixReadyForGeneration(local) ? "#1a1404" : "rgba(245,240,232,0.28)",
-                cursor: isMatrixReadyForGeneration(local) ? "pointer" : "not-allowed",
-                fontFamily: "inherit",
-                fontSize: "0.78rem",
-                letterSpacing: "0.1em",
-                textTransform: "uppercase",
-                fontWeight: 800,
-                opacity: isMatrixReadyForGeneration(local) ? 1 : 0.5,
-              }}
+                  : (apiKey ? "Generate the cards on this desk" : "Hand off to Generate on Media");
+              })()}
+              style={(() => {
+                const check = local.pov_evidence_check;
+                const hasContradicted = check && Array.isArray(check.contradictions) && check.contradictions.some((c) => c && c.severity === "contradicted");
+                const povBlocking = hasContradicted && !povCheckOverride;
+                const canGenerate = isMatrixReadyForGeneration(local) && !povBlocking;
+                return {
+                  flex: 1,
+                  padding: "13px 20px",
+                  borderRadius: 6,
+                  border: `1px solid ${canGenerate ? "#E5BC4F" : whisper}`,
+                  background: canGenerate ? "#E5BC4F" : "transparent",
+                  color: canGenerate ? "#1a1404" : "rgba(245,240,232,0.28)",
+                  cursor: canGenerate ? "pointer" : "not-allowed",
+                  fontFamily: "inherit",
+                  fontSize: "0.78rem",
+                  letterSpacing: "0.1em",
+                  textTransform: "uppercase",
+                  fontWeight: 800,
+                  opacity: canGenerate ? 1 : 0.5,
+                };
+              })()}
             >{Array.isArray(local.preview_slides) && local.preview_slides.length ? "Open cards" : "Generate"}</button>
           </div>
         </div>

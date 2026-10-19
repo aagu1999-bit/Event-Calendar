@@ -4564,13 +4564,23 @@ function formatEvidencePacketBlock(packet) {
     const srcRefs = Array.isArray(f.source_bullets) && f.source_bullets.length
       ? ` [↳ bullet${f.source_bullets.length === 1 ? "" : "s"} ${f.source_bullets.join(", ")}]`
       : "";
-    return `  [${f.id}] spec ${spec} · ${String(f.claim || "").trim()}${srcRefs}`;
+    // Strip research-source citation tags from the fact's claim text
+    // before it hits the writer prompt. The extractor sometimes
+    // preserves "(PRESS — nj.com)" / "(OFFICIAL — ...)" / "(STORE —
+    // ...)" tags inside the atomic claim; without this pass, those
+    // tags leak into shipped slide bodies (slide 5 of the bookstores
+    // carousel ended with "(OFFICIAL — NJ Department of State; PRESS —
+    // Patch);" for exactly this reason — the context stripper ran on
+    // raw bullets but not on packet fact text).
+    const cleanClaim = stripResearchCitationTags(String(f.claim || "").trim()).replace(/\s{2,}/g, " ").trim();
+    return `  [${f.id}] spec ${spec} · ${cleanClaim}${srcRefs}`;
   });
   const entityLines = entities.slice(0, 20).map((e) => {
     const attrs = e.attributes && typeof e.attributes === "object" && Object.keys(e.attributes).length
       ? ` · ${Object.entries(e.attributes).map(([k, v]) => `${k}: ${v}`).join(" · ")}`
       : "";
-    return `  [${e.id}] ${e.type} · ${String(e.name || "").trim()}${attrs}`;
+    const cleanName = stripResearchCitationTags(String(e.name || "").trim()).trim();
+    return `  [${e.id}] ${e.type} · ${cleanName}${attrs}`;
   });
   const hedgeCount = Array.isArray(packet.hedges) ? packet.hedges.length : 0;
   return [
