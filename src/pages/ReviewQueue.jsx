@@ -67,6 +67,21 @@ function dayAbbrev(ev) {
   return DAYFUL[ev?.day]?.slice(0, 3) || (ev?.day ? String(ev.day).slice(0, 3).toUpperCase() : "?");
 }
 
+// Human relative time for the "Last synced" indicator on the website
+// bookings pipe. Returns things like "just now", "3 min ago", "2 hr ago",
+// "yesterday". Doesn't need to be precise — operator just needs to tell
+// "fresh" from "stale" at a glance.
+function formatLastSync(ms) {
+  const n = Number(ms);
+  if (!Number.isFinite(n) || n <= 0) return "never";
+  const diff = Date.now() - n;
+  if (diff < 60_000) return "just now";
+  if (diff < 60 * 60_000) return `${Math.floor(diff / 60_000)} min ago`;
+  if (diff < 24 * 60 * 60_000) return `${Math.floor(diff / (60 * 60_000))} hr ago`;
+  if (diff < 48 * 60 * 60_000) return "yesterday";
+  return `${Math.floor(diff / (24 * 60 * 60_000))} days ago`;
+}
+
 // Suspicious time vs event-type combos that hint at a typo.
 function timeTypeSuspect(ev) {
   if (!ev.time || !ev.type) return null;
@@ -740,8 +755,24 @@ export default function ReviewQueue({ betaMode = false } = {}) {
   // reference_id is the stable dedup key: already-imported ids are remembered in
   // localStorage so bookings you delete here don't march back in on the next pull.
   const IMPORTED_BOOKINGS_KEY = "cge_imported_bookings";
+  const LAST_SYNC_KEY = "cge_bookings_last_sync";
+  // Phase 1 auto-sync: when ReviewQueue mounts, if last sync was more
+  // than AUTO_SYNC_STALENESS_MS ago, kick off the import automatically.
+  // Solves the "forgot to click after I opened the tool" case the
+  // operator flagged — most forgotten bookings happen because the
+  // operator opens Review, works on something else, and never clicks
+  // the Import button. Phase 2 (true server-side cron, catches the
+  // "never opened Review that week" case) is a separate ship.
+  const AUTO_SYNC_STALENESS_MS = 10 * 60 * 1000; // 10 minutes
   const [importBusy, setImportBusy] = useState(false);
   const [importMsg, setImportMsg] = useState(null); // { ok, text } | null
+  const [lastSyncAt, setLastSyncAt] = useState(() => {
+    try {
+      const raw = localStorage.getItem(LAST_SYNC_KEY);
+      const n = Number(raw);
+      return Number.isFinite(n) && n > 0 ? n : 0;
+    } catch { return 0; }
+  });
   // Weekend filter (default ON): only pull bookings whose event date lands on
   // the reviewed Fri/Sat/Sun. Flip to import every date regardless. Persisted
   // so the choice sticks between visits.
@@ -754,6 +785,14 @@ export default function ReviewQueue({ betaMode = false } = {}) {
     const ref = String(b.reference_id || b.id || "");
     const di = b.event_date ? parseDateToDay(b.event_date) : null;
     const type = (b.event_type === "Other" && b.event_type_other) ? b.event_type_other : (b.event_type || "");
+    // Recurring / series pass-through: capture any series-shaped field the
+    // website sends so a Phase 2 grouping pass can collapse a repeat
+    // series into one Review entry per series. For this PR each instance
+    // is still its own entry — the mapper just preserves the signal so
+    // we can see what the website actually sends and tune accordingly.
+    const seriesId = b.series_id || b.recurring_series_id || null;
+    const isRecurring = !!(b.recurring || b.is_recurring || b.recurring_pattern || seriesId);
+    const recurringPattern = b.recurring_pattern || b.recurrence || null;
     return {
       id: "booking_" + ref,
       name: b.event_name || "(untitled booking)",
@@ -780,11 +819,17 @@ export default function ReviewQueue({ betaMode = false } = {}) {
         ready: b.ready_to_move_forward || "",
         status: b.status || "",
         created_at: b.created_at || "",
+        // Series pass-through (nullable). Writer / UI can read this
+        // later; nothing currently reads series fields, so a null just
+        // means "no series signal yet."
+        series: isRecurring
+          ? { id: seriesId, pattern: recurringPattern, is_recurring: true }
+          : null,
       },
     };
   };
 
-  const importFromWebsite = async () => {
+  const importFromWebsite = async ({ auto = false } = {}) => {
     if (importBusy) return;
     setImportBusy(true); setImportMsg(null);
     try {
@@ -836,21 +881,72 @@ export default function ReviewQueue({ betaMode = false } = {}) {
         });
       }
       try { localStorage.setItem(IMPORTED_BOOKINGS_KEY, JSON.stringify([...seen])); } catch {}
+      // Stamp the last-sync time regardless of whether anything was
+      // actually new — the sync happened, that's what the indicator
+      // reflects. Also drives the auto-sync-on-mount staleness check.
+      const now = Date.now();
+      setLastSyncAt(now);
+      try { localStorage.setItem(LAST_SYNC_KEY, String(now)); } catch {}
       const wkLabel = `${weekendDates.Fri}–${weekendDates.Sun}`;
-      setImportMsg({
-        ok: true,
-        text: fresh.length
-          ? `Imported ${fresh.length} new booking${fresh.length === 1 ? "" : "s"}${importAllDates ? "" : ` for ${wkLabel}`}.${offWeekend ? ` (${offWeekend} on other dates hidden — toggle “All dates” to include them.)` : ""}`
-          : (offWeekend
-              ? `No new bookings for ${wkLabel}. ${offWeekend} booking${offWeekend === 1 ? "" : "s"} on other dates — toggle “All dates” to see ${offWeekend === 1 ? "it" : "them"}.`
-              : "No new bookings — you're all caught up."),
-      });
+      // Count any new bookings with a recurring/series signal so the
+      // operator can see (for Phase 2 planning) how many instances the
+      // website is sending as part of a series.
+      const seriesCount = fresh.filter((e) => e._booking?.series).length;
+      const seriesNote = seriesCount
+        ? ` (${seriesCount} flagged as recurring — grouping into one entry per series is a future ship)`
+        : "";
+      // Auto-runs stay quiet when nothing's new (operator doesn't need
+      // a toast for every background sync). Manual clicks always show
+      // the result. All runs still log to the panel so the operator
+      // can scan "last synced" + status in one place.
+      if (fresh.length) {
+        setImportMsg({
+          ok: true,
+          text: `${auto ? "Auto-synced " : "Imported "}${fresh.length} new booking${fresh.length === 1 ? "" : "s"}${importAllDates ? "" : ` for ${wkLabel}`}.${offWeekend ? ` (${offWeekend} on other dates hidden — toggle “All dates” to include them.)` : ""}${seriesNote}`,
+        });
+      } else if (offWeekend) {
+        if (!auto) {
+          setImportMsg({
+            ok: true,
+            text: `No new bookings for ${wkLabel}. ${offWeekend} booking${offWeekend === 1 ? "" : "s"} on other dates — toggle “All dates” to see ${offWeekend === 1 ? "it" : "them"}.`,
+          });
+        }
+      } else if (!auto) {
+        setImportMsg({
+          ok: true,
+          text: `All current bookings for ${wkLabel} are in. Nothing new since the last pull.`,
+        });
+      }
     } catch (e) {
-      setImportMsg({ ok: false, text: String(e?.message || e) });
+      // Auto-run errors are quieter too — surface in the panel but
+      // don't disrupt the operator mid-work. Manual click errors
+      // get the full treatment as before.
+      if (auto) {
+        try { console.warn("[auto-sync bookings]", e?.message || e); } catch {}
+      } else {
+        setImportMsg({ ok: false, text: String(e?.message || e) });
+      }
     } finally {
       setImportBusy(false);
     }
   };
+
+  // Auto-sync on ReviewQueue mount — fires importFromWebsite() in
+  // auto mode when the last sync is older than AUTO_SYNC_STALENESS_MS.
+  // Deliberately runs ONCE per mount (not on an interval) so the
+  // operator opening Review always gets fresh bookings, but a
+  // long-open tab doesn't ping the website every N minutes. If the
+  // operator wants the long-tab case, Phase 2 (server-side cron)
+  // is the right fix, not a client interval.
+  useEffect(() => {
+    const now = Date.now();
+    const age = now - (lastSyncAt || 0);
+    if (age > AUTO_SYNC_STALENESS_MS) {
+      void importFromWebsite({ auto: true });
+    }
+    // Intentionally no deps — one-shot on mount only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Column-mapper state. After file upload, raw rows + filename are
   // stashed here while the user picks how columns map to event fields.
@@ -1984,15 +2080,30 @@ export default function ReviewQueue({ betaMode = false } = {}) {
             Auto
           </label>
           {/* Pipe 1 — pull promoter bookings from centralgroupevents.com into
-              the queue so they don't have to be retyped. */}
+              the queue so they don't have to be retyped. Auto-runs on mount
+              when the last sync is >10 min old; the "Last synced" tag below
+              shows the operator when it last happened. */}
           <button
-            onClick={importFromWebsite}
+            onClick={() => importFromWebsite()}
             disabled={importBusy}
-            title="Pull new promoter bookings submitted on centralgroupevents.com into this review queue"
+            title={lastSyncAt
+              ? `Pull new promoter bookings from centralgroupevents.com. Auto-synced on open. Last synced ${formatLastSync(lastSyncAt)}.`
+              : "Pull new promoter bookings submitted on centralgroupevents.com into this review queue. Auto-runs when you open Review."}
             style={{ ...B, background: "rgba(99,179,237,0.12)", color: "#63B3ED", border: "1px solid rgba(99,179,237,0.4)", cursor: importBusy ? "wait" : "pointer" }}
           >
             {importBusy ? "⬇ Importing…" : "⬇ Import bookings from website"}
           </button>
+          {/* Last-synced tag — gives the operator visibility that
+              auto-sync is actually running. "just now" when fresh,
+              otherwise a relative time. Clicking refreshes manually. */}
+          {lastSyncAt > 0 && (
+            <span
+              title={new Date(lastSyncAt).toLocaleString()}
+              style={{ fontSize: "0.6rem", letterSpacing: "0.4px", textTransform: "uppercase", color: "rgba(99,179,237,0.6)", userSelect: "none" }}
+            >
+              · last synced {formatLastSync(lastSyncAt)}
+            </span>
+          )}
           {/* Weekend filter toggle — by default only bookings for the reviewed
               Fri–Sun come in; flip on to pull every date. */}
           <label
