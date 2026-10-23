@@ -10,3 +10,6 @@ dist
 
 # Cloud workspace saves (server-side persistence) — never commit user data
 data/
+
+# Blind review sheets and their unblinding keys (scripts/story-eval.mjs review)
+evals/review/
