@@ -2962,6 +2962,25 @@ export default function ReviewQueue({ betaMode = false } = {}) {
                             🔁 Regular
                           </span>
                         )}
+                        {ev._booking?.series && (() => {
+                          // Website promoter flagged this booking as recurring.
+                          // Shows the pattern (Weekly/Monthly/…) when the website
+                          // sent one, falls back to just "Recurring" otherwise.
+                          // Purple to stand apart from the gold "Regular" badge
+                          // (that's YOUR weekly list; this is a promoter's series).
+                          const raw = String(ev._booking.series.pattern || "").trim();
+                          const label = raw
+                            ? raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase()
+                            : "Recurring";
+                          return (
+                            <span
+                              title={`Promoter flagged this as a recurring booking${raw ? ` (${raw.toLowerCase()})` : ""}. Each instance currently comes in as its own Review entry — decide once whether to approve the pattern or treat it as one-off.`}
+                              style={{ marginLeft: 8, fontSize: "0.55rem", padding: "1px 6px", borderRadius: 3, background: "rgba(192,132,252,0.18)", color: "#C084FC", letterSpacing: "0.5px", textTransform: "uppercase", fontWeight: 700, verticalAlign: "middle" }}
+                            >
+                              🔂 {label}
+                            </span>
+                          );
+                        })()}
                         {(isCommitted || onCal) && (
                           <span title="Already added to the calendar this session" style={{ marginLeft: 8, fontSize: "0.55rem", padding: "1px 6px", borderRadius: 3, background: "rgba(52,211,153,0.22)", color: "#34D399", letterSpacing: "0.5px", textTransform: "uppercase", fontWeight: 700, verticalAlign: "middle" }}>
                             📅 In Calendar
