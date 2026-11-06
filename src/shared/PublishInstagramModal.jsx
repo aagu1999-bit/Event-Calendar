@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import {
   IG_PUBLISH_BLOCKLIST,
-  IG_PUBLISH_DEFAULT_MAX_TOTAL,
+  IG_MAX_TAGS_PER_SLIDE,
   buildPublishPlan,
   collectHandlesFromEvents,
 } from "./igPublish.js";
@@ -28,48 +28,82 @@ const IG_ACCOUNTS = [
 export function PublishInstagramModal({
   open,
   onClose,
-  events,
-  slideCount,
+  slideEvents,       // [[event,...], [event,...], ...] — events PER slide
   weekendLabel,
   defaultCaption,
-  renderSlideToBlob,  // async (slideIndex) => Blob  (JPEG)
+  onGenerateCaption, // optional async () => string. Called on open when
+                     // defaultCaption is empty — gives us the "modal is
+                     // always pre-filled" behavior without the operator
+                     // having to click Generate Caption separately.
+  renderSlideToBlob, // async (slideIndex) => Blob  (JPEG)
 }) {
   const [account, setAccount] = useState(IG_ACCOUNTS[0].alias);
   const [caption, setCaption] = useState("");
+  const [captionBusy, setCaptionBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null); // { ok, text, permalink? }
+  const [alsoPostStory, setAlsoPostStory] = useState(false);
   const captionTouchedRef = useRef(false);
 
-  // Reset state when the modal opens — we don't want stale captions or
-  // last-run errors sticking around across opens.
+  // Reset state when the modal opens — stale captions / errors / story
+  // toggle shouldn't persist across opens.
   useEffect(() => {
     if (!open) return;
     captionTouchedRef.current = false;
     setCaption(defaultCaption || "");
     setMsg(null);
     setBusy(false);
-  }, [open, defaultCaption]);
+    setAlsoPostStory(false);
+    // Auto-generate the caption if none exists yet, so the modal always
+    // opens with a usable draft. Mirrors the ZIP download's behavior.
+    if (!defaultCaption && typeof onGenerateCaption === "function") {
+      let cancelled = false;
+      (async () => {
+        setCaptionBusy(true);
+        try {
+          const generated = await onGenerateCaption();
+          if (!cancelled && !captionTouchedRef.current) {
+            setCaption(String(generated || ""));
+          }
+        } catch (err) {
+          if (!cancelled) {
+            setMsg({ ok: false, text: `Caption auto-gen failed: ${err?.message || err}. Type one and publish anyway.` });
+          }
+        } finally {
+          if (!cancelled) setCaptionBusy(false);
+        }
+      })();
+      return () => { cancelled = true; };
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   // Keep caption in sync with upstream default UNTIL the operator types
   // in it. First keystroke marks it dirty and we stop auto-syncing.
   useEffect(() => {
     if (!open) return;
     if (captionTouchedRef.current) return;
-    setCaption(defaultCaption || "");
+    if (!defaultCaption) return;
+    setCaption(defaultCaption);
   }, [defaultCaption, open]);
 
   const plan = useMemo(() => buildPublishPlan({
-    events: events || [],
-    slideCount: Math.max(1, Number(slideCount) || 1),
-    maxTotal: IG_PUBLISH_DEFAULT_MAX_TOTAL,
+    slideEvents: slideEvents || [],
+    maxPerSlide: IG_MAX_TAGS_PER_SLIDE,
     exclude: IG_PUBLISH_BLOCKLIST,
-  }), [events, slideCount]);
+  }), [slideEvents]);
 
-  const allHandles = useMemo(
-    () => collectHandlesFromEvents(events || [], { exclude: [] }),
-    [events]
+  const flatSlideEvents = useMemo(
+    () => (slideEvents || []).flat(),
+    [slideEvents]
   );
-  const blockedCount = allHandles.length - plan.uniqueHandles.length;
+  const allHandles = useMemo(
+    () => collectHandlesFromEvents(flatSlideEvents, { exclude: [] }),
+    [flatSlideEvents]
+  );
+  const blockedCount = allHandles.filter((h) =>
+    IG_PUBLISH_BLOCKLIST.includes(h)
+  ).length;
 
   const publish = async () => {
     if (busy) return;
@@ -92,6 +126,7 @@ export function PublishInstagramModal({
         body: JSON.stringify({
           accountAlias: account,
           caption: caption,
+          alsoPostStory,
           slides: slideJpegs.map((b64, i) => ({
             imageBase64: b64,
             userTags: plan.userTagsPerSlide[i],
@@ -106,11 +141,18 @@ export function PublishInstagramModal({
         const detail = data?.message || data?.error || text?.slice(0, 500) || `HTTP ${res.status}`;
         throw new Error(detail);
       }
+      const storyCount = Array.isArray(data?.stories) ? data.stories.filter((s) => s?.ok).length : 0;
+      const storyFailed = Array.isArray(data?.stories) ? data.stories.filter((s) => !s?.ok).length : 0;
+      const parts = [];
+      parts.push(data?.permalink ? "Posted to Instagram feed." : "Posted to feed (no permalink returned).");
+      if (alsoPostStory) {
+        if (storyCount && !storyFailed) parts.push(`+ ${storyCount} slide${storyCount === 1 ? "" : "s"} posted as Stories.`);
+        else if (storyCount && storyFailed) parts.push(`+ ${storyCount} slide Stories posted, ${storyFailed} failed.`);
+        else parts.push("Stories step failed — see server logs.");
+      }
       setMsg({
         ok: true,
-        text: data?.permalink
-          ? "Posted to Instagram."
-          : "Posted. (No permalink returned — check Instagram app.)",
+        text: parts.join(" "),
         permalink: data?.permalink || null,
       });
     } catch (err) {
@@ -168,10 +210,11 @@ export function PublishInstagramModal({
           ))}
         </select>
 
-        {/* Tag plan summary — operator sees exactly what will be tagged
-            on which slide before they commit. */}
+        {/* Tag plan summary — tags per slide come from the EVENTS shown on
+            that slide (so slide 2's tags correspond to slide 2's events,
+            not just the next unique handles from a pooled list). */}
         <label style={{ display: "block", fontSize: "0.65rem", letterSpacing: "1px", textTransform: "uppercase", color: "rgba(245,240,232,0.6)", marginBottom: 6 }}>
-          Tags ({plan.totalTagged} / {plan.cap})
+          Tags per slide ({plan.totalTagPlacements} placements · {plan.uniqueAcrossSlides.length} unique accounts)
         </label>
         <div style={{
           background: "#0e0e10", border: "1px solid rgba(245,240,232,0.1)", borderRadius: 4,
@@ -190,26 +233,56 @@ export function PublishInstagramModal({
           ))}
         </div>
         <div style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.45)", marginBottom: 14, lineHeight: 1.4 }}>
-          Up to {plan.cap} tags spread evenly across {plan.perSlide.length} slides.
+          Each slide tags the handles of the events on that slide (up to {plan.maxPerSlide} per slide — IG's hard cap).
           {blockedCount > 0 && ` ${blockedCount} blocked (${plan.blocked.join(", ")}).`}
-          {plan.droppedForCap > 0 && ` ${plan.droppedForCap} dropped at ${plan.cap}-tag cap.`}
         </div>
 
+        {/* Story posting — optional. When checked, every carousel slide
+            is ALSO posted as its own Story with the same per-slide
+            mentions. Stories are published one at a time (not a
+            container) so the count in the status reflects how many
+            went through. */}
+        <label
+          style={{
+            display: "flex", alignItems: "center", gap: 8, marginBottom: 14,
+            fontSize: "0.75rem", color: "rgba(245,240,232,0.85)", cursor: busy ? "not-allowed" : "pointer",
+            userSelect: "none",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={alsoPostStory}
+            onChange={(e) => setAlsoPostStory(e.target.checked)}
+            disabled={busy}
+            style={{ accentColor: "#F472B6" }}
+          />
+          Also post each slide to Story with the same mentions
+          {alsoPostStory && (
+            <span style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.45)", marginLeft: 6 }}>
+              · {plan.perSlide.length} Stor{plan.perSlide.length === 1 ? "y" : "ies"}
+            </span>
+          )}
+        </label>
+
         {/* Caption — pre-filled from the Calendar's current caption, fully
-            editable. First keystroke flips captionTouchedRef so later
-            re-renders don't overwrite what the operator typed. */}
+            editable. If no caption exists yet when the modal opens we
+            auto-generate a draft so the box is never blank. First
+            keystroke flips captionTouchedRef so later re-renders don't
+            overwrite what the operator typed. */}
         <label style={{ display: "block", fontSize: "0.65rem", letterSpacing: "1px", textTransform: "uppercase", color: "rgba(245,240,232,0.6)", marginBottom: 6 }}>
-          Caption
+          Caption {captionBusy && <span style={{ color: "#C084FC", textTransform: "none", letterSpacing: 0, fontSize: "0.6rem" }}>· ✨ drafting…</span>}
         </label>
         <textarea
-          value={caption}
+          value={captionBusy && !caption ? "✨ drafting caption, hold on…" : caption}
           onChange={(e) => { captionTouchedRef.current = true; setCaption(e.target.value); }}
-          disabled={busy}
+          disabled={busy || captionBusy}
           rows={8}
           style={{
             width: "100%", padding: "10px", background: "#0e0e10", color: "#F5F0E8",
             border: "1px solid rgba(245,240,232,0.15)", borderRadius: 4, fontSize: "0.82rem",
             fontFamily: "inherit", resize: "vertical", marginBottom: 6, lineHeight: 1.5,
+            fontStyle: captionBusy && !caption ? "italic" : "normal",
+            opacity: captionBusy && !caption ? 0.6 : 1,
           }}
         />
         <div style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.45)", marginBottom: 14 }}>
@@ -249,17 +322,17 @@ export function PublishInstagramModal({
           </button>
           <button
             onClick={publish}
-            disabled={busy || caption.length > 2200}
+            disabled={busy || captionBusy || caption.length > 2200 || !caption.trim()}
             style={{
               padding: "8px 16px",
-              background: busy ? "rgba(99,179,237,0.3)" : "#63B3ED",
-              color: busy ? "rgba(14,14,16,0.6)" : "#0e0e10",
+              background: (busy || captionBusy) ? "rgba(99,179,237,0.3)" : "#63B3ED",
+              color: (busy || captionBusy) ? "rgba(14,14,16,0.6)" : "#0e0e10",
               border: "none", borderRadius: 4, fontSize: "0.78rem", fontWeight: 700,
-              cursor: busy ? "wait" : (caption.length > 2200 ? "not-allowed" : "pointer"),
+              cursor: busy ? "wait" : (captionBusy || caption.length > 2200 || !caption.trim() ? "not-allowed" : "pointer"),
               letterSpacing: "0.3px",
             }}
           >
-            {busy ? "Publishing…" : "📱 Publish to Instagram"}
+            {busy ? "Publishing…" : captionBusy ? "Drafting caption…" : "📱 Publish to Instagram"}
           </button>
         </div>
       </div>

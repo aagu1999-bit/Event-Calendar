@@ -2740,7 +2740,7 @@ app.post("/api/instagram/publish-carousel", express.json({ limit: "48mb" }), asy
     if (!COMPOSIO_API_KEY) {
       return res.status(503).json({ error: "not_configured", message: "Set COMPOSIO_API_KEY in Replit Secrets." });
     }
-    const { accountAlias, caption, slides } = req.body || {};
+    const { accountAlias, caption, slides, alsoPostStory } = req.body || {};
     const alias = String(accountAlias || "").toLowerCase();
     const connectedAccountId = IG_ACCOUNT_IDS[alias];
     if (!connectedAccountId) {
@@ -2832,12 +2832,55 @@ app.post("/api/instagram/publish-carousel", express.json({ limit: "48mb" }), asy
       }
     }
 
+    // Optionally also post each slide as its own Story, with the same
+    // per-slide user_tags acting as mention stickers. Done AFTER the
+    // feed carousel succeeds so a Story failure never blocks the main
+    // post. We re-stage the images in tmp (the originals were cleared
+    // before they expired) because Meta's Story container needs the
+    // URL to still be live when it processes.
+    const storyResults = [];
+    if (alsoPostStory) {
+      for (let i = 0; i < slides.length; i++) {
+        const spec = slides[i];
+        const storyToken = makeIgTmpToken();
+        IG_TMP_IMAGES.set(storyToken, {
+          buf: base64JpegToBuffer(spec?.imageBase64),
+          expiresAt: Date.now() + IG_TMP_TTL_MS,
+        });
+        try {
+          // Story container: same image_url + user_tags shape as a feed
+          // image, but media_type=STORIES and no is_carousel_item.
+          const container = await composioExecute("INSTAGRAM_POST_IG_USER_MEDIA", connectedAccountId, {
+            ig_user_id: igUserId,
+            image_url: `${origin}/api/instagram/tmp-image/${storyToken}.jpg`,
+            media_type: "STORIES",
+            user_tags: Array.isArray(spec?.userTags) ? spec.userTags.slice(0, 20) : [],
+          });
+          const containerId = String(container?.response_data?.id || container?.data?.id || container?.id || "");
+          if (!containerId) throw new Error("story container returned no id");
+          const publishedStory = await composioExecute("INSTAGRAM_POST_IG_USER_MEDIA_PUBLISH", connectedAccountId, {
+            ig_user_id: igUserId,
+            creation_id: containerId,
+            max_wait_seconds: 60,
+            poll_interval_seconds: 3,
+          });
+          const storyMediaId = String(publishedStory?.response_data?.id || publishedStory?.data?.id || publishedStory?.id || "");
+          storyResults.push({ ok: true, slideIndex: i, mediaId: storyMediaId });
+        } catch (storyErr) {
+          console.warn(`[ig publish] story slide ${i + 1} failed:`, storyErr?.message || storyErr);
+          storyResults.push({ ok: false, slideIndex: i, error: String(storyErr?.message || storyErr) });
+        } finally {
+          IG_TMP_IMAGES.delete(storyToken);
+        }
+      }
+    }
+
     // Cleanup: tokens aren't needed once IG has actually ingested the
     // images. We let them expire naturally too, but dropping them now
     // means a leaked token is unreachable.
     for (const t of tokens) IG_TMP_IMAGES.delete(t);
 
-    return res.json({ ok: true, mediaId, permalink, account: alias });
+    return res.json({ ok: true, mediaId, permalink, account: alias, stories: storyResults });
   } catch (err) {
     console.error("[ig publish] error:", err);
     const status = err?.status && Number.isFinite(err.status) ? err.status : 500;
