@@ -14,11 +14,11 @@
 //                a bot
 export const IG_PUBLISH_BLOCKLIST = ["kinnectnj", "centralgroupevents"];
 
-// IG's own cap per image is 20 user tags. We cap at 20 TOTAL across
-// the carousel so a 10-slide post never ships with 200 tags (spammy
-// and the first-slide preview on feed gets drowned). Operator asked
-// for 20 total — if that moves, bump here.
-export const IG_PUBLISH_DEFAULT_MAX_TOTAL = 20;
+// IG's per-image hard cap. We never exceed this on a single slide because
+// Meta's API will outright reject the create-container call otherwise.
+// An individual slide with more than 20 unique venues (rare — usually
+// means a packed Saturday) picks the first 20 in event order.
+export const IG_MAX_TAGS_PER_SLIDE = 20;
 
 // IG handle hygiene: strip @, lowercase, drop anything non-alphanum
 // except _ and . (those are legal IG chars). Empty string in → null out.
@@ -51,32 +51,26 @@ export function collectHandlesFromEvents(events, { exclude = IG_PUBLISH_BLOCKLIS
   return out;
 }
 
-// Spread handles across slides as evenly as the count allows. Front-loads
-// the "extra" ones onto the earliest slides so the first-slide preview
-// on feed carries the biggest tagged roster (where it's most likely to
-// drive profile hops). Returns handles[slideIndex] = [h, h, ...].
-//
-//   7 handles, 4 slides → [2, 2, 2, 1]
-//   3 handles, 5 slides → [1, 1, 1, 0, 0]
-//   20 handles, 5 slides → [4, 4, 4, 4, 4]
-export function distributeTagsAcrossSlides({
-  handles,
-  slideCount,
-  maxTotal = IG_PUBLISH_DEFAULT_MAX_TOTAL,
-} = {}) {
-  const slides = Math.max(1, Number(slideCount) || 1);
-  const list = Array.from(new Set((handles || []).map((h) => String(h || "").toLowerCase()).filter(Boolean)))
-    .slice(0, Math.max(0, Number(maxTotal) || 0));
-  const base = Math.floor(list.length / slides);
-  const extra = list.length % slides;
-  const result = [];
-  let i = 0;
-  for (let s = 0; s < slides; s++) {
-    const take = base + (s < extra ? 1 : 0);
-    result.push(list.slice(i, i + take));
-    i += take;
+// Collect handles for a SINGLE slide from the events actually shown on
+// that slide. Dedupes within the slide (two events at the same venue
+// only earn one tag), applies the blocklist, caps at IG's per-image
+// hard cap. Does NOT dedupe across slides — a venue hosting Fri AND
+// Sat gets tagged on both slides, because the whole point is that
+// each slide's tags correspond to the events shown on that slide.
+export function handlesForSlideEvents(slideEvents, { exclude = IG_PUBLISH_BLOCKLIST, max = IG_MAX_TAGS_PER_SLIDE } = {}) {
+  const excludeSet = new Set((exclude || []).map((h) => String(h || "").toLowerCase()));
+  const seen = new Set();
+  const out = [];
+  for (const ev of slideEvents || []) {
+    const h = normalizeIgHandle(ev?.igHandle);
+    if (!h) continue;
+    if (excludeSet.has(h)) continue;
+    if (seen.has(h)) continue;
+    seen.add(h);
+    out.push(h);
+    if (out.length >= max) break;
   }
-  return result;
+  return out;
 }
 
 // Position helper — tags live in the bottom-third (y=0.85) and spread
@@ -113,27 +107,30 @@ export function buildSlideUserTags(handlesForSlide) {
 // End-to-end plan builder. Called BOTH client-side (to render the
 // preview) and server-side (to re-verify before Composio). Returning
 // the same shape from both keeps "what you see is what gets posted."
+//
+// slideEvents : array of event arrays, one per slide — slideEvents[i]
+//               is the events SHOWN on slide i. Tags on slide i come
+//               ONLY from events shown on slide i (this is the fix for
+//               the "tags didn't match the slide" regression).
 export function buildPublishPlan({
-  events,
-  slideCount,
-  maxTotal = IG_PUBLISH_DEFAULT_MAX_TOTAL,
+  slideEvents,
   exclude = IG_PUBLISH_BLOCKLIST,
+  maxPerSlide = IG_MAX_TAGS_PER_SLIDE,
 } = {}) {
-  const uniqueHandles = collectHandlesFromEvents(events, { exclude });
-  const perSlide = distributeTagsAcrossSlides({
-    handles: uniqueHandles,
-    slideCount,
-    maxTotal,
-  });
-  const totalTagged = perSlide.reduce((n, arr) => n + arr.length, 0);
-  const droppedForCap = Math.max(0, uniqueHandles.length - totalTagged);
+  const perSlide = (slideEvents || []).map((evs) =>
+    handlesForSlideEvents(evs, { exclude, max: maxPerSlide })
+  );
+  // Flatten + dedupe to show operator the unique-roster count without
+  // double-counting a venue that repeats across slides. That number is
+  // how many DIFFERENT accounts the whole post touches.
+  const uniqueAcrossSlides = Array.from(new Set(perSlide.flat()));
+  const totalTagPlacements = perSlide.reduce((n, arr) => n + arr.length, 0);
   return {
-    uniqueHandles,
     perSlide,
     userTagsPerSlide: perSlide.map(buildSlideUserTags),
-    totalTagged,
-    droppedForCap,
-    cap: maxTotal,
+    uniqueAcrossSlides,
+    totalTagPlacements,
+    maxPerSlide,
     blocked: exclude,
   };
 }

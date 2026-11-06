@@ -2642,10 +2642,21 @@ export default function CalendarBuilder() {
       <PublishInstagramModal
         open={igPublishOpen}
         onClose={() => setIgPublishOpen(false)}
-        events={events}
-        slideCount={pages}
+        slideEvents={allPages.map((p) => p?.events || [])}
         weekendLabel={calcDates(friDate)?.Fri || friDate}
         defaultCaption={captionText}
+        onGenerateCaption={async () => {
+          // Auto-draft caption when the modal opens with none set.
+          // Side-effects captionText so the next ZIP download reuses
+          // the same draft (same pattern dlAll uses).
+          try {
+            const draft = await runCaptionGeneration();
+            setCaptionText(draft);
+            return draft;
+          } catch (err) {
+            throw err;
+          }
+        }}
         renderSlideToBlob={async (i) => {
           // Render one slide to a JPEG blob using the same pipeline
           // as the Download button. Mode toggles between preview and
