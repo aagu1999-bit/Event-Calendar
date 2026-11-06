@@ -2732,10 +2732,27 @@ async function composioExecute(toolSlug, igAccount, args) {
   let payload = null;
   try { payload = JSON.parse(text); } catch {}
   if (!r.ok || payload?.successful === false) {
-    const detail = payload?.error || payload?.data?.error || text.slice(0, 500);
-    const err = new Error(`composio ${toolSlug} failed: ${detail}`);
+    // Composio returns errors in several shapes depending on where the
+    // failure happened (our auth, their upstream to Meta, a tool-side
+    // validation error). Drill through the common ones; fall back to
+    // the raw text or a JSON dump if nothing shaped matches. Previous
+    // version template-literal'd an object directly, which ended up
+    // "[object Object]" and buried every real error.
+    const detail =
+      (typeof payload?.error === "string" && payload.error) ||
+      payload?.error?.message ||
+      payload?.error?.error ||
+      (typeof payload?.data?.error === "string" && payload.data.error) ||
+      payload?.data?.error?.message ||
+      payload?.data?.error ||
+      payload?.message ||
+      payload?.detail ||
+      text.slice(0, 500);
+    const detailStr = typeof detail === "string" ? detail : JSON.stringify(detail);
+    const err = new Error(`composio ${toolSlug} failed (HTTP ${r.status}): ${detailStr}`);
     err.status = r.status;
     err.raw = payload || text;
+    console.error(`[composio] ${toolSlug} HTTP ${r.status} body:`, text.slice(0, 1000));
     throw err;
   }
   return payload?.data || payload;
