@@ -2657,25 +2657,62 @@ app.post("/api/website/pages", express.json({ limit: "4mb" }), async (req, res) 
 // Composio's three-step Meta flow (create children → create parent →
 // publish).
 //
-// COMPOSIO_API_KEY lives in Replit Secrets — never touches the client.
-// We also hold a hardcoded alias → connected_account_id map here
-// instead of letting the client name an account id directly, so a
-// compromised browser payload can never target an unrelated account.
-
-const COMPOSIO_API_KEY = (process.env.COMPOSIO_API_KEY || "").trim();
+// Keys live in Replit Secrets — never touch the client. Each Composio
+// ORG (not each IG) has its own API key. Operator connects IGs to an
+// org via the Composio dashboard; multiple IGs can share one org and
+// therefore one key.
+//
+// To add a new Composio org:
+//   1. Add COMPOSIO_API_KEY_<ORGNAME> to Replit Secrets
+//   2. Append to COMPOSIO_ORGS below
+//   3. Add any new IG aliases to IG_ACCOUNT_IDS with that org name
+//
+// The alias → { org, id } map stays hardcoded here instead of being
+// client-controlled, so a compromised browser payload can never target
+// an IG the operator didn't register.
 const COMPOSIO_BASE = "https://backend.composio.dev/api/v3";
 
-// Alias → connected_account_id. These IDs come from Composio's own
-// list — the operator can inspect them via dashboard.composio.dev or
-// a `COMPOSIO_MANAGE_CONNECTIONS` list. New account → add a row.
-const IG_ACCOUNT_IDS = {
-  cge:            "instagram_ambar-entire",
-  happyhourhqnj:  "instagram_scots-gwen",
+const COMPOSIO_ORGS = {
+  // Primary: the original org (aagu1999 / CGE). COMPOSIO_API_KEY keeps
+  // its unsuffixed name for backward-compat with prior deploys.
+  primary:   (process.env.COMPOSIO_API_KEY || "").trim(),
+  // Secondary: a second Composio org (different login, can't be merged
+  // with primary). Fill in COMPOSIO_API_KEY_SECONDARY and add the
+  // relevant IG aliases below.
+  secondary: (process.env.COMPOSIO_API_KEY_SECONDARY || "").trim(),
 };
 
-async function composioExecute(toolSlug, connectedAccountId, args) {
-  if (!COMPOSIO_API_KEY) {
-    const err = new Error("Set COMPOSIO_API_KEY in Replit Secrets.");
+// Alias → { org, id }. `org` tells us which API key to use. `id` is
+// the Composio connected_account_id — grab it from a Composio
+// MANAGE_CONNECTIONS list in the dashboard.
+const IG_ACCOUNT_IDS = {
+  cge:            { org: "primary",   id: "instagram_ambar-entire" },
+  happyhourhqnj:  { org: "primary",   id: "instagram_scots-gwen" },
+  // Add rows for the secondary org here, e.g.:
+  //   personal:   { org: "secondary", id: "instagram_abcdef" },
+};
+
+function composioKeyForOrg(orgName) {
+  const key = COMPOSIO_ORGS[orgName];
+  return key && key.length ? key : null;
+}
+
+function anyComposioKeyConfigured() {
+  return Object.values(COMPOSIO_ORGS).some((k) => k && k.length);
+}
+
+async function composioExecute(toolSlug, igAccount, args) {
+  // igAccount is a { org, id } object from IG_ACCOUNT_IDS. Callers that
+  // want to execute against a raw connected_account_id must now resolve
+  // the owning org themselves — the point of this change is that one
+  // key doesn't cover every account.
+  const apiKey = composioKeyForOrg(igAccount?.org);
+  if (!apiKey) {
+    const err = new Error(
+      igAccount?.org
+        ? `Set COMPOSIO_API_KEY${igAccount.org === "primary" ? "" : "_" + igAccount.org.toUpperCase()} in Replit Secrets (org "${igAccount.org}").`
+        : "Composio org not resolved for this IG alias."
+    );
     err.code = "no_api_key";
     throw err;
   }
@@ -2684,10 +2721,10 @@ async function composioExecute(toolSlug, connectedAccountId, args) {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "x-api-key": COMPOSIO_API_KEY,
+      "x-api-key": apiKey,
     },
     body: JSON.stringify({
-      connected_account_id: connectedAccountId,
+      connected_account_id: igAccount.id,
       arguments: args,
     }),
   });
@@ -2743,7 +2780,7 @@ app.get("/api/instagram/tmp-image/:token.jpg", (req, res) => {
 // alsoPostStory   : if true, also fire the slide as a STORIES media
 // Returns { mediaId, permalink, story: {ok, mediaId?, error?} | null }
 async function publishSingleSlideToFeed({
-  slide, caption, connectedAccountId, igUserId, origin, alsoPostStory,
+  slide, caption, igAccount, igUserId, origin, alsoPostStory,
 }) {
   const feedToken = makeIgTmpToken();
   IG_TMP_IMAGES.set(feedToken, {
@@ -2761,10 +2798,10 @@ async function publishSingleSlideToFeed({
   let mediaId = "";
   let permalink = null;
   try {
-    const container = await composioExecute("INSTAGRAM_POST_IG_USER_MEDIA", connectedAccountId, feedPayload);
+    const container = await composioExecute("INSTAGRAM_POST_IG_USER_MEDIA", igAccount, feedPayload);
     const containerId = String(container?.response_data?.id || container?.data?.id || container?.id || "");
     if (!containerId) throw new Error("single-image container returned no id");
-    const published = await composioExecute("INSTAGRAM_POST_IG_USER_MEDIA_PUBLISH", connectedAccountId, {
+    const published = await composioExecute("INSTAGRAM_POST_IG_USER_MEDIA_PUBLISH", igAccount, {
       ig_user_id: igUserId,
       creation_id: containerId,
       max_wait_seconds: 90,
@@ -2773,7 +2810,7 @@ async function publishSingleSlideToFeed({
     mediaId = String(published?.response_data?.id || published?.data?.id || published?.id || "");
     if (mediaId) {
       try {
-        const media = await composioExecute("INSTAGRAM_GET_IG_MEDIA", connectedAccountId, {
+        const media = await composioExecute("INSTAGRAM_GET_IG_MEDIA", igAccount, {
           ig_media_id: mediaId, fields: "permalink",
         });
         permalink = media?.response_data?.permalink || media?.data?.permalink || media?.permalink || null;
@@ -2791,7 +2828,7 @@ async function publishSingleSlideToFeed({
       expiresAt: Date.now() + IG_TMP_TTL_MS,
     });
     try {
-      const container = await composioExecute("INSTAGRAM_POST_IG_USER_MEDIA", connectedAccountId, {
+      const container = await composioExecute("INSTAGRAM_POST_IG_USER_MEDIA", igAccount, {
         ig_user_id: igUserId,
         image_url: `${origin}/api/instagram/tmp-image/${storyToken}.jpg`,
         media_type: "STORIES",
@@ -2799,7 +2836,7 @@ async function publishSingleSlideToFeed({
       });
       const containerId = String(container?.response_data?.id || container?.data?.id || container?.id || "");
       if (!containerId) throw new Error("story container returned no id");
-      const publishedStory = await composioExecute("INSTAGRAM_POST_IG_USER_MEDIA_PUBLISH", connectedAccountId, {
+      const publishedStory = await composioExecute("INSTAGRAM_POST_IG_USER_MEDIA_PUBLISH", igAccount, {
         ig_user_id: igUserId,
         creation_id: containerId,
         max_wait_seconds: 60,
@@ -2819,14 +2856,17 @@ async function publishSingleSlideToFeed({
 
 app.post("/api/instagram/publish-carousel", express.json({ limit: "48mb" }), async (req, res) => {
   try {
-    if (!COMPOSIO_API_KEY) {
-      return res.status(503).json({ error: "not_configured", message: "Set COMPOSIO_API_KEY in Replit Secrets." });
+    if (!anyComposioKeyConfigured()) {
+      return res.status(503).json({ error: "not_configured", message: "Set COMPOSIO_API_KEY (and COMPOSIO_API_KEY_SECONDARY, if you're using a second Composio org) in Replit Secrets." });
     }
     const { accountAlias, caption, slides, alsoPostStory } = req.body || {};
     const alias = String(accountAlias || "").toLowerCase();
-    const connectedAccountId = IG_ACCOUNT_IDS[alias];
-    if (!connectedAccountId) {
+    const igAccount = IG_ACCOUNT_IDS[alias];
+    if (!igAccount) {
       return res.status(400).json({ error: "bad_account", message: `Unknown account alias "${accountAlias}".` });
+    }
+    if (!composioKeyForOrg(igAccount.org)) {
+      return res.status(503).json({ error: "org_not_configured", message: `Alias "${alias}" belongs to Composio org "${igAccount.org}" but its API key isn't set in Replit Secrets.` });
     }
     if (!Array.isArray(slides) || slides.length < 1 || slides.length > 10) {
       return res.status(400).json({ error: "bad_slides", message: "Need 1–10 slides (single-image post for 1, carousel for 2+)." });
@@ -2839,7 +2879,7 @@ app.post("/api/instagram/publish-carousel", express.json({ limit: "48mb" }), asy
     // us call the publish endpoints with a real numeric id instead of
     // relying on "me" (which can be account-ambiguous when multiple are
     // connected through the same Composio org).
-    const userInfo = await composioExecute("INSTAGRAM_GET_USER_INFO", connectedAccountId, { ig_user_id: "me" });
+    const userInfo = await composioExecute("INSTAGRAM_GET_USER_INFO", igAccount, { ig_user_id: "me" });
     const igUserId = String(userInfo?.response_data?.id || userInfo?.data?.id || userInfo?.id || "me");
 
     const origin = publicOrigin(req) || "";
@@ -2854,7 +2894,7 @@ app.post("/api/instagram/publish-carousel", express.json({ limit: "48mb" }), asy
       const single = await publishSingleSlideToFeed({
         slide: slides[0],
         caption,
-        connectedAccountId,
+        igAccount,
         igUserId,
         origin,
         alsoPostStory: !!alsoPostStory,
@@ -2895,7 +2935,7 @@ app.post("/api/instagram/publish-carousel", express.json({ limit: "48mb" }), asy
         is_carousel_item: true,
       };
       if (spec.user_tags.length) payload.user_tags = spec.user_tags;
-      const out = await composioExecute("INSTAGRAM_POST_IG_USER_MEDIA", connectedAccountId, payload);
+      const out = await composioExecute("INSTAGRAM_POST_IG_USER_MEDIA", igAccount, payload);
       const id = out?.response_data?.id || out?.data?.id || out?.id;
       if (!id) throw new Error(`child ${i + 1} returned no id`);
       childIds.push(String(id));
@@ -2903,7 +2943,7 @@ app.post("/api/instagram/publish-carousel", express.json({ limit: "48mb" }), asy
 
     // Step 3 — parent carousel container carries the caption + ordered
     // child ids.
-    const parent = await composioExecute("INSTAGRAM_CREATE_CAROUSEL_CONTAINER", connectedAccountId, {
+    const parent = await composioExecute("INSTAGRAM_CREATE_CAROUSEL_CONTAINER", igAccount, {
       ig_user_id: igUserId,
       caption,
       children: childIds,
@@ -2913,7 +2953,7 @@ app.post("/api/instagram/publish-carousel", express.json({ limit: "48mb" }), asy
 
     // Step 4 — publish. We poll (max 90s) in case any child is still
     // being processed.
-    const published = await composioExecute("INSTAGRAM_POST_IG_USER_MEDIA_PUBLISH", connectedAccountId, {
+    const published = await composioExecute("INSTAGRAM_POST_IG_USER_MEDIA_PUBLISH", igAccount, {
       ig_user_id: igUserId,
       creation_id: parentId,
       max_wait_seconds: 90,
@@ -2926,7 +2966,7 @@ app.post("/api/instagram/publish-carousel", express.json({ limit: "48mb" }), asy
     let permalink = null;
     if (mediaId) {
       try {
-        const media = await composioExecute("INSTAGRAM_GET_IG_MEDIA", connectedAccountId, {
+        const media = await composioExecute("INSTAGRAM_GET_IG_MEDIA", igAccount, {
           ig_media_id: mediaId,
           fields: "permalink",
         });
@@ -2954,7 +2994,7 @@ app.post("/api/instagram/publish-carousel", express.json({ limit: "48mb" }), asy
         try {
           // Story container: same image_url + user_tags shape as a feed
           // image, but media_type=STORIES and no is_carousel_item.
-          const container = await composioExecute("INSTAGRAM_POST_IG_USER_MEDIA", connectedAccountId, {
+          const container = await composioExecute("INSTAGRAM_POST_IG_USER_MEDIA", igAccount, {
             ig_user_id: igUserId,
             image_url: `${origin}/api/instagram/tmp-image/${storyToken}.jpg`,
             media_type: "STORIES",
@@ -2962,7 +3002,7 @@ app.post("/api/instagram/publish-carousel", express.json({ limit: "48mb" }), asy
           });
           const containerId = String(container?.response_data?.id || container?.data?.id || container?.id || "");
           if (!containerId) throw new Error("story container returned no id");
-          const publishedStory = await composioExecute("INSTAGRAM_POST_IG_USER_MEDIA_PUBLISH", connectedAccountId, {
+          const publishedStory = await composioExecute("INSTAGRAM_POST_IG_USER_MEDIA_PUBLISH", igAccount, {
             ig_user_id: igUserId,
             creation_id: containerId,
             max_wait_seconds: 60,
@@ -3020,13 +3060,16 @@ async function writeIgScheduleStore(list) {
 
 app.post("/api/instagram/schedule-slides", express.json({ limit: "48mb" }), async (req, res) => {
   try {
-    if (!COMPOSIO_API_KEY) {
-      return res.status(503).json({ error: "not_configured", message: "Set COMPOSIO_API_KEY in Replit Secrets." });
+    if (!anyComposioKeyConfigured()) {
+      return res.status(503).json({ error: "not_configured", message: "Set COMPOSIO_API_KEY (and COMPOSIO_API_KEY_SECONDARY if using a second org) in Replit Secrets." });
     }
     const { accountAlias, caption, alsoPostStory, items } = req.body || {};
     const alias = String(accountAlias || "").toLowerCase();
-    const connectedAccountId = IG_ACCOUNT_IDS[alias];
-    if (!connectedAccountId) return res.status(400).json({ error: "bad_account", message: `Unknown account alias "${accountAlias}".` });
+    const igAccount = IG_ACCOUNT_IDS[alias];
+    if (!igAccount) return res.status(400).json({ error: "bad_account", message: `Unknown account alias "${accountAlias}".` });
+    if (!composioKeyForOrg(igAccount.org)) {
+      return res.status(503).json({ error: "org_not_configured", message: `Alias "${alias}" belongs to Composio org "${igAccount.org}" but its API key isn't set.` });
+    }
     if (typeof caption !== "string" || caption.length > 2200) return res.status(400).json({ error: "bad_caption" });
     if (!Array.isArray(items) || !items.length) return res.status(400).json({ error: "bad_items", message: "Need at least one slide to schedule." });
 
@@ -3035,7 +3078,11 @@ app.post("/api/instagram/schedule-slides", express.json({ limit: "48mb" }), asyn
     const newEntries = items.map((it) => ({
       id: makeIgTmpToken(),
       accountAlias: alias,
-      connectedAccountId,
+      // Store the full {org, id} so the scheduler can route to the
+      // correct Composio key at fire time — the alias→igAccount
+      // config might be edited between queue time and fire time, but
+      // whatever was intended at schedule time wins.
+      igAccount,
       caption,
       alsoPostStory: !!alsoPostStory,
       day: it?.day || null,
@@ -3088,7 +3135,12 @@ async function tickIgScheduler() {
     const now = Date.now();
     const due = list.find((e) => e.status === "pending" && e.scheduledAt <= now);
     if (!due) return;
-    if (!COMPOSIO_API_KEY) return; // silent — not configured; next tick retries
+    // Back-compat: entries queued before multi-org support stored
+    // `connectedAccountId` as a bare string. Migrate on read.
+    if (!due.igAccount && due.connectedAccountId) {
+      due.igAccount = { org: "primary", id: due.connectedAccountId };
+    }
+    if (!composioKeyForOrg(due.igAccount?.org)) return; // not configured
     const origin = (process.env.IG_PUBLIC_ORIGIN || "").trim() || (
       (process.env.REPLIT_DEV_DOMAIN || "").trim()
         ? `https://${process.env.REPLIT_DEV_DOMAIN.trim()}`
@@ -3099,12 +3151,12 @@ async function tickIgScheduler() {
       return;
     }
     try {
-      const userInfo = await composioExecute("INSTAGRAM_GET_USER_INFO", due.connectedAccountId, { ig_user_id: "me" });
+      const userInfo = await composioExecute("INSTAGRAM_GET_USER_INFO", due.igAccount, { ig_user_id: "me" });
       const igUserId = String(userInfo?.response_data?.id || userInfo?.data?.id || userInfo?.id || "me");
       const result = await publishSingleSlideToFeed({
         slide: { imageBase64: due.imageBase64, userTags: due.userTags },
         caption: due.caption,
-        connectedAccountId: due.connectedAccountId,
+        igAccount: due.igAccount,
         igUserId,
         origin,
         alsoPostStory: !!due.alsoPostStory,

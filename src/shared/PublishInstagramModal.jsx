@@ -22,9 +22,18 @@ import {
 
 // Default accounts. Aliases match what Composio knows them as.
 // Order matters: the first is the default pick.
+// Alias → display label. Each alias must also exist in server.js's
+// IG_ACCOUNT_IDS map (which carries the Composio org + connected
+// account id). Adding a row here without the server side = a picker
+// option that errors "bad_account" on publish.
+//
+// Grouped by `org` purely for UI clarity — the server is the source
+// of truth for which Composio org an alias belongs to.
 const IG_ACCOUNTS = [
-  { alias: "cge",            label: "@centralgroupevents (CGE)" },
-  { alias: "happyhourhqnj",  label: "@happyhourhqnj" },
+  { alias: "cge",            label: "@centralgroupevents (CGE)", org: "primary" },
+  { alias: "happyhourhqnj",  label: "@happyhourhqnj",            org: "primary" },
+  // Secondary-org IG rows go here, e.g.:
+  //   { alias: "personal",   label: "@personal", org: "secondary" },
 ];
 
 export function PublishInstagramModal({
