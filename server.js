@@ -2735,6 +2735,88 @@ app.get("/api/instagram/tmp-image/:token.jpg", (req, res) => {
   return res.send(entry.buf);
 });
 
+// Publish ONE slide to a feed + optionally a Story. Pulled out so both
+// the carousel endpoint (single-slide branch) and the scheduler can
+// reuse the same Composio chain.
+//
+// slide           : { imageBase64, userTags }
+// alsoPostStory   : if true, also fire the slide as a STORIES media
+// Returns { mediaId, permalink, story: {ok, mediaId?, error?} | null }
+async function publishSingleSlideToFeed({
+  slide, caption, connectedAccountId, igUserId, origin, alsoPostStory,
+}) {
+  const feedToken = makeIgTmpToken();
+  IG_TMP_IMAGES.set(feedToken, {
+    buf: base64JpegToBuffer(slide?.imageBase64),
+    expiresAt: Date.now() + IG_TMP_TTL_MS,
+  });
+  const feedPayload = {
+    ig_user_id: igUserId,
+    image_url: `${origin}/api/instagram/tmp-image/${feedToken}.jpg`,
+    caption: typeof caption === "string" ? caption : "",
+  };
+  const userTags = Array.isArray(slide?.userTags) ? slide.userTags.slice(0, 20) : [];
+  if (userTags.length) feedPayload.user_tags = userTags;
+
+  let mediaId = "";
+  let permalink = null;
+  try {
+    const container = await composioExecute("INSTAGRAM_POST_IG_USER_MEDIA", connectedAccountId, feedPayload);
+    const containerId = String(container?.response_data?.id || container?.data?.id || container?.id || "");
+    if (!containerId) throw new Error("single-image container returned no id");
+    const published = await composioExecute("INSTAGRAM_POST_IG_USER_MEDIA_PUBLISH", connectedAccountId, {
+      ig_user_id: igUserId,
+      creation_id: containerId,
+      max_wait_seconds: 90,
+      poll_interval_seconds: 3,
+    });
+    mediaId = String(published?.response_data?.id || published?.data?.id || published?.id || "");
+    if (mediaId) {
+      try {
+        const media = await composioExecute("INSTAGRAM_GET_IG_MEDIA", connectedAccountId, {
+          ig_media_id: mediaId, fields: "permalink",
+        });
+        permalink = media?.response_data?.permalink || media?.data?.permalink || media?.permalink || null;
+      } catch (e) { /* non-fatal */ }
+    }
+  } finally {
+    IG_TMP_IMAGES.delete(feedToken);
+  }
+
+  let story = null;
+  if (alsoPostStory) {
+    const storyToken = makeIgTmpToken();
+    IG_TMP_IMAGES.set(storyToken, {
+      buf: base64JpegToBuffer(slide?.imageBase64),
+      expiresAt: Date.now() + IG_TMP_TTL_MS,
+    });
+    try {
+      const container = await composioExecute("INSTAGRAM_POST_IG_USER_MEDIA", connectedAccountId, {
+        ig_user_id: igUserId,
+        image_url: `${origin}/api/instagram/tmp-image/${storyToken}.jpg`,
+        media_type: "STORIES",
+        user_tags: userTags,
+      });
+      const containerId = String(container?.response_data?.id || container?.data?.id || container?.id || "");
+      if (!containerId) throw new Error("story container returned no id");
+      const publishedStory = await composioExecute("INSTAGRAM_POST_IG_USER_MEDIA_PUBLISH", connectedAccountId, {
+        ig_user_id: igUserId,
+        creation_id: containerId,
+        max_wait_seconds: 60,
+        poll_interval_seconds: 3,
+      });
+      story = { ok: true, mediaId: String(publishedStory?.response_data?.id || publishedStory?.data?.id || publishedStory?.id || "") };
+    } catch (storyErr) {
+      console.warn("[ig publish] story failed:", storyErr?.message || storyErr);
+      story = { ok: false, error: String(storyErr?.message || storyErr) };
+    } finally {
+      IG_TMP_IMAGES.delete(storyToken);
+    }
+  }
+
+  return { mediaId, permalink, story };
+}
+
 app.post("/api/instagram/publish-carousel", express.json({ limit: "48mb" }), async (req, res) => {
   try {
     if (!COMPOSIO_API_KEY) {
@@ -2746,8 +2828,8 @@ app.post("/api/instagram/publish-carousel", express.json({ limit: "48mb" }), asy
     if (!connectedAccountId) {
       return res.status(400).json({ error: "bad_account", message: `Unknown account alias "${accountAlias}".` });
     }
-    if (!Array.isArray(slides) || slides.length < 2 || slides.length > 10) {
-      return res.status(400).json({ error: "bad_slides", message: "Carousel needs 2–10 slides." });
+    if (!Array.isArray(slides) || slides.length < 1 || slides.length > 10) {
+      return res.status(400).json({ error: "bad_slides", message: "Need 1–10 slides (single-image post for 1, carousel for 2+)." });
     }
     if (typeof caption !== "string" || caption.length > 2200) {
       return res.status(400).json({ error: "bad_caption", message: "Caption must be ≤ 2,200 characters." });
@@ -2760,12 +2842,34 @@ app.post("/api/instagram/publish-carousel", express.json({ limit: "48mb" }), asy
     const userInfo = await composioExecute("INSTAGRAM_GET_USER_INFO", connectedAccountId, { ig_user_id: "me" });
     const igUserId = String(userInfo?.response_data?.id || userInfo?.data?.id || userInfo?.id || "me");
 
-    // Step 1 — stage each slide as a tmp-hosted JPEG. Collect the public
-    // URL + user_tags payload so each child container gets both.
     const origin = publicOrigin(req) || "";
     if (!origin) {
       return res.status(500).json({ error: "no_origin", message: "Server could not resolve its own public URL. Is this behind a proxy without X-Forwarded-* headers?" });
     }
+
+    // Single-slide path: skip the carousel container entirely and just
+    // post the one image as a feed post. Meta rejects carousels with
+    // < 2 items, so we have to branch here.
+    if (slides.length === 1) {
+      const single = await publishSingleSlideToFeed({
+        slide: slides[0],
+        caption,
+        connectedAccountId,
+        igUserId,
+        origin,
+        alsoPostStory: !!alsoPostStory,
+      });
+      return res.json({
+        ok: true,
+        mediaId: single.mediaId,
+        permalink: single.permalink,
+        account: alias,
+        stories: single.story ? [{ ...single.story, slideIndex: 0 }] : [],
+      });
+    }
+
+    // Step 1 — stage each slide as a tmp-hosted JPEG. Collect the public
+    // URL + user_tags payload so each child container gets both.
     const tokens = [];
     const childSpecs = slides.map((s, i) => {
       const token = makeIgTmpToken();
@@ -2891,6 +2995,152 @@ app.post("/api/instagram/publish-carousel", express.json({ limit: "48mb" }), asy
   }
 });
 
+// === INSTAGRAM PER-DAY SCHEDULER ====================================
+//
+// Operator picks "📅 Schedule per day" in the publish modal. Each
+// slide gets queued here with a scheduled fire time (Fri 11AM, Sat 9AM,
+// Sun 9AM local). A minute-level cron walks the queue, fires anything
+// that's due, and marks it done. Store lives in data/igScheduled.json
+// so a server restart doesn't lose pending jobs.
+
+const IG_SCHEDULE_FILE = path.resolve(__dirname, "data/igScheduled.json");
+
+async function readIgScheduleStore() {
+  try {
+    const raw = await fs.readFile(IG_SCHEDULE_FILE, "utf8");
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr : [];
+  } catch { return []; }
+}
+
+async function writeIgScheduleStore(list) {
+  await fs.mkdir(path.dirname(IG_SCHEDULE_FILE), { recursive: true });
+  await fs.writeFile(IG_SCHEDULE_FILE, JSON.stringify(list, null, 2));
+}
+
+app.post("/api/instagram/schedule-slides", express.json({ limit: "48mb" }), async (req, res) => {
+  try {
+    if (!COMPOSIO_API_KEY) {
+      return res.status(503).json({ error: "not_configured", message: "Set COMPOSIO_API_KEY in Replit Secrets." });
+    }
+    const { accountAlias, caption, alsoPostStory, items } = req.body || {};
+    const alias = String(accountAlias || "").toLowerCase();
+    const connectedAccountId = IG_ACCOUNT_IDS[alias];
+    if (!connectedAccountId) return res.status(400).json({ error: "bad_account", message: `Unknown account alias "${accountAlias}".` });
+    if (typeof caption !== "string" || caption.length > 2200) return res.status(400).json({ error: "bad_caption" });
+    if (!Array.isArray(items) || !items.length) return res.status(400).json({ error: "bad_items", message: "Need at least one slide to schedule." });
+
+    const current = await readIgScheduleStore();
+    const now = Date.now();
+    const newEntries = items.map((it) => ({
+      id: makeIgTmpToken(),
+      accountAlias: alias,
+      connectedAccountId,
+      caption,
+      alsoPostStory: !!alsoPostStory,
+      day: it?.day || null,
+      imageBase64: String(it?.imageBase64 || ""),
+      userTags: Array.isArray(it?.userTags) ? it.userTags : [],
+      scheduledAt: Number.isFinite(it?.scheduledAt) && it.scheduledAt > 0
+        ? Math.max(it.scheduledAt, now + 60_000)  // minimum 60s out so
+                                                   // the cron can see it
+                                                   // before it fires; past-due
+                                                   // slides get +60s anyway
+        : now + 60_000,
+      immediate: !!it?.immediate,
+      status: "pending",
+      createdAt: new Date().toISOString(),
+    }));
+    await writeIgScheduleStore([...current, ...newEntries]);
+    return res.json({
+      ok: true,
+      scheduled: newEntries.map((e) => ({
+        id: e.id, day: e.day, scheduledAt: e.scheduledAt, immediate: e.immediate,
+      })),
+    });
+  } catch (err) {
+    console.error("[ig schedule] error:", err);
+    return res.status(500).json({ error: "schedule_failed", message: String(err?.message || err) });
+  }
+});
+
+app.get("/api/instagram/scheduled", async (_req, res) => {
+  const list = await readIgScheduleStore();
+  // Don't leak image bytes — those files can get huge and the
+  // response is just for status inspection in the UI.
+  res.json(list.map((e) => ({
+    id: e.id, accountAlias: e.accountAlias, day: e.day, scheduledAt: e.scheduledAt,
+    status: e.status, result: e.result || null, createdAt: e.createdAt,
+  })));
+});
+
+// Scheduler tick — runs any pending entry whose scheduledAt has passed.
+// Fires one at a time to keep inside Composio's per-connection rate
+// limits. Server-public origin needs to be known at fire time; if the
+// request-time origin isn't stored (it isn't — scheduler has no req),
+// we fall back to env IG_PUBLIC_ORIGIN or the Replit deployment URL.
+let igSchedulerRunning = false;
+async function tickIgScheduler() {
+  if (igSchedulerRunning) return;
+  igSchedulerRunning = true;
+  try {
+    const list = await readIgScheduleStore();
+    const now = Date.now();
+    const due = list.find((e) => e.status === "pending" && e.scheduledAt <= now);
+    if (!due) return;
+    if (!COMPOSIO_API_KEY) return; // silent — not configured; next tick retries
+    const origin = (process.env.IG_PUBLIC_ORIGIN || "").trim() || (
+      (process.env.REPLIT_DEV_DOMAIN || "").trim()
+        ? `https://${process.env.REPLIT_DEV_DOMAIN.trim()}`
+        : ""
+    );
+    if (!origin) {
+      console.warn("[ig scheduler] no IG_PUBLIC_ORIGIN — set it in Replit Secrets to your deployed URL (e.g. https://eventcalendarcge.replit.app)");
+      return;
+    }
+    try {
+      const userInfo = await composioExecute("INSTAGRAM_GET_USER_INFO", due.connectedAccountId, { ig_user_id: "me" });
+      const igUserId = String(userInfo?.response_data?.id || userInfo?.data?.id || userInfo?.id || "me");
+      const result = await publishSingleSlideToFeed({
+        slide: { imageBase64: due.imageBase64, userTags: due.userTags },
+        caption: due.caption,
+        connectedAccountId: due.connectedAccountId,
+        igUserId,
+        origin,
+        alsoPostStory: !!due.alsoPostStory,
+      });
+      due.status = "posted";
+      due.result = {
+        mediaId: result.mediaId || null,
+        permalink: result.permalink || null,
+        story: result.story || null,
+        postedAt: new Date().toISOString(),
+      };
+      // Drop the image bytes — they're taking up disk and we don't
+      // need them once the post is live.
+      due.imageBase64 = "";
+    } catch (err) {
+      console.error(`[ig scheduler] slide ${due.day || "?"} failed:`, err?.message || err);
+      due.status = "failed";
+      due.result = { error: String(err?.message || err), failedAt: new Date().toISOString() };
+    }
+    await writeIgScheduleStore(list);
+  } catch (err) {
+    console.error("[ig scheduler] tick error:", err);
+  } finally {
+    igSchedulerRunning = false;
+  }
+}
+
+function initIgScheduler() {
+  const INTERVAL_MS = 60_000;
+  setInterval(() => { tickIgScheduler().catch(() => {}); }, INTERVAL_MS);
+  // Fire soon after boot so a server restart during a scheduled window
+  // doesn't make a job wait a whole minute.
+  setTimeout(() => { tickIgScheduler().catch(() => {}); }, 15_000);
+  console.log("[ig scheduler] armed — polls every 60s");
+}
+
 // === VITE MIDDLEWARE / STATIC ===
 
 if (NODE_ENV === "production") {
@@ -2918,4 +3168,5 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`  Apify     ${APIFY_TOKEN ? "configured (extract-time IG fetch)" : "OFF — set APIFY_TOKEN to fetch IG images on Extract"}`);
   console.log(`  Events    ${process.env.DATABASE_URL ? "Postgres" : "in-memory (DATABASE_URL not set)"}`);
   initScoutCron();
+  initIgScheduler();
 });

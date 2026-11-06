@@ -92,6 +92,73 @@ export function tagPositionsForSlide(count) {
   }));
 }
 
+// --- Scheduled per-day posting -----------------------------------------
+// Operator wants each slide to auto-post on the day it corresponds to.
+// Fri slide → Fri 11:00 AM (local), Sat → Sat 9:00 AM, Sun → Sun 9:00 AM.
+// Any schedule target already in the past means "post as soon as the
+// scheduler fires" (we don't make the operator wait a week for a Monday
+// backfill). All times are operator-local — NJ operator sees ET, and
+// the Unix ms timestamp we store is timezone-free so the server can
+// compare against Date.now() directly.
+export const SLIDE_SCHEDULE_DEFAULTS = {
+  Fri: { hour: 11, minute: 0, offsetDays: 0 },
+  Sat: { hour:  9, minute: 0, offsetDays: 1 },
+  Sun: { hour:  9, minute: 0, offsetDays: 2 },
+};
+
+// Parse the Calendar's "MM/DD" friDate string into a Date at local
+// midnight of this year (or next year if the month is well past us —
+// handles the Dec → Jan edge).
+export function friDateToLocalMidnight(friDateStr, now = new Date()) {
+  const parts = String(friDateStr || "").split("/");
+  if (parts.length !== 2) return null;
+  const m = parseInt(parts[0], 10);
+  const d = parseInt(parts[1], 10);
+  if (!Number.isFinite(m) || !Number.isFinite(d)) return null;
+  const year = now.getFullYear();
+  const candidate = new Date(year, m - 1, d, 0, 0, 0, 0);
+  // If the computed Fri is more than 90 days in the past, roll to next
+  // year. Covers "I'm scheduling Jan 3 in late December."
+  const ninetyDaysMs = 90 * 24 * 60 * 60 * 1000;
+  if (candidate.getTime() < now.getTime() - ninetyDaysMs) {
+    return new Date(year + 1, m - 1, d, 0, 0, 0, 0);
+  }
+  return candidate;
+}
+
+// Returns { scheduledAt, immediate } for a given slide day.
+// scheduledAt  : Unix ms the slide should fire at
+// immediate    : true when scheduledAt is already in the past — scheduler
+//                should run it ASAP rather than wait 7 days for the next
+//                occurrence of that weekday.
+export function computeSlideSchedule({ day, friDate, now = new Date() }) {
+  const dayKey = String(day || "").trim().slice(0, 3);
+  const def = SLIDE_SCHEDULE_DEFAULTS[dayKey.charAt(0).toUpperCase() + dayKey.slice(1).toLowerCase()];
+  if (!def) return { scheduledAt: now.getTime(), immediate: true, invalid: true };
+  const friMidnight = friDateToLocalMidnight(friDate, now);
+  if (!friMidnight) return { scheduledAt: now.getTime(), immediate: true, invalid: true };
+  const target = new Date(friMidnight.getTime());
+  target.setDate(target.getDate() + def.offsetDays);
+  target.setHours(def.hour, def.minute, 0, 0);
+  const t = target.getTime();
+  const nowMs = now.getTime();
+  return {
+    scheduledAt: t <= nowMs ? nowMs : t,
+    immediate: t <= nowMs,
+    invalid: false,
+  };
+}
+
+// Human label for a scheduled time. "Fri Nov 8, 11:00 AM" / "in 2 hours"
+// style — we just do the absolute form here, caller can decorate.
+export function formatScheduleTime(ms) {
+  if (!Number.isFinite(ms)) return "—";
+  const d = new Date(ms);
+  const day = d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+  const time = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  return `${day}, ${time}`;
+}
+
 // Compose the user_tags payload a Composio INSTAGRAM_POST_IG_USER_MEDIA
 // call expects, per slide. Only used by the server, but lives here so
 // the modal preview can show the exact same shape.

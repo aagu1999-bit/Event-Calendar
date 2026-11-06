@@ -2643,6 +2643,8 @@ export default function CalendarBuilder() {
         open={igPublishOpen}
         onClose={() => setIgPublishOpen(false)}
         slideEvents={allPages.map((p) => p?.events || [])}
+        slideDays={allPages.map((p) => p?.day || null)}
+        friDate={friDate}
         weekendLabel={calcDates(friDate)?.Fri || friDate}
         defaultCaption={captionText}
         onGenerateCaption={async () => {
