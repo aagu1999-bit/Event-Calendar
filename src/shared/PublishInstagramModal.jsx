@@ -4,6 +4,8 @@ import {
   IG_MAX_TAGS_PER_SLIDE,
   buildPublishPlan,
   collectHandlesFromEvents,
+  computeSlideSchedule,
+  formatScheduleTime,
 } from "./igPublish.js";
 
 // Modal that publishes the finished weekend carousel to Instagram.
@@ -29,6 +31,8 @@ export function PublishInstagramModal({
   open,
   onClose,
   slideEvents,       // [[event,...], [event,...], ...] — events PER slide
+  slideDays,         // ["Fri", "Sat", "Sun", ...] — the day each slide belongs to
+  friDate,           // "MM/DD" of the Friday this weekend starts on
   weekendLabel,
   defaultCaption,
   onGenerateCaption, // optional async () => string. Called on open when
@@ -43,10 +47,17 @@ export function PublishInstagramModal({
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null); // { ok, text, permalink? }
   const [alsoPostStory, setAlsoPostStory] = useState(false);
+  // "now" = post everything as one carousel immediately (default).
+  // "schedule" = each selected slide posts as its OWN feed post on the
+  //              day it corresponds to (Fri 11a / Sat 9a / Sun 9a local).
+  const [mode, setMode] = useState("now");
+  // Per-slide picker. Index → boolean. Default all on. Operator can
+  // uncheck slides they don't want to send in either mode.
+  const [slideChecked, setSlideChecked] = useState({});
   const captionTouchedRef = useRef(false);
 
   // Reset state when the modal opens — stale captions / errors / story
-  // toggle shouldn't persist across opens.
+  // toggle / schedule mode shouldn't persist across opens.
   useEffect(() => {
     if (!open) return;
     captionTouchedRef.current = false;
@@ -54,6 +65,13 @@ export function PublishInstagramModal({
     setMsg(null);
     setBusy(false);
     setAlsoPostStory(false);
+    setMode("now");
+    // Every slide checked by default. Operator can uncheck what they
+    // don't want to send.
+    const checked = {};
+    const count = Array.isArray(slideEvents) ? slideEvents.length : 0;
+    for (let i = 0; i < count; i++) checked[i] = true;
+    setSlideChecked(checked);
     // Auto-generate the caption if none exists yet, so the modal always
     // opens with a usable draft. Mirrors the ZIP download's behavior.
     if (!defaultCaption && typeof onGenerateCaption === "function") {
@@ -93,6 +111,17 @@ export function PublishInstagramModal({
     exclude: IG_PUBLISH_BLOCKLIST,
   }), [slideEvents]);
 
+  // For schedule mode: compute each slide's target time based on its
+  // day. Recomputes when mode toggles to "schedule" so the operator
+  // sees fresh "in N hours" math if the modal's been open a while.
+  const schedules = useMemo(() => {
+    if (mode !== "schedule") return [];
+    const days = Array.isArray(slideDays) ? slideDays : [];
+    return (plan.perSlide || []).map((_, i) =>
+      computeSlideSchedule({ day: days[i], friDate, now: new Date() })
+    );
+  }, [mode, slideDays, friDate, plan.perSlide]);
+
   const flatSlideEvents = useMemo(
     () => (slideEvents || []).flat(),
     [slideEvents]
@@ -105,56 +134,122 @@ export function PublishInstagramModal({
     IG_PUBLISH_BLOCKLIST.includes(h)
   ).length;
 
+  // Which slide indices are checked (operator-picked).
+  const selectedIndices = useMemo(() =>
+    (plan.perSlide || [])
+      .map((_, i) => i)
+      .filter((i) => slideChecked[i] !== false),
+    [plan.perSlide, slideChecked]
+  );
+
+  // Carousel requires 2+. If the operator picked just one in "now"
+  // mode, we post a single-image feed post instead (server handles
+  // both). In "schedule" mode EVERY slide fires as its own feed post,
+  // so a single pick is fine there.
+  const canSubmitNow = selectedIndices.length >= 1;
+  const canSubmitSchedule = selectedIndices.length >= 1;
+
   const publish = async () => {
     if (busy) return;
+    if (!canSubmitNow && mode === "now") {
+      setMsg({ ok: false, text: "Pick at least one slide." });
+      return;
+    }
+    if (!canSubmitSchedule && mode === "schedule") {
+      setMsg({ ok: false, text: "Pick at least one slide to schedule." });
+      return;
+    }
     setBusy(true);
     setMsg(null);
     try {
-      // Render each slide to a JPEG blob. We do this one at a time
-      // because the renderer uses a shared canvas DOM element and
-      // parallelism would race on it.
-      const slideJpegs = [];
-      for (let i = 0; i < plan.perSlide.length; i++) {
+      // Render each SELECTED slide to a JPEG blob. One at a time —
+      // the renderer uses a shared canvas DOM element and parallelism
+      // would race on it.
+      const selected = [];
+      for (const i of selectedIndices) {
         const blob = await renderSlideToBlob(i);
         if (!blob) throw new Error(`slide ${i + 1} failed to render`);
-        slideJpegs.push(await blobToBase64(blob));
+        selected.push({
+          slideIndex: i,
+          imageBase64: await blobToBase64(blob),
+          userTags: plan.userTagsPerSlide[i] || [],
+          day: Array.isArray(slideDays) ? slideDays[i] || null : null,
+        });
       }
 
-      const res = await fetch("/api/instagram/publish-carousel", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          accountAlias: account,
-          caption: caption,
-          alsoPostStory,
-          slides: slideJpegs.map((b64, i) => ({
-            imageBase64: b64,
-            userTags: plan.userTagsPerSlide[i],
-          })),
-        }),
-      });
-      const text = await res.text();
-      let data = null;
-      try { data = JSON.parse(text); } catch {}
-
-      if (!res.ok) {
-        const detail = data?.message || data?.error || text?.slice(0, 500) || `HTTP ${res.status}`;
-        throw new Error(detail);
+      if (mode === "schedule") {
+        // Each selected slide posts as its own feed post at the
+        // auto-computed time for its day. Server queues, scheduler
+        // fires.
+        const items = selected.map((s, idx) => ({
+          slideIndex: s.slideIndex,
+          day: s.day,
+          imageBase64: s.imageBase64,
+          userTags: s.userTags,
+          scheduledAt: schedules[s.slideIndex]?.scheduledAt || Date.now(),
+          immediate: !!schedules[s.slideIndex]?.immediate,
+        }));
+        const res = await fetch("/api/instagram/schedule-slides", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            accountAlias: account,
+            caption,
+            alsoPostStory,
+            items,
+          }),
+        });
+        const text = await res.text();
+        let data = null;
+        try { data = JSON.parse(text); } catch {}
+        if (!res.ok) {
+          const detail = data?.message || data?.error || text?.slice(0, 500) || `HTTP ${res.status}`;
+          throw new Error(detail);
+        }
+        const scheduledCount = Array.isArray(data?.scheduled) ? data.scheduled.length : 0;
+        const immediateCount = Array.isArray(data?.scheduled) ? data.scheduled.filter((x) => x.immediate).length : 0;
+        const parts = [];
+        parts.push(`${scheduledCount} slide${scheduledCount === 1 ? "" : "s"} queued.`);
+        if (immediateCount) parts.push(`${immediateCount} will fire within the minute (past-due).`);
+        if (alsoPostStory) parts.push(`Each will ${scheduledCount === 1 ? "post" : "also post"} to Story.`);
+        setMsg({ ok: true, text: parts.join(" ") });
+      } else {
+        // Immediate mode. Carousel if ≥2 picked, single-image if 1.
+        const res = await fetch("/api/instagram/publish-carousel", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            accountAlias: account,
+            caption,
+            alsoPostStory,
+            slides: selected.map((s) => ({
+              imageBase64: s.imageBase64,
+              userTags: s.userTags,
+            })),
+          }),
+        });
+        const text = await res.text();
+        let data = null;
+        try { data = JSON.parse(text); } catch {}
+        if (!res.ok) {
+          const detail = data?.message || data?.error || text?.slice(0, 500) || `HTTP ${res.status}`;
+          throw new Error(detail);
+        }
+        const storyCount = Array.isArray(data?.stories) ? data.stories.filter((s) => s?.ok).length : 0;
+        const storyFailed = Array.isArray(data?.stories) ? data.stories.filter((s) => !s?.ok).length : 0;
+        const parts = [];
+        parts.push(data?.permalink ? "Posted to Instagram feed." : "Posted to feed (no permalink returned).");
+        if (alsoPostStory) {
+          if (storyCount && !storyFailed) parts.push(`+ ${storyCount} slide${storyCount === 1 ? "" : "s"} posted as Stories.`);
+          else if (storyCount && storyFailed) parts.push(`+ ${storyCount} slide Stories posted, ${storyFailed} failed.`);
+          else parts.push("Stories step failed — see server logs.");
+        }
+        setMsg({
+          ok: true,
+          text: parts.join(" "),
+          permalink: data?.permalink || null,
+        });
       }
-      const storyCount = Array.isArray(data?.stories) ? data.stories.filter((s) => s?.ok).length : 0;
-      const storyFailed = Array.isArray(data?.stories) ? data.stories.filter((s) => !s?.ok).length : 0;
-      const parts = [];
-      parts.push(data?.permalink ? "Posted to Instagram feed." : "Posted to feed (no permalink returned).");
-      if (alsoPostStory) {
-        if (storyCount && !storyFailed) parts.push(`+ ${storyCount} slide${storyCount === 1 ? "" : "s"} posted as Stories.`);
-        else if (storyCount && storyFailed) parts.push(`+ ${storyCount} slide Stories posted, ${storyFailed} failed.`);
-        else parts.push("Stories step failed — see server logs.");
-      }
-      setMsg({
-        ok: true,
-        text: parts.join(" "),
-        permalink: data?.permalink || null,
-      });
     } catch (err) {
       setMsg({ ok: false, text: String(err?.message || err) });
     } finally {
@@ -210,31 +305,94 @@ export function PublishInstagramModal({
           ))}
         </select>
 
-        {/* Tag plan summary — tags per slide come from the EVENTS shown on
-            that slide (so slide 2's tags correspond to slide 2's events,
-            not just the next unique handles from a pooled list). */}
+        {/* Mode toggle — either everything ships now as one carousel, or
+            each selected slide fires as its own feed post on the day it
+            corresponds to. */}
         <label style={{ display: "block", fontSize: "0.65rem", letterSpacing: "1px", textTransform: "uppercase", color: "rgba(245,240,232,0.6)", marginBottom: 6 }}>
-          Tags per slide ({plan.totalTagPlacements} placements · {plan.uniqueAcrossSlides.length} unique accounts)
+          When
+        </label>
+        <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+          {[
+            { key: "now", label: "📱 Post now (carousel)", title: "All picked slides post together as one feed carousel, immediately." },
+            { key: "schedule", label: "📅 Schedule per day", title: "Each picked slide posts as its OWN feed post on the matching day (Fri 11AM / Sat 9AM / Sun 9AM local)." },
+          ].map((opt) => (
+            <button
+              key={opt.key}
+              type="button"
+              onClick={() => setMode(opt.key)}
+              disabled={busy}
+              title={opt.title}
+              style={{
+                flex: 1, padding: "8px 10px", borderRadius: 4, fontSize: "0.72rem", fontWeight: 700,
+                letterSpacing: "0.3px", cursor: busy ? "wait" : "pointer",
+                background: mode === opt.key ? "rgba(236,72,153,0.18)" : "rgba(245,240,232,0.04)",
+                color: mode === opt.key ? "#F472B6" : "rgba(245,240,232,0.7)",
+                border: `1px solid ${mode === opt.key ? "rgba(236,72,153,0.5)" : "rgba(245,240,232,0.1)"}`,
+              }}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Tag + slide-picker plan. Each slide gets a checkbox so the
+            operator can exclude any from the batch. Schedule mode also
+            shows the computed target time per slide. */}
+        <label style={{ display: "block", fontSize: "0.65rem", letterSpacing: "1px", textTransform: "uppercase", color: "rgba(245,240,232,0.6)", marginBottom: 6 }}>
+          Slides ({selectedIndices.length} / {plan.perSlide.length} picked · {plan.uniqueAcrossSlides.length} unique accounts)
         </label>
         <div style={{
           background: "#0e0e10", border: "1px solid rgba(245,240,232,0.1)", borderRadius: 4,
           padding: "8px 10px", fontSize: "0.72rem", color: "rgba(245,240,232,0.75)",
-          marginBottom: 6, maxHeight: 140, overflowY: "auto", lineHeight: 1.5,
+          marginBottom: 6, maxHeight: 180, overflowY: "auto", lineHeight: 1.5,
         }}>
           {plan.perSlide.length === 0 ? (
             <em style={{ color: "rgba(245,240,232,0.4)" }}>No slides.</em>
-          ) : plan.perSlide.map((slideTags, i) => (
-            <div key={i} style={{ marginBottom: 2 }}>
-              <span style={{ color: "#E5BC4F", fontWeight: 700 }}>Slide {i + 1}:</span>{" "}
-              {slideTags.length ? slideTags.map((h) => `@${h}`).join(" · ") : (
-                <em style={{ color: "rgba(245,240,232,0.35)" }}>(no tags)</em>
-              )}
-            </div>
-          ))}
+          ) : plan.perSlide.map((slideTags, i) => {
+            const day = Array.isArray(slideDays) ? slideDays[i] : null;
+            const sched = mode === "schedule" ? schedules[i] : null;
+            const isChecked = slideChecked[i] !== false;
+            return (
+              <label
+                key={i}
+                style={{
+                  display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 4,
+                  cursor: busy ? "not-allowed" : "pointer", opacity: isChecked ? 1 : 0.4,
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={isChecked}
+                  onChange={(e) => setSlideChecked((prev) => ({ ...prev, [i]: e.target.checked }))}
+                  disabled={busy}
+                  style={{ accentColor: "#F472B6", marginTop: 3 }}
+                />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div>
+                    <span style={{ color: "#E5BC4F", fontWeight: 700 }}>
+                      Slide {i + 1}{day ? ` · ${day}` : ""}:
+                    </span>{" "}
+                    {slideTags.length ? slideTags.map((h) => `@${h}`).join(" · ") : (
+                      <em style={{ color: "rgba(245,240,232,0.35)" }}>(no tags)</em>
+                    )}
+                  </div>
+                  {sched && (
+                    <div style={{ fontSize: "0.6rem", color: sched.immediate ? "#FBBF24" : "rgba(52,211,153,0.9)", marginTop: 2 }}>
+                      {sched.immediate
+                        ? "⚡ Past due — will post ASAP after scheduler picks it up"
+                        : `📅 ${formatScheduleTime(sched.scheduledAt)}`}
+                    </div>
+                  )}
+                </div>
+              </label>
+            );
+          })}
         </div>
         <div style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.45)", marginBottom: 14, lineHeight: 1.4 }}>
-          Each slide tags the handles of the events on that slide (up to {plan.maxPerSlide} per slide — IG's hard cap).
+          Tags per slide come from the handles of events on that slide (up to {plan.maxPerSlide} per slide — IG's hard cap).
           {blockedCount > 0 && ` ${blockedCount} blocked (${plan.blocked.join(", ")}).`}
+          {mode === "now" && selectedIndices.length === 1 && " Single-image feed post (not carousel)."}
+          {mode === "schedule" && " Each picked slide posts as its own feed post at the time shown."}
         </div>
 
         {/* Story posting — optional. When checked, every carousel slide
@@ -322,17 +480,25 @@ export function PublishInstagramModal({
           </button>
           <button
             onClick={publish}
-            disabled={busy || captionBusy || caption.length > 2200 || !caption.trim()}
+            disabled={busy || captionBusy || caption.length > 2200 || !caption.trim() || selectedIndices.length === 0}
             style={{
               padding: "8px 16px",
               background: (busy || captionBusy) ? "rgba(99,179,237,0.3)" : "#63B3ED",
               color: (busy || captionBusy) ? "rgba(14,14,16,0.6)" : "#0e0e10",
               border: "none", borderRadius: 4, fontSize: "0.78rem", fontWeight: 700,
-              cursor: busy ? "wait" : (captionBusy || caption.length > 2200 || !caption.trim() ? "not-allowed" : "pointer"),
+              cursor: busy ? "wait" : (captionBusy || caption.length > 2200 || !caption.trim() || selectedIndices.length === 0 ? "not-allowed" : "pointer"),
               letterSpacing: "0.3px",
             }}
           >
-            {busy ? "Publishing…" : captionBusy ? "Drafting caption…" : "📱 Publish to Instagram"}
+            {busy
+              ? (mode === "schedule" ? "Scheduling…" : "Publishing…")
+              : captionBusy
+                ? "Drafting caption…"
+                : mode === "schedule"
+                  ? `📅 Schedule ${selectedIndices.length} slide${selectedIndices.length === 1 ? "" : "s"}`
+                  : selectedIndices.length === 1
+                    ? "📱 Post 1 slide now"
+                    : `📱 Post carousel now`}
           </button>
         </div>
       </div>
