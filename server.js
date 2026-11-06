@@ -2650,6 +2650,204 @@ app.post("/api/website/pages", express.json({ limit: "4mb" }), async (req, res) 
   }
 });
 
+// === INSTAGRAM CAROUSEL PUBLISH (via Composio) =====================
+//
+// Operator presses "📱 Post to IG" in the Calendar page. Client renders
+// each slide to a JPEG, posts the whole payload here, we proxy to
+// Composio's three-step Meta flow (create children → create parent →
+// publish).
+//
+// COMPOSIO_API_KEY lives in Replit Secrets — never touches the client.
+// We also hold a hardcoded alias → connected_account_id map here
+// instead of letting the client name an account id directly, so a
+// compromised browser payload can never target an unrelated account.
+
+const COMPOSIO_API_KEY = (process.env.COMPOSIO_API_KEY || "").trim();
+const COMPOSIO_BASE = "https://backend.composio.dev/api/v3";
+
+// Alias → connected_account_id. These IDs come from Composio's own
+// list — the operator can inspect them via dashboard.composio.dev or
+// a `COMPOSIO_MANAGE_CONNECTIONS` list. New account → add a row.
+const IG_ACCOUNT_IDS = {
+  cge:            "instagram_ambar-entire",
+  happyhourhqnj:  "instagram_scots-gwen",
+};
+
+async function composioExecute(toolSlug, connectedAccountId, args) {
+  if (!COMPOSIO_API_KEY) {
+    const err = new Error("Set COMPOSIO_API_KEY in Replit Secrets.");
+    err.code = "no_api_key";
+    throw err;
+  }
+  const url = `${COMPOSIO_BASE}/tools/execute/${toolSlug}`;
+  const r = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": COMPOSIO_API_KEY,
+    },
+    body: JSON.stringify({
+      connected_account_id: connectedAccountId,
+      arguments: args,
+    }),
+  });
+  const text = await r.text();
+  let payload = null;
+  try { payload = JSON.parse(text); } catch {}
+  if (!r.ok || payload?.successful === false) {
+    const detail = payload?.error || payload?.data?.error || text.slice(0, 500);
+    const err = new Error(`composio ${toolSlug} failed: ${detail}`);
+    err.status = r.status;
+    err.raw = payload || text;
+    throw err;
+  }
+  return payload?.data || payload;
+}
+
+// Decode a bare base64 string (client stripped the data: prefix) into
+// a Buffer we can hand off as an image file.
+function base64JpegToBuffer(b64) {
+  return Buffer.from(String(b64 || "").replace(/^data:[^,]+,/, ""), "base64");
+}
+
+// Temp hosted image store — we drop each slide's bytes into memory with
+// a short-lived token, hand IG the URL, and purge after the carousel
+// publishes. Avoids wiring an external CDN just to clear Meta's "image
+// must be publicly fetchable" bar. 10 min TTL is deliberate overshoot
+// over Composio's ~2 min processing window.
+const IG_TMP_IMAGES = new Map(); // token -> { buf, expiresAt }
+const IG_TMP_TTL_MS = 10 * 60 * 1000;
+function makeIgTmpToken() {
+  return (typeof crypto !== "undefined" && crypto.randomUUID)
+    ? crypto.randomUUID().replace(/-/g, "")
+    : `t_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+function sweepIgTmpImages() {
+  const now = Date.now();
+  for (const [k, v] of IG_TMP_IMAGES) if (v.expiresAt < now) IG_TMP_IMAGES.delete(k);
+}
+app.get("/api/instagram/tmp-image/:token.jpg", (req, res) => {
+  sweepIgTmpImages();
+  const entry = IG_TMP_IMAGES.get(String(req.params.token || ""));
+  if (!entry) return res.status(404).type("text/plain").send("expired");
+  res.set("Content-Type", "image/jpeg");
+  res.set("Cache-Control", "public, max-age=300");
+  return res.send(entry.buf);
+});
+
+app.post("/api/instagram/publish-carousel", express.json({ limit: "48mb" }), async (req, res) => {
+  try {
+    if (!COMPOSIO_API_KEY) {
+      return res.status(503).json({ error: "not_configured", message: "Set COMPOSIO_API_KEY in Replit Secrets." });
+    }
+    const { accountAlias, caption, slides } = req.body || {};
+    const alias = String(accountAlias || "").toLowerCase();
+    const connectedAccountId = IG_ACCOUNT_IDS[alias];
+    if (!connectedAccountId) {
+      return res.status(400).json({ error: "bad_account", message: `Unknown account alias "${accountAlias}".` });
+    }
+    if (!Array.isArray(slides) || slides.length < 2 || slides.length > 10) {
+      return res.status(400).json({ error: "bad_slides", message: "Carousel needs 2–10 slides." });
+    }
+    if (typeof caption !== "string" || caption.length > 2200) {
+      return res.status(400).json({ error: "bad_caption", message: "Caption must be ≤ 2,200 characters." });
+    }
+
+    // Step 0 — look up the IG user id for this connected account. Lets
+    // us call the publish endpoints with a real numeric id instead of
+    // relying on "me" (which can be account-ambiguous when multiple are
+    // connected through the same Composio org).
+    const userInfo = await composioExecute("INSTAGRAM_GET_USER_INFO", connectedAccountId, { ig_user_id: "me" });
+    const igUserId = String(userInfo?.response_data?.id || userInfo?.data?.id || userInfo?.id || "me");
+
+    // Step 1 — stage each slide as a tmp-hosted JPEG. Collect the public
+    // URL + user_tags payload so each child container gets both.
+    const origin = publicOrigin(req) || "";
+    if (!origin) {
+      return res.status(500).json({ error: "no_origin", message: "Server could not resolve its own public URL. Is this behind a proxy without X-Forwarded-* headers?" });
+    }
+    const tokens = [];
+    const childSpecs = slides.map((s, i) => {
+      const token = makeIgTmpToken();
+      IG_TMP_IMAGES.set(token, {
+        buf: base64JpegToBuffer(s?.imageBase64),
+        expiresAt: Date.now() + IG_TMP_TTL_MS,
+      });
+      tokens.push(token);
+      return {
+        image_url: `${origin}/api/instagram/tmp-image/${token}.jpg`,
+        user_tags: Array.isArray(s?.userTags) ? s.userTags.slice(0, 20) : [],
+      };
+    });
+
+    // Step 2 — create one child container per slide, sequentially (keeps
+    // us well under Composio's per-connection rate limits).
+    const childIds = [];
+    for (let i = 0; i < childSpecs.length; i++) {
+      const spec = childSpecs[i];
+      const payload = {
+        ig_user_id: igUserId,
+        image_url: spec.image_url,
+        is_carousel_item: true,
+      };
+      if (spec.user_tags.length) payload.user_tags = spec.user_tags;
+      const out = await composioExecute("INSTAGRAM_POST_IG_USER_MEDIA", connectedAccountId, payload);
+      const id = out?.response_data?.id || out?.data?.id || out?.id;
+      if (!id) throw new Error(`child ${i + 1} returned no id`);
+      childIds.push(String(id));
+    }
+
+    // Step 3 — parent carousel container carries the caption + ordered
+    // child ids.
+    const parent = await composioExecute("INSTAGRAM_CREATE_CAROUSEL_CONTAINER", connectedAccountId, {
+      ig_user_id: igUserId,
+      caption,
+      children: childIds,
+    });
+    const parentId = String(parent?.response_data?.id || parent?.data?.id || parent?.id || "");
+    if (!parentId) throw new Error("carousel container returned no id");
+
+    // Step 4 — publish. We poll (max 90s) in case any child is still
+    // being processed.
+    const published = await composioExecute("INSTAGRAM_POST_IG_USER_MEDIA_PUBLISH", connectedAccountId, {
+      ig_user_id: igUserId,
+      creation_id: parentId,
+      max_wait_seconds: 90,
+      poll_interval_seconds: 3,
+    });
+    const mediaId = String(published?.response_data?.id || published?.data?.id || published?.id || "");
+
+    // Best-effort permalink fetch — if this fails, we still return the
+    // success state, just without a link.
+    let permalink = null;
+    if (mediaId) {
+      try {
+        const media = await composioExecute("INSTAGRAM_GET_IG_MEDIA", connectedAccountId, {
+          ig_media_id: mediaId,
+          fields: "permalink",
+        });
+        permalink = media?.response_data?.permalink || media?.data?.permalink || media?.permalink || null;
+      } catch (e) {
+        console.warn("[ig publish] permalink lookup failed:", e?.message || e);
+      }
+    }
+
+    // Cleanup: tokens aren't needed once IG has actually ingested the
+    // images. We let them expire naturally too, but dropping them now
+    // means a leaked token is unreachable.
+    for (const t of tokens) IG_TMP_IMAGES.delete(t);
+
+    return res.json({ ok: true, mediaId, permalink, account: alias });
+  } catch (err) {
+    console.error("[ig publish] error:", err);
+    const status = err?.status && Number.isFinite(err.status) ? err.status : 500;
+    return res.status(status).json({
+      error: "publish_failed",
+      message: String(err?.message || err),
+    });
+  }
+});
+
 // === VITE MIDDLEWARE / STATIC ===
 
 if (NODE_ENV === "production") {

@@ -9,6 +9,7 @@ import { savePhotoAndNotify, saveExport } from "../shared/photoLibrary.js";
 import { tagPngWithCgeExport } from "../shared/pngMetadata.js";
 import { PhotoLibraryModal } from "../shared/PhotoLibraryModal.jsx";
 import { ExportLibraryModal } from "../shared/ExportLibraryModal.jsx";
+import { PublishInstagramModal } from "../shared/PublishInstagramModal.jsx";
 
 // ==================== COLOR SYSTEM ====================
 const COLORS = {
@@ -1856,6 +1857,11 @@ export default function CalendarBuilder() {
   // In-tab exports browser — 📚 button next to the friday-date input.
   const [exportLibOpen, setExportLibOpen] = useState(false);
 
+  // Publish-to-Instagram — ships the finished carousel to the operator's
+  // CGE (or happyhourhqnj) IG via Composio. Reuses the caption generator
+  // for the draft text; opens on operator demand only.
+  const [igPublishOpen, setIgPublishOpen] = useState(false);
+
   const dl = (pi) => {
     const cv = document.createElement("canvas");
     const pd = allPages[pi];
@@ -2293,6 +2299,13 @@ export default function CalendarBuilder() {
                     📄 Publish to guide{sel.size > 0 ? ` (${sel.size})` : ""}
                   </button>
                 )}
+                {events.length > 0 && pages > 0 && (
+                  <button onClick={() => setIgPublishOpen(true)}
+                    title={`Post the ${pages}-slide ${mode === "preview" ? "preview" : "calendar"} carousel to Instagram with handles auto-tagged`}
+                    style={{ ...B, background: "rgba(236,72,153,0.12)", color: "#F472B6", border: "1px solid rgba(236,72,153,0.4)" }}>
+                    📱 Post to IG
+                  </button>
+                )}
                 <input ref={fileRef} type="file" accept=".csv,.tsv,.txt,.xlsx,.xls" onChange={handleFile} style={{ display: "none" }} />
                 <button onClick={() => { setEditId(null); setNev({ day: "Fri", time: "", name: "", venue: "", area: "", region: "North", type: "", igHandle: "", featured: false }); setShowAdd(!showAdd); }} style={{ ...B, background: "rgba(250,204,21,0.15)", color: "#FACC15" }}>+ Add</button>
               </div>
@@ -2625,6 +2638,41 @@ export default function CalendarBuilder() {
         sourceTool="calendar"
         title="Saved Calendars"
         hint="Click any to reopen it — events + styling restore here in this tab."
+      />
+      <PublishInstagramModal
+        open={igPublishOpen}
+        onClose={() => setIgPublishOpen(false)}
+        events={events}
+        slideCount={pages}
+        weekendLabel={calcDates(friDate)?.Fri || friDate}
+        defaultCaption={captionText}
+        renderSlideToBlob={async (i) => {
+          // Render one slide to a JPEG blob using the same pipeline
+          // as the Download button. Mode toggles between preview and
+          // calendar renderer — matches what the operator sees now.
+          const cv = document.createElement("canvas");
+          const pd = allPages[i];
+          if (!pd) return null;
+          if (mode === "preview") {
+            renderPreview(cv, pd.events, {
+              colorKey: previewColor, friDate, size: SIZES[sz], dates, texture, watermark,
+              bgImage: effectiveBgFor(i), bgOpacity: effectiveOpacityFor(i),
+              pageDay: pd.day, isContinuation: pd.isContinuation,
+              pageIdx: i, totalPages: pages, prevPageEndRegion: pd.prevPageEndRegion,
+              weekendTitle,
+            });
+          } else {
+            const dayColor = dayColors[pd.day] || "purple";
+            renderCal(cv, pd.events, {
+              colorKey: dayColor, friDate, size: SIZES[sz],
+              pageIdx: i, totalPages: pages, dates, texture, watermark,
+              isContinuation: pd.isContinuation, prevPageEndRegion: pd.prevPageEndRegion,
+            });
+          }
+          // JPEG at 0.9 quality — Instagram re-compresses anyway, no
+          // reason to ship an 8MB PNG when the API cap is 8MB per image.
+          return new Promise((resolve) => cv.toBlob(resolve, "image/jpeg", 0.9));
+        }}
       />
       <PublishGuideModal
         open={guideOpen}
