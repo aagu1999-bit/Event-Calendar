@@ -85,6 +85,14 @@ export function PublishInstagramModal({
     // opens with a usable draft. Mirrors the ZIP download's behavior.
     if (!defaultCaption && typeof onGenerateCaption === "function") {
       let cancelled = false;
+      // Safety timeout — if the generator call hangs (Gemini API
+      // flakiness, network stall), unlock the button after 45s so the
+      // operator isn't frozen out of publishing. Separate hang-watch
+      // because prior version had a case where the finally never
+      // ran and captionBusy stayed stuck true forever.
+      const hangTimeout = setTimeout(() => {
+        if (!cancelled) setCaptionBusy(false);
+      }, 45_000);
       (async () => {
         setCaptionBusy(true);
         try {
@@ -97,13 +105,24 @@ export function PublishInstagramModal({
             setMsg({ ok: false, text: `Caption auto-gen failed: ${err?.message || err}. Type one and publish anyway.` });
           }
         } finally {
+          clearTimeout(hangTimeout);
           if (!cancelled) setCaptionBusy(false);
         }
       })();
-      return () => { cancelled = true; };
+      return () => { cancelled = true; clearTimeout(hangTimeout); };
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  // Defense in depth — if a caption shows up in state for ANY reason
+  // (auto-gen finished, operator typed, parent setCaptionText fired),
+  // and captionBusy is somehow still true, flip it. Prevents the stuck-
+  // busy case the operator just hit where the caption was visible but
+  // the Publish button stayed disabled because the generator promise
+  // never resolved its finally block cleanly.
+  useEffect(() => {
+    if (caption && captionBusy) setCaptionBusy(false);
+  }, [caption, captionBusy]);
 
   // Keep caption in sync with upstream default UNTIL the operator types
   // in it. First keystroke marks it dirty and we stop auto-syncing.
@@ -489,25 +508,23 @@ export function PublishInstagramModal({
           </button>
           <button
             onClick={publish}
-            disabled={busy || captionBusy || caption.length > 2200 || !caption.trim() || selectedIndices.length === 0}
+            disabled={busy || caption.length > 2200 || !caption.trim() || selectedIndices.length === 0}
             style={{
               padding: "8px 16px",
-              background: (busy || captionBusy) ? "rgba(99,179,237,0.3)" : "#63B3ED",
-              color: (busy || captionBusy) ? "rgba(14,14,16,0.6)" : "#0e0e10",
+              background: busy ? "rgba(99,179,237,0.3)" : "#63B3ED",
+              color: busy ? "rgba(14,14,16,0.6)" : "#0e0e10",
               border: "none", borderRadius: 4, fontSize: "0.78rem", fontWeight: 700,
-              cursor: busy ? "wait" : (captionBusy || caption.length > 2200 || !caption.trim() || selectedIndices.length === 0 ? "not-allowed" : "pointer"),
+              cursor: busy ? "wait" : (caption.length > 2200 || !caption.trim() || selectedIndices.length === 0 ? "not-allowed" : "pointer"),
               letterSpacing: "0.3px",
             }}
           >
             {busy
               ? (mode === "schedule" ? "Scheduling…" : "Publishing…")
-              : captionBusy
-                ? "Drafting caption…"
-                : mode === "schedule"
-                  ? `📅 Schedule ${selectedIndices.length} slide${selectedIndices.length === 1 ? "" : "s"}`
-                  : selectedIndices.length === 1
-                    ? "📱 Post 1 slide now"
-                    : `📱 Post carousel now`}
+              : mode === "schedule"
+                ? `📅 Schedule ${selectedIndices.length} slide${selectedIndices.length === 1 ? "" : "s"}`
+                : selectedIndices.length === 1
+                  ? "📱 Post 1 slide now"
+                  : `📱 Post carousel now`}
           </button>
         </div>
       </div>
