@@ -31,7 +31,10 @@ import {
 // of truth for which Composio org an alias belongs to.
 const IG_ACCOUNTS = [
   { alias: "cge",            label: "@centralgroupevents (CGE)", org: "primary" },
-  { alias: "happyhourhqnj",  label: "@happyhourhqnj",            org: "primary" },
+  // happyhourhqnj was under the old Adaobi Composio account — hidden
+  // until it's reconnected under aagu1999 and the server has the new
+  // connected_account_id.
+  // { alias: "happyhourhqnj",  label: "@happyhourhqnj",         org: "primary" },
   // Secondary-org IG rows go here, e.g.:
   //   { alias: "personal",   label: "@personal", org: "secondary" },
 ];

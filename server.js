@@ -2686,8 +2686,12 @@ const COMPOSIO_ORGS = {
 // the Composio connected_account_id — grab it from a Composio
 // MANAGE_CONNECTIONS list in the dashboard.
 const IG_ACCOUNT_IDS = {
-  cge:            { org: "primary",   id: "instagram_ambar-entire" },
-  happyhourhqnj:  { org: "primary",   id: "instagram_scots-gwen" },
+  // CGE's IG under the aagu1999 Composio account (the one that owns
+  // the COMPOSIO_API_KEY now in Replit Secrets). happyhourhqnj was
+  // under the OLD Adaobi Composio account — temporarily off-map until
+  // it's re-added under aagu1999 and we have its new connected_account_id.
+  cge:            { org: "primary",   id: "instagram_armado-incite" },
+  // happyhourhqnj: { org: "primary", id: "instagram_<slug>" }, // TODO
   // Add rows for the secondary org here, e.g.:
   //   personal:   { org: "secondary", id: "instagram_abcdef" },
 };
