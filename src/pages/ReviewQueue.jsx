@@ -764,6 +764,13 @@ export default function ReviewQueue({ betaMode = false } = {}) {
   // the Import button. Phase 2 (true server-side cron, catches the
   // "never opened Review that week" case) is a separate ship.
   const AUTO_SYNC_STALENESS_MS = 10 * 60 * 1000; // 10 minutes
+  // Approved recurring series store. Keyed by the website's series ID
+  // (series_id / recurring_series_id). Approving a series once means every
+  // future instance imported from the website is auto-vetted on arrival,
+  // so the operator stops approving the same Thursday night week after
+  // week. Revoking drops the ID — future instances come back to Review.
+  // Already-vetted events stay vetted (revoke doesn't reach into history).
+  const APPROVED_SERIES_KEY = "cge_approved_series";
   const [importBusy, setImportBusy] = useState(false);
   const [importMsg, setImportMsg] = useState(null); // { ok, text } | null
   const [lastSyncAt, setLastSyncAt] = useState(() => {
@@ -773,6 +780,17 @@ export default function ReviewQueue({ betaMode = false } = {}) {
       return Number.isFinite(n) && n > 0 ? n : 0;
     } catch { return 0; }
   });
+  // { [seriesId]: { approvedAt, pattern, lastKnownName } }
+  const [approvedSeries, setApprovedSeries] = useState(() => {
+    try {
+      const raw = localStorage.getItem(APPROVED_SERIES_KEY);
+      const obj = raw ? JSON.parse(raw) : {};
+      return obj && typeof obj === "object" && !Array.isArray(obj) ? obj : {};
+    } catch { return {}; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(APPROVED_SERIES_KEY, JSON.stringify(approvedSeries)); } catch {}
+  }, [approvedSeries]);
   // Weekend filter (default ON): only pull bookings whose event date lands on
   // the reviewed Fri/Sat/Sun. Flip to import every date regardless. Persisted
   // so the choice sticks between visits.
@@ -829,6 +847,63 @@ export default function ReviewQueue({ betaMode = false } = {}) {
     };
   };
 
+  // --- Recurring series approval helpers --------------------------------
+  // Pulled out as small named functions so the badge click handler and the
+  // import path share one truth about what "approved" means and how a
+  // series ID is read off an event. Null-safe everywhere — events without
+  // a series signal just return null and quietly skip every check.
+
+  const getEventSeriesId = (ev) => {
+    const raw = ev?._booking?.series?.id;
+    return raw ? String(raw) : null;
+  };
+
+  const isSeriesApprovedId = (seriesId) =>
+    !!(seriesId && approvedSeries[seriesId]);
+
+  // Approve a series pattern. Writes to the store AND retroactively vets
+  // any pending events in the same series that the operator hasn't gotten
+  // to yet — so "approve this Thursday night" immediately clears every
+  // Thursday already sitting in Review, not just future imports.
+  const approveSeries = (ev) => {
+    const seriesId = getEventSeriesId(ev);
+    if (!seriesId) return;
+    const pattern = ev?._booking?.series?.pattern || null;
+    const lastKnownName = ev?.name || null;
+    setApprovedSeries((prev) => ({
+      ...prev,
+      [seriesId]: {
+        approvedAt: new Date().toISOString(),
+        pattern,
+        lastKnownName,
+      },
+    }));
+    // Retro-vet every pending event that belongs to this series.
+    const sameSeriesIds = pending
+      .filter((p) => getEventSeriesId(p) === seriesId)
+      .map((p) => String(p.id));
+    if (sameSeriesIds.length) {
+      setApprovedSet((cur) => {
+        const next = new Set(cur);
+        for (const id of sameSeriesIds) next.add(id);
+        return next;
+      });
+    }
+  };
+
+  // Revoke a series approval. Future instances of this series will land
+  // back in Review. Already-vetted instances stay vetted — un-vetting them
+  // would feel punitive (the operator approved them, revoke only affects
+  // what happens NEXT).
+  const revokeSeries = (seriesId) => {
+    if (!seriesId) return;
+    setApprovedSeries((prev) => {
+      const next = { ...prev };
+      delete next[seriesId];
+      return next;
+    });
+  };
+
   const importFromWebsite = async ({ auto = false } = {}) => {
     if (importBusy) return;
     setImportBusy(true); setImportMsg(null);
@@ -879,6 +954,21 @@ export default function ReviewQueue({ betaMode = false } = {}) {
           const existing = new Set(prev.map((e) => String(e.id)));
           return [...prev, ...fresh.filter((e) => !existing.has(String(e.id)))];
         });
+        // Auto-vet fresh events whose series the operator pre-approved.
+        // They still land in the pending queue so they stay visible and
+        // the operator can veto if something looks off — but they arrive
+        // already checked, so bulk-commit moves them without a second
+        // round of manual approvals.
+        const autoVetIds = fresh
+          .filter((e) => isSeriesApprovedId(getEventSeriesId(e)))
+          .map((e) => String(e.id));
+        if (autoVetIds.length) {
+          setApprovedSet((cur) => {
+            const next = new Set(cur);
+            for (const id of autoVetIds) next.add(id);
+            return next;
+          });
+        }
       }
       try { localStorage.setItem(IMPORTED_BOOKINGS_KEY, JSON.stringify([...seen])); } catch {}
       // Stamp the last-sync time regardless of whether anything was
@@ -888,12 +978,16 @@ export default function ReviewQueue({ betaMode = false } = {}) {
       setLastSyncAt(now);
       try { localStorage.setItem(LAST_SYNC_KEY, String(now)); } catch {}
       const wkLabel = `${weekendDates.Fri}–${weekendDates.Sun}`;
-      // Count any new bookings with a recurring/series signal so the
-      // operator can see (for Phase 2 planning) how many instances the
-      // website is sending as part of a series.
-      const seriesCount = fresh.filter((e) => e._booking?.series).length;
-      const seriesNote = seriesCount
-        ? ` (${seriesCount} flagged as recurring — grouping into one entry per series is a future ship)`
+      // Count any new bookings with a recurring/series signal — and split
+      // out how many were auto-vetted because their series was already
+      // approved vs. how many still need the operator's eyes.
+      const seriesEvents = fresh.filter((e) => e._booking?.series);
+      const autoVettedCount = seriesEvents.filter((e) =>
+        isSeriesApprovedId(getEventSeriesId(e))
+      ).length;
+      const unapprovedCount = seriesEvents.length - autoVettedCount;
+      const seriesNote = seriesEvents.length
+        ? ` (${autoVettedCount ? `${autoVettedCount} auto-vetted (approved series)` : ""}${autoVettedCount && unapprovedCount ? "; " : ""}${unapprovedCount ? `${unapprovedCount} flagged recurring — tap the 🔂 badge to approve the pattern` : ""})`
         : "";
       // Auto-runs stay quiet when nothing's new (operator doesn't need
       // a toast for every background sync). Manual clicks always show
@@ -2966,18 +3060,33 @@ export default function ReviewQueue({ betaMode = false } = {}) {
                           // Website promoter flagged this booking as recurring.
                           // Shows the pattern (Weekly/Monthly/…) when the website
                           // sent one, falls back to just "Recurring" otherwise.
-                          // Purple to stand apart from the gold "Regular" badge
-                          // (that's YOUR weekly list; this is a promoter's series).
+                          // Purple = unapproved pattern (each instance still needs
+                          // the operator's eyes). Green = pattern approved; future
+                          // instances auto-vet on import. Click to flip state.
+                          const seriesId = getEventSeriesId(ev);
+                          const approved = isSeriesApprovedId(seriesId);
                           const raw = String(ev._booking.series.pattern || "").trim();
                           const label = raw
                             ? raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase()
                             : "Recurring";
+                          const bg = approved ? "rgba(52,211,153,0.18)" : "rgba(192,132,252,0.18)";
+                          const color = approved ? "#34D399" : "#C084FC";
+                          const icon = approved ? "✓ 🔂" : "🔂";
+                          const title = approved
+                            ? `Series APPROVED${raw ? ` (${raw.toLowerCase()})` : ""}. Future instances auto-vet on import. Tap to revoke — future instances will go back to needing review.`
+                            : `Promoter flagged this as a recurring booking${raw ? ` (${raw.toLowerCase()})` : ""}. Tap to approve the series pattern: this instance + every future instance auto-vets on import. Already-pending siblings get vetted right now.`;
+                          const onClick = (e) => {
+                            e.stopPropagation();
+                            if (approved) revokeSeries(seriesId);
+                            else approveSeries(ev);
+                          };
                           return (
                             <span
-                              title={`Promoter flagged this as a recurring booking${raw ? ` (${raw.toLowerCase()})` : ""}. Each instance currently comes in as its own Review entry — decide once whether to approve the pattern or treat it as one-off.`}
-                              style={{ marginLeft: 8, fontSize: "0.55rem", padding: "1px 6px", borderRadius: 3, background: "rgba(192,132,252,0.18)", color: "#C084FC", letterSpacing: "0.5px", textTransform: "uppercase", fontWeight: 700, verticalAlign: "middle" }}
+                              onClick={onClick}
+                              title={title}
+                              style={{ marginLeft: 8, fontSize: "0.55rem", padding: "1px 6px", borderRadius: 3, background: bg, color, letterSpacing: "0.5px", textTransform: "uppercase", fontWeight: 700, verticalAlign: "middle", cursor: "pointer", userSelect: "none" }}
                             >
-                              🔂 {label}
+                              {icon} {label}
                             </span>
                           );
                         })()}
