@@ -35,6 +35,7 @@ import {
 } from "./apifyInstagram.js";
 import * as eventStoreDb from "./eventStoreDb.js";
 import * as perplexityResearch from "./perplexityResearch.js";
+import { isConsumerKey, executeTool as mcpExecuteTool, listConnections as mcpListConnections } from "./composioMcp.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || "5000", 10);
@@ -2720,6 +2721,16 @@ async function composioExecute(toolSlug, igAccount, args) {
     err.code = "no_api_key";
     throw err;
   }
+  // ck_… consumer keys only work against Composio's MCP endpoint, not the
+  // REST API below.
+  if (isConsumerKey(apiKey)) {
+    try {
+      return await mcpExecuteTool({ apiKey, toolSlug, account: igAccount.id, args });
+    } catch (err) {
+      console.error(`[composio mcp] ${toolSlug}:`, err?.message || err);
+      throw err;
+    }
+  }
   const url = `${COMPOSIO_BASE}/tools/execute/${toolSlug}`;
   const r = await fetch(url, {
     method: "POST",
@@ -2794,6 +2805,15 @@ app.get("/api/instagram/composio-accounts", async (_req, res) => {
   const orgs = {};
   for (const [orgName, apiKey] of Object.entries(COMPOSIO_ORGS)) {
     if (!apiKey) { orgs[orgName] = { configured: false }; continue; }
+    if (isConsumerKey(apiKey)) {
+      try {
+        const accounts = await mcpListConnections({ apiKey, toolkit: "instagram" });
+        orgs[orgName] = { configured: true, ok: true, keyType: "consumer (MCP)", accounts };
+      } catch (err) {
+        orgs[orgName] = { configured: true, ok: false, keyType: "consumer (MCP)", httpStatus: err?.status || null, message: String(err?.message || err) };
+      }
+      continue;
+    }
     try {
       const r = await fetch(`${COMPOSIO_BASE}/connected_accounts?toolkit_slugs=instagram&limit=50`, {
         headers: { "x-api-key": apiKey },
