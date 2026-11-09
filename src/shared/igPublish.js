@@ -174,6 +174,58 @@ export function parseRejectedTagUsernames(message, sentTags) {
     .filter((u) => u && sent.has(u));
 }
 
+const TAG_ERROR_RE = /invalid user|user_tags|usertag|cannot be accessed|cannot be tagged|tagged|tagging/i;
+
+// True when an Instagram error reads like it is about tagged accounts.
+export function looksLikeTagError(message) {
+  return TAG_ERROR_RE.test(String(message || ""));
+}
+
+// Creates a media container, surviving bad tags. `create(body)` makes one
+// container call; `dropped` is a Set that collects every username skipped.
+//   1. Instagram names the rejected users → retry without exactly those.
+//   2. It rejects the tags without naming anyone → try each tag alone, keep
+//      the ones that work, drop the ones that don't.
+//   3. Even the surviving tags fail together → post that slide untagged.
+// Errors that aren't about tags are rethrown untouched.
+export async function createWithTagFallback({ create, payload, dropped }) {
+  let tags = Array.isArray(payload.user_tags) ? payload.user_tags : [];
+  const bodyFor = (t) => {
+    const b = { ...payload };
+    if (t.length) b.user_tags = t; else delete b.user_tags;
+    return b;
+  };
+  const nameOf = (t) => String(t?.username || "").toLowerCase();
+  let probed = false;
+  for (let attempt = 0; attempt < 6; attempt++) {
+    try {
+      return await create(bodyFor(tags));
+    } catch (err) {
+      if (!tags.length) throw err;
+      const named = parseRejectedTagUsernames(err?.message, tags);
+      if (named.length) {
+        for (const u of named) dropped.add(u);
+        tags = tags.filter((t) => !named.includes(nameOf(t)));
+        continue;
+      }
+      if (!looksLikeTagError(err?.message)) throw err;
+      if (!probed) {
+        probed = true;
+        const good = [];
+        for (const t of tags) {
+          try { await create(bodyFor([t])); good.push(t); }
+          catch { dropped.add(nameOf(t)); }
+        }
+        tags = good;
+        continue;
+      }
+      for (const t of tags) dropped.add(nameOf(t));
+      tags = [];
+    }
+  }
+  throw new Error("Instagram kept rejecting tagged accounts");
+}
+
 // Compose the user_tags payload a Composio INSTAGRAM_POST_IG_USER_MEDIA
 // call expects, per slide. Only used by the server, but lives here so
 // the modal preview can show the exact same shape.
