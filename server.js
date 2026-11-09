@@ -36,7 +36,7 @@ import {
 import * as eventStoreDb from "./eventStoreDb.js";
 import * as perplexityResearch from "./perplexityResearch.js";
 import { isConsumerKey, executeTool as mcpExecuteTool, listConnections as mcpListConnections } from "./composioMcp.js";
-import { parseRejectedTagUsernames } from "./src/shared/igPublish.js";
+import { createWithTagFallback } from "./src/shared/igPublish.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || "5000", 10);
@@ -2860,24 +2860,14 @@ app.get("/api/instagram/tmp-image/:token.jpg", (req, res) => {
 });
 
 // Instagram rejects a whole media container when any tagged account can't
-// be accessed. Retry without the rejected usernames (a few rounds at most)
-// and record what was dropped so the operator can fix those handles.
-async function createMediaContainer(igAccount, payload, dropped) {
-  let tags = Array.isArray(payload.user_tags) ? payload.user_tags : [];
-  for (let attempt = 0; attempt < 4; attempt++) {
-    const body = { ...payload };
-    if (tags.length) body.user_tags = tags; else delete body.user_tags;
-    try {
-      return await composioExecute("INSTAGRAM_POST_IG_USER_MEDIA", igAccount, body);
-    } catch (err) {
-      const bad = parseRejectedTagUsernames(err?.message, tags);
-      if (!bad.length) throw err;
-      for (const u of bad) dropped.add(u);
-      tags = tags.filter((t) => !bad.includes(String(t?.username || "").toLowerCase()));
-      console.warn(`[ig publish] Instagram rejected tags ${bad.join(", ")}; retrying without them`);
-    }
-  }
-  throw new Error("Instagram kept rejecting tagged accounts");
+// be used. createWithTagFallback drops just the bad tags (see igPublish.js)
+// and records them in `dropped` so the operator can fix those handles.
+function createMediaContainer(igAccount, payload, dropped) {
+  return createWithTagFallback({
+    create: (body) => composioExecute("INSTAGRAM_POST_IG_USER_MEDIA", igAccount, body),
+    payload,
+    dropped,
+  });
 }
 
 // Publish ONE slide to a feed + optionally a Story. Pulled out so both
