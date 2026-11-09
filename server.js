@@ -2784,6 +2784,51 @@ function sweepIgTmpImages() {
   const now = Date.now();
   for (const [k, v] of IG_TMP_IMAGES) if (v.expiresAt < now) IG_TMP_IMAGES.delete(k);
 }
+// Diagnostic: asks each configured Composio org which Instagram accounts
+// its API key can see, so the operator can read the real connected-account
+// ID off the screen instead of hunting the dashboard. Only whitelisted
+// fields are returned — the raw Composio response can carry credentials,
+// so it is never passed through.
+app.get("/api/instagram/composio-accounts", async (_req, res) => {
+  const SAFE_KEYS = ["id", "nanoid", "word_id", "alias", "user_id", "status", "created_at", "updated_at"];
+  const orgs = {};
+  for (const [orgName, apiKey] of Object.entries(COMPOSIO_ORGS)) {
+    if (!apiKey) { orgs[orgName] = { configured: false }; continue; }
+    try {
+      const r = await fetch(`${COMPOSIO_BASE}/connected_accounts?toolkit_slugs=instagram&limit=50`, {
+        headers: { "x-api-key": apiKey },
+      });
+      const text = await r.text();
+      let body = null;
+      try { body = JSON.parse(text); } catch {}
+      if (!r.ok) {
+        orgs[orgName] = { configured: true, ok: false, httpStatus: r.status, message: String(body?.error?.message || body?.message || text.slice(0, 300)) };
+        continue;
+      }
+      const items = Array.isArray(body?.items) ? body.items : Array.isArray(body) ? body : [];
+      orgs[orgName] = {
+        configured: true,
+        ok: true,
+        accounts: items.map((it) => {
+          const out = { toolkit: it?.toolkit?.slug || it?.toolkit_slug || null };
+          for (const k of SAFE_KEYS) if (it?.[k] != null) out[k] = it[k];
+          return out;
+        }),
+      };
+    } catch (err) {
+      orgs[orgName] = { configured: true, ok: false, message: String(err?.message || err) };
+    }
+  }
+  const mapped = Object.fromEntries(
+    Object.entries(IG_ACCOUNT_IDS).map(([alias, a]) => {
+      const listed = orgs[a.org]?.accounts || [];
+      const found = listed.some((x) => [x.id, x.nanoid, x.word_id, x.alias].includes(a.id));
+      return [alias, { org: a.org, configuredId: a.id, foundInComposio: found }];
+    })
+  );
+  res.type("json").send(JSON.stringify({ orgs, mapped }, null, 2));
+});
+
 app.get("/api/instagram/tmp-image/:token.jpg", (req, res) => {
   sweepIgTmpImages();
   const entry = IG_TMP_IMAGES.get(String(req.params.token || ""));
