@@ -159,6 +159,21 @@ export function formatScheduleTime(ms) {
   return `${day}, ${time}`;
 }
 
+// Instagram rejects a whole media container when any one tagged username
+// isn't a reachable public account, e.g. "Invalid user id - The following
+// user(s) cannot be accessed: heythere, otherhandle". Pull those usernames
+// out of the error text, keeping only ones we actually sent so a retry
+// without them is guaranteed to make progress.
+export function parseRejectedTagUsernames(message, sentTags) {
+  const m = String(message || "").match(/cannot be accessed:\s*([^\n]+)/i);
+  if (!m) return [];
+  const sent = new Set((sentTags || []).map((t) => String(t?.username || "").toLowerCase()));
+  return m[1]
+    .split(/[\s,;]+/)
+    .map((u) => u.replace(/^@+/, "").replace(/[.)"'\]]+$/g, "").toLowerCase())
+    .filter((u) => u && sent.has(u));
+}
+
 // Compose the user_tags payload a Composio INSTAGRAM_POST_IG_USER_MEDIA
 // call expects, per slide. Only used by the server, but lives here so
 // the modal preview can show the exact same shape.

@@ -36,6 +36,7 @@ import {
 import * as eventStoreDb from "./eventStoreDb.js";
 import * as perplexityResearch from "./perplexityResearch.js";
 import { isConsumerKey, executeTool as mcpExecuteTool, listConnections as mcpListConnections } from "./composioMcp.js";
+import { parseRejectedTagUsernames } from "./src/shared/igPublish.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || "5000", 10);
@@ -2858,16 +2859,38 @@ app.get("/api/instagram/tmp-image/:token.jpg", (req, res) => {
   return res.send(entry.buf);
 });
 
+// Instagram rejects a whole media container when any tagged account can't
+// be accessed. Retry without the rejected usernames (a few rounds at most)
+// and record what was dropped so the operator can fix those handles.
+async function createMediaContainer(igAccount, payload, dropped) {
+  let tags = Array.isArray(payload.user_tags) ? payload.user_tags : [];
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const body = { ...payload };
+    if (tags.length) body.user_tags = tags; else delete body.user_tags;
+    try {
+      return await composioExecute("INSTAGRAM_POST_IG_USER_MEDIA", igAccount, body);
+    } catch (err) {
+      const bad = parseRejectedTagUsernames(err?.message, tags);
+      if (!bad.length) throw err;
+      for (const u of bad) dropped.add(u);
+      tags = tags.filter((t) => !bad.includes(String(t?.username || "").toLowerCase()));
+      console.warn(`[ig publish] Instagram rejected tags ${bad.join(", ")}; retrying without them`);
+    }
+  }
+  throw new Error("Instagram kept rejecting tagged accounts");
+}
+
 // Publish ONE slide to a feed + optionally a Story. Pulled out so both
 // the carousel endpoint (single-slide branch) and the scheduler can
 // reuse the same Composio chain.
 //
 // slide           : { imageBase64, userTags }
 // alsoPostStory   : if true, also fire the slide as a STORIES media
-// Returns { mediaId, permalink, story: {ok, mediaId?, error?} | null }
+// Returns { mediaId, permalink, story: {ok, mediaId?, error?} | null, droppedTags }
 async function publishSingleSlideToFeed({
   slide, caption, igAccount, igUserId, origin, alsoPostStory,
 }) {
+  const droppedTags = new Set();
   const feedToken = makeIgTmpToken();
   IG_TMP_IMAGES.set(feedToken, {
     buf: base64JpegToBuffer(slide?.imageBase64),
@@ -2884,7 +2907,7 @@ async function publishSingleSlideToFeed({
   let mediaId = "";
   let permalink = null;
   try {
-    const container = await composioExecute("INSTAGRAM_POST_IG_USER_MEDIA", igAccount, feedPayload);
+    const container = await createMediaContainer(igAccount, feedPayload, droppedTags);
     const containerId = String(container?.response_data?.id || container?.data?.id || container?.id || "");
     if (!containerId) throw new Error("single-image container returned no id");
     const published = await composioExecute("INSTAGRAM_POST_IG_USER_MEDIA_PUBLISH", igAccount, {
@@ -2914,12 +2937,12 @@ async function publishSingleSlideToFeed({
       expiresAt: Date.now() + IG_TMP_TTL_MS,
     });
     try {
-      const container = await composioExecute("INSTAGRAM_POST_IG_USER_MEDIA", igAccount, {
+      const container = await createMediaContainer(igAccount, {
         ig_user_id: igUserId,
         image_url: `${origin}/api/instagram/tmp-image/${storyToken}.jpg`,
         media_type: "STORIES",
         user_tags: userTags,
-      });
+      }, droppedTags);
       const containerId = String(container?.response_data?.id || container?.data?.id || container?.id || "");
       if (!containerId) throw new Error("story container returned no id");
       const publishedStory = await composioExecute("INSTAGRAM_POST_IG_USER_MEDIA_PUBLISH", igAccount, {
@@ -2937,7 +2960,7 @@ async function publishSingleSlideToFeed({
     }
   }
 
-  return { mediaId, permalink, story };
+  return { mediaId, permalink, story, droppedTags: [...droppedTags] };
 }
 
 app.post("/api/instagram/publish-carousel", express.json({ limit: "48mb" }), async (req, res) => {
@@ -2991,11 +3014,13 @@ app.post("/api/instagram/publish-carousel", express.json({ limit: "48mb" }), asy
         permalink: single.permalink,
         account: alias,
         stories: single.story ? [{ ...single.story, slideIndex: 0 }] : [],
+        droppedTags: single.droppedTags,
       });
     }
 
     // Step 1 — stage each slide as a tmp-hosted JPEG. Collect the public
     // URL + user_tags payload so each child container gets both.
+    const droppedTags = new Set();
     const tokens = [];
     const childSpecs = slides.map((s, i) => {
       const token = makeIgTmpToken();
@@ -3021,7 +3046,7 @@ app.post("/api/instagram/publish-carousel", express.json({ limit: "48mb" }), asy
         is_carousel_item: true,
       };
       if (spec.user_tags.length) payload.user_tags = spec.user_tags;
-      const out = await composioExecute("INSTAGRAM_POST_IG_USER_MEDIA", igAccount, payload);
+      const out = await createMediaContainer(igAccount, payload, droppedTags);
       const id = out?.response_data?.id || out?.data?.id || out?.id;
       if (!id) throw new Error(`child ${i + 1} returned no id`);
       childIds.push(String(id));
@@ -3080,12 +3105,12 @@ app.post("/api/instagram/publish-carousel", express.json({ limit: "48mb" }), asy
         try {
           // Story container: same image_url + user_tags shape as a feed
           // image, but media_type=STORIES and no is_carousel_item.
-          const container = await composioExecute("INSTAGRAM_POST_IG_USER_MEDIA", igAccount, {
+          const container = await createMediaContainer(igAccount, {
             ig_user_id: igUserId,
             image_url: `${origin}/api/instagram/tmp-image/${storyToken}.jpg`,
             media_type: "STORIES",
             user_tags: Array.isArray(spec?.userTags) ? spec.userTags.slice(0, 20) : [],
-          });
+          }, droppedTags);
           const containerId = String(container?.response_data?.id || container?.data?.id || container?.id || "");
           if (!containerId) throw new Error("story container returned no id");
           const publishedStory = await composioExecute("INSTAGRAM_POST_IG_USER_MEDIA_PUBLISH", igAccount, {
@@ -3110,7 +3135,7 @@ app.post("/api/instagram/publish-carousel", express.json({ limit: "48mb" }), asy
     // means a leaked token is unreachable.
     for (const t of tokens) IG_TMP_IMAGES.delete(t);
 
-    return res.json({ ok: true, mediaId, permalink, account: alias, stories: storyResults });
+    return res.json({ ok: true, mediaId, permalink, account: alias, stories: storyResults, droppedTags: [...droppedTags] });
   } catch (err) {
     console.error("[ig publish] error:", err);
     const status = err?.status && Number.isFinite(err.status) ? err.status : 500;
@@ -3252,6 +3277,7 @@ async function tickIgScheduler() {
         mediaId: result.mediaId || null,
         permalink: result.permalink || null,
         story: result.story || null,
+        droppedTags: result.droppedTags || [],
         postedAt: new Date().toISOString(),
       };
       // Drop the image bytes — they're taking up disk and we don't

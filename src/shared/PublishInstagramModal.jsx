@@ -275,6 +275,9 @@ export function PublishInstagramModal({
           else if (storyCount && storyFailed) parts.push(`+ ${storyCount} slide Stories posted, ${storyFailed} failed.`);
           else parts.push("Stories step failed — see server logs.");
         }
+        if (Array.isArray(data?.droppedTags) && data.droppedTags.length) {
+          parts.push(`Skipped tags Instagram couldn't find: ${data.droppedTags.map((h) => `@${h}`).join(", ")} — fix those handles in the calendar.`);
+        }
         setMsg({
           ok: true,
           text: parts.join(" "),
