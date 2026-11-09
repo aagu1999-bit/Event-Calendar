@@ -174,7 +174,16 @@ export function parseRejectedTagUsernames(message, sentTags) {
     .filter((u) => u && sent.has(u));
 }
 
-const TAG_ERROR_RE = /invalid user|user_tags|usertag|cannot be accessed|cannot be tagged|tagged|tagging/i;
+// Splits what an operator types into the tag box ("@a, b  @c") into handles.
+// Validation and the blocklist still happen in buildPublishPlan.
+export function parseHandleInput(text) {
+  return String(text || "")
+    .split(/[\s,;]+/)
+    .map((h) => h.replace(/^@+/, ""))
+    .filter(Boolean);
+}
+
+const TAG_ERROR_RE =/invalid user|user_tags|usertag|cannot be accessed|cannot be tagged|tagged|tagging/i;
 
 // True when an Instagram error reads like it is about tagged accounts.
 export function looksLikeTagError(message) {

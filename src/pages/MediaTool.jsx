@@ -10,6 +10,7 @@ import { EventToolsPanel } from "../shared/EventToolsPanel.jsx";
 import { AiSlideGeneratorModal } from "../shared/AiSlideGeneratorModal.jsx";
 import { AiTemplateFillModal } from "../shared/AiTemplateFillModal.jsx";
 import { CuratorialMatrixModal } from "../shared/CuratorialMatrixModal.jsx";
+import { PublishInstagramModal } from "../shared/PublishInstagramModal.jsx";
 import { EVENT_TIERS } from "../shared/matrixEnums.js";
 import { eventMatrixToFillSeed, previewDeskFromEvent } from "../shared/eventMatrixToFillSeed.js";
 import { NewsScoutModal } from "../shared/NewsScoutModal.jsx";
@@ -4217,7 +4218,7 @@ export default function MediaTool() {
     else                                  setTextPhoto(img); // text/cta/features share textPhoto
   };
 
-  const dl=()=>{const cv=document.createElement("canvas");
+  const buildSingleExportCanvas=()=>{const cv=document.createElement("canvas");
     // Ratio-aware modes render DIRECTLY at the export target dims —
     // photo, watermark grid, headline, footer all fill the target
     // aspect from the start. Today: cover, spotlight, savedate, press,
@@ -4271,7 +4272,11 @@ export default function MediaTool() {
     // Ratio-aware modes already rendered at target dims; skip the wrap
     // (which would re-composite onto another canvas). Other modes still
     // render at 1080×1080 and get center/focal-aware composited.
-    const exportCv = isRatioAware ? cv : wrapForExport(cv, exportRatio, getModePrimaryPhoto(), focal, EXPORT_SCALE);
+    return isRatioAware ? cv : wrapForExport(cv, exportRatio, getModePrimaryPhoto(), focal, EXPORT_SCALE);
+  };
+
+  const dl = () => {
+    const exportCv = buildSingleExportCanvas();
     exportCv.toBlob(async (blob) => {
       // Pre-generate the export id so the PNG tag and the cloud record
       // share it. Tag the blob FIRST so the downloaded file is the tagged
@@ -4455,6 +4460,10 @@ export default function MediaTool() {
   // were removed; their use cases are now covered by Roundup Generator,
   // ✨ AI Fill Template, and the Carousel Template Library.
   const [isAutoGen, setIsAutoGen] = useState(false);
+  // Post to Instagram: which thing is being posted ("single" slide or the
+  // "carousel") and whether the modal is open.
+  const [igOpen, setIgOpen] = useState(false);
+  const [igSource, setIgSource] = useState("single");
 
   // === CAROUSEL COMPOSER ===
   const renderSlide = (cv, type, s, dotsNum, dotsTot, slideIdx = 0, exportTarget = null, renderScale = 1) => {
@@ -5575,6 +5584,7 @@ export default function MediaTool() {
         const venueParts = [venueArea, dateTime].filter(Boolean);
         snapshots.push({
           type: "cta",
+          igHandle: ev.igHandle || "",
           snapshot: {
             ...common,
             dots: i + 3,
@@ -5591,6 +5601,7 @@ export default function MediaTool() {
       } else {
         snapshots.push({
           type: "spotlight",
+          igHandle: ev.igHandle || "",
           snapshot: {
             ...common,
             dots: i + 3,
@@ -5641,7 +5652,7 @@ export default function MediaTool() {
       const thumb = canvasToThumb(cv);
       return {
         id: `s_${Date.now()}_${i}_${Math.random().toString(36).slice(2,4)}`,
-        type: s.type, snapshot: s.snapshot, thumb,
+        type: s.type, snapshot: s.snapshot, thumb, igHandle: s.igHandle || "",
       };
     });
     setCarousel(newSlides);
@@ -5878,6 +5889,25 @@ export default function MediaTool() {
     return out;
   };
 
+  // Renders carousel slide i to its final export canvas. Shared by the ZIP
+  // export and Post to Instagram so both produce identical images.
+  const buildCarouselExportCanvas = (i) => {
+    const s = carousel[i];
+    const cv = document.createElement("canvas");
+    // Pass target dims only for the bottom-anchored photo-hero types
+    // (cover/spotlight/photo) — those paint the whole design at the
+    // target aspect and SKIP wrapForExport. Every other type renders at
+    // 1080×1080 and gets CENTERED into the target frame by wrapForExport,
+    // so its top-anchored layout doesn't sit high with dead space below.
+    const slideTarget = EXPORT_RATIOS[exportRatio] || EXPORT_RATIOS["1:1"];
+    const RATIO_AWARE_SLIDE_TYPES = new Set(["cover", "spotlight", "photo", "news", "poster", "press", "features", "countdown"]);
+    const isRatioAwareSlide = RATIO_AWARE_SLIDE_TYPES.has(s.type);
+    renderSlide(cv, s.type, s.snapshot, i+1, carousel.length, i, isRatioAwareSlide ? slideTarget : null, EXPORT_SCALE);
+    return isRatioAwareSlide
+      ? cv
+      : wrapForExport(cv, exportRatio, getSnapshotPrimaryPhoto(s.type, s.snapshot), getSnapshotFocal(s.type, s.snapshot), EXPORT_SCALE);
+  };
+
   const exportCarouselZip = async () => {
     if (carousel.length === 0 || isAutoGen) return;
     setIsAutoGen(true);
@@ -5886,19 +5916,7 @@ export default function MediaTool() {
       const zip = new JSZip();
       for (let i = 0; i < carousel.length; i++) {
         const s = carousel[i];
-        const cv = document.createElement("canvas");
-        // Pass target dims only for the bottom-anchored photo-hero types
-        // (cover/spotlight/photo) — those paint the whole design at the
-        // target aspect and SKIP wrapForExport. Every other type renders at
-        // 1080×1080 and gets CENTERED into the target frame by wrapForExport,
-        // so its top-anchored layout doesn't sit high with dead space below.
-        const slideTarget = EXPORT_RATIOS[exportRatio] || EXPORT_RATIOS["1:1"];
-        const RATIO_AWARE_SLIDE_TYPES = new Set(["cover", "spotlight", "photo", "news", "poster", "press", "features", "countdown"]);
-        const isRatioAwareSlide = RATIO_AWARE_SLIDE_TYPES.has(s.type);
-        renderSlide(cv, s.type, s.snapshot, i+1, carousel.length, i, isRatioAwareSlide ? slideTarget : null, EXPORT_SCALE);
-        const exportCv = isRatioAwareSlide
-          ? cv
-          : wrapForExport(cv, exportRatio, getSnapshotPrimaryPhoto(s.type, s.snapshot), getSnapshotFocal(s.type, s.snapshot), EXPORT_SCALE);
+        const exportCv = buildCarouselExportCanvas(i);
         const blob = await new Promise(r => exportCv.toBlob(r, "image/png"));
         zip.file(`CGE_carousel_${String(i+1).padStart(2,"0")}_${s.type}_${exportRatio.replace(":","x")}.png`, blob);
       }
@@ -5926,6 +5944,39 @@ export default function MediaTool() {
       setIsAutoGen(false);
     }
   };
+
+  // --- Post to Instagram ------------------------------------------------
+  // Feed posts must be between 4:5 and 1.91:1, so only 1:1 and 4:5 qualify.
+  const openIgPost = (source) => {
+    if (exportRatio !== "1:1" && exportRatio !== "4:5") {
+      alert("Instagram feed posts need a 1:1 or 4:5 export. Switch the ratio, then try again.");
+      return;
+    }
+    if (source === "carousel" && carousel.length === 0) return;
+    setIgSource(source);
+    setIgOpen(true);
+  };
+
+  // JPEG capped at 1440px wide (Instagram's limit) so ten slides stay well
+  // under the server's request-size limit.
+  const renderIgBlob = async (i) => {
+    await document.fonts.ready;
+    let exportCv = igSource === "carousel" ? buildCarouselExportCanvas(i) : buildSingleExportCanvas();
+    const sc = Math.min(1, 1440 / exportCv.width);
+    if (sc < 1) {
+      const small = document.createElement("canvas");
+      small.width = Math.round(exportCv.width * sc);
+      small.height = Math.round(exportCv.height * sc);
+      small.getContext("2d").drawImage(exportCv, 0, 0, small.width, small.height);
+      exportCv = small;
+    }
+    return await new Promise((r) => exportCv.toBlob(r, "image/jpeg", 0.92));
+  };
+
+  // Start from the AI caption currently picked in the caption list, if any.
+  const igDefaultCaption = captions.length
+    ? (captions[Math.min(captionPickIdx, captions.length - 1)]?.text || "")
+    : "";
 
   // Drag-and-drop reorder. The original code skipped dataTransfer setup —
   // Firefox treats that as "this drag has no payload" and refuses to fire
@@ -7660,6 +7711,15 @@ export default function MediaTool() {
                         <span style={{width:22,textAlign:"center"}}>🗂️</span>
                         <span><span style={DL_MENU_TITLE}>{isAutoGen ? "Exporting ZIP…" : "Carousel ZIP"}</span><span style={DL_MENU_SUB}>{carousel.length ? `All ${carousel.length} slides · ${exportRatio} · numbered PNGs` : "Add slides to the carousel first"}</span></span>
                       </button>
+                      <div style={{height:1,background:"rgba(245,240,232,0.06)",margin:"4px 6px"}} />
+                      <button role="menuitem" onClick={()=>{ setDlMenuOpen(false); openIgPost("single"); }} style={DL_MENU_ITEM}>
+                        <span style={{width:22,textAlign:"center"}}>📱</span>
+                        <span><span style={{...DL_MENU_TITLE, color:"#F472B6"}}>Post to Instagram — this slide</span><span style={DL_MENU_SUB}>One image · tag accounts · edit the caption first</span></span>
+                      </button>
+                      <button role="menuitem" onClick={()=>{ if(carousel.length){ setDlMenuOpen(false); openIgPost("carousel"); } }} disabled={!carousel.length} style={{...DL_MENU_ITEM, opacity:!carousel.length?0.4:1, cursor:!carousel.length?"not-allowed":"pointer"}}>
+                        <span style={{width:22,textAlign:"center"}}>📱</span>
+                        <span><span style={{...DL_MENU_TITLE, color:"#F472B6"}}>Post to Instagram — carousel</span><span style={DL_MENU_SUB}>{carousel.length ? `All ${carousel.length} slides as one post` : "Add slides to the carousel first"}</span></span>
+                      </button>
                       {MOTION_MODES.has(mode) && motionUrl && (
                         <>
                           <div style={{height:1,background:"rgba(245,240,232,0.06)",margin:"4px 6px"}} />
@@ -7761,6 +7821,15 @@ export default function MediaTool() {
         </div>
       </div>
       </div>
+      <PublishInstagramModal
+        open={igOpen}
+        onClose={() => setIgOpen(false)}
+        slideHandles={igSource === "carousel" ? carousel.map((sl) => (sl.igHandle ? [sl.igHandle] : [])) : [[]]}
+        editableTags
+        slideLabels={igSource === "carousel" ? carousel.map((sl, i) => `Slide ${i + 1} · ${sl.type}`) : [`${mode} slide`]}
+        defaultCaption={igDefaultCaption}
+        renderSlideToBlob={renderIgBlob}
+      />
       <PhotoLibraryModal
         open={libOpen}
         onClose={() => setLibOpen(false)}
