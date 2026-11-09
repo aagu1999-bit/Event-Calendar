@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect } from "react";
-import { toPng } from "html-to-image";
+import { toPng, toJpeg } from "html-to-image";
 import { useEventsStore, useRestoreStore, useBrandStore } from "../store";
 import { savePhotoAndNotify, saveExport } from "../shared/photoLibrary.js";
 import { tagPngWithCgeExport } from "../shared/pngMetadata.js";
 import { PhotoLibraryModal } from "../shared/PhotoLibraryModal.jsx";
 import { ExportLibraryModal } from "../shared/ExportLibraryModal.jsx";
+import { PublishInstagramModal } from "../shared/PublishInstagramModal.jsx";
 
 // ==================== CONTROL-PANE STYLES & PRIMITIVES ====================
 // Defined at module scope (NOT inside FlyerBuilder) so React doesn't
@@ -1623,6 +1624,34 @@ export default function FlyerBuilder() {
 
   const [exportLibOpen, setExportLibOpen] = useState(false);
 
+  // Post-to-Instagram. flyerHandle is the loaded event's IG handle, used to
+  // prefill the tag box; the operator can edit it in the modal.
+  const [igOpen, setIgOpen] = useState(false);
+  const [flyerHandle, setFlyerHandle] = useState("");
+
+  const flyerCaptionDraft = () => {
+    const title = [data.title1, data.title2].map((t) => String(t || "").trim()).filter(Boolean).join(" ");
+    const when = [data.date, data.time].map((t) => String(t || "").trim()).filter(Boolean).join(" · ");
+    const where = String(data.venue || "").trim();
+    const line = [when, where].filter(Boolean).join(" @ ");
+    return [[title, line].filter(Boolean).join("\n"), "#NJWeekend #OnlyInJersey #EventsInNewJersey #NJ"]
+      .filter(Boolean).join("\n\n");
+  };
+
+  // JPEG at 1080×1350 (4:5) — what Instagram's feed accepts. The black
+  // backdrop flattens any transparent edges, since JPEG has no alpha.
+  const flyerToJpegBlob = async () => {
+    if (!flyerRef.current) return null;
+    await document.fonts.ready;
+    const dataUrl = await toJpeg(flyerRef.current, {
+      pixelRatio: 1,
+      quality: 0.92,
+      cacheBust: true,
+      backgroundColor: "#000000",
+    });
+    return await (await fetch(dataUrl)).blob();
+  };
+
   // Rasterize the flyer surface DOM to a 2160×2700 PNG (2x density of the
   // 1080×1350 layout — sharper on retina + IG re-compression).
   const downloadPng = async () => {
@@ -1677,6 +1706,7 @@ export default function FlyerBuilder() {
   const loadEvent = (id) => {
     const ev = events.find(e => String(e.id) === String(id));
     if (!ev) return;
+    setFlyerHandle(ev.igHandle || "");
     setData(d => ({
       ...d,
       title1: (ev.name || "").toUpperCase(),
@@ -2141,6 +2171,28 @@ export default function FlyerBuilder() {
         >
           {isExporting ? "Rendering…" : "Download PNG"}
         </button>
+        <button
+          onClick={() => setIgOpen(true)}
+          disabled={isExporting}
+          title="Post this flyer to Instagram"
+          style={{
+            width: "100%",
+            padding: "12px",
+            marginTop: "8px",
+            background: "rgba(236,72,153,0.12)",
+            color: "#F472B6",
+            border: "1px solid rgba(236,72,153,0.4)",
+            borderRadius: "6px",
+            fontSize: "0.8rem",
+            fontWeight: 700,
+            letterSpacing: "2px",
+            textTransform: "uppercase",
+            cursor: isExporting ? "wait" : "pointer",
+            fontFamily: "inherit",
+          }}
+        >
+          📱 Post to Instagram
+        </button>
         <div style={{ fontSize: "0.55rem", color: "rgba(245,240,232,0.4)", letterSpacing: "0.5px", marginTop: "6px", textAlign: "center" }}>
           2160×2700 (2× density) · IG-ready
         </div>
@@ -2191,6 +2243,15 @@ export default function FlyerBuilder() {
         onPick={onLibraryPick}
         outputAs="dataUrl"
         initialFilter="flyer"
+      />
+      <PublishInstagramModal
+        open={igOpen}
+        onClose={() => setIgOpen(false)}
+        slideHandles={[[flyerHandle]]}
+        editableTags
+        slideLabels={["Flyer"]}
+        defaultCaption={flyerCaptionDraft()}
+        renderSlideToBlob={flyerToJpegBlob}
       />
       <ExportLibraryModal
         open={exportLibOpen}

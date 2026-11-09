@@ -6,6 +6,7 @@ import {
   collectHandlesFromEvents,
   computeSlideSchedule,
   formatScheduleTime,
+  parseHandleInput,
 } from "./igPublish.js";
 
 // Modal that publishes the finished weekend carousel to Instagram.
@@ -43,6 +44,9 @@ export function PublishInstagramModal({
   open,
   onClose,
   slideEvents,       // [[event,...], [event,...], ...] — events PER slide
+  slideHandles,      // [["handle",...], ...] — alternative to slideEvents (Flyer/Media)
+  editableTags,      // true → each slide gets a box to type/fix its tag handles
+  slideLabels,       // optional ["Slide 1 · cover", ...] row labels
   slideDays,         // ["Fri", "Sat", "Sun", ...] — the day each slide belongs to
   friDate,           // "MM/DD" of the Friday this weekend starts on
   weekendLabel,
@@ -66,7 +70,17 @@ export function PublishInstagramModal({
   // Per-slide picker. Index → boolean. Default all on. Operator can
   // uncheck slides they don't want to send in either mode.
   const [slideChecked, setSlideChecked] = useState({});
+  const [tagInputs, setTagInputs] = useState([]); // editable mode: text per slide
   const captionTouchedRef = useRef(false);
+
+  // The events (or bare handles) each slide starts with. Flyer/Media pass
+  // handles directly; wrap them as {igHandle} so the same plan builder
+  // validates, dedupes and applies the blocklist.
+  const baseSlideEvents = useMemo(() => {
+    if (Array.isArray(slideEvents)) return slideEvents;
+    if (Array.isArray(slideHandles)) return slideHandles.map((hs) => (hs || []).map((h) => ({ igHandle: h })));
+    return [];
+  }, [slideEvents, slideHandles]);
 
   // Reset state when the modal opens — stale captions / errors / story
   // toggle / schedule mode shouldn't persist across opens.
@@ -81,9 +95,10 @@ export function PublishInstagramModal({
     // Every slide checked by default. Operator can uncheck what they
     // don't want to send.
     const checked = {};
-    const count = Array.isArray(slideEvents) ? slideEvents.length : 0;
+    const count = baseSlideEvents.length;
     for (let i = 0; i < count; i++) checked[i] = true;
     setSlideChecked(checked);
+    setTagInputs(baseSlideEvents.map((evs) => evs.map((e) => e?.igHandle).filter(Boolean).map((h) => `@${String(h).replace(/^@+/, "")}`).join(" ")));
     // Auto-generate the caption if none exists yet, so the modal always
     // opens with a usable draft. Mirrors the ZIP download's behavior.
     if (!defaultCaption && typeof onGenerateCaption === "function") {
@@ -136,11 +151,21 @@ export function PublishInstagramModal({
     setCaption(defaultCaption);
   }, [defaultCaption, open]);
 
+  // What actually gets tagged: the typed handles when editing is on,
+  // otherwise whatever the caller passed in.
+  const effectiveSlideEvents = useMemo(() => {
+    if (!editableTags) return baseSlideEvents;
+    return baseSlideEvents.map((_, i) => parseHandleInput(tagInputs[i]).map((h) => ({ igHandle: h })));
+  }, [editableTags, baseSlideEvents, tagInputs]);
+
   const plan = useMemo(() => buildPublishPlan({
-    slideEvents: slideEvents || [],
+    slideEvents: effectiveSlideEvents,
     maxPerSlide: IG_MAX_TAGS_PER_SLIDE,
     exclude: IG_PUBLISH_BLOCKLIST,
-  }), [slideEvents]);
+  }), [effectiveSlideEvents]);
+
+  // Per-day scheduling needs weekend days to hang the times on.
+  const canSchedule = Array.isArray(slideDays) && slideDays.length > 0 && !!friDate;
 
   // For schedule mode: compute each slide's target time based on its
   // day. Recomputes when mode toggles to "schedule" so the operator
@@ -154,8 +179,8 @@ export function PublishInstagramModal({
   }, [mode, slideDays, friDate, plan.perSlide]);
 
   const flatSlideEvents = useMemo(
-    () => (slideEvents || []).flat(),
-    [slideEvents]
+    () => effectiveSlideEvents.flat(),
+    [effectiveSlideEvents]
   );
   const allHandles = useMemo(
     () => collectHandlesFromEvents(flatSlideEvents, { exclude: [] }),
@@ -342,6 +367,7 @@ export function PublishInstagramModal({
         {/* Mode toggle — either everything ships now as one carousel, or
             each selected slide fires as its own feed post on the day it
             corresponds to. */}
+        {canSchedule && (<>
         <label style={{ display: "block", fontSize: "0.65rem", letterSpacing: "1px", textTransform: "uppercase", color: "rgba(245,240,232,0.6)", marginBottom: 6 }}>
           When
         </label>
@@ -368,6 +394,7 @@ export function PublishInstagramModal({
             </button>
           ))}
         </div>
+        </>)}
 
         {/* Tag + slide-picker plan. Each slide gets a checkbox so the
             operator can exclude any from the batch. Schedule mode also
@@ -386,11 +413,14 @@ export function PublishInstagramModal({
             const day = Array.isArray(slideDays) ? slideDays[i] : null;
             const sched = mode === "schedule" ? schedules[i] : null;
             const isChecked = slideChecked[i] !== false;
+            const rowLabel = Array.isArray(slideLabels) && slideLabels[i]
+              ? slideLabels[i]
+              : `Slide ${i + 1}${day ? ` · ${day}` : ""}`;
             return (
+              <div key={i} style={{ marginBottom: 4 }}>
               <label
-                key={i}
                 style={{
-                  display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 4,
+                  display: "flex", alignItems: "flex-start", gap: 8,
                   cursor: busy ? "not-allowed" : "pointer", opacity: isChecked ? 1 : 0.4,
                 }}
               >
@@ -403,9 +433,7 @@ export function PublishInstagramModal({
                 />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div>
-                    <span style={{ color: "#E5BC4F", fontWeight: 700 }}>
-                      Slide {i + 1}{day ? ` · ${day}` : ""}:
-                    </span>{" "}
+                    <span style={{ color: "#E5BC4F", fontWeight: 700 }}>{rowLabel}:</span>{" "}
                     {slideTags.length ? slideTags.map((h) => `@${h}`).join(" · ") : (
                       <em style={{ color: "rgba(245,240,232,0.35)" }}>(no tags)</em>
                     )}
@@ -419,11 +447,28 @@ export function PublishInstagramModal({
                   )}
                 </div>
               </label>
+              {editableTags && (
+                <input
+                  type="text"
+                  value={tagInputs[i] ?? ""}
+                  onChange={(e) => setTagInputs((prev) => { const next = [...prev]; next[i] = e.target.value; return next; })}
+                  disabled={busy || !isChecked}
+                  placeholder="@handle @handle — accounts to tag on this slide"
+                  style={{
+                    width: "100%", boxSizing: "border-box", marginTop: 3, padding: "5px 8px",
+                    background: "#161619", color: "#F5F0E8", border: "1px solid rgba(245,240,232,0.12)",
+                    borderRadius: 4, fontSize: "0.68rem", fontFamily: "inherit",
+                  }}
+                />
+              )}
+              </div>
             );
           })}
         </div>
         <div style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.45)", marginBottom: 14, lineHeight: 1.4 }}>
-          Tags per slide come from the handles of events on that slide (up to {plan.maxPerSlide} per slide — IG's hard cap).
+          {editableTags
+            ? `Type the Instagram handles to tag on each slide (up to ${plan.maxPerSlide} per slide — IG's hard cap).`
+            : `Tags per slide come from the handles of events on that slide (up to ${plan.maxPerSlide} per slide — IG's hard cap).`}
           {blockedCount > 0 && ` ${blockedCount} blocked (${plan.blocked.join(", ")}).`}
           {mode === "now" && selectedIndices.length === 1 && " Single-image feed post (not carousel)."}
           {mode === "schedule" && " Each picked slide posts as its own feed post at the time shown."}

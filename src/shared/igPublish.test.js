@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { parseRejectedTagUsernames, createWithTagFallback, looksLikeTagError } from "./igPublish.js";
+import { parseRejectedTagUsernames, createWithTagFallback, looksLikeTagError, parseHandleInput } from "./igPublish.js";
 
 // Fake container call: rejects any body whose tags include a handle in `bad`.
 // `named` controls whether the error names the offending users.
@@ -98,5 +98,15 @@ describe("looksLikeTagError", () => {
     assert.equal(looksLikeTagError("Invalid parameter user_tags"), true);
     assert.equal(looksLikeTagError("Invalid user id - cannot be accessed: x"), true);
     assert.equal(looksLikeTagError("The media could not be fetched"), false);
+  });
+});
+
+describe("parseHandleInput", () => {
+  it("splits on spaces, commas and semicolons and strips @", () => {
+    assert.deepEqual(parseHandleInput("@a, b  @@c;d"), ["a", "b", "c", "d"]);
+  });
+  it("returns an empty list for blank input", () => {
+    assert.deepEqual(parseHandleInput("  "), []);
+    assert.deepEqual(parseHandleInput(undefined), []);
   });
 });
