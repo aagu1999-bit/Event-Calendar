@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { generateGuideCommentary } from "./aiContent.js";
+import { isBlockedIgHandle, stripBlockedIgLinks } from "./blockedAccounts.js";
 
 // Publish a themed GUIDE page to centralgroupevents.com — the editorial write-up
 // (AI-voiced from the Brand Kit) plus the event listings — via the server proxy
@@ -39,8 +40,8 @@ function toListing(ev, weekendDates) {
     city: ev.area || "",
     region: ev.region ? `${ev.region} NJ`.replace(/ NJ NJ$/, " NJ") : "",
     date: toISO(rawDate),
-    instagram_handle: ev.igHandle || "",
-    learn_more_url: ev.link || "",
+    instagram_handle: isBlockedIgHandle(ev.igHandle) ? "" : (ev.igHandle || ""),
+    learn_more_url: stripBlockedIgLinks(ev.link || ""),
   };
 }
 
@@ -146,7 +147,7 @@ export function PublishGuideModal({ open, apiKey, events = [], weekendDates = nu
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           slug, title,
-          body_content: body,
+          body_content: stripBlockedIgLinks(body),
           hero_image_url: heroImage || undefined,
           published,
           accepting_submissions: acceptingSubmissions,

@@ -10,6 +10,7 @@ import { tagPngWithCgeExport } from "../shared/pngMetadata.js";
 import { PhotoLibraryModal } from "../shared/PhotoLibraryModal.jsx";
 import { ExportLibraryModal } from "../shared/ExportLibraryModal.jsx";
 import { PublishInstagramModal } from "../shared/PublishInstagramModal.jsx";
+import { isBlockedIgHandle, stripBlockedIgLinks } from "../shared/blockedAccounts.js";
 
 // ==================== COLOR SYSTEM ====================
 const COLORS = {
@@ -1113,9 +1114,9 @@ function cgeEventToWebsite(ev, weekendDates) {
     city: ev.area || "",
     venue: ev.venue || "",
     image_url: ev.flyerUrl || "",
-    ticket_link: ev.link || "",
+    ticket_link: stripBlockedIgLinks(ev.link || ""),
     genre: ev.type || "",
-    instagram_handle: ev.igHandle || "",
+    instagram_handle: isBlockedIgHandle(ev.igHandle) ? "" : (ev.igHandle || ""),
     is_featured: !!ev.featured,
   };
 }

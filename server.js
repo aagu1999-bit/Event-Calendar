@@ -37,6 +37,7 @@ import * as eventStoreDb from "./eventStoreDb.js";
 import * as perplexityResearch from "./perplexityResearch.js";
 import { isConsumerKey, executeTool as mcpExecuteTool, listConnections as mcpListConnections } from "./composioMcp.js";
 import { createWithTagFallback } from "./src/shared/igPublish.js";
+import { scrubForWebsite } from "./src/shared/blockedAccounts.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || "5000", 10);
@@ -2607,12 +2608,23 @@ app.get("/api/website/bookings", async (req, res) => {
 });
 
 // Pipe 2: push the refined event list to the website's calendar (upsert).
+// Last line of defense: whatever the client sent, links and handles for
+// blocked accounts (kinnectnj) never reach the website.
+function scrubWebsitePayload(payload, what) {
+  const clean = scrubForWebsite(payload);
+  if (JSON.stringify(clean) !== JSON.stringify(payload)) {
+    console.warn(`[website] removed blocked Instagram handle/link from outgoing ${what}`);
+  }
+  return clean;
+}
+
 app.post("/api/website/events", express.json({ limit: "4mb" }), async (req, res) => {
   if (!INTEGRATION_TOKEN) {
     return res.status(503).json({ error: "not_configured", message: "Set CGE_INTEGRATION_TOKEN in this app's Replit Secrets (same value as the website)." });
   }
   try {
-    const events = Array.isArray(req.body?.events) ? req.body.events : [];
+    const rawEvents = Array.isArray(req.body?.events) ? req.body.events : [];
+    const events = scrubWebsitePayload(rawEvents, "events");
     const r = await fetch(`${WEBSITE_BASE}/api/integrations/events/upsert`, {
       method: "POST",
       headers: { Authorization: `Bearer ${INTEGRATION_TOKEN}`, "Content-Type": "application/json", Accept: "application/json" },
@@ -2639,7 +2651,7 @@ app.post("/api/website/pages", express.json({ limit: "4mb" }), async (req, res) 
     const r = await fetch(`${WEBSITE_BASE}/api/integrations/pages/upsert`, {
       method: "POST",
       headers: { Authorization: `Bearer ${INTEGRATION_TOKEN}`, "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify(req.body || {}),
+      body: JSON.stringify(scrubWebsitePayload(req.body || {}, "page")),
     });
     const text = await r.text();
     if (!r.ok) {
