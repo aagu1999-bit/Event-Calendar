@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { parseRejectedTagUsernames, createWithTagFallback, looksLikeTagError, parseHandleInput, splitIntoCarousels } from "./igPublish.js";
+import { parseRejectedTagUsernames, createWithTagFallback, looksLikeTagError, parseHandleInput, splitIntoCarousels, removeBlockedUserTags } from "./igPublish.js";
 
 // Fake container call: rejects any body whose tags include a handle in `bad`.
 // `named` controls whether the error names the offending users.
@@ -127,5 +127,21 @@ describe("splitIntoCarousels", () => {
   });
   it("returns nothing for an empty list", () => {
     assert.deepEqual(splitIntoCarousels([]), []);
+  });
+});
+
+describe("removeBlockedUserTags", () => {
+  const t = (...names) => names.map((username) => ({ username, x: 0.5, y: 0.85 }));
+  it("removes kinnectnj and CGE however they are written", () => {
+    const out = removeBlockedUserTags(t("cryoutcave", "KinnectNJ", "@kinnectnj", " centralgroupevents ", "njpac"));
+    assert.deepEqual(out.map((x) => x.username), ["cryoutcave", "njpac"]);
+  });
+  it("keeps look-alike handles", () => {
+    assert.deepEqual(removeBlockedUserTags(t("kinnectnjevents", "kinnect_nj")).map((x) => x.username), ["kinnectnjevents", "kinnect_nj"]);
+  });
+  it("keeps positions on the tags it keeps and tolerates bad input", () => {
+    assert.deepEqual(removeBlockedUserTags(t("a")), t("a"));
+    assert.deepEqual(removeBlockedUserTags(undefined), []);
+    assert.deepEqual(removeBlockedUserTags([null, {}]).length, 2);
   });
 });
