@@ -7,6 +7,8 @@ import {
   computeSlideSchedule,
   formatScheduleTime,
   parseHandleInput,
+  IG_CAROUSEL_MAX,
+  splitIntoCarousels,
 } from "./igPublish.js";
 
 // Modal that publishes the finished weekend carousel to Instagram.
@@ -198,6 +200,12 @@ export function PublishInstagramModal({
     [plan.perSlide, slideChecked]
   );
 
+  // More than 10 picked → several balanced carousels, posted in order.
+  const carouselGroups = useMemo(
+    () => splitIntoCarousels(selectedIndices, IG_CAROUSEL_MAX),
+    [selectedIndices]
+  );
+
   // Carousel requires 2+. If the operator picked just one in "now"
   // mode, we post a single-image feed post instead (server handles
   // both). In "schedule" mode EVERY slide fires as its own feed post,
@@ -270,43 +278,68 @@ export function PublishInstagramModal({
         if (alsoPostStory) parts.push(`Each will ${scheduledCount === 1 ? "post" : "also post"} to Story.`);
         setMsg({ ok: true, text: parts.join(" ") });
       } else {
-        // Immediate mode. Carousel if ≥2 picked, single-image if 1.
-        const res = await fetch("/api/instagram/publish-carousel", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            accountAlias: account,
-            caption,
-            alsoPostStory,
-            slides: selected.map((s) => ({
-              imageBase64: s.imageBase64,
-              userTags: s.userTags,
-            })),
-          }),
-        });
-        const text = await res.text();
-        let data = null;
-        try { data = JSON.parse(text); } catch {}
-        if (!res.ok) {
-          const detail = data?.message || data?.error || text?.slice(0, 500) || `HTTP ${res.status}`;
-          throw new Error(detail);
+        // Immediate mode. Instagram carousels hold 10 slides at most, so a
+        // bigger selection goes out as several balanced carousels, in order.
+        const groups = splitIntoCarousels(selected, IG_CAROUSEL_MAX);
+        const results = [];
+        let failure = null;
+        for (let g = 0; g < groups.length; g++) {
+          try {
+            const res = await fetch("/api/instagram/publish-carousel", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                accountAlias: account,
+                caption,
+                alsoPostStory,
+                slides: groups[g].map((s) => ({
+                  imageBase64: s.imageBase64,
+                  userTags: s.userTags,
+                })),
+              }),
+            });
+            const text = await res.text();
+            let data = null;
+            try { data = JSON.parse(text); } catch {}
+            if (!res.ok) {
+              const detail = data?.message || data?.error || text?.slice(0, 500) || `HTTP ${res.status}`;
+              throw new Error(detail);
+            }
+            results.push(data);
+          } catch (err) {
+            failure = { index: g, message: String(err?.message || err) };
+            break;
+          }
         }
-        const storyCount = Array.isArray(data?.stories) ? data.stories.filter((s) => s?.ok).length : 0;
-        const storyFailed = Array.isArray(data?.stories) ? data.stories.filter((s) => !s?.ok).length : 0;
+        // Nothing went live: show the error like a normal failed post.
+        if (failure && results.length === 0) throw new Error(failure.message);
+
+        const storyCount = results.reduce((n, d) => n + (Array.isArray(d?.stories) ? d.stories.filter((s) => s?.ok).length : 0), 0);
+        const storyFailed = results.reduce((n, d) => n + (Array.isArray(d?.stories) ? d.stories.filter((s) => !s?.ok).length : 0), 0);
+        const dropped = [...new Set(results.flatMap((d) => (Array.isArray(d?.droppedTags) ? d.droppedTags : [])))];
+        const permalinks = results.map((d) => d?.permalink).filter(Boolean);
         const parts = [];
-        parts.push(data?.permalink ? "Posted to Instagram feed." : "Posted to feed (no permalink returned).");
+        if (groups.length === 1) {
+          parts.push(permalinks.length ? "Posted to Instagram feed." : "Posted to feed (no permalink returned).");
+        } else {
+          parts.push(`Posted ${results.length} of ${groups.length} carousels to Instagram feed.`);
+        }
         if (alsoPostStory) {
           if (storyCount && !storyFailed) parts.push(`+ ${storyCount} slide${storyCount === 1 ? "" : "s"} posted as Stories.`);
           else if (storyCount && storyFailed) parts.push(`+ ${storyCount} slide Stories posted, ${storyFailed} failed.`);
-          else parts.push("Stories step failed — see server logs.");
+          else if (!failure) parts.push("Stories step failed — see server logs.");
         }
-        if (Array.isArray(data?.droppedTags) && data.droppedTags.length) {
-          parts.push(`Skipped tags Instagram couldn't find: ${data.droppedTags.map((h) => `@${h}`).join(", ")} — fix those handles in the calendar.`);
+        if (dropped.length) {
+          parts.push(`Skipped tags Instagram couldn't find: ${dropped.map((h) => `@${h}`).join(", ")} — fix those handles in the calendar.`);
+        }
+        if (failure) {
+          parts.push(`Carousel ${failure.index + 1} failed: ${failure.message} The ${results.length === 1 ? "first one is" : `first ${results.length} are`} already live, so don't re-post ${results.length === 1 ? "it" : "them"}.`);
         }
         setMsg({
-          ok: true,
+          ok: !failure,
           text: parts.join(" "),
-          permalink: data?.permalink || null,
+          permalink: permalinks[0] || null,
+          permalinks,
         });
       }
     } catch (err) {
@@ -471,6 +504,7 @@ export function PublishInstagramModal({
             : `Tags per slide come from the handles of events on that slide (up to ${plan.maxPerSlide} per slide — IG's hard cap).`}
           {blockedCount > 0 && ` ${blockedCount} blocked (${plan.blocked.join(", ")}).`}
           {mode === "now" && selectedIndices.length === 1 && " Single-image feed post (not carousel)."}
+          {mode === "now" && carouselGroups.length > 1 && ` Instagram carousels hold ${IG_CAROUSEL_MAX} slides, so ${selectedIndices.length} slides post as ${carouselGroups.length} carousels (${carouselGroups.map((g) => g.length).join(" + ")}), one after another, with the same caption.`}
           {mode === "schedule" && " Each picked slide posts as its own feed post at the time shown."}
         </div>
 
@@ -535,13 +569,13 @@ export function PublishInstagramModal({
             border: `1px solid ${msg.ok ? "rgba(52,211,153,0.3)" : "rgba(239,68,68,0.3)"}`,
           }}>
             {msg.text}
-            {msg.permalink && (
-              <div style={{ marginTop: 4 }}>
-                <a href={msg.permalink} target="_blank" rel="noreferrer" style={{ color: "#34D399" }}>
-                  Open post →
+            {(msg.permalinks && msg.permalinks.length ? msg.permalinks : (msg.permalink ? [msg.permalink] : [])).map((href, i, all) => (
+              <div key={href} style={{ marginTop: 4 }}>
+                <a href={href} target="_blank" rel="noreferrer" style={{ color: msg.ok ? "#34D399" : "#F87171" }}>
+                  {all.length > 1 ? `Open post ${i + 1} →` : "Open post →"}
                 </a>
               </div>
-            )}
+            ))}
           </div>
         )}
 
@@ -575,7 +609,9 @@ export function PublishInstagramModal({
                 ? `📅 Schedule ${selectedIndices.length} slide${selectedIndices.length === 1 ? "" : "s"}`
                 : selectedIndices.length === 1
                   ? "📱 Post 1 slide now"
-                  : `📱 Post carousel now`}
+                  : carouselGroups.length > 1
+                    ? `📱 Post ${carouselGroups.length} carousels now`
+                    : `📱 Post carousel now`}
           </button>
         </div>
       </div>

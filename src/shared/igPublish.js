@@ -174,6 +174,28 @@ export function parseRejectedTagUsernames(message, sentTags) {
     .filter((u) => u && sent.has(u));
 }
 
+// Instagram carousels hold at most 10 items.
+export const IG_CAROUSEL_MAX = 10;
+
+// Splits items into the fewest carousels of at most `max`, as evenly as
+// possible, keeping order: 13 → [7, 6], 11 → [6, 5], 10 → [10]. Even
+// sizes avoid a lonely 1-slide tail like 10 + 1.
+export function splitIntoCarousels(items, max = IG_CAROUSEL_MAX) {
+  const list = Array.isArray(items) ? items : [];
+  if (list.length <= max) return list.length ? [list] : [];
+  const parts = Math.ceil(list.length / max);
+  const base = Math.floor(list.length / parts);
+  const extra = list.length % parts;
+  const out = [];
+  let at = 0;
+  for (let i = 0; i < parts; i++) {
+    const size = base + (i < extra ? 1 : 0);
+    out.push(list.slice(at, at + size));
+    at += size;
+  }
+  return out;
+}
+
 // Splits what an operator types into the tag box ("@a, b  @c") into handles.
 // Validation and the blocklist still happen in buildPublishPlan.
 export function parseHandleInput(text) {

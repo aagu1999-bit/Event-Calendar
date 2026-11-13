@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { parseRejectedTagUsernames, createWithTagFallback, looksLikeTagError, parseHandleInput } from "./igPublish.js";
+import { parseRejectedTagUsernames, createWithTagFallback, looksLikeTagError, parseHandleInput, splitIntoCarousels } from "./igPublish.js";
 
 // Fake container call: rejects any body whose tags include a handle in `bad`.
 // `named` controls whether the error names the offending users.
@@ -108,5 +108,24 @@ describe("parseHandleInput", () => {
   it("returns an empty list for blank input", () => {
     assert.deepEqual(parseHandleInput("  "), []);
     assert.deepEqual(parseHandleInput(undefined), []);
+  });
+});
+
+describe("splitIntoCarousels", () => {
+  const nums = (n) => Array.from({ length: n }, (_, i) => i + 1);
+  it("leaves 10 or fewer as one carousel", () => {
+    assert.deepEqual(splitIntoCarousels(nums(10)).map((g) => g.length), [10]);
+    assert.deepEqual(splitIntoCarousels(nums(2)).map((g) => g.length), [2]);
+  });
+  it("splits evenly, never leaving a 1-slide tail", () => {
+    assert.deepEqual(splitIntoCarousels(nums(13)).map((g) => g.length), [7, 6]);
+    assert.deepEqual(splitIntoCarousels(nums(11)).map((g) => g.length), [6, 5]);
+    assert.deepEqual(splitIntoCarousels(nums(21)).map((g) => g.length), [7, 7, 7]);
+  });
+  it("keeps every item, in order", () => {
+    assert.deepEqual(splitIntoCarousels(nums(13)).flat(), nums(13));
+  });
+  it("returns nothing for an empty list", () => {
+    assert.deepEqual(splitIntoCarousels([]), []);
   });
 });
