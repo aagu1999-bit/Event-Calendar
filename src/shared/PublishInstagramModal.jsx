@@ -10,6 +10,7 @@ import {
   IG_CAROUSEL_MAX,
   splitIntoCarousels,
 } from "./igPublish.js";
+import { stripBlockedIgMentions, hasBlockedIgMention } from "./blockedAccounts.js";
 
 // Modal that publishes the finished weekend carousel to Instagram.
 //
@@ -265,7 +266,7 @@ export function PublishInstagramModal({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             accountAlias: account,
-            caption,
+            caption: stripBlockedIgMentions(caption),
             alsoPostStory,
             storyOnly,
             items,
@@ -300,7 +301,7 @@ export function PublishInstagramModal({
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 accountAlias: account,
-                caption,
+                caption: stripBlockedIgMentions(caption),
                 alsoPostStory,
                 storyOnly,
                 slides: groups[g].map((s) => ({
@@ -582,6 +583,11 @@ export function PublishInstagramModal({
         <div style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.45)", marginBottom: 14 }}>
           {caption.length} / 2200 characters · hashtags still count{storyOnly ? " · not used for Stories-only posts" : ""}
         </div>
+        {!storyOnly && hasBlockedIgMention(caption) && (
+          <div style={{ fontSize: "0.65rem", color: "#FBBF24", marginBottom: 14 }}>
+            ⚠ @kinnectnj is never tagged — it will post as plain text (no @) in the caption.
+          </div>
+        )}
 
         {/* Status */}
         {msg && (

@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { isBlockedIgHandle, stripBlockedIgLinks, scrubForWebsite } from "./blockedAccounts.js";
+import { isBlockedIgHandle, stripBlockedIgLinks, scrubForWebsite, stripBlockedIgMentions, hasBlockedIgMention } from "./blockedAccounts.js";
 
 describe("isBlockedIgHandle", () => {
   it("matches the handle however it is typed", () => {
@@ -58,5 +58,28 @@ describe("scrubForWebsite", () => {
     assert.equal(out.published, true);
     assert.equal(out.n, 3);
     assert.equal(payload.events[0].instagram_handle, "@kinnectnj", "input is not mutated");
+  });
+});
+
+describe("stripBlockedIgMentions", () => {
+  it("turns the mention into plain text, keeping case and the sentence", () => {
+    assert.equal(stripBlockedIgMentions("Thanks @kinnectnj!"), "Thanks kinnectnj!");
+    assert.equal(stripBlockedIgMentions("@KinnectNJ and @cryoutcave"), "KinnectNJ and @cryoutcave");
+    assert.equal(stripBlockedIgMentions("hosted by (@kinnectnj)"), "hosted by (kinnectnj)");
+    assert.equal(stripBlockedIgMentions("line one\n@kinnectnj"), "line one\nkinnectnj");
+  });
+  it("handles a sentence-ending period and repeated mentions", () => {
+    assert.equal(stripBlockedIgMentions("Big thanks to @kinnectnj."), "Big thanks to kinnectnj.");
+    assert.equal(stripBlockedIgMentions("@kinnectnj @kinnectnj"), "kinnectnj kinnectnj");
+  });
+  it("leaves other accounts, emails, hashtags and look-alikes alone", () => {
+    for (const t of ["@kinnectnjevents", "@kinnectnj.official", "@kinnectnj_nj", "mail a@kinnectnj.com", "#kinnectnj", "@centralgroupevents", ""]) {
+      assert.equal(stripBlockedIgMentions(t), t, t);
+    }
+  });
+  it("hasBlockedIgMention agrees", () => {
+    assert.equal(hasBlockedIgMention("Thanks @KinnectNJ!"), true);
+    assert.equal(hasBlockedIgMention("Thanks @cryoutcave!"), false);
+    assert.equal(hasBlockedIgMention("@kinnectnjevents"), false);
   });
 });
