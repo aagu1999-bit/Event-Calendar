@@ -28,6 +28,24 @@ export function stripBlockedIgLinks(text) {
     .replace(new RegExp(BLOCKED_URL, "gi"), "");
 }
 
+// An @mention of a blocked account in caption text. Not preceded by a
+// handle character (so an email like a@kinnectnj.com is left alone) and not
+// followed by more handle (kinnectnjevents, kinnectnj.official), but a
+// sentence-ending period is fine.
+const BLOCKED_MENTION = `(^|[^A-Za-z0-9_.@])@(${ALT})(?![A-Za-z0-9_]|\\.[A-Za-z0-9_])`;
+
+export function hasBlockedIgMention(text) {
+  return new RegExp(BLOCKED_MENTION, "i").test(String(text ?? ""));
+}
+
+// Drops the @ from mentions of blocked accounts so the caption names them
+// as plain text instead of tagging (and notifying) them.
+export function stripBlockedIgMentions(text) {
+  const t = String(text ?? "");
+  if (!t) return t;
+  return t.replace(new RegExp(BLOCKED_MENTION, "gi"), "$1$2");
+}
+
 // Deep copy of an outgoing website payload with blocked handles and links
 // removed from every string. A field that is exactly a blocked handle
 // becomes "", a field that is exactly a blocked link becomes "".

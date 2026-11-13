@@ -37,7 +37,7 @@ import * as eventStoreDb from "./eventStoreDb.js";
 import * as perplexityResearch from "./perplexityResearch.js";
 import { isConsumerKey, executeTool as mcpExecuteTool, listConnections as mcpListConnections } from "./composioMcp.js";
 import { createWithTagFallback, removeBlockedUserTags } from "./src/shared/igPublish.js";
-import { scrubForWebsite } from "./src/shared/blockedAccounts.js";
+import { scrubForWebsite, stripBlockedIgMentions } from "./src/shared/blockedAccounts.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || "5000", 10);
@@ -2871,6 +2871,14 @@ app.get("/api/instagram/tmp-image/:token.jpg", (req, res) => {
   return res.send(entry.buf);
 });
 
+// A typed @mention of a blocked account (kinnectnj) in a caption would tag
+// and notify them just like a photo tag, so the @ is dropped.
+function cleanIgCaption(caption) {
+  const cleaned = stripBlockedIgMentions(caption);
+  if (cleaned !== caption) console.warn("[ig publish] removed a blocked account @mention from the caption");
+  return cleaned;
+}
+
 // Instagram rejects a whole media container when any tagged account can't
 // be used. createWithTagFallback drops just the bad tags (see igPublish.js)
 // and records them in `dropped` so the operator can fix those handles.
@@ -2981,7 +2989,7 @@ app.post("/api/instagram/publish-carousel", express.json({ limit: "48mb" }), asy
     if (!anyComposioKeyConfigured()) {
       return res.status(503).json({ error: "not_configured", message: "Set COMPOSIO_API_KEY (and COMPOSIO_API_KEY_SECONDARY, if you're using a second Composio org) in Replit Secrets." });
     }
-    const { accountAlias, caption, slides, alsoPostStory, storyOnly } = req.body || {};
+    const { accountAlias, caption: rawCaption, slides, alsoPostStory, storyOnly } = req.body || {};
     const alias = String(accountAlias || "").toLowerCase();
     const igAccount = IG_ACCOUNT_IDS[alias];
     if (!igAccount) {
@@ -2993,9 +3001,10 @@ app.post("/api/instagram/publish-carousel", express.json({ limit: "48mb" }), asy
     if (!Array.isArray(slides) || slides.length < 1 || slides.length > 10) {
       return res.status(400).json({ error: "bad_slides", message: "Need 1–10 slides (single-image post for 1, carousel for 2+)." });
     }
-    if (typeof caption !== "string" || caption.length > 2200) {
+    if (typeof rawCaption !== "string" || rawCaption.length > 2200) {
       return res.status(400).json({ error: "bad_caption", message: "Caption must be ≤ 2,200 characters." });
     }
+    const caption = cleanIgCaption(rawCaption);
 
     // Step 0 — look up the IG user id for this connected account. Lets
     // us call the publish endpoints with a real numeric id instead of
@@ -3204,14 +3213,15 @@ app.post("/api/instagram/schedule-slides", express.json({ limit: "48mb" }), asyn
     if (!anyComposioKeyConfigured()) {
       return res.status(503).json({ error: "not_configured", message: "Set COMPOSIO_API_KEY (and COMPOSIO_API_KEY_SECONDARY if using a second org) in Replit Secrets." });
     }
-    const { accountAlias, caption, alsoPostStory, storyOnly, items } = req.body || {};
+    const { accountAlias, caption: rawCaption, alsoPostStory, storyOnly, items } = req.body || {};
     const alias = String(accountAlias || "").toLowerCase();
     const igAccount = IG_ACCOUNT_IDS[alias];
     if (!igAccount) return res.status(400).json({ error: "bad_account", message: `Unknown account alias "${accountAlias}".` });
     if (!composioKeyForOrg(igAccount.org)) {
       return res.status(503).json({ error: "org_not_configured", message: `Alias "${alias}" belongs to Composio org "${igAccount.org}" but its API key isn't set.` });
     }
-    if (typeof caption !== "string" || caption.length > 2200) return res.status(400).json({ error: "bad_caption" });
+    if (typeof rawCaption !== "string" || rawCaption.length > 2200) return res.status(400).json({ error: "bad_caption" });
+    const caption = cleanIgCaption(rawCaption);
     if (!Array.isArray(items) || !items.length) return res.status(400).json({ error: "bad_items", message: "Need at least one slide to schedule." });
 
     const current = await readIgScheduleStore();
