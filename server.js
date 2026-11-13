@@ -36,7 +36,7 @@ import {
 import * as eventStoreDb from "./eventStoreDb.js";
 import * as perplexityResearch from "./perplexityResearch.js";
 import { isConsumerKey, executeTool as mcpExecuteTool, listConnections as mcpListConnections } from "./composioMcp.js";
-import { createWithTagFallback } from "./src/shared/igPublish.js";
+import { createWithTagFallback, removeBlockedUserTags } from "./src/shared/igPublish.js";
 import { scrubForWebsite } from "./src/shared/blockedAccounts.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -2875,9 +2875,17 @@ app.get("/api/instagram/tmp-image/:token.jpg", (req, res) => {
 // be used. createWithTagFallback drops just the bad tags (see igPublish.js)
 // and records them in `dropped` so the operator can fix those handles.
 function createMediaContainer(igAccount, payload, dropped) {
+  // Every feed image, carousel child and Story passes through here, so this
+  // is where blocked accounts (kinnectnj, CGE itself) are kept out of tags
+  // regardless of what the client sent.
+  const sent = Array.isArray(payload.user_tags) ? payload.user_tags : [];
+  const allowed = removeBlockedUserTags(sent);
+  if (allowed.length !== sent.length) {
+    console.warn(`[ig publish] removed ${sent.length - allowed.length} blocked account tag(s) from a slide`);
+  }
   return createWithTagFallback({
     create: (body) => composioExecute("INSTAGRAM_POST_IG_USER_MEDIA", igAccount, body),
-    payload,
+    payload: { ...payload, user_tags: allowed },
     dropped,
   });
 }

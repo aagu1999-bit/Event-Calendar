@@ -196,6 +196,18 @@ export function splitIntoCarousels(items, max = IG_CAROUSEL_MAX) {
   return out;
 }
 
+// Drops tags for blocked accounts (kinnectnj, CGE itself) from a user_tags
+// array. The modal already filters, but the server calls this too so no
+// client — or a stale cached copy of the app — can tag them.
+export function removeBlockedUserTags(tags, exclude = IG_PUBLISH_BLOCKLIST) {
+  if (!Array.isArray(tags)) return [];
+  const blocked = new Set((exclude || []).map((h) => String(h || "").toLowerCase()));
+  return tags.filter((t) => {
+    const h = String(t?.username ?? "").trim().replace(/^@+/, "").toLowerCase();
+    return !blocked.has(h);
+  });
+}
+
 // Splits what an operator types into the tag box ("@a, b  @c") into handles.
 // Validation and the blocklist still happen in buildPublishPlan.
 export function parseHandleInput(text) {
