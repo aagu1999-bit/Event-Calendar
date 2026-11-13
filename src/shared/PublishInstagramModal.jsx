@@ -64,7 +64,11 @@ export function PublishInstagramModal({
   const [captionBusy, setCaptionBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null); // { ok, text, permalink? }
-  const [alsoPostStory, setAlsoPostStory] = useState(false);
+  // Where the slides go: the feed only, the feed plus a Story per slide,
+  // or Stories only (no feed post at all).
+  const [postKind, setPostKind] = useState("feed");
+  const alsoPostStory = postKind !== "feed";
+  const storyOnly = postKind === "story";
   // "now" = post everything as one carousel immediately (default).
   // "schedule" = each selected slide posts as its OWN feed post on the
   //              day it corresponds to (Fri 11a / Sat 9a / Sun 9a local).
@@ -92,7 +96,7 @@ export function PublishInstagramModal({
     setCaption(defaultCaption || "");
     setMsg(null);
     setBusy(false);
-    setAlsoPostStory(false);
+    setPostKind("feed");
     setMode("now");
     // Every slide checked by default. Operator can uncheck what they
     // don't want to send.
@@ -206,6 +210,9 @@ export function PublishInstagramModal({
     [selectedIndices]
   );
 
+  // Stories carry no caption, so only feed posts need one.
+  const captionBlocked = !storyOnly && (caption.length > 2200 || !caption.trim());
+
   // Carousel requires 2+. If the operator picked just one in "now"
   // mode, we post a single-image feed post instead (server handles
   // both). In "schedule" mode EVERY slide fires as its own feed post,
@@ -260,6 +267,7 @@ export function PublishInstagramModal({
             accountAlias: account,
             caption,
             alsoPostStory,
+            storyOnly,
             items,
           }),
         });
@@ -273,9 +281,11 @@ export function PublishInstagramModal({
         const scheduledCount = Array.isArray(data?.scheduled) ? data.scheduled.length : 0;
         const immediateCount = Array.isArray(data?.scheduled) ? data.scheduled.filter((x) => x.immediate).length : 0;
         const parts = [];
-        parts.push(`${scheduledCount} slide${scheduledCount === 1 ? "" : "s"} queued.`);
+        parts.push(storyOnly
+          ? `${scheduledCount} Stor${scheduledCount === 1 ? "y" : "ies"} queued.`
+          : `${scheduledCount} slide${scheduledCount === 1 ? "" : "s"} queued.`);
         if (immediateCount) parts.push(`${immediateCount} will fire within the minute (past-due).`);
-        if (alsoPostStory) parts.push(`Each will ${scheduledCount === 1 ? "post" : "also post"} to Story.`);
+        if (alsoPostStory && !storyOnly) parts.push(`Each will ${scheduledCount === 1 ? "post" : "also post"} to Story.`);
         setMsg({ ok: true, text: parts.join(" ") });
       } else {
         // Immediate mode. Instagram carousels hold 10 slides at most, so a
@@ -292,6 +302,7 @@ export function PublishInstagramModal({
                 accountAlias: account,
                 caption,
                 alsoPostStory,
+                storyOnly,
                 slides: groups[g].map((s) => ({
                   imageBase64: s.imageBase64,
                   userTags: s.userTags,
@@ -319,12 +330,16 @@ export function PublishInstagramModal({
         const dropped = [...new Set(results.flatMap((d) => (Array.isArray(d?.droppedTags) ? d.droppedTags : [])))];
         const permalinks = results.map((d) => d?.permalink).filter(Boolean);
         const parts = [];
-        if (groups.length === 1) {
+        if (storyOnly) {
+          parts.push(storyFailed
+            ? `Posted ${storyCount} Stor${storyCount === 1 ? "y" : "ies"} to Instagram, ${storyFailed} failed.`
+            : `Posted ${storyCount} Stor${storyCount === 1 ? "y" : "ies"} to Instagram.`);
+        } else if (groups.length === 1) {
           parts.push(permalinks.length ? "Posted to Instagram feed." : "Posted to feed (no permalink returned).");
         } else {
           parts.push(`Posted ${results.length} of ${groups.length} carousels to Instagram feed.`);
         }
-        if (alsoPostStory) {
+        if (alsoPostStory && !storyOnly) {
           if (storyCount && !storyFailed) parts.push(`+ ${storyCount} slide${storyCount === 1 ? "" : "s"} posted as Stories.`);
           else if (storyCount && storyFailed) parts.push(`+ ${storyCount} slide Stories posted, ${storyFailed} failed.`);
           else if (!failure) parts.push("Stories step failed — see server logs.");
@@ -333,7 +348,7 @@ export function PublishInstagramModal({
           parts.push(`Skipped tags Instagram couldn't find: ${dropped.map((h) => `@${h}`).join(", ")} — fix those handles in the calendar.`);
         }
         if (failure) {
-          parts.push(`Carousel ${failure.index + 1} failed: ${failure.message} The ${results.length === 1 ? "first one is" : `first ${results.length} are`} already live, so don't re-post ${results.length === 1 ? "it" : "them"}.`);
+          parts.push(`${storyOnly ? "Stories batch" : "Carousel"} ${failure.index + 1} failed: ${failure.message} The ${results.length === 1 ? "first one is" : `first ${results.length} are`} already live, so don't re-post ${results.length === 1 ? "it" : "them"}.`);
         }
         setMsg({
           ok: !failure,
@@ -503,37 +518,45 @@ export function PublishInstagramModal({
             ? `Type the Instagram handles to tag on each slide (up to ${plan.maxPerSlide} per slide — IG's hard cap).`
             : `Tags per slide come from the handles of events on that slide (up to ${plan.maxPerSlide} per slide — IG's hard cap).`}
           {blockedCount > 0 && ` ${blockedCount} blocked (${plan.blocked.join(", ")}).`}
-          {mode === "now" && selectedIndices.length === 1 && " Single-image feed post (not carousel)."}
-          {mode === "now" && carouselGroups.length > 1 && ` Instagram carousels hold ${IG_CAROUSEL_MAX} slides, so ${selectedIndices.length} slides post as ${carouselGroups.length} carousels (${carouselGroups.map((g) => g.length).join(" + ")}), one after another, with the same caption.`}
+          {mode === "now" && !storyOnly && selectedIndices.length === 1 && " Single-image feed post (not carousel)."}
+          {storyOnly && " Stories only — nothing goes to the feed, and Stories don't carry a caption."}
+          {mode === "now" && !storyOnly && carouselGroups.length > 1 && ` Instagram carousels hold ${IG_CAROUSEL_MAX} slides, so ${selectedIndices.length} slides post as ${carouselGroups.length} carousels (${carouselGroups.map((g) => g.length).join(" + ")}), one after another, with the same caption.`}
           {mode === "schedule" && " Each picked slide posts as its own feed post at the time shown."}
         </div>
 
-        {/* Story posting — optional. When checked, every carousel slide
-            is ALSO posted as its own Story with the same per-slide
-            mentions. Stories are published one at a time (not a
-            container) so the count in the status reflects how many
-            went through. */}
-        <label
-          style={{
-            display: "flex", alignItems: "center", gap: 8, marginBottom: 14,
-            fontSize: "0.75rem", color: "rgba(245,240,232,0.85)", cursor: busy ? "not-allowed" : "pointer",
-            userSelect: "none",
-          }}
-        >
-          <input
-            type="checkbox"
-            checked={alsoPostStory}
-            onChange={(e) => setAlsoPostStory(e.target.checked)}
-            disabled={busy}
-            style={{ accentColor: "#F472B6" }}
-          />
-          Also post each slide to Story with the same mentions
-          {alsoPostStory && (
-            <span style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.45)", marginLeft: 6 }}>
-              · {plan.perSlide.length} Stor{plan.perSlide.length === 1 ? "y" : "ies"}
-            </span>
-          )}
+        {/* Where the slides go. Stories post one at a time (not a
+            container) with each slide's mentions as stickers, so the
+            status counts how many went through. */}
+        <label style={{ display: "block", fontSize: "0.65rem", letterSpacing: "1px", textTransform: "uppercase", color: "rgba(245,240,232,0.6)", marginBottom: 6 }}>
+          Where
         </label>
+        <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
+          {[
+            { key: "feed", label: "Feed", title: "Post to the feed only." },
+            { key: "both", label: "Feed + Stories", title: "Post to the feed, and also post each slide as its own Story with the same mentions." },
+            { key: "story", label: "Stories only", title: "Skip the feed — post each slide as its own Story with the same mentions." },
+          ].map((opt) => (
+            <button
+              key={opt.key}
+              type="button"
+              onClick={() => setPostKind(opt.key)}
+              disabled={busy}
+              title={opt.title}
+              style={{
+                flex: 1, padding: "8px 6px", borderRadius: 4, fontSize: "0.7rem", fontWeight: 700,
+                letterSpacing: "0.3px", cursor: busy ? "wait" : "pointer",
+                background: postKind === opt.key ? "rgba(236,72,153,0.18)" : "rgba(245,240,232,0.04)",
+                color: postKind === opt.key ? "#F472B6" : "rgba(245,240,232,0.7)",
+                border: `1px solid ${postKind === opt.key ? "rgba(236,72,153,0.5)" : "rgba(245,240,232,0.1)"}`,
+              }}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        <div style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.45)", marginBottom: 14, minHeight: "0.9rem" }}>
+          {alsoPostStory && `${selectedIndices.length} Stor${selectedIndices.length === 1 ? "y" : "ies"} · each slide's tags go on its Story`}
+        </div>
 
         {/* Caption — pre-filled from the Calendar's current caption, fully
             editable. If no caption exists yet when the modal opens we
@@ -557,7 +580,7 @@ export function PublishInstagramModal({
           }}
         />
         <div style={{ fontSize: "0.6rem", color: "rgba(245,240,232,0.45)", marginBottom: 14 }}>
-          {caption.length} / 2200 characters · hashtags still count
+          {caption.length} / 2200 characters · hashtags still count{storyOnly ? " · not used for Stories-only posts" : ""}
         </div>
 
         {/* Status */}
@@ -593,20 +616,24 @@ export function PublishInstagramModal({
           </button>
           <button
             onClick={publish}
-            disabled={busy || caption.length > 2200 || !caption.trim() || selectedIndices.length === 0}
+            disabled={busy || captionBlocked || selectedIndices.length === 0}
             style={{
               padding: "8px 16px",
               background: busy ? "rgba(99,179,237,0.3)" : "#63B3ED",
               color: busy ? "rgba(14,14,16,0.6)" : "#0e0e10",
               border: "none", borderRadius: 4, fontSize: "0.78rem", fontWeight: 700,
-              cursor: busy ? "wait" : (caption.length > 2200 || !caption.trim() || selectedIndices.length === 0 ? "not-allowed" : "pointer"),
+              cursor: busy ? "wait" : (captionBlocked || selectedIndices.length === 0 ? "not-allowed" : "pointer"),
               letterSpacing: "0.3px",
             }}
           >
             {busy
               ? (mode === "schedule" ? "Scheduling…" : "Publishing…")
               : mode === "schedule"
-                ? `📅 Schedule ${selectedIndices.length} slide${selectedIndices.length === 1 ? "" : "s"}`
+                ? (storyOnly
+                    ? `📅 Schedule ${selectedIndices.length} Stor${selectedIndices.length === 1 ? "y" : "ies"}`
+                    : `📅 Schedule ${selectedIndices.length} slide${selectedIndices.length === 1 ? "" : "s"}`)
+                : storyOnly
+                  ? `📱 Post ${selectedIndices.length} Stor${selectedIndices.length === 1 ? "y" : "ies"} now`
                 : selectedIndices.length === 1
                   ? "📱 Post 1 slide now"
                   : carouselGroups.length > 1

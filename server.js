@@ -2878,49 +2878,52 @@ function createMediaContainer(igAccount, payload, dropped) {
 // alsoPostStory   : if true, also fire the slide as a STORIES media
 // Returns { mediaId, permalink, story: {ok, mediaId?, error?} | null, droppedTags }
 async function publishSingleSlideToFeed({
-  slide, caption, igAccount, igUserId, origin, alsoPostStory,
+  slide, caption, igAccount, igUserId, origin, alsoPostStory, storyOnly,
 }) {
   const droppedTags = new Set();
-  const feedToken = makeIgTmpToken();
-  IG_TMP_IMAGES.set(feedToken, {
-    buf: base64JpegToBuffer(slide?.imageBase64),
-    expiresAt: Date.now() + IG_TMP_TTL_MS,
-  });
-  const feedPayload = {
-    ig_user_id: igUserId,
-    image_url: `${origin}/api/instagram/tmp-image/${feedToken}.jpg`,
-    caption: typeof caption === "string" ? caption : "",
-  };
   const userTags = Array.isArray(slide?.userTags) ? slide.userTags.slice(0, 20) : [];
-  if (userTags.length) feedPayload.user_tags = userTags;
-
   let mediaId = "";
   let permalink = null;
-  try {
-    const container = await createMediaContainer(igAccount, feedPayload, droppedTags);
-    const containerId = String(container?.response_data?.id || container?.data?.id || container?.id || "");
-    if (!containerId) throw new Error("single-image container returned no id");
-    const published = await composioExecute("INSTAGRAM_POST_IG_USER_MEDIA_PUBLISH", igAccount, {
-      ig_user_id: igUserId,
-      creation_id: containerId,
-      max_wait_seconds: 90,
-      poll_interval_seconds: 3,
+
+  // storyOnly skips the feed post entirely and just posts the Story.
+  if (!storyOnly) {
+    const feedToken = makeIgTmpToken();
+    IG_TMP_IMAGES.set(feedToken, {
+      buf: base64JpegToBuffer(slide?.imageBase64),
+      expiresAt: Date.now() + IG_TMP_TTL_MS,
     });
-    mediaId = String(published?.response_data?.id || published?.data?.id || published?.id || "");
-    if (mediaId) {
-      try {
-        const media = await composioExecute("INSTAGRAM_GET_IG_MEDIA", igAccount, {
-          ig_media_id: mediaId, fields: "permalink",
-        });
-        permalink = media?.response_data?.permalink || media?.data?.permalink || media?.permalink || null;
-      } catch (e) { /* non-fatal */ }
+    const feedPayload = {
+      ig_user_id: igUserId,
+      image_url: `${origin}/api/instagram/tmp-image/${feedToken}.jpg`,
+      caption: typeof caption === "string" ? caption : "",
+    };
+    if (userTags.length) feedPayload.user_tags = userTags;
+    try {
+      const container = await createMediaContainer(igAccount, feedPayload, droppedTags);
+      const containerId = String(container?.response_data?.id || container?.data?.id || container?.id || "");
+      if (!containerId) throw new Error("single-image container returned no id");
+      const published = await composioExecute("INSTAGRAM_POST_IG_USER_MEDIA_PUBLISH", igAccount, {
+        ig_user_id: igUserId,
+        creation_id: containerId,
+        max_wait_seconds: 90,
+        poll_interval_seconds: 3,
+      });
+      mediaId = String(published?.response_data?.id || published?.data?.id || published?.id || "");
+      if (mediaId) {
+        try {
+          const media = await composioExecute("INSTAGRAM_GET_IG_MEDIA", igAccount, {
+            ig_media_id: mediaId, fields: "permalink",
+          });
+          permalink = media?.response_data?.permalink || media?.data?.permalink || media?.permalink || null;
+        } catch (e) { /* non-fatal */ }
+      }
+    } finally {
+      IG_TMP_IMAGES.delete(feedToken);
     }
-  } finally {
-    IG_TMP_IMAGES.delete(feedToken);
   }
 
   let story = null;
-  if (alsoPostStory) {
+  if (alsoPostStory || storyOnly) {
     const storyToken = makeIgTmpToken();
     IG_TMP_IMAGES.set(storyToken, {
       buf: base64JpegToBuffer(slide?.imageBase64),
@@ -2958,7 +2961,7 @@ app.post("/api/instagram/publish-carousel", express.json({ limit: "48mb" }), asy
     if (!anyComposioKeyConfigured()) {
       return res.status(503).json({ error: "not_configured", message: "Set COMPOSIO_API_KEY (and COMPOSIO_API_KEY_SECONDARY, if you're using a second Composio org) in Replit Secrets." });
     }
-    const { accountAlias, caption, slides, alsoPostStory } = req.body || {};
+    const { accountAlias, caption, slides, alsoPostStory, storyOnly } = req.body || {};
     const alias = String(accountAlias || "").toLowerCase();
     const igAccount = IG_ACCOUNT_IDS[alias];
     if (!igAccount) {
@@ -2984,6 +2987,23 @@ app.post("/api/instagram/publish-carousel", express.json({ limit: "48mb" }), asy
     const origin = publicOrigin(req) || "";
     if (!origin) {
       return res.status(500).json({ error: "no_origin", message: "Server could not resolve its own public URL. Is this behind a proxy without X-Forwarded-* headers?" });
+    }
+
+    // Stories only: no feed post. Every slide goes up as its own Story.
+    if (storyOnly) {
+      const stories = [];
+      const dropped = new Set();
+      for (let i = 0; i < slides.length; i++) {
+        const r = await publishSingleSlideToFeed({
+          slide: slides[i], caption: "", igAccount, igUserId, origin, storyOnly: true,
+        });
+        stories.push({ ...(r.story || { ok: false, error: "no story result" }), slideIndex: i });
+        for (const h of r.droppedTags) dropped.add(h);
+      }
+      if (stories.every((st) => !st.ok)) {
+        return res.status(502).json({ error: "story_failed", message: stories[0]?.error || "Stories failed." });
+      }
+      return res.json({ ok: true, mediaId: "", permalink: null, account: alias, stories, droppedTags: [...dropped] });
     }
 
     // Single-slide path: skip the carousel container entirely and just
@@ -3164,7 +3184,7 @@ app.post("/api/instagram/schedule-slides", express.json({ limit: "48mb" }), asyn
     if (!anyComposioKeyConfigured()) {
       return res.status(503).json({ error: "not_configured", message: "Set COMPOSIO_API_KEY (and COMPOSIO_API_KEY_SECONDARY if using a second org) in Replit Secrets." });
     }
-    const { accountAlias, caption, alsoPostStory, items } = req.body || {};
+    const { accountAlias, caption, alsoPostStory, storyOnly, items } = req.body || {};
     const alias = String(accountAlias || "").toLowerCase();
     const igAccount = IG_ACCOUNT_IDS[alias];
     if (!igAccount) return res.status(400).json({ error: "bad_account", message: `Unknown account alias "${accountAlias}".` });
@@ -3186,6 +3206,7 @@ app.post("/api/instagram/schedule-slides", express.json({ limit: "48mb" }), asyn
       igAccount,
       caption,
       alsoPostStory: !!alsoPostStory,
+      storyOnly: !!storyOnly,
       day: it?.day || null,
       imageBase64: String(it?.imageBase64 || ""),
       userTags: Array.isArray(it?.userTags) ? it.userTags : [],
@@ -3261,7 +3282,11 @@ async function tickIgScheduler() {
         igUserId,
         origin,
         alsoPostStory: !!due.alsoPostStory,
+        storyOnly: !!due.storyOnly,
       });
+      if (due.storyOnly && !(result.story && result.story.ok)) {
+        throw new Error(result.story?.error || "Story failed");
+      }
       due.status = "posted";
       due.result = {
         mediaId: result.mediaId || null,
