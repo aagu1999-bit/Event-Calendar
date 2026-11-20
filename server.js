@@ -36,7 +36,7 @@ import {
 import * as eventStoreDb from "./eventStoreDb.js";
 import * as perplexityResearch from "./perplexityResearch.js";
 import { isConsumerKey, executeTool as mcpExecuteTool, listConnections as mcpListConnections } from "./composioMcp.js";
-import { createWithTagFallback, removeBlockedUserTags } from "./src/shared/igPublish.js";
+import { createWithTagFallback, removeBlockedUserTags, IG_CAROUSEL_MAX, IG_CAROUSEL_TRY_MAX } from "./src/shared/igPublish.js";
 import { scrubForWebsite, stripBlockedIgMentions } from "./src/shared/blockedAccounts.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -2984,7 +2984,7 @@ async function publishSingleSlideToFeed({
   return { mediaId, permalink, story, droppedTags: [...droppedTags] };
 }
 
-app.post("/api/instagram/publish-carousel", express.json({ limit: "48mb" }), async (req, res) => {
+app.post("/api/instagram/publish-carousel", express.json({ limit: "64mb" }), async (req, res) => {
   try {
     if (!anyComposioKeyConfigured()) {
       return res.status(503).json({ error: "not_configured", message: "Set COMPOSIO_API_KEY (and COMPOSIO_API_KEY_SECONDARY, if you're using a second Composio org) in Replit Secrets." });
@@ -2998,8 +2998,8 @@ app.post("/api/instagram/publish-carousel", express.json({ limit: "48mb" }), asy
     if (!composioKeyForOrg(igAccount.org)) {
       return res.status(503).json({ error: "org_not_configured", message: `Alias "${alias}" belongs to Composio org "${igAccount.org}" but its API key isn't set in Replit Secrets.` });
     }
-    if (!Array.isArray(slides) || slides.length < 1 || slides.length > 10) {
-      return res.status(400).json({ error: "bad_slides", message: "Need 1–10 slides (single-image post for 1, carousel for 2+)." });
+    if (!Array.isArray(slides) || slides.length < 1 || slides.length > IG_CAROUSEL_TRY_MAX) {
+      return res.status(400).json({ error: "bad_slides", message: `Need 1–${IG_CAROUSEL_TRY_MAX} slides (single-image post for 1, carousel for 2+).` });
     }
     if (typeof rawCaption !== "string" || rawCaption.length > 2200) {
       return res.status(400).json({ error: "bad_caption", message: "Caption must be ≤ 2,200 characters." });
@@ -3074,32 +3074,46 @@ app.post("/api/instagram/publish-carousel", express.json({ limit: "48mb" }), asy
       };
     });
 
-    // Step 2 — create one child container per slide, sequentially (keeps
-    // us well under Composio's per-connection rate limits).
-    const childIds = [];
-    for (let i = 0; i < childSpecs.length; i++) {
-      const spec = childSpecs[i];
-      const payload = {
-        ig_user_id: igUserId,
-        image_url: spec.image_url,
-        is_carousel_item: true,
-      };
-      if (spec.user_tags.length) payload.user_tags = spec.user_tags;
-      const out = await createMediaContainer(igAccount, payload, droppedTags);
-      const id = out?.response_data?.id || out?.data?.id || out?.id;
-      if (!id) throw new Error(`child ${i + 1} returned no id`);
-      childIds.push(String(id));
-    }
+    // Steps 2–3 create the containers; nothing is live until step 4. For a
+    // carousel above 10 slides, a failure here is reported as
+    // "carousel_too_large" so the client can retry as several smaller ones.
+    let childIds = [];
+    let parentId = "";
+    try {
+      // Step 2 — create one child container per slide, sequentially (keeps
+      // us well under Composio's per-connection rate limits).
+      childIds = [];
+      for (let i = 0; i < childSpecs.length; i++) {
+        const spec = childSpecs[i];
+        const payload = {
+          ig_user_id: igUserId,
+          image_url: spec.image_url,
+          is_carousel_item: true,
+        };
+        if (spec.user_tags.length) payload.user_tags = spec.user_tags;
+        const out = await createMediaContainer(igAccount, payload, droppedTags);
+        const id = out?.response_data?.id || out?.data?.id || out?.id;
+        if (!id) throw new Error(`child ${i + 1} returned no id`);
+        childIds.push(String(id));
+      }
 
-    // Step 3 — parent carousel container carries the caption + ordered
-    // child ids.
-    const parent = await composioExecute("INSTAGRAM_CREATE_CAROUSEL_CONTAINER", igAccount, {
-      ig_user_id: igUserId,
-      caption,
-      children: childIds,
-    });
-    const parentId = String(parent?.response_data?.id || parent?.data?.id || parent?.id || "");
-    if (!parentId) throw new Error("carousel container returned no id");
+      // Step 3 — parent carousel container carries the caption + ordered
+      // child ids.
+      const parent = await composioExecute("INSTAGRAM_CREATE_CAROUSEL_CONTAINER", igAccount, {
+        ig_user_id: igUserId,
+        caption,
+        children: childIds,
+      });
+      parentId = String(parent?.response_data?.id || parent?.data?.id || parent?.id || "");
+      if (!parentId) throw new Error("carousel container returned no id");
+    } catch (err) {
+      if (slides.length > IG_CAROUSEL_MAX) {
+        for (const t of tokens) IG_TMP_IMAGES.delete(t);
+        console.warn(`[ig publish] a ${slides.length}-slide carousel could not be created:`, err?.message || err);
+        return res.status(422).json({ error: "carousel_too_large", message: String(err?.message || err) });
+      }
+      throw err;
+    }
 
     // Step 4 — publish. We poll (max 90s) in case any child is still
     // being processed.
