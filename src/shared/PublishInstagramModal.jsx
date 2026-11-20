@@ -8,6 +8,7 @@ import {
   formatScheduleTime,
   parseHandleInput,
   IG_CAROUSEL_MAX,
+  IG_CAROUSEL_TRY_MAX,
   splitIntoCarousels,
 } from "./igPublish.js";
 import { stripBlockedIgMentions, hasBlockedIgMention } from "./blockedAccounts.js";
@@ -70,6 +71,17 @@ export function PublishInstagramModal({
   const [postKind, setPostKind] = useState("feed");
   const alsoPostStory = postKind !== "feed";
   const storyOnly = postKind === "story";
+  // Opt-in: try posting 11–20 slides as ONE carousel (the Instagram app allows
+  // 20; the publishing API documents 10). If it's refused we split and turn
+  // this off, so the choice sticks only when it actually works.
+  const [tryOneCarousel, setTryOneCarousel] = useState(() => {
+    try { return localStorage.getItem("cge_ig_try_one_carousel") === "1"; } catch { return false; }
+  });
+  const setTryOne = (on) => {
+    setTryOneCarousel(on);
+    try { localStorage.setItem("cge_ig_try_one_carousel", on ? "1" : "0"); } catch { /* storage unavailable */ }
+  };
+  const carouselMax = tryOneCarousel && !storyOnly ? IG_CAROUSEL_TRY_MAX : IG_CAROUSEL_MAX;
   // "now" = post everything as one carousel immediately (default).
   // "schedule" = each selected slide posts as its OWN feed post on the
   //              day it corresponds to (Fri 11a / Sat 9a / Sun 9a local).
@@ -207,8 +219,8 @@ export function PublishInstagramModal({
 
   // More than 10 picked → several balanced carousels, posted in order.
   const carouselGroups = useMemo(
-    () => splitIntoCarousels(selectedIndices, IG_CAROUSEL_MAX),
-    [selectedIndices]
+    () => splitIntoCarousels(selectedIndices, carouselMax),
+    [selectedIndices, carouselMax]
   );
 
   // Stories carry no caption, so only feed posts need one.
@@ -289,12 +301,17 @@ export function PublishInstagramModal({
         if (alsoPostStory && !storyOnly) parts.push(`Each will ${scheduledCount === 1 ? "post" : "also post"} to Story.`);
         setMsg({ ok: true, text: parts.join(" ") });
       } else {
-        // Immediate mode. Instagram carousels hold 10 slides at most, so a
-        // bigger selection goes out as several balanced carousels, in order.
-        const groups = splitIntoCarousels(selected, IG_CAROUSEL_MAX);
+        // Immediate mode. A selection bigger than the carousel limit goes out
+        // as several balanced carousels, in order. With one-carousel mode on,
+        // 11–20 slides are attempted as one; if Instagram refuses (nothing is
+        // live at that point) the group is split into carousels of 10 or fewer.
+        const queue = splitIntoCarousels(selected, carouselMax);
+        let totalGroups = queue.length;
+        let fellBackFrom = 0;
         const results = [];
         let failure = null;
-        for (let g = 0; g < groups.length; g++) {
+        while (queue.length) {
+          const group = queue.shift();
           try {
             const res = await fetch("/api/instagram/publish-carousel", {
               method: "POST",
@@ -304,7 +321,7 @@ export function PublishInstagramModal({
                 caption: stripBlockedIgMentions(caption),
                 alsoPostStory,
                 storyOnly,
-                slides: groups[g].map((s) => ({
+                slides: group.map((s) => ({
                   imageBase64: s.imageBase64,
                   userTags: s.userTags,
                 })),
@@ -313,13 +330,21 @@ export function PublishInstagramModal({
             const text = await res.text();
             let data = null;
             try { data = JSON.parse(text); } catch {}
+            if (res.status === 422 && data?.error === "carousel_too_large" && group.length > IG_CAROUSEL_MAX) {
+              const smaller = splitIntoCarousels(group, IG_CAROUSEL_MAX);
+              queue.unshift(...smaller);
+              totalGroups += smaller.length - 1;
+              fellBackFrom = Math.max(fellBackFrom, group.length);
+              setTryOne(false);
+              continue;
+            }
             if (!res.ok) {
               const detail = data?.message || data?.error || text?.slice(0, 500) || `HTTP ${res.status}`;
               throw new Error(detail);
             }
             results.push(data);
           } catch (err) {
-            failure = { index: g, message: String(err?.message || err) };
+            failure = { index: results.length, message: String(err?.message || err) };
             break;
           }
         }
@@ -335,15 +360,20 @@ export function PublishInstagramModal({
           parts.push(storyFailed
             ? `Posted ${storyCount} Stor${storyCount === 1 ? "y" : "ies"} to Instagram, ${storyFailed} failed.`
             : `Posted ${storyCount} Stor${storyCount === 1 ? "y" : "ies"} to Instagram.`);
-        } else if (groups.length === 1) {
+        } else if (totalGroups === 1) {
           parts.push(permalinks.length ? "Posted to Instagram feed." : "Posted to feed (no permalink returned).");
         } else {
-          parts.push(`Posted ${results.length} of ${groups.length} carousels to Instagram feed.`);
+          parts.push(`Posted ${results.length} of ${totalGroups} carousels to Instagram feed.`);
         }
         if (alsoPostStory && !storyOnly) {
           if (storyCount && !storyFailed) parts.push(`+ ${storyCount} slide${storyCount === 1 ? "" : "s"} posted as Stories.`);
           else if (storyCount && storyFailed) parts.push(`+ ${storyCount} slide Stories posted, ${storyFailed} failed.`);
           else if (!failure) parts.push("Stories step failed — see server logs.");
+        }
+        if (fellBackFrom) {
+          parts.push(`Instagram's publishing API wouldn't take a ${fellBackFrom}-slide carousel, so it was split into carousels of 10 or fewer. One-carousel mode is now off.`);
+        } else if (!storyOnly && !failure && selected.length > IG_CAROUSEL_MAX && totalGroups === 1) {
+          parts.push(`Instagram accepted all ${selected.length} slides in one carousel.`);
         }
         if (dropped.length) {
           parts.push(`Skipped tags Instagram couldn't find: ${dropped.map((h) => `@${h}`).join(", ")} — fix those handles in the calendar.`);
@@ -521,9 +551,24 @@ export function PublishInstagramModal({
           {blockedCount > 0 && ` ${blockedCount} blocked (${plan.blocked.join(", ")}).`}
           {mode === "now" && !storyOnly && selectedIndices.length === 1 && " Single-image feed post (not carousel)."}
           {storyOnly && " Stories only — nothing goes to the feed, and Stories don't carry a caption."}
-          {mode === "now" && !storyOnly && carouselGroups.length > 1 && ` Instagram carousels hold ${IG_CAROUSEL_MAX} slides, so ${selectedIndices.length} slides post as ${carouselGroups.length} carousels (${carouselGroups.map((g) => g.length).join(" + ")}), one after another, with the same caption.`}
+          {mode === "now" && !storyOnly && carouselGroups.length > 1 && ` Instagram carousels hold ${carouselMax} slides${tryOneCarousel ? " in this mode" : ""}, so ${selectedIndices.length} slides post as ${carouselGroups.length} carousels (${carouselGroups.map((g) => g.length).join(" + ")}), one after another, with the same caption.`}
           {mode === "schedule" && " Each picked slide posts as its own feed post at the time shown."}
         </div>
+
+        {mode === "now" && !storyOnly && selectedIndices.length > IG_CAROUSEL_MAX && (
+          <label style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 14, fontSize: "0.68rem", lineHeight: 1.4, color: "rgba(245,240,232,0.8)", cursor: busy ? "not-allowed" : "pointer" }}>
+            <input
+              type="checkbox"
+              checked={tryOneCarousel}
+              onChange={(e) => setTryOne(e.target.checked)}
+              disabled={busy}
+              style={{ accentColor: "#F472B6", marginTop: 2 }}
+            />
+            <span>
+              Try as one carousel (up to {IG_CAROUSEL_TRY_MAX} slides). The Instagram app allows {IG_CAROUSEL_TRY_MAX}, but its publishing API may only take {IG_CAROUSEL_MAX} — if it's refused, this splits automatically and turns itself off.
+            </span>
+          </label>
+        )}
 
         {/* Where the slides go. Stories post one at a time (not a
             container) with each slide's mentions as stickers, so the

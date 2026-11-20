@@ -128,6 +128,12 @@ describe("splitIntoCarousels", () => {
   it("returns nothing for an empty list", () => {
     assert.deepEqual(splitIntoCarousels([]), []);
   });
+  it("honors a larger limit for the one-carousel attempt", () => {
+    assert.deepEqual(splitIntoCarousels(nums(15), 20).map((g) => g.length), [15]);
+    assert.deepEqual(splitIntoCarousels(nums(20), 20).map((g) => g.length), [20]);
+    assert.deepEqual(splitIntoCarousels(nums(25), 20).map((g) => g.length), [13, 12]);
+    assert.deepEqual(splitIntoCarousels(nums(20)).map((g) => g.length), [10, 10]);
+  });
 });
 
 describe("removeBlockedUserTags", () => {

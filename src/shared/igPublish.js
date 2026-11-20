@@ -177,6 +177,11 @@ export function parseRejectedTagUsernames(message, sentTags) {
 // Instagram carousels hold at most 10 items.
 export const IG_CAROUSEL_MAX = 10;
 
+// The Instagram app allows 20, but the publishing API documents 10. Posts of
+// 11–20 slides are attempted as one carousel only when the operator opts in,
+// and fall back to IG_CAROUSEL_MAX-sized carousels if Instagram refuses.
+export const IG_CAROUSEL_TRY_MAX = 20;
+
 // Splits items into the fewest carousels of at most `max`, as evenly as
 // possible, keeping order: 13 → [7, 6], 11 → [6, 5], 10 → [10]. Even
 // sizes avoid a lonely 1-slide tail like 10 + 1.
